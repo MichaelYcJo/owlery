@@ -1,6 +1,6 @@
 import { appendFileSync, closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
-import { type LedgerEntry, type LedgerStage, type ModelUsage, type Usage, roleStageOf } from "../shared/protocol";
+import { CHAIN_STAGE_KINDS, type ChainStageKind, type LedgerEntry, type LedgerStage, type ModelUsage, type Usage, roleStageOf } from "../shared/protocol";
 
 const FILE = "ledger.jsonl";
 
@@ -35,6 +35,15 @@ function stageOf(value: unknown): LedgerStage | undefined {
   return roleStageOf(value);
 }
 
+/** The chain's stage a value names: a kind of `CHAIN_STAGE_KINDS` with a whole round, null, or nothing where it names none. A line written before entries named the chain's stage holds none, and names none. */
+function chainOf(value: unknown): LedgerEntry["chain"] | undefined {
+  if (value === undefined || value === null) return null;
+  if (!isRecord(value) || !CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind)) return undefined;
+  const { round } = value;
+  if (typeof round !== "number" || !Number.isInteger(round) || round < 0) return undefined;
+  return { kind: value.kind as ChainStageKind, round };
+}
+
 /** The entry a line's value is, with the protocol's fields alone, or nothing where it is no entry. */
 function entryOf(value: unknown): LedgerEntry | undefined {
   if (!isRecord(value)) return undefined;
@@ -43,9 +52,10 @@ function entryOf(value: unknown): LedgerEntry | undefined {
   if (state !== "finished" && state !== "failed") return undefined;
   if (stopped !== "limit" && stopped !== "request" && stopped !== "daemon" && stopped !== null) return undefined;
   const stage = stageOf(value.stage);
+  const chain = chainOf(value.chain);
   const usage = usageOf(value.usage);
-  if (stage === undefined || usage === undefined) return undefined;
-  return { workItemId, repo, branch, stage, startedAt, endedAt, state, stopped, usage };
+  if (stage === undefined || chain === undefined || usage === undefined) return undefined;
+  return { workItemId, repo, branch, stage, chain, startedAt, endedAt, state, stopped, usage };
 }
 
 /** Whether the file's last byte is no line break: a crash or a failed append cut its last line. A file that does not exist has none. */

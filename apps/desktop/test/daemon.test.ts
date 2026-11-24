@@ -5254,7 +5254,7 @@ describe("headless sessions", () => {
   describe("the ledger", () => {
     type Client = Awaited<ReturnType<typeof client>>;
     const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
-    const ENTRY_FIELDS = ["branch", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const ENTRY_FIELDS = ["branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
     const PROOFER = { role: "proofer", stage: "round" } as const;
 
     /** A run folder the case's daemons share, removed after the case. */
@@ -5281,7 +5281,7 @@ describe("headless sessions", () => {
       return (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state !== "working")).headless;
     }
 
-    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, its two times, how it ended and the usage its result reported", async () => {
+    it("keeps one entry for each session that ends, with a role and without: its work item, its repository and branch, its stage, no chain's stage, since no chain asked it, its two times, how it ended and the usage its result reported", async () => {
       let clock = 1000;
       // The clock moves on while each turn runs, so a session's end is read after its start.
       const usage = (prompt: string): Usage => {
@@ -5300,8 +5300,8 @@ describe("headless sessions", () => {
         requestId: answer.requestId,
         workItemId: workItem.id,
         entries: [
-          { ...kept, stage: PROOFER, startedAt: 1500, endedAt: 2000, usage: USAGE },
-          { ...kept, stage: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
+          { ...kept, stage: PROOFER, chain: null, startedAt: 1500, endedAt: 2000, usage: USAGE },
+          { ...kept, stage: null, chain: null, startedAt: 3000, endedAt: 3500, usage: { ...USAGE, costUsd: 0.5 } },
         ],
         unread: 0,
       });
@@ -5315,7 +5315,7 @@ describe("headless sessions", () => {
       const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
       const before = status();
       await asked(c, workItem.id, "Which owl?", PROOFER);
-      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
       expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
       expect(status()).toEqual(before);
       await first.close();

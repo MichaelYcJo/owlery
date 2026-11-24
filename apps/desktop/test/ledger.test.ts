@@ -53,6 +53,7 @@ function entry(startedAt: number, more: Partial<LedgerEntry> = {}): LedgerEntry 
     repo: "/repos/project",
     branch: "owlery/asked-in",
     stage: { role: "proofer", stage: "round" },
+    chain: { kind: "round", round: 1 },
     startedAt,
     endedAt: startedAt + 500,
     state: "finished",
@@ -68,7 +69,7 @@ describe("Ledger", () => {
     const ledger = new Ledger(runDir);
     const first = entry(1000);
     const other = entry(1100, { workItemId: 8 });
-    const second = entry(1200, { stage: null, state: "failed", stopped: "limit", usage: null });
+    const second = entry(1200, { stage: null, chain: null, state: "failed", stopped: "limit", usage: null });
     for (const added of [first, other, second]) ledger.add(added);
     expect(lines(runDir)).toEqual([JSON.stringify(first), JSON.stringify(other), JSON.stringify(second), ""]);
     expect(statSync(join(runDir, "ledger.jsonl")).mode & 0o777).toBe(0o600);
@@ -123,7 +124,7 @@ describe("Ledger", () => {
     expect(lines(runDir)).toEqual([JSON.stringify(added), ""]);
   });
 
-  it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, and a usage with its mark", () => {
+  it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, a chain's stage a kind the protocol lists with a whole round or none, and a usage with its mark, and reads a line an earlier build wrote with no chain's stage as one that names none", () => {
     const runDir = runFolder();
     const good = entry(1000);
     const model = good.usage!.models[0]!;
@@ -137,6 +138,14 @@ describe("Ledger", () => {
       { ...good, stage: { role: null, stage: "round" } },
       { ...good, stage: { role: "proofer", stage: "gate" } },
       { ...good, stage: "gate" },
+      { ...good, chain: "round" },
+      { ...good, chain: [] },
+      { ...good, chain: { kind: "build", round: 1 } },
+      { ...good, chain: { round: 1 } },
+      { ...good, chain: { kind: "round" } },
+      { ...good, chain: { kind: "round", round: "1" } },
+      { ...good, chain: { kind: "round", round: 1.5 } },
+      { ...good, chain: { kind: "round", round: -1 } },
       { ...good, startedAt: "1000" },
       { ...good, endedAt: null },
       { ...good, state: "working" },
@@ -151,17 +160,23 @@ describe("Ledger", () => {
       ...(["inputTokens", "outputTokens", "cacheReadTokens", "cacheWriteTokens", "costUsd"] as const).map((count) => ({ ...good, usage: { ...good.usage, models: [{ ...model, [count]: "10" }] } })),
     ];
     const right = [
-      entry(1001, { stage: { role: "crafter", stage: "fix-pass" } }),
-      entry(1002, { stage: { role: "sealer", stage: "seal" } }),
-      entry(1003, { stage: null, usage: null }),
+      entry(1001, { stage: { role: "crafter", stage: "fix-pass" }, chain: { kind: "fix-pass", round: 1 } }),
+      entry(1002, { stage: { role: "sealer", stage: "seal" }, chain: { kind: "seal", round: 2 } }),
+      entry(1003, { stage: null, chain: null, usage: null }),
       entry(1004, { usage: { costUsd: null, converted: false, models: [] } }),
       entry(1006, { state: "failed", stopped: "request", usage: null }),
       entry(1007, { state: "failed", stopped: "daemon", usage: null }),
+      // The orchestrator's one pair, for a ruling and for a judgment, which the chain's stage tells apart.
+      entry(1008, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "ruling", round: 2 } }),
+      entry(1009, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "judgment", round: 2 } }),
+      entry(1010, { stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 0 }, usage: null }),
     ];
     // A field the protocol does not name is not given with the entry.
-    const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] } };
-    writeFileSync(join(runDir, "ledger.jsonl"), `${[...wrong, ...right, more].map((value) => JSON.stringify(value)).join("\n")}\n`);
-    expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [...right, entry(1005)], unread: wrong.length });
+    const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, chain: { kind: "round", round: 1, more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] } };
+    // A line a build before the chain's stage was named wrote: every field but `chain`.
+    const { chain: _, ...earlier } = entry(1011);
+    writeFileSync(join(runDir, "ledger.jsonl"), `${[...wrong, ...right, more, earlier].map((value) => JSON.stringify(value)).join("\n")}\n`);
+    expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [...right, entry(1005), entry(1011, { chain: null })], unread: wrong.length });
   });
 
   it("keeps an entry whose append failed, says so in its log, gives it in every read meanwhile, and writes it before the next entry once the file can be written", () => {
@@ -185,7 +200,7 @@ describe("Ledger", () => {
 
   it("gives back an entry of the gate, which has no usage", () => {
     const runDir = runFolder();
-    const gate = entry(1000, { stage: { role: null, stage: "gate" }, usage: null });
+    const gate = entry(1000, { stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, usage: null });
     new Ledger(runDir).add(gate);
     expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [gate], unread: 0 });
   });

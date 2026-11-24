@@ -286,6 +286,8 @@ interface HeadlessSession {
   /** The top-level folder of the repository's main checkout and the work item's branch, as the store held them when the session was asked, which the session's entry of the ledger names. */
   repo: string;
   branch: string;
+  /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started, which its entry of the ledger names. */
+  chain: LedgerEntry["chain"];
   /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
 }
@@ -1244,7 +1246,7 @@ export class Daemon {
         const held = this.store.workItem(message.workItemId);
         if (worktree === undefined || held === undefined) return;
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
-        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
+        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
         return;
       }
       case "getSeal": {
@@ -1625,9 +1627,11 @@ export class Daemon {
    * `prompt.shown` what the session lists as its prompt. `first` is called
    * with the session before any client is told of it, for the answer to the
    * client that asked. The session keeps the repository's folder and the
-   * branch as the store holds them now, which its entry of the ledger names.
+   * branch as the store holds them now, and `chain`, the kind and the round
+   * of the chain's stage it begins for or null for an `ask`, which its entry
+   * of the ledger names.
    */
-  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, worktree: string, first?: (info: HeadlessInfo) => void): HeadlessSession {
+  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, first?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
@@ -1645,6 +1649,7 @@ export class Daemon {
       asks: new Map(),
       repo: repository.folder,
       branch: item.branch,
+      chain,
       entered: false,
     };
     session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
@@ -1695,7 +1700,7 @@ export class Daemon {
     if (session.entered) return;
     session.entered = true;
     const { info } = session;
-    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
+    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, chain: session.chain, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
   }
 
   /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
@@ -2298,7 +2303,7 @@ export class Daemon {
     const held = this.store.workItem(workItemId);
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
-    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, worktree);
+    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree);
     const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
     this.chainSet(workItemId, { ...before, says: runningSays(kind, round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
     await Promise.race([session.ended, this.closes]);
@@ -2606,7 +2611,7 @@ export class Daemon {
     clearTimeout(gate.limit);
     this.gates.delete(item.id);
     const endedAt = now();
-    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, startedAt, endedAt, state, stopped, usage: null });
+    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null });
     if (this.closed) {
       enter("failed", "daemon");
       throw new ChainStop("the daemon closed");

@@ -524,6 +524,8 @@ export interface LedgerEntry {
   repo: string;
   branch: string;
   stage: LedgerStage;
+  /** The stage of the work item's chain the entry is for, by the kind and the round its `ChainStage` holds, or null for a session no chain started. The pair in `stage` does not tell a ruling from a judgment, and the kind does. */
+  chain: { kind: ChainStageKind; round: number } | null;
   /** The daemon's clock at the stage's start and at its end. */
   startedAt: number;
   endedAt: number;

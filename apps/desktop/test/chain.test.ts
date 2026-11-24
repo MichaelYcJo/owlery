@@ -882,7 +882,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   const recordAt = (worktree: string, round: number): string => join(worktree, DIRECTORY, "trail", "rounds", `round-${String(round)}.md`);
   const VERDICT_COMMIT = { subject: "chore: record the sealer's verdict", body: TRAILER, paths: [`${DIRECTORY}/guarantee.md`] };
 
-  it("runs two rounds, one fix pass, the broad gate and the seal: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the sealer's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the sealer's two lines and the daemon's four, the chain is sealed, and a second getSeal starts no stage", async () => {
+  it("runs two rounds, one fix pass, the broad gate and the seal: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the sealer's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the sealer's two lines and the daemon's four, the chain is sealed, each stage's entry of the ledger names the stage's kind and its round, and a second getSeal starts no stage", async () => {
     const answers: string[] = [];
     const proofer = (given: { round: number; heading: string; target: string }): string => {
       answers.push(proofs(given));
@@ -932,6 +932,15 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(git(a.worktree, "show", `HEAD:${DIRECTORY}/guarantee.md`)).toBe(guaranteeRecord(NAME, [sealedBy(section, "the session, fake-2", "fake-4")]));
     const sealed: Chain = { state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3), passed(2), ended("seal", 2, 4), opened(2)] };
     expect(chain).toEqual(sealed);
+    // Each session's entry and the gate's name the chain's stage they are for, and the pull request stage, which is no session, has none.
+    const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
+    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, chain }) => [stage, chain]) : ledger).toEqual([
+      [{ role: "proofer", stage: "round" }, { kind: "round", round: 1 }],
+      [{ role: "crafter", stage: "fix-pass" }, { kind: "fix-pass", round: 1 }],
+      [{ role: "proofer", stage: "round" }, { kind: "round", round: 2 }],
+      [{ role: null, stage: "gate" }, { kind: "gate", round: 2 }],
+      [{ role: "sealer", stage: "seal" }, { kind: "seal", round: 2 }],
+    ]);
 
     // Nothing is owed, so a second start runs no stage and makes no commit.
     const before = c.messages.length;
@@ -1863,7 +1872,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(recorded(a.worktree).questions).toMatchObject([{ id: 2, state: { is: "answered", answer: "It may not." } }]);
     });
 
-    it("has a proofer's question ruled on before the fix pass, from the blocks above its record alone, and asks for the judgment of convergence all the same where the round is round 2: a judgment on a question is none of convergence", async () => {
+    it("has a proofer's question ruled on before the fix pass, from the blocks above its record alone, and asks for the judgment of convergence all the same where the round is round 2: a judgment on a question is none of convergence, and the ledger names the ruling's session apart from the judgment's, though both run as the orchestrator's one pair", async () => {
       const ASKS = askBlock({ asks: "Is the greeting's language in scope?", grounds: "The frame names no language." });
       const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
       const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "scope", "The greeting stays in English.", "The frame's scope names no other language."));
@@ -1882,6 +1891,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       // The record the daemon wrote is the answer from its heading on: the question above it is no part of it.
       expect(readFileSync(recordAt(a.worktree, 2), "utf8").startsWith(`${HEADING(2)}\n`)).toBe(true);
       expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(5, 8)).toEqual(["chore: record review round 2", "chore: record the orchestrator's judgment after round 2", "chore: record the orchestrator's judgment after round 2"]);
+      const ledger = await c.asked({ type: "readLedger", requestId: 2, workItemId: a.id });
+      expect(ledger.type === "ledger" ? ledger.entries.filter(({ stage }) => stage?.role === "orchestrator").map(({ stage, chain }) => [stage, chain]) : ledger).toEqual([
+        [{ role: "orchestrator", stage: "judgment" }, { kind: "ruling", round: 2 }],
+        [{ role: "orchestrator", stage: "judgment" }, { kind: "judgment", round: 2 }],
+      ]);
     });
 
     it("fails the stage whose asks block the reader refuses, and the judgment whose answer rules on no question: the chain stops with which, and nothing is parked or decided", async () => {
@@ -2147,7 +2161,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     return c.chain(id, state);
   }
 
-  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the sealer then seals that commit, the run has one entry of the ledger with no usage beside one for each session, a second getSeal starts no stage, a later commit of the work item's directory that is no closing record owes the gate and the seal again and no round, and a later change of a source file owes a round, then the gate and the seal", async () => {
+  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the sealer then seals that commit, the run has one entry of the ledger with no usage, which names the gate and its round, beside one for each session, a second getSeal starts no stage, a later commit of the work item's directory that is no closing record owes the gate and the seal again and no round, and a later change of a source file owes a round, then the gate and the seal", async () => {
     const { c, made, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     const base = a.baseCommit ?? "";
@@ -2164,7 +2178,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     // The ledger holds one entry for each stage: the proofer's session, the gate, and the sealer's session, which no call of the seal's own made.
     const ledger = await c.asked({ type: "readLedger", requestId: 20, workItemId: a.id });
     expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, state }) => [stage, state]) : ledger).toEqual([[{ role: "proofer", stage: "round" }, "finished"], [{ role: null, stage: "gate" }, "finished"], [{ role: "sealer", stage: "seal" }, "finished"]]);
-    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null }]);
+    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null }]);
     // `true` printed nothing, so nothing is kept.
     expect(await output(c, a.id, 3)).toBe("Owlery keeps no output of a broad gate of work item 1.");
 
