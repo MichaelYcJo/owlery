@@ -60,7 +60,7 @@ The phases start from `90184d5`, where this branch holds every work item of the 
 
 The new test files that `frame/design.md` *Rule changes* names in its `check:` lines are made under those names: `test/seal-back.test.ts` and `test/seal-back-records.test.ts` in phase 2, and `test/seal-back-view.test.ts` in phase 3. The check at the pull request refuses a `check:` line that names no file. The other files those lines name stand in the merged tree at `90184d5` (executed: `ls`): `test/ledger.test.ts`, `test/chain.test.ts`, `test/daemon.test.ts`, `test/pull-request.test.ts` and `test/screenshots.test.ts`.
 
-Phase 3 starts the built app once for scenarios 14 and 15 and once for the screenshot run, each through `BuiltApp.start` with `OWLERY_BACKGROUND=1`.
+Phase 3 starts the built app once for scenarios 14 and 15 and once for the screenshot run, each through `BuiltApp.start` with `OWLERY_BACKGROUND=1`. Phase 3 started it more often, for its boundary set, its mutants and two screenshot runs; `trail/phases/phase-3.md` counts them.
 
 ## Overlap with the release
 
