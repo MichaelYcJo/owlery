@@ -23,7 +23,7 @@ import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
-import { initSummary, pressMain, showSummary } from "./summary";
+import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { initTheme } from "./theme";
 import {
   agentKind,
@@ -33,7 +33,8 @@ import {
   baseKey,
   baseMenu,
   baseSays,
-  changesSince,
+  changedSet,
+  changedSetAfter,
   commandKey,
   daemonEnding,
   daemonLists,
@@ -287,7 +288,7 @@ function openArchived(repositoryId: number): void {
   lists.archived.show();
 }
 
-/** Puts the summary screen in front, with the changes of this load. */
+/** Puts the summary screen in front, with the work items this load chose, each as the lists now give it. */
 function openSummary(): void {
   leaveView();
   bringToFront("summary");
@@ -1216,6 +1217,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   const heldBefore = [...held.workItems, ...held.archived];
   held.sessions = next.sessions;
   held.workItems = next.workItems;
+  // A seal the daemon read after `ready` joins the changed set once, where it was given or broke since the look. No other change after `ready` joins it.
+  if (held.lastLook) held.changed = changedSetAfter(held.lastLook, held.changed, held.workItems);
   takeRepositories(next);
   for (const session of held.sessions) {
     // A pane on the stage of a focused window is one the person is looking at, whether or not it has the keyboard.
@@ -1238,6 +1241,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
   else listInFront()?.show();
   if (front === "view") showView();
+  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
+  if (front === "summary") redrawSummary();
   // A dialog that names what the daemon lists says the lists as they are now.
   if (hiddenDialog.open) showHidden();
   if (removeDialog.open) showRemove();
@@ -1445,14 +1450,14 @@ function onMessage(message: ServerMessage): void {
       showKeepAwake();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
-      // The counts of this `ready` were read from git at this window's hello, so the changes are worked out here, once.
-      held.changes = held.lastLook ? changesSince(held.lastLook, held.workItems, held.sessions, held.paneKinds) : [];
+      // The counts of this `ready` were read from git at this window's hello, so the work items the summary lists are chosen here, and held until the next load. What each line says is worked out again at each drawing.
+      held.changed = held.lastLook ? changedSet(held.lastLook, held.workItems, held.sessions, held.paneKinds) : { ids: [], unread: [] };
       showPaneButtons();
       // The form's choice among the kinds of pane, the first that reports its agent's state chosen.
       const preferred = agentKind(held.paneKinds);
       kindField.replaceChildren(...held.paneKinds.map(({ kind, label }) => new Option(label, kind, kind === preferred, kind === preferred)));
       // The app opens on the summary where a work item changed since the person last looked, and on the inbox otherwise.
-      if (held.changes.length > 0) openSummary();
+      if (held.changed.ids.length > 0) openSummary();
       else openList("inbox");
       // The dialog that asks before the daemon ends can be open before the lists are here, in a window the menu's click made.
       if (daemonDialog.open) showDaemonEnding();

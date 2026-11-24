@@ -289,7 +289,7 @@ export interface WorkItem {
   unread: Unread[];
   /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
   recorded?: Recorded;
-  /** The seal its branch's head commit holds, as the daemon read it from git and the committed records. Null where the head commit holds no seal and where the daemon has read none yet. A daemon of an earlier build sends no such field, and a client reads its absence as null. The look keeps none, so a work item the look holds has none either. */
+  /** The seal its branch's head commit holds, as the daemon read it from git and the committed records. Null where the daemon read the head commit and found no seal there, which is also what it sends where git failed at that read. Absent where the daemon holds no reading of the branch: one it has not read since it started, one with no base commit recorded, and one that is gone. A daemon of an earlier build sends no such field. A client reads an absent `seal` as no seal where it draws the seal's place. The look keeps the field as the lists carried it, a null as null and an absent one absent. */
   seal?: Seal | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;

@@ -1867,7 +1867,7 @@ export class Daemon {
     return this.options.version;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     return {
@@ -1880,7 +1880,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
-      seal: read?.seal ?? null,
+      ...(read === undefined ? {} : { seal: read.seal }),
       permissions: [...this.headless.values()].flatMap((session) => (session.info.workItemId === item.id ? [...session.asks.values()] : [])).sort((a, b) => a.id - b.id),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
     };
@@ -3026,8 +3026,9 @@ export class Daemon {
    * commits, the changed files and the seal the head holds
    * (`seal-state.ts#workItemSeal`) are read only where the head is another
    * commit than the one they were last read at, and so once for each branch
-   * after the daemon starts. The seal is kept in memory alone: a daemon that
-   * starts reads it again from git.
+   * after the daemon starts. The seal is kept in memory alone, and the copy a
+   * look keeps of the lists is never read for it: a daemon that starts reads
+   * it again from git.
    */
   private async readBranch({ repository, item }: Held): Promise<boolean> {
     // A work item from before the base commit was recorded has nothing to count from.

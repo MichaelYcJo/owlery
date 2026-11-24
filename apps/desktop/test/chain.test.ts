@@ -2852,7 +2852,11 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     // One read of the branches at the hello, and the next a minute later, three times the case's wait.
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), commitPollMs: 60_000 });
     const a = workItems[0]!;
-    expect(c.workItem(a.id)?.seal).toBeNull();
+    // The hello's read gives the head no seal; a `ready` sent before that read ended carries no `seal`, and the inbox after it carries the null.
+    expect(await c.until(() => {
+      const item = c.workItem(a.id);
+      return item !== undefined && "seal" in item ? item.seal : undefined;
+    })).toBeNull();
     expect(await c.getSeal(a.id, 1)).toBe("done");
     await c.chain(a.id, "rested");
     expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the sealer's verdict"]);

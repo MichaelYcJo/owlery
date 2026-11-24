@@ -1180,16 +1180,21 @@ export function emptyList(screen: "inbox" | "history" | "archived", total: numbe
   return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
 }
 
+/** What changed of a work item's seal since the look: a seal was given, or a seal broke. */
+export type SealSince = "given" | "broke";
+
 export interface Change {
   workItem: WorkItem;
   /** The work item's line as the lists now give it. */
   line: InboxLine;
   /** The pane whose state that line reads where the work item is not parked. The age the summary's line says is counted as `lineSince` gives it. */
   session: SessionInfo | undefined;
-  /** What changed, opening with the present state. */
+  /** What changed, opening with the seal where it was given or broke since the look, and with the present state otherwise. */
   sentence: string;
   /** How many decisions made without asking the work item holds that the look does not hold for it. */
   decided: number;
+  /** Whether its seal was given or broke since the look (`sealSinceLook`), or null where neither. */
+  sealSince: SealSince | null;
 }
 
 /** Each agent state as a change's sentence opens with it. */
@@ -1201,63 +1206,173 @@ function madeWithoutAsking(decided: number): string {
 }
 
 /**
- * The work items that changed since the person last looked, in the order of
- * the inbox's groups: one whose line differs in the state or in the count of
- * new commits from its line in the look, one that holds a decision made
- * without asking that the look does not hold for it, and one the look does
- * not hold. A park and its answer both change the line's state. A decision
- * is told from the look's by its id, so one the look holds adds nothing,
- * reversed since or not, and a look written before the decisions holds none.
- * A change's sentence ends with how many such decisions the work item holds,
- * and a work item whose pull request merged holds none.
- * A count the daemon gave on one side alone says nothing of a change. Each
- * side is read through `inboxLine` with its own sessions, and no session of
- * one is matched to a session of the other: a session's id starts again with
- * the daemon, and a work item's id does not. A look keeps no seal, so the
- * look's side is read with the seal the work item holds now, and a seal
- * given or broken while the person was away changes no line of the
- * summary. A look that keeps a seal is read with its own.
+ * What changed of a work item's seal between the look, `before` being the
+ * look's copy of the work item or undefined where the look does not hold it,
+ * and the present work item. A seal was given where the present seal holds
+ * and the look did not hold the work item `sealed` at the same commit, and
+ * it broke where the present seal is broken and the look did not hold the
+ * work item `broken` at the same commit. A work item the look does not hold
+ * counts its seal as since the look. Null where neither: where the present
+ * work item has no seal, where either side carries no `seal`, which says
+ * the daemon had read no branch for it, as just after it started, or that a
+ * build before the look kept the seal wrote the look, and where the seal
+ * broke on a work item whose pull request merged, since the merged pull
+ * request says more than a broken seal on the line (`branchLine`).
  */
-export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
-  const changes = workItems.flatMap((workItem): Change[] => {
-    const line = inboxLine(workItem, sessions, paneKinds);
-    const said = [line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
-    const before = look.workItems.find((item) => item.id === workItem.id);
-    const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
-    // A merge takes the work item's decisions off the summary, as an archive does.
-    const decided = mergedWorkItem(workItem) ? 0 : decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
-    if (!before) {
-      said.push("New since you were last here.");
-    } else {
-      const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
-      const held = before.seal === undefined ? { ...before, seal: workItem.seal } : before;
-      if (rise === 0 && decided === 0 && inboxLine(held, look.sessions, paneKinds).state === line.state) return [];
-      if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
-    }
-    if (decided > 0) said.push(madeWithoutAsking(decided));
-    return [{ workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided }];
-  });
-  return inboxGroups(changes).flatMap((group) => group.entries);
+export function sealSinceLook(before: WorkItem | undefined, workItem: WorkItem): SealSince | null {
+  const seal = workItem.seal;
+  if (!seal || (before && before.seal === undefined)) return null;
+  const then = before?.seal ?? null;
+  if (then !== null && then.state === seal.state && then.commit === seal.commit) return null;
+  if (seal.state === "broken" && mergedWorkItem(workItem)) return null;
+  return seal.state === "sealed" ? "given" : "broke";
 }
 
 /**
- * The summary screen's sentence: the changed work items counted by their
- * present state, as the inbox's sentence counts every work item, or how many
- * changed where none of them has a state. The decisions made without asking
- * since the look are counted apart: where the changed work items hold any,
- * their sum follows after a full stop.
+ * The words a change's sentence opens with where its seal was given or
+ * broke: the sealed commit in short and how many review rounds the work
+ * item's directory holds, the count left out where the daemon sent none or
+ * it is 0, or "Seal broken." and the seal's own sentence as the daemon sent
+ * it.
  */
-export function summarySentence(changes: readonly { line: InboxLine; decided: number }[]): string {
-  const counted = inboxSummary(changes.map((change) => change.line)) || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
+function sealSaid(workItem: WorkItem, since: SealSince): string {
+  const seal = workItem.seal as Seal;
+  if (since === "broke") return seal.why ? `${SEAL_BROKEN}. ${seal.why}` : `${SEAL_BROKEN}.`;
+  const rounds = workItem.recorded?.rounds ?? 0;
+  return rounds > 0 ? `Sealed at ${shortCommit(seal.commit)} after ${counted(rounds, "review round", "review rounds")}.` : `Sealed at ${shortCommit(seal.commit)}.`;
+}
+
+/**
+ * One work item's change against the look, worked out whether or not
+ * anything differs, and whether anything does: its line differs in the state
+ * or in the count of new commits from its line in the look, it holds a
+ * decision made without asking that the look does not hold for it, its seal
+ * was given or broke since the look (`sealSinceLook`), or the look does not
+ * hold it. A park and its answer both change the line's state. A decision
+ * is told from the look's by its id, so one the look holds adds nothing,
+ * reversed since or not, and a look written before the decisions holds none.
+ * A change's sentence opens with the seal where it was given or broke, and
+ * with the present state otherwise, and ends with how many such decisions
+ * the work item holds; a work item whose pull request merged holds none.
+ * A count the daemon gave on one side alone says nothing of a change. Each
+ * side is read through `inboxLine` with its own sessions, and no session of
+ * one is matched to a session of the other: a session's id starts again with
+ * the daemon, and a work item's id does not. Where one side carries no
+ * `seal`, as a look written by a build before the look kept the seal
+ * reading, or a work item the daemon has read no branch for since it
+ * started, that side is read with the other side's seal where the two
+ * states are compared; the change's line is the present one as it stands.
+ * A side that keeps a seal reading, a null among them, is read with its own.
+ */
+function changeOf(look: Look, workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): { change: Change; differs: boolean } {
+  const line = inboxLine(workItem, sessions, paneKinds);
+  const before = look.workItems.find((item) => item.id === workItem.id);
+  const sealSince = sealSinceLook(before, workItem);
+  const said = [sealSince ? sealSaid(workItem, sealSince) : line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
+  const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
+  // A merge takes the work item's decisions off the summary, as an archive does.
+  const decided = mergedWorkItem(workItem) ? 0 : decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
+  let differs = true;
+  if (!before) {
+    said.push("New since you were last here.");
+  } else {
+    const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
+    const held = before.seal === undefined ? { ...before, seal: workItem.seal } : before;
+    const present = workItem.seal === undefined ? { ...workItem, seal: before.seal } : workItem;
+    differs = sealSince !== null || rise !== 0 || decided !== 0 || inboxLine(held, look.sessions, paneKinds).state !== inboxLine(present, sessions, paneKinds).state;
+    if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
+  }
+  if (decided > 0) said.push(madeWithoutAsking(decided));
+  return { change: { workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided, sealSince }, differs };
+}
+
+/**
+ * Changes in the order the summary lists them: the work items whose seal was
+ * given since the look, then the ones whose seal broke, each in the order
+ * given, which is the daemon's, then the others in the order of the inbox's
+ * groups.
+ */
+function summaryOrder(changes: readonly Change[]): Change[] {
+  return [...changes.filter((change) => change.sealSince === "given"), ...changes.filter((change) => change.sealSince === "broke"), ...inboxGroups(changes.filter((change) => change.sealSince === null)).flatMap((group) => group.entries)];
+}
+
+/**
+ * The work items that changed since the person last looked (`changeOf`), in
+ * the order the summary lists them (`summaryOrder`).
+ */
+export function changesSince(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
+  return summaryOrder(workItems.map((workItem) => changeOf(look, workItem, sessions, paneKinds)).filter(({ differs }) => differs).map(({ change }) => change));
+}
+
+/**
+ * The changes of the work items whose ids `ids` names, worked out against
+ * the look from the present lists, in the order the summary lists them. A
+ * work item of the set whose line nothing differs from the look any more is
+ * kept, and its sentence says its state alone; one the lists no longer hold,
+ * as after an archive, has no change, and a work item the set does not name
+ * has none either.
+ */
+export function changesOf(look: Look, ids: readonly number[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): Change[] {
+  return summaryOrder(workItems.filter((workItem) => ids.includes(workItem.id)).map((workItem) => changeOf(look, workItem, sessions, paneKinds).change));
+}
+
+/**
+ * The work items the summary lists, worked out at a load: `ids`, the work
+ * items that changed since the look, and `unread`, the ones the load's lists
+ * carried without a seal reading, which may still join (`changedSetAfter`).
+ */
+export interface ChangedSet {
+  ids: number[];
+  unread: number[];
+}
+
+/** The changed set of a load, from the look and the lists the load carried. */
+export function changedSet(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): ChangedSet {
+  return { ids: changesSince(look, workItems, sessions, paneKinds).map((change) => change.workItem.id), unread: workItems.filter((workItem) => workItem.seal === undefined).map((workItem) => workItem.id) };
+}
+
+/**
+ * The changed set after new lists: each work item the load carried without a
+ * seal reading and these lists carry with one leaves `unread`, and joins
+ * `ids` where its seal was given or broke since the look (`sealSinceLook`).
+ * So a seal the daemon read after the load joins once, and no other change
+ * after the load joins. A work item these lists do not hold, or carry still
+ * without a reading, stays in `unread`.
+ */
+export function changedSetAfter(look: Look, set: ChangedSet, workItems: readonly WorkItem[]): ChangedSet {
+  const read = workItems.filter((workItem) => set.unread.includes(workItem.id) && workItem.seal !== undefined);
+  const joins = read.filter((workItem) => !set.ids.includes(workItem.id) && sealSinceLook(look.workItems.find((item) => item.id === workItem.id), workItem) !== null);
+  return { ids: [...set.ids, ...joins.map((workItem) => workItem.id)], unread: set.unread.filter((id) => !read.some((workItem) => workItem.id === id)) };
+}
+
+/** The seals counted in the summary's sentence, before the states: "2 sealed", "1 seal broken". */
+function sealsCounted(changes: readonly { sealSince: SealSince | null }[]): string[] {
+  const given = changes.filter((change) => change.sealSince === "given").length;
+  const broke = changes.filter((change) => change.sealSince === "broke").length;
+  return [...(given > 0 ? [`${given} sealed`] : []), ...(broke > 0 ? [`${counted(broke, "seal", "seals")} broken`] : [])];
+}
+
+/**
+ * The summary screen's sentence: the changed work items whose seal was given
+ * since the look counted as sealed and the ones whose seal broke as broken
+ * seals, then the others by their present state, as the inbox's sentence
+ * counts every work item, so each is counted once; or how many changed where
+ * none of them has a seal so counted or a state. The decisions made without
+ * asking since the look are counted apart: where the changed work items hold
+ * any, their sum follows after a full stop.
+ */
+export function summarySentence(changes: readonly { line: InboxLine; decided: number; sealSince: SealSince | null }[]): string {
+  const parts = [...sealsCounted(changes), inboxSummary(changes.filter((change) => change.sealSince === null).map((change) => change.line))].filter((part) => part !== "");
+  const said = parts.join(", ") || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
   const decided = changes.reduce((sum, change) => sum + change.decided, 0);
-  return decided > 0 ? `${counted}. ${madeWithoutAsking(decided)}` : counted;
+  return decided > 0 ? `${said}. ${madeWithoutAsking(decided)}` : said;
 }
 
 /**
  * What stands in the place of the summary's sentence: the sentence where a
  * work item changed, and otherwise why the screen holds no line.
  */
-export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number }[]): string {
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number; sealSince: SealSince | null }[]): string {
   if (!hasLook) return "No earlier look is recorded.";
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
@@ -1279,16 +1394,30 @@ export interface SummaryControls {
   hint: string;
 }
 
+/** Whether a line that waits waits on the person's answer: an open question, a call to allow, or a pane that waits, `session` being the pane the line reads. */
+function waitsOnAnAnswer(workItem: WorkItem, session: SessionInfo | undefined): boolean {
+  return parkedWith(workItem) !== null || permissionsOf(workItem).length > 0 || session?.state === "waiting";
+}
+
 /**
  * The summary screen's controls. Where a changed work item waits, the main
- * one opens the first that waits and the inbox stands beside it; otherwise
- * the inbox is the main control and the only one.
+ * one opens a line and the inbox stands beside it: the first line, in the
+ * order given, whose work item waits on an open question, a call to allow
+ * or a pane that waits, as "Answer the first question", and where none
+ * does, the first that waits for another reason, as a broken seal, a stopped
+ * chain or a failed check, as "Open the first that needs you". The hint
+ * names the line Enter opens, which may stand after a line that waits for
+ * another reason. Otherwise the inbox is the main control and the only one.
  */
-export function summaryControls(changes: readonly { workItem: WorkItem; line: InboxLine }[]): SummaryControls {
+export function summaryControls(changes: readonly { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined }[]): SummaryControls {
   const inbox = { label: "Open the inbox", opens: "inbox" as const };
-  const waits = changes.find((change) => change.line.state === "waiting");
+  const waiting = changes.filter((change) => change.line.state === "waiting");
+  const answers = waiting.find((change) => waitsOnAnAnswer(change.workItem, change.session));
+  const waits = answers ?? waiting[0];
   if (!waits) return { main: inbox, second: null, hint: "Enter opens it." };
-  return { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
+  return answers
+    ? { main: { label: "Answer the first question", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first question." }
+    : { main: { label: "Open the first that needs you", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
 /** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */

@@ -4,7 +4,7 @@
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
-import { APPROVAL_HEAD, approvalPlaces, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type Entry, type StateFilter } from "./view";
+import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -29,8 +29,8 @@ export const held = {
   lastLook: null as Look | null,
   /** When the daemon keeps the Mac awake and whether it does now, as `ready` and each `keepAwake` since said it, or null against a daemon that sends none: one of an earlier build, or one that can hold nothing. */
   keepAwake: null as KeepAwake | null,
-  /** The work items that changed since that look, worked out once, at `ready`, and held until the next load. */
-  changes: [] as Change[],
+  /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without a seal reading, which join where their seal was then given or broke since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */
+  changed: { ids: [], unread: [] } as ChangedSet,
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
   viewing: undefined as number | undefined,
   /** The repository whose archived work items the archived screen lists: the one it was last opened on, or nothing before it was opened. */
@@ -75,9 +75,14 @@ export function narrowed(): Entry[] {
   return matchWorkItems(entries(), held.query, held.filter);
 }
 
-/** Whether a work item changed since the person last looked: its title is then drawn in the strong ink. Nothing is marked where no look is recorded. */
+/** The changes the summary draws now: each work item of the changed set, as the lists the window holds give it, against the look of the hello (./view, `changesOf`). None where no look is recorded. */
+export function changes(): Change[] {
+  return held.lastLook ? changesOf(held.lastLook, held.changed.ids, held.workItems, held.sessions, held.paneKinds) : [];
+}
+
+/** Whether a work item changed since the person last looked: the changed set names it, and its title is then drawn in the strong ink. Nothing is marked where no look is recorded. */
 export function changedSince(workItemId: number): boolean {
-  return held.lastLook !== null && held.changes.some((change) => change.workItem.id === workItemId);
+  return held.lastLook !== null && held.changed.ids.includes(workItemId);
 }
 
 export function part(className: string, text: string): HTMLElement {
