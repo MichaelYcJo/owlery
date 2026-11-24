@@ -14,9 +14,11 @@ export type AgentEvent =
   | "tool-failed"
   | "permission"
   | "notification"
-  | "turn-end";
+  | "turn-end"
+  /** The person interrupted the agent's turn. No hook says so: the daemon reads it from the session's log. */
+  | "interrupted";
 
-/** What a session's agent is doing, as its last event says. `waiting` is also what a pane that sent no event in the time after its start is called. */
+/** What a session's agent is doing, as its last event says, except that a tool's end after an interruption leaves it waiting. `waiting` is also what a pane that sent no event in the time after its start is called. */
 export type AgentState = "working" | "waiting" | "finished";
 
 /** A kind of pane the daemon offers: the label a person reads, and whether its panes report an agent's state. */

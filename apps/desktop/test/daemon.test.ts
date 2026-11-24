@@ -16,6 +16,7 @@ import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, with
 import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
+import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
@@ -3062,6 +3063,176 @@ describe("the inbox", () => {
     expect(read).toBe(before);
   });
 
+  /** What a session the person interrupted is listed with, beside its time. */
+  const INTERRUPTED = { state: "waiting", stateText: "The turn was interrupted, and the agent waits for what to do next.", stateTool: null, stateQuestions: null };
+
+  const interruptions = (c: { messages: ServerMessage[] }) => c.messages.filter((m) => m.type === "agent" && m.event === "interrupted");
+
+  it("lists a Claude Code session whose tool call the person interrupted as waiting, from the entry its session log gained, and tells every client of the interruption", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    // The log as it stood when the person sent the prompt that asks for the Bash call.
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "working", stateSince: 100, stateText: null, stateTool: null, stateQuestions: null }]);
+    clock = 200;
+    // The Esc's batch, and what the recording shows after it: a batch at the session's end, and its `SessionEnd`, to which Owlery does not listen.
+    await replay(d, session.id, log, TOOL_ESC, Infinity);
+    const waiting = { ...session, ...INTERRUPTED, stateSince: 200 };
+    for (const each of [c, bystander]) {
+      expect((await each.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+      expect(interruptions(each)).toEqual([{ type: "agent", id: session.id, event: "interrupted", tool: null, at: expect.any(Number) }]);
+    }
+    // The session waits now, so its log is no longer read: the same entry again tells nobody of a second interruption.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(200);
+    expect(interruptions(c)).toHaveLength(1);
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting"]);
+  });
+
+  it("lists a Claude Code session whose reply the person interrupted as waiting, though its session log did not stand yet when the prompt arrived", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    await replay(d, session.id, log, 0, REPLY_ESC);
+    expect((await (await client(url)).message("ready")).sessions[0]?.state).toBe("working");
+    await replay(d, session.id, log, REPLY_ESC, SECOND_PROMPT);
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+    expect(interruptions(c)).toHaveLength(1);
+  });
+
+  it("keeps an interrupted session waiting, from the interruption's time and with its text, at the end or the failure of a tool that arrives later, and lists it working from the next prompt as before", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    // The Esc's batch, and before the daemon reads it the end of the call the Esc stopped, as a command that ran when the Esc came may send it.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    clock = 200;
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, ...INTERRUPTED, stateSince: 100 });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null, stateQuestions: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting", "working"]);
+  });
+
+  it("leaves a session working where its session log never stands or is removed while it is read, throws nothing, says so once a pane in its log, and finishes the session at its turn's end", async () => {
+    const said = logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const never = (await c.message("started", (m) => m.requestId === 1)).session;
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    const removed = (await c.message("started", (m) => m.requestId === 2)).session;
+    const missing = sessionLog(cleanups);
+    d.agentEvent(never.id, "UserPromptSubmit", { transcript_path: missing });
+    await pause(300);
+    d.agentEvent(never.id, "PreToolUse", { tool_name: "Bash", transcript_path: missing });
+    await pause(300);
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(removed.id, "UserPromptSubmit", { transcript_path: log });
+    // The watch is armed at the next turn of the loop, and a removal before it is reported to nobody.
+    await pause(60);
+    rmSync(log);
+    await pause(300);
+    const listed = (await (await client(url)).message("ready")).sessions;
+    expect(listed.map(({ state }) => state)).toEqual(["working", "working"]);
+    expect(said.filter((line) => line.includes("session log"))).toEqual([`the session log of pane ${String(never.id)} is not read, so its state is what its hook events say: ${missing} did not stand within 100 ms`, expect.stringMatching(new RegExp(`^the session log of pane ${String(removed.id)} is not read, so its state is what its hook events say: ENOENT`))]);
+    for (const { id } of [never, removed]) d.agentEvent(id, "Stop", {});
+    expect((await (await client(url)).message("ready")).sessions.map(({ state }) => state)).toEqual(["finished", "finished"]);
+    expect(interruptions(c)).toEqual([]);
+  });
+
+  it("watches a session log again at the next working event that names it, where the last watch of it gave up because it did not stand", async () => {
+    logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(300);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    await pause(60);
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+  });
+
+  it("reads no session log of a pane that is not working: one whose turn finished, one that was closed and one whose process exited, each while it worked", async () => {
+    // The shell ignores the signal a close sends, so the closed pane's process outlives its close, and ends at a line.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; read line; exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    const panes = [];
+    for (const requestId of [1, 2, 3]) {
+      c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+      panes.push({ id: (await c.message("started", (m) => m.requestId === requestId)).session.id, log: sessionLog(cleanups) });
+    }
+    const [finished, closed, exited] = panes as [(typeof panes)[number], (typeof panes)[number], (typeof panes)[number]];
+    for (const { id, log } of panes) {
+      writeFileSync(log, lines(0, SECOND_PROMPT));
+      d.agentEvent(id, "UserPromptSubmit", { transcript_path: log });
+    }
+    d.agentEvent(finished.id, "Stop", { transcript_path: finished.log });
+    c.send({ type: "close", id: closed.id });
+    c.send({ type: "input", id: exited.id, data: "go\n" });
+    await c.message("exit", (m) => m.id === exited.id);
+    for (const { log } of panes) appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    expect(interruptions(c)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions.map(({ id, state }) => [id, state])).toEqual([
+      [finished.id, "finished"],
+      [exited.id, "working"],
+    ]);
+  });
+
+  it("reads no session log after the daemon closed, though a working pane's process outlives the close", async () => {
+    let read = 0;
+    // The shell ignores the signal a close sends.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), now: () => ++read });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(60);
+    await d.close();
+    const before = read;
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    // An interruption that is read reads the clock for the state's time.
+    expect(read).toBe(before);
+  });
+
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
     const { repo, root } = repository();
     const { daemon: d, url } = await daemon({ worktreesRoot: root });
@@ -4507,6 +4678,39 @@ describe("the commit of a person's word", () => {
     expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 3");
     const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
     expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2, 3].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+    expect(recordIn(directory)).toEqual(committed);
+  });
+
+  it("commits a word given once the person interrupted the turn of the work item's working pane, read from its session log, and that commit carries the word left while the pane worked", async () => {
+    const { d, c, workItems } = await withWorkItems(["Interrupted", "Quiet"]);
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    for (const says of ["One.", "Two."]) d.decided(a.id, { ...DEFAULT, says });
+    d.decided(b.id, DEFAULT);
+    const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
+      c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+
+    // A Claude Code pane of the first work item works.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: a.id });
+    const { session } = await c.message("started", (m) => m.requestId === 1);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await reverse(2, a.id, 1);
+    await reverse(3, b.id, 1);
+    await c.until(() => (commitsIn(b.worktree) === 2 ? true : undefined), 3000);
+    expect(commitsIn(a.worktree)).toBe(1);
+
+    // The person presses Esc during the pane's Bash call, and the pane's process stays.
+    await interruptToolCall(d, session.id, sessionLog(cleanups));
+    await c.message("inbox", (m) => m.sessions.some((each) => each.id === session.id && each.alive && each.state === "waiting"));
+    await reverse(4, a.id, 2);
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 2");
+    const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
+    expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
     expect(recordIn(directory)).toEqual(committed);
   });
 
@@ -6284,7 +6488,7 @@ describe("keeping the Mac awake", () => {
     for (const each of both) expect(told(each)).toEqual([{ choice: "working", held: true }]);
   });
 
-  it.each(["asks a permission", "exits", "is closed"] as const)("keeps the hold while one of two panes still works, and releases it once when the other %s, telling every client", async (end) => {
+  it.each(["asks a permission", "exits", "is closed", "is interrupted"] as const)("keeps the hold while one of two panes still works, and releases it once when the other %s, telling every client", async (end) => {
     const { daemon: d, url, c, both, seen, workingPane } = await held();
     const first = await workingPane();
     const second = await workingPane();
@@ -6295,6 +6499,8 @@ describe("keeping the Mac awake", () => {
     if (end === "asks a permission") d.agentEvent(second.id, "PermissionRequest", {});
     if (end === "exits") c.send({ type: "input", id: second.id, data: "go\n" });
     if (end === "is closed") c.send({ type: "close", id: second.id });
+    // The person presses Esc during the pane's Bash call, which its session log tells and no hook does.
+    if (end === "is interrupted") await interruptToolCall(d, second.id, sessionLog(cleanups));
     for (const each of both) expect((await each.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
     expect(seen).toMatchObject({ held: 1, released: 1 });
     // A pane that exited keeps `working` as its last state, and no longer counts.
