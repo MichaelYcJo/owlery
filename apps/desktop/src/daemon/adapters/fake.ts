@@ -31,6 +31,8 @@ export interface FakeAdapterOptions {
   errorOutput?: string;
   /** What the adapter says of its agent at every call of `notice`; nothing to say when absent. */
   notice?: string;
+  /** The folder the adapter answers as its default login's at every call of `defaultLoginFolder`; none, as an adapter that found none, when absent. */
+  defaultLoginFolder?: string;
   /** What the turn used, for the prompt and the role the session was started with, if any, on the result of a session that succeeds. Without it, and on the result of a session told to fail, the result carries no usage. */
   usage?: (prompt: string, role?: RoleStage) => Usage | null;
   /** The id and the model a session reports as its own, for the prompt and the role it was started with, if any. Without it each session reports the id `fake-<n>`, counted from 1 in each adapter, and the model `fake`. */
@@ -43,6 +45,7 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
     name: "fake",
     features: options.features ?? ["role-tools", "permission-requests", "accounts"],
     notice: () => Promise.resolve(options.notice ?? null),
+    defaultLoginFolder: () => options.defaultLoginFolder ?? null,
     start({ prompt, cwd, role, accountDir }, listener) {
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];

@@ -116,6 +116,21 @@ describe("AccountStore", () => {
     expect(store.defaultId()).toBe(SYSTEM_DEFAULT_ID);
   });
 
+  it("renames an account, keeps the name without the white space at its ends and writes it, says whether it changed, and refuses with a sentence an empty name, System default and an id it keeps no account under, renaming nothing", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    const handed = handedFolder();
+    store.addHanded("Work", handed, "claude");
+    expect(store.rename(1, "  Office  ")).toBe(true);
+    expect(store.rename(1, "Office")).toBe(false);
+    expect(store.listed()[1]).toEqual({ id: 1, name: "Office", made: false, folder: handed });
+    expect(new AccountStore(runDir).account(1)?.name).toBe("Office");
+    expect(() => store.rename(1, " ")).toThrow("An account needs a name.");
+    expect(() => store.rename(SYSTEM_DEFAULT_ID, "Mine")).toThrow("System default keeps its name.");
+    expect(() => store.rename(7, "Other")).toThrow("No account 7 is kept.");
+    expect(store.listed().map((account) => account.name)).toEqual(["System default", "Office"]);
+  });
+
   it("keeps the accounts and the default in accounts.json of the run folder, readable by the user alone, which a second store reads", () => {
     const runDir = folder();
     const handed = handedFolder();
@@ -346,6 +361,62 @@ describe("the daemon's accounts", () => {
     expect(session.answer).toBe('You asked: "Who am I?"');
     expect(started).toHaveLength(1);
     expect("accountDir" in started[0]!).toBe(false);
+  });
+
+  it("renames an account at a request, answers before it sends every client the accounts, refuses an empty name, System default and an id it keeps none of with a sentence, and leaves a ledger entry written before the rename with the name it had (the rename of scenario 11)", async () => {
+    const { c } = await daemon();
+    await c.request({ type: "addAccount", name: "Work", folder: handedFolder() });
+    const { workItemId } = await workItemIn(c);
+    await c.request({ type: "setWorkItem", id: workItemId, accountId: 1 });
+    await asked(c, workItemId);
+    const before = c.messages.length;
+    expect(await c.request({ type: "renameAccount", id: 1, name: " Office " })).toMatchObject({ type: "done" });
+    expect((await c.message("accounts", (m) => m.accounts[1]?.name === "Office")).accounts.map((account) => account.name)).toEqual(["System default", "Office"]);
+    expect(c.messages.slice(before).flatMap((m) => (m.type === "done" || m.type === "accounts" ? [m.type] : []))).toEqual(["done", "accounts"]);
+    expect(await c.request({ type: "renameAccount", id: 1, name: "" })).toMatchObject({ type: "error", message: "An account needs a name." });
+    expect(await c.request({ type: "renameAccount", id: SYSTEM_DEFAULT_ID, name: "Mine" })).toMatchObject({ type: "error", message: "System default keeps its name." });
+    expect(await c.request({ type: "renameAccount", id: 9, name: "Other" })).toMatchObject({ type: "error", message: "No account 9 is kept." });
+    expect(await c.request({ type: "renameAccount", id: 1 })).toMatchObject({ type: "error", message: "An account is renamed by its id and a name." });
+    c.send({ type: "readLedger", requestId: 77, workItemId });
+    expect((await c.message("ledger", (m) => m.workItemId === workItemId)).entries.map((entry) => entry.account)).toEqual([{ id: 1, name: "Work" }]);
+  });
+
+  it("launches a pane under the session's own account, then the work item's, then the repository's, then the default, names that account on the pane, gives the pane's command that account's folder, and under System default no folder of an account and the default login's folder as the one Claude Code reads, and refuses a start that names an account it keeps none of, starting nothing (the pane's half of scenarios 2 and 4)", async () => {
+    const asked: { kind: string; accountDir: string | null; configDir: string | null }[] = [];
+    const { c } = await daemon({
+      roleAdapter: fakeAdapter({ defaultLoginFolder: "/Users/person/.claude" }),
+      commandFor: (kind, _id, start) => {
+        asked.push({ kind, accountDir: start.accountDir, configDir: start.configDir });
+        return { command: "/bin/sh", args: ["-c", "sleep 30"], env: {} };
+      },
+    });
+    const work = handedFolder();
+    const home = handedFolder();
+    await c.request({ type: "addAccount", name: "Work", folder: work });
+    await c.request({ type: "addAccount", name: "Home", folder: home });
+    const { workItemId, repositoryId } = await workItemIn(c);
+    const started = async (kind: "shell" | "claude", accountId?: number) => {
+      const requestId = 500 + asked.length;
+      c.send({ type: "start", kind, cols: 80, rows: 24, requestId, workItemId, ...(accountId === undefined ? {} : { accountId }) });
+      return (await c.message("started", (m) => m.requestId === requestId)).session;
+    };
+    await c.request({ type: "setRepository", id: repositoryId, accountId: 1 });
+    expect((await started("claude")).accountId).toBe(1);
+    await c.request({ type: "setWorkItem", id: workItemId, accountId: 2 });
+    expect((await started("shell")).accountId).toBe(2);
+    expect((await started("claude", SYSTEM_DEFAULT_ID)).accountId).toBe(SYSTEM_DEFAULT_ID);
+    expect((await started("claude", 1)).accountId).toBe(1);
+    expect(asked).toEqual([
+      // The pane the work item was created with, under the default.
+      { kind: "shell", accountDir: null, configDir: "/Users/person/.claude" },
+      { kind: "claude", accountDir: work, configDir: work },
+      { kind: "shell", accountDir: home, configDir: home },
+      { kind: "claude", accountDir: null, configDir: "/Users/person/.claude" },
+      { kind: "claude", accountDir: work, configDir: work },
+    ]);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 900, workItemId, accountId: 9 });
+    expect(await c.message("error", (m) => m.requestId === 900)).toMatchObject({ message: "No account 9 is kept." });
+    expect(asked).toHaveLength(5);
   });
 
   it("clears at its start a repository's and a work item's setting that names an account it keeps none of, so an account added later under a freed id takes no setting, and keeps a setting that names one it keeps", async () => {

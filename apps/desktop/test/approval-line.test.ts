@@ -112,7 +112,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     // The daemon runs the CLI at its start, to read its version: that run prints one and is no session, and no case of this file starts one.
     const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
     // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     // A work item of the run folder, as a daemon that ran its chain stored it: the chain stopped, with its sentence. Nothing in the window starts a chain, and one the daemon holds is still said.
     const storedWorktree = join(made.root, "stored");
     git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/stored", storedWorktree);

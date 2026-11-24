@@ -56,4 +56,14 @@ export interface RoleAdapter {
    * nothing to say. It is read anew at each call, and it does not reject.
    */
   notice(): Promise<string | null>;
+  /**
+   * The config folder the agent's default login lives in, which a session
+   * given no account's folder runs under, as the adapter last found it, or
+   * null where it has found none yet. It answers at once and starts no
+   * search: the daemon reads it where it launches a pane and where it reads
+   * a repository's settings, and asks `notice` at its start, which has the
+   * adapter look its agent up. An adapter with no such answer is read as one
+   * that has found none.
+   */
+  defaultLoginFolder?(): string | null;
 }

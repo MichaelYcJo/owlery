@@ -140,6 +140,19 @@ export class AccountStore {
     return true;
   }
 
+  /** Gives an account another name, kept without the white space at its ends, and answers whether it is another than it was. It throws, with a sentence a person reads and nothing renamed, for System default, which keeps its name, for an id the store keeps no account under, and for an empty name. */
+  rename(id: number, name: string): boolean {
+    if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} keeps its name.`);
+    const account = this.account(id);
+    if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+    const named = name.trim();
+    if (named === "") throw new Error("An account needs a name.");
+    if (named === account.name) return false;
+    account.name = named;
+    this.write();
+    return true;
+  }
+
   private write(): void {
     if (this.file === undefined) return;
     writeWholeFile(this.file, JSON.stringify(this.stored));

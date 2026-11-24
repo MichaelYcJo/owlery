@@ -224,6 +224,22 @@ describe("the Claude adapter's run", () => {
     expect(configOf()).toBeUndefined();
   });
 
+  it("answers which folder the default login lives in from its lookup: none before the lookup answered and after one that failed, the folder the login shell names, and .claude of the home where the shell names none, whatever the daemon's own environment names", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", "exit 0");
+    const named = claudeAdapter({ ...fakeShell(folder, cli, "/Users/person/.claude-of-the-shell").env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    expect(named.defaultLoginFolder?.()).toBeNull();
+    // The notice asks the lookup, as the daemon does at its start.
+    await named.notice();
+    expect(named.defaultLoginFolder?.()).toBe("/Users/person/.claude-of-the-shell");
+    const unnamed = claudeAdapter({ ...fakeShell(folder, cli).env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    await unnamed.notice();
+    expect(unnamed.defaultLoginFolder?.()).toBe(join(folder, ".claude"));
+    const lost = claudeAdapter({ SHELL: script(folder, "lost", "exit 1"), HOME: folder, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    await lost.notice();
+    expect(lost.defaultLoginFolder?.()).toBeNull();
+  });
+
   it("launches the CLI the shell found, in the folder, with the flags and the five names, writes the handshake and then the prompt on standard input, ends the input at the result, and maps what it prints", async () => {
     const folder = temporaryFolder();
     const cwd = temporaryFolder();

@@ -353,7 +353,7 @@ describe("the built app's role bundle", () => {
       ].join("\n"),
     );
     // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
-    const shell = script(made, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script(made, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     const { runDir, message, send } = await builtDaemon(made, shell);
     send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Reviewed", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await message("workItemCreated");
@@ -391,7 +391,7 @@ describe("the built app's role bundle", () => {
       "shell",
       [
         `if [ "$3" = -c ] && [ "\${4#exec claude }" != "$4" ]; then { printf '%s\\n' "$4"; printf 'chain=%s base=%s node=%s\\n' "$OWLERY_CHAIN" "$OWLERY_BASE" "\${ELECTRON_RUN_AS_NODE-unset}"; "$OWLERY_CHAIN" owed; printf 'exit=%s\\n' "$?"; } > '${out}.partial' 2>&1; mv '${out}.partial' '${out}'; exit 0; fi`,
-        `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '/usr/bin/false' '/usr/bin:/bin'`,
+        `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '/usr/bin/false' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`,
       ].join("\n"),
     );
     const { runDir, message, send } = await builtDaemon(made, shell);
@@ -433,7 +433,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
     // Stands for the CLI: asked for its version, it prints the file's, once no file holds it back. A held one also ends once this script is gone, with the folder of a case that failed.
     const cli = script("cli", `[ "$*" = "--version" ] || exit 1\nwhile [ -e '${hold}' ] && [ -e "$0" ]; do sleep 0.05; done\ncat '${version}'`);
     // Stands for the login shell: it names the CLI and ends.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     const old = versionNotice("2.1.300 (Claude Code)");
     expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
     /** What the status line says, and whether it is drawn as a notice. */

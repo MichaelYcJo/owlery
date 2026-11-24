@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs
 import { createServer, type Server, type Socket } from "node:net";
 import { basename, dirname, join } from "node:path";
 import type { PaneKind } from "../shared/protocol";
+import { CONFIG_DIR_VARIABLE } from "./adapters/claude";
 import type { PaneCommand, PaneStart } from "./daemon";
 import { loginShell } from "./pty";
 import { writeWholeFile } from "./whole-file";
@@ -135,12 +136,18 @@ export interface Carried {
  * it on its command line, so no settings file of the person's is written.
  * With `continueLatest`, `claude` starts on the latest conversation of the
  * folder the pane runs in, which Claude Code chooses, and ends at once where
- * the folder holds none.
+ * the folder holds none. With `accountDir`, the folder of the pane's
+ * account, `claude` is started through `env` with that folder as its config
+ * folder: the variable is set in the command, after the login profile ran,
+ * because a profile that exports its own replaces a value of the pane's
+ * environment. Without it nothing is set, and `claude` reads the folder the
+ * shell gives it.
  */
-export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false, chain: PaneChain | null = null): { command: string; args: string[] } {
+export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, continueLatest = false, chain: PaneChain | null = null, accountDir: string | null = null): { command: string; args: string[] } {
   const shell = env.SHELL || "/bin/zsh";
+  const under = accountDir === null ? "" : `env ${CONFIG_DIR_VARIABLE}=${shellQuote(accountDir)} `;
   const carried = chain === null ? "" : ` --plugin-dir ${shellQuote(chain.bundleDir)} --append-system-prompt-file ${shellQuote(chain.headFile)}`;
-  return { command: shell, args: ["-l", "-i", "-c", `exec claude --settings ${shellQuote(settingsFile)}${carried}${continueLatest ? " --continue" : ""}`] };
+  return { command: shell, args: ["-l", "-i", "-c", `exec ${under}claude --settings ${shellQuote(settingsFile)}${carried}${continueLatest ? " --continue" : ""}`] };
 }
 
 /**
@@ -154,16 +161,21 @@ export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, 
  * the start names one. Where its launch names `enabledPlugins`, the pane is
  * given a settings file of its own, written here beside `settingsFile`
  * before the command is returned (`writePaneSettings`). A shell is asked
- * nothing and carries nothing, in whatever folder it opens.
+ * nothing and carries nothing, in whatever folder it opens. Where the start
+ * names the folder of the pane's account, a Claude Code pane is given it in
+ * its command (`claudePaneCommand`) and a shell in its environment, so a
+ * `claude` the person types there takes it unless their profile sets its
+ * own. Under System default neither is given a folder.
  */
 export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string, carries: (start: PaneStart) => Carried | null = () => null): (kind: PaneKind, id: number, start: PaneStart) => PaneCommand {
   return (kind, id, start) => {
     const carried = kind === "claude" ? carries(start) : null;
     const chain = carried?.chain ?? null;
     const settings = carried == null || carried.enabledPlugins === null ? settingsFile : writePaneSettings(dirname(settingsFile), id, carried.enabledPlugins);
+    const account: Record<string, string> = kind === "claude" || start.accountDir === null ? {} : { [CONFIG_DIR_VARIABLE]: start.accountDir };
     return {
-      ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain) : loginShell(env)),
-      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
+      ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain, start.accountDir) : loginShell(env)),
+      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...account, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
     };
   };
 }

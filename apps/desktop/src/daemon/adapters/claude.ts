@@ -5,6 +5,7 @@
 // permission check off (docs/roadmap.md, milestone 1).
 import { execFile, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
@@ -382,6 +383,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
   type Lookup = NonNullable<ReturnType<typeof parseLookup>>;
   // Asked of the login shell once per daemon process, for the sessions and the notices together; a lookup that failed is asked again.
   let found: Promise<Lookup> | undefined;
+  // What the lookup answered, once it has: the default login's folder is read from it without a wait.
+  let answered: Lookup | undefined;
 
   const lookup = (): Promise<Lookup> => {
     const { command, args } = lookupCommand(env);
@@ -389,7 +392,10 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       execFile(command, args, { env: terminalEnv(env), encoding: "utf8", timeout: options.lookupTimeoutMs ?? 10_000 }, (error, stdout) => {
         // The exit code is the profile's last word, not the lookup's: what was printed decides.
         const result = parseLookup(stdout);
-        if (result) resolve(result);
+        if (result) {
+          answered = result;
+          resolve(result);
+        }
         else if (error && "killed" in error && error.killed) reject(new Error(`the login shell (${command}) did not answer where claude is`));
         else reject(new Error(`claude was not found by the login shell (${command})`));
       }).stdin?.end();
@@ -553,5 +559,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         return null;
       }
     },
+    // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.
+    defaultLoginFolder: () => (answered === undefined ? null : (answered.configDir ?? join(env.HOME || homedir(), ".claude"))),
   };
 }

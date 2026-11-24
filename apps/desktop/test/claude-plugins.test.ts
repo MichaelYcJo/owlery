@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -100,6 +100,29 @@ describe("readPlugins", () => {
     const before = held();
     expect(readPlugins(at.folder, at.checkout, at.config).agenticSeal).toEqual([KEY]);
     expect(held()).toEqual(before);
+  });
+});
+
+describe("readPlugins and the config folder it is given", () => {
+  it("reads the folder of the daemon's environment where it is given null, which is what it reads while the login shell's lookup has given no answer, and the person's own through a folder whose settings.json and plugins are links into it (scenario 16)", () => {
+    const at = places();
+    at.enable(at.user, { [KEY]: true });
+    // A folder as Owlery makes one for an account: the person's settings and plugins are links into the person's own folder.
+    const account = join(scratch(), "account");
+    mkdirSync(account);
+    symlinkSync(at.user, join(account, "settings.json"));
+    symlinkSync(join(at.config, "plugins"), join(account, "plugins"));
+    expect(readPlugins(at.folder, at.checkout, account).agenticSeal).toEqual([KEY]);
+    // A folder that holds neither file enables nothing.
+    expect(readPlugins(at.folder, at.checkout, scratch()).agenticSeal).toEqual([]);
+    const own = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = at.config;
+    try {
+      expect(readPlugins(at.folder, at.checkout, null).agenticSeal).toEqual([KEY]);
+    } finally {
+      if (own === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = own;
+    }
   });
 });
 

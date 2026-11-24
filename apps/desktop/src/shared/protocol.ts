@@ -28,6 +28,8 @@ export interface PaneKindInfo {
   reportsState: boolean;
   /** Whether a pane of the kind can start on the latest conversation of its folder. A daemon of an earlier build sends no such field, and a client reads its absence as false. */
   continues: boolean;
+  /** Whether a pane of the kind is launched under an account, with that account's config folder. A daemon of an earlier build sends no such field, and a client reads its absence as false. */
+  accounts?: boolean;
 }
 
 /** One commit of a work item's branch. */
@@ -484,6 +486,8 @@ export interface SessionInfo {
   alive: boolean;
   /** The work item whose worktree the pane runs in. Null only for a pane that a daemon of a build before 0.0.2 opened without one. */
   workItemId: number | null;
+  /** The id of the account the pane was launched under, `SYSTEM_DEFAULT_ID` among them, or null for a pane launched under none: a setup's pane, and a pane of a kind that takes no account. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  accountId?: number | null;
   /** Null until the agent's first event or until the pane has sent no event for the time after its start the daemon allows, whichever comes first, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
   /** The daemon's clock when the session entered `state`, or null where it has none. */
@@ -716,8 +720,8 @@ export interface KeepAwake {
 
 export type ClientMessage =
   | { type: "hello"; token: string }
-  // A pane opens in a work item's worktree, and the daemon answers a start whose `workItemId` is no number with an `error`. `continueLatest` starts the pane on the latest conversation of that folder. The daemon answers it with an `error` for a kind that does not declare `continues`.
-  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId: number; continueLatest?: true }
+  // A pane opens in a work item's worktree, and the daemon answers a start whose `workItemId` is no number with an `error`. `continueLatest` starts the pane on the latest conversation of that folder. The daemon answers it with an `error` for a kind that does not declare `continues`. `accountId` is the pane's own account, the id of one the daemon keeps, and an id it keeps none under is refused, starting nothing. Without it the pane takes the account `accountFor` gives from the work item, its repository and the default. A pane of a kind that declares `accounts` is launched with that account's config folder where the account has one.
+  | { type: "start"; kind: PaneKind; cols: number; rows: number; requestId: number; workItemId: number; continueLatest?: true; accountId?: number }
   // `title` may be empty. The work item's branch and folder are named by the title, by `name` where the title leaves no letter or digit of a-z0-9, and by a name the daemon generates where neither does. `base` is the name of the branch the work item starts from, as `WorkItem.baseBranch` names one, and the repository's default base where it is absent. A remote's branch is fetched before the cut, that one branch from that one remote, unless a fetch of it ended in the last minute, and where the fetch fails the work item is cut at the commit the clone holds. A local branch is cut where it stands, and no remote is asked. `repo` is a folder's absolute path, here and in a plan: the daemon refuses any other. Once the worktree is checked out, the daemon reads `.worktreeinclude` and `.worktreesetup` at the top of the repository's main checkout, copies the ignored paths the first names from the main checkout into the worktree, and starts a pane of the kind `shell` that runs the command the second holds, before the pane of `kind`. It runs that command only where it is `setupCommand`, whole, the command a `workItemPlan` named and the client showed the person: where the file holds another, or one where `setupCommand` is null or absent, or none where it is a command, no command runs and the setup fails with a sentence that says so. A repository that holds neither file gets its worktree as git checks it out. A setup that fails refuses nothing: the work item is created either way.
   | { type: "createWorkItem"; requestId: number; repo: string; title: string; name?: string; base?: string; kind: PaneKind; cols: number; rows: number; setupCommand?: string | null }
   // Asks what a creation in `repo` with this title and name would give, and the setup it would run. The daemon creates nothing, and answers with a `workItemPlan`.
@@ -732,6 +736,8 @@ export type ClientMessage =
   | { type: "addAccount"; requestId: number; name: string; folder: string }
   // Names the account new sessions take where nothing nearer is set: the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them. Another id is refused. The daemon answers with `done`, before the `accounts` that carries the change.
   | { type: "setDefaultAccount"; requestId: number; id: number }
+  // Gives an account another name, stored without the white space at its ends. An empty name, System default, which keeps its name, and an id the daemon keeps no account under are refused with a sentence, and nothing is renamed. The daemon answers with `done`, before the `accounts` that carries the change. A ledger entry keeps the name it was written with.
+  | { type: "renameAccount"; requestId: number; id: number; name: string }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
   // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.

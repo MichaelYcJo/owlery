@@ -297,4 +297,9 @@ describe("the fake adapter", () => {
     expect(await adapter.notice()).toBe("The fake agent is old.");
     expect(await adapter.notice()).toBe("The fake agent is old.");
   });
+
+  it("answers the folder of the default login its options name, and none where they name none, as an adapter whose lookup gave no answer", () => {
+    expect(fakeAdapter().defaultLoginFolder?.()).toBeNull();
+    expect(fakeAdapter({ defaultLoginFolder: "/Users/person/.claude" }).defaultLoginFolder?.()).toBe("/Users/person/.claude");
+  });
 });

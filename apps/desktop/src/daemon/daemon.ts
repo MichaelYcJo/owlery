@@ -206,13 +206,15 @@ export interface PaneCommand {
   env: Record<string, string>;
 }
 
-/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none, the main checkout of the work item's repository, and the chain the person chose for that repository's Claude Code panes, or null where they gave no answer. */
+/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none, the main checkout of the work item's repository, the chain the person chose for that repository's Claude Code panes, or null where they gave no answer, the config folder of the pane's account, or null where the account has none, as System default has none, and the config folder the pane's agent reads: the account's, or under System default the default login's as the adapter last found it, and null while it has found none. */
 export interface PaneStart {
   continueLatest: boolean;
   folder: string;
   base: string | null;
   checkout: string;
   chosen: ChainChoice | null;
+  accountDir: string | null;
+  configDir: string | null;
 }
 
 export interface DaemonOptions {
@@ -223,8 +225,8 @@ export interface DaemonOptions {
   commandFor: (kind: PaneKind, id: number, start: PaneStart) => PaneCommand;
   /** The command of a setup pane, given the command a repository's `.worktreesetup` holds and the pane's id; `setupPaneCommand` of the daemon's environment when absent. */
   setupCommandFor?: (command: string, id: number) => PaneCommand;
-  /** Whether the person's Claude Code enables the AgenticSeal plugin for a session in a folder of a repository, given the folder and the repository's main checkout. A daemon given none reads no settings of the person's, and tells a client that no repository has the plugin enabled. */
-  pluginEnabled?: (folder: string, checkout: string) => boolean;
+  /** Whether Claude Code enables the AgenticSeal plugin for a session in a folder of a repository, given the folder, the repository's main checkout and the config folder the session reads, which is null while the adapter has found no default login's folder. A daemon given none reads no settings of the person's, and tells a client that no repository has the plugin enabled. */
+  pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
   /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all seven are in memory alone. */
@@ -774,9 +776,17 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `a pane of kind ${message.kind} continues no conversation` });
           return;
         }
+        let own: number | null;
+        try {
+          // The pane's own account, where it names one, System default among them.
+          own = this.accountSetting(message.accountId) ?? null;
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          return;
+        }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
-        const info = this.startSession(socket, message, worktree, message.workItemId, continueLatest);
+        const info = this.startSession(socket, message, worktree, message.workItemId, continueLatest, own);
         // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
         this.send(socket, { type: "started", requestId: message.requestId, session: info });
         this.broadcastInbox();
@@ -880,11 +890,15 @@ export class Daemon {
           const character = trimmed(icon);
           if (typeof character === "string" && characters(character) > 1) throw new Error("An icon is one character.");
           const accountId = this.accountSetting(message.accountId);
+          const was = this.store.repository(message.id)?.accountId;
           const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden, paneChain, accountId });
           if (changed === undefined) throw new Error(`no repository ${String(message.id)}`);
+          // The repository's chain is read in the folder of its account, so another account reads it again.
+          const stored = this.store.repository(message.id);
+          const read = stored !== undefined && stored.accountId !== was && this.readRecords(stored);
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });
-          if (changed) this.broadcastInbox();
+          if (changed || read) this.broadcastInbox();
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
@@ -909,6 +923,23 @@ export class Daemon {
           const { id } = message as { id: unknown };
           if (typeof id !== "number") throw new Error("The default account is named by its id.");
           const changed = this.accounts.setDefault(id);
+          // A repository set to no account takes the default, so its chain is read again in the new default's folder. Every repository is read, so `some` is not what gathers the answers.
+          const read = changed ? this.store.repositories().filter((repository) => repository.accountId === null).map((repository) => this.readRecords(repository)) : [];
+          // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastAccounts();
+          if (read.includes(true)) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "renameAccount": {
+        try {
+          const { id, name } = message as { id: unknown; name: unknown };
+          if (typeof id !== "number" || typeof name !== "string") throw new Error("An account is renamed by its id and a name.");
+          // The store refuses an empty name, System default and an id it keeps no account under, in its own words.
+          const changed = this.accounts.rename(id, name);
           // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
           this.send(socket, { type: "done", requestId: message.requestId });
           if (changed) this.broadcastAccounts();
@@ -1490,6 +1521,18 @@ export class Daemon {
     return value;
   }
 
+  /**
+   * The config folders a launch under an account is given: the account's
+   * own, or null for an account with none, as System default has none, or
+   * where no account is named; and the folder the agent then reads, which is
+   * the account's, or the default login's as the adapter last found it, and
+   * null while it has found none.
+   */
+  private foldersOf(accountId: number | null): { accountDir: string | null; configDir: string | null } {
+    const accountDir = accountId === null ? null : (this.accounts.account(accountId)?.folder ?? null);
+    return { accountDir, configDir: accountDir ?? this.options.roleAdapter.defaultLoginFolder?.() ?? null };
+  }
+
   /** Sends every client the accounts and the default one, after either changed. */
   private broadcastAccounts(): void {
     this.broadcast({ type: "accounts", accounts: this.accounts.listed(), defaultAccountId: this.accounts.defaultId() });
@@ -1832,11 +1875,22 @@ export class Daemon {
     return item === undefined ? null : roundBase(item.baseBranch, item.baseCommit, "") || null;
   }
 
-  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, commandOf?: (id: number) => PaneCommand): SessionInfo {
+  /**
+   * Starts a pane's process in `cwd`, and sends its output to the client that
+   * asked for it. `continueLatest` is true only for a `start` that asked it of
+   * a kind that continues. A pane of a kind that declares `accounts` runs
+   * under the account `accountFor` gives now from `own`, the pane's own
+   * account or null where it names none, the work item's, the repository's
+   * and the default, and its start names that account's folder. `commandOf`
+   * gives the command of a pane that runs another than its kind's, as a setup
+   * pane does, which runs under no account.
+   */
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, own: number | null = null, commandOf?: (id: number) => PaneCommand): SessionInfo {
     const id = this.nextId++;
-    const repository = this.store.workItem(workItemId)?.repository;
-    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null });
+    const held = this.store.workItem(workItemId);
+    const repository = held?.repository;
+    const accountId = commandOf || !held || !this.options.paneKinds.some((offered) => offered.kind === pane.kind && offered.accounts === true) ? null : accountFor(own, held.item, held.repository, this.accounts.defaultId());
+    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
     const terminal = TerminalSession.spawn({
       command,
       args,
@@ -1847,7 +1901,7 @@ export class Daemon {
     });
     let exited = (): void => {};
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, accountId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal,
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
@@ -1903,7 +1957,7 @@ export class Daemon {
     if (setup?.state === "running" && command !== null) {
       const commandFor = this.options.setupCommandFor ?? ((text: string, id: number) => setupPaneCommand(process.env, text, id));
       try {
-        const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, (id) => commandFor(command, id));
+        const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, null, (id) => commandFor(command, id));
         recorded = { ...setup, paneId: info.id };
       } catch (error) {
         recorded = endedSetup(setup, { exitCode: null, failure: `The setup pane could not start: ${error instanceof Error ? error.message : String(error)}` }, (this.options.now ?? Date.now)());
@@ -2043,15 +2097,20 @@ export class Daemon {
   /**
    * Reads what a repository's main checkout holds of the records place, from
    * its working tree, and which chain its Claude Code panes would run there:
-   * whether the checkout is on the owl chain, and whether the person's
-   * Claude Code enables the AgenticSeal plugin for it. It answers whether
-   * any of it is another than was last read.
+   * whether the checkout is on the owl chain, and whether Claude Code enables
+   * the AgenticSeal plugin for it under the config folder of the account a
+   * new pane of the repository takes where neither the pane nor its work
+   * item names one. It answers whether any of it is another than was last
+   * read.
    */
-  private readRecords({ id, folder }: StoredRepository): boolean {
+  private readRecords(repository: StoredRepository): boolean {
+    const { id, folder } = repository;
     const read = readRecordsPlace(folder);
     const known = this.records.get(id) ?? { root: null, check: null, broadGate: null };
     this.records.set(id, read);
-    const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder) ?? false };
+    // Read under the account a new pane of the repository takes where neither the pane nor its work item names one.
+    const { configDir } = this.foldersOf(accountFor(null, { accountId: null }, repository, this.accounts.defaultId()));
+    const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder, configDir) ?? false };
     const chained = this.paneChains.get(id) ?? { owl: false, plugin: false };
     this.paneChains.set(id, chain);
     return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
