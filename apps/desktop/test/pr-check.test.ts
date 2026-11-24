@@ -39,8 +39,8 @@ function commitRoot(repo: string): void {
   commitAll(repo, "chore: add the place for work records");
 }
 
-/** The `routing.md` of a work item that goes through the review chain on a branch. */
-function routing(workItem: string, branch: string): string {
+/** The `routing.md` of a work item that goes through the review chain on a branch, framed and built by the parties named. */
+function routing(workItem: string, branch: string, planning = "the session", implementation = "the session"): string {
   return [
     `# Routing: ${workItem}`,
     "",
@@ -48,8 +48,8 @@ function routing(workItem: string, branch: string): string {
     "|---|---|",
     "| Review | through the review chain |",
     "| Destination | open the pull request |",
-    "| Planning | the session |",
-    "| Implementation | the session |",
+    `| Planning | ${planning} |`,
+    `| Implementation | ${implementation} |`,
     "| Automation | yes |",
     `| Branch | ${branch} |`,
     "",
@@ -551,6 +551,37 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
     expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: this repository cannot resolve the sealed commit \`${"d".repeat(40)}\`; a new seal is owed at HEAD`);
     expect(sent).toHaveLength(8);
+  }, 60_000);
+
+  it("passes the records the AgenticSeal plugin's process leaves, each commit in them short, as a ready pull request whose body the plugin composed with no seal section, and posts it as sealed at the verdict's commit: a routing that names a framer and a crafter, a design whose rule changes are none and that ends with the framer's mark, its plan, a round, the gate's run, and a verdict block of a target and a verdict alone", async () => {
+    const { url, sent } = await server();
+    const made = repository();
+    commitRoot(made.repo);
+    const base = git(made.repo, "rev-parse", "--short=7", "main").trim();
+    git(made.repo, "checkout", "--quiet", "-b", "feature");
+    write(made.repo, "seal/threads/1-x/routing.md", routing("1-x", "feature", "framer", "crafter"));
+    commitAll(made.repo, "docs: route the 1-x work item", "1-x");
+    write(made.repo, "seal/threads/1-x/frame/design.md", ["# Design: x (#1)", "", "## Scope", "", "1. **x holds one line.**", "", "## Rule changes", "", "- nothing", "  why: The work states no rule.", "", "## Removes", "", "| Removes | Coordinate | Where it lands, or why it can go |", "|---|---|---|", "| nothing | | |", "", "Framed 2026-11-24 by framer, before the build.", ""].join("\n"));
+    write(made.repo, "seal/threads/1-x/frame/plan.md", ["# Implementation Plan: x (#1)", "", "## Phases", "", "| Phase | Delivers | Verified by | Status |", "|---|---|---|---|", "| 1 | x | Scenario 1 | |", ""].join("\n"));
+    commitAll(made.repo, "docs: frame the 1-x work item", "1-x");
+    write(made.repo, "x", "x\n");
+    commitAll(made.repo, "feat: x", "1-x");
+    const built = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
+    write(made.repo, "seal/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```seal", `target: ${built} against ${base}`, "```", "", "The round read the diff whole.", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    commitAll(made.repo, "chore: record review round 1", "1-x");
+    const gate = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
+    write(made.repo, "seal/threads/1-x/trail/gate.md", ["# 1-x — broad gate", "", "```seal", `run: ${gate} against ${base}`, "```", ""].join("\n"));
+    commitAll(made.repo, "chore: record the broad gate's run", "1-x");
+    const guarantee = ["# Guarantee: 1-x", "", `Audited at \`${gate}\` against the base \`main\`, resolved to \`${base}\`.`, "", "## The parties", "", "| Party | Says | Agrees with | Disagrees with |", "|---|---|---|---|", "| The design | x | the diff | none |", "", "```seal", `target: ${gate} against ${base}`, "Verdict: sealed", "```", ""];
+    write(made.repo, "seal/threads/1-x/guarantee.md", guarantee.join("\n"));
+    commitAll(made.repo, "chore: record the sealer's verdict", "1-x");
+    const body = ["x holds one line.", "", "## From the records", "", "## Broad gate", "", "From `trail/gate.md`.", "", "```seal", `run: ${gate} against ${base}`, "```", ""].join("\n");
+
+    const passed = await run(made, { body, args: ["--post"], env: posting(url) });
+    expect(passed.exit, passed.output).toBe(0);
+    expect(passed.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
+    expect(passed.output).not.toContain("seal/threads/1-x/");
+    expect(sent.map((request) => request.body)).toMatchObject([{ conclusion: "success", output: { title: `Sealed at ${gate}` } }]);
   }, 60_000);
 
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {

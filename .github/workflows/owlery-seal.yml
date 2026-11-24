@@ -1,0 +1,49 @@
+# The pull request check of Owlery: a pull request that declares a work item
+# carries the records it owes, and a ready one carries a seal at its head.
+# A pull request that declares no work item is not judged.
+# The check posts its verdict as the check `Owlery seal` on the pull
+# request's head commit, which an administrator can make required.
+# Owlery wrote this file when the repository was connected. It fetches the
+# check from Owlery's repository at the release that wrote it. The line moves
+# when a person edits it.
+
+name: seal
+
+on:
+  pull_request:
+    # A draft made ready and a body edited make no commit, so each is named.
+    types: [opened, synchronize, reopened, edited, ready_for_review, converted_to_draft]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  seal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the check reads the commits since the base branch
+
+      # The release's tag, or the release's branch until the tag exists.
+      - name: the check, at Owlery 0.0.3
+        shell: bash
+        run: |
+          git clone --quiet --depth 1 --branch v0.0.3 \
+            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery" \
+          || git clone --quiet --depth 1 --branch release/v0.0.3 \
+            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery"
+
+      - name: a declared work item carries the records it owes
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 "$RUNNER_TEMP/owlery/pr-check/skills/code-review/scripts/chain_check.py" \
+            --baseline "origin/${{ github.base_ref }}" \
+            --post
