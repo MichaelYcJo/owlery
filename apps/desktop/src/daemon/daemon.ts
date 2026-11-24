@@ -2248,7 +2248,7 @@ export class Daemon {
     const size = { cols: pane.cols, rows: pane.rows };
     const session: Session = {
       info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
-      terminal: this.spawnPane(launch, cwd, size),
+      terminal: this.spawnPane(launch, cwd, size, signsIn === null),
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
       log: undefined,
@@ -2268,9 +2268,10 @@ export class Daemon {
     return session.info;
   }
 
-  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it. */
-  private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }): TerminalSession {
-    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: { ...process.env, ...env } });
+  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
+  private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }, inherit = true): TerminalSession {
+    // A sign-in pane runs in the cleared environment its command names, as `auth status` and `auth logout` do; the terminal adds its own names.
+    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...process.env, ...env } : env });
   }
 
   /**

@@ -88,7 +88,7 @@ export interface LoginStatus {
   loginEndsAt: number | null;
 }
 
-/** The process a pane runs: the file to execute, its arguments, and the variables it is given over the daemon's environment. */
+/** The process a sign-in pane runs: the file to execute, its arguments, and the whole environment it is given, to which the terminal adds only its own names. */
 export interface LoginCommand {
   command: string;
   args: string[];

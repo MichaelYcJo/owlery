@@ -852,13 +852,18 @@ describe("the accounts Owlery makes", () => {
     expect(await plain.c.request({ type: "addAccount", name: "Work", folder: 7 })).toMatchObject({ type: "error", message: "An account is added with a name, and the absolute path of its folder where the person hands one over." });
   });
 
-  it("signs an account in in a pane of no work item that runs the CLI's own sign-in under the account's folder, and at the pane's end and at a request reads whether a login stands and when it ends (scenario 6)", async () => {
+  it("signs an account in in a pane of no work item that runs the CLI's own sign-in under the account's folder, in the environment the adapter names and no variable of the daemon's own, and at the pane's end and at a request reads whether a login stands and when it ends (scenario 6)", async () => {
     const { cli, here, calls } = authStandIn();
     const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
     await c.request({ type: "addAccount", name: "Work" });
     await c.request({ type: "addAccount", name: "Home" });
     const work = join(runDir, "accounts", "1");
     const home = join(runDir, "accounts", "2");
+    // A variable of the daemon's own environment, as a token a terminal exported would be, never reaches the sign-in.
+    process.env.OWLERY_DAEMON_ONLY = "inherited";
+    cleanups.push(() => {
+      delete process.env.OWLERY_DAEMON_ONLY;
+    });
     c.send({ type: "signIn", requestId: 700, id: 1, cols: 80, rows: 24 });
     const pane = (await c.message("started", (m) => m.requestId === 700)).session;
     expect(pane).toMatchObject({ kind: "shell", alive: true, workItemId: null, accountId: 1, signsIn: 1 });
@@ -871,6 +876,8 @@ describe("the accounts Owlery makes", () => {
     expect((await c.message("started", (m) => m.requestId === 701)).session).toMatchObject({ workItemId: null, accountId: 2, signsIn: 2 });
     expect((await c.message("accounts", (m) => m.accounts[2]?.signedIn === false)).accounts[2]).toMatchObject({ signedIn: false, loginEndsAt: null });
     // Signed out outside Owlery, which the daemon learns at the person's request.
+    const given = readFileSync(join(here, "login-env"), "utf8").split("\n");
+    expect([given.includes(`CLAUDE_CONFIG_DIR=${work}`), given.some((line) => line.startsWith("OWLERY_DAEMON_ONLY="))]).toEqual([true, false]);
     rmSync(join(work, ".stand-in-login"));
     expect(await c.request({ type: "readSignIn", id: 1 })).toMatchObject({ type: "done" });
     expect((await c.message("accounts", (m) => m.accounts[1]?.signedIn === false)).accounts[1]).toMatchObject({ signedIn: false, loginEndsAt: null });

@@ -3,7 +3,8 @@
 # case's own folder. It keeps its "login" as one file in the folder that
 # CLAUDE_CONFIG_DIR names, as the CLI keeps a login per config folder, and
 # notes each call, with its arguments and that folder, in `calls` beside
-# itself. `auth login` waits while `hold-login` stands beside the stand-in,
+# itself. `auth login` writes the environment it was given into `login-env`
+# beside itself, and waits while `hold-login` stands beside the stand-in,
 # as a sign-in waits on the browser, and then signs the folder in, unless
 # `refuse-login` stands there. `auth status` prints JSON and exits 0 where
 # the folder is signed in and 1 where it is not, as the CLI reference says
@@ -15,6 +16,7 @@ printf '%s|%s\n' "$*" "${CLAUDE_CONFIG_DIR:-}" >> "$here/calls"
 login="$CLAUDE_CONFIG_DIR/.stand-in-login"
 case "$2" in
   login)
+    env > "$here/login-env"
     while [ -e "$here/hold-login" ]; do sleep 0.05; done
     [ -e "$here/refuse-login" ] && { echo "Login refused." >&2; exit 1; }
     : > "$login"
