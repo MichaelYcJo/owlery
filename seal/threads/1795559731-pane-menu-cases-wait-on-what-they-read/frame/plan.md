@@ -1,0 +1,54 @@
+# Implementation Plan: the pane menu cases wait on what they read
+
+## Technical context
+
+The tree as read at `f7bbcd7a`.
+
+- **The screen's turns.** `apps/desktop/src/renderer/view.ts#screenTurns` (line 2499) decides whom a terminal screen sends to. `take` hands the terminal an empty piece and counts the turn as reached once that piece is drawn. `write` with `answered` false counts a piece whose answers are not sent until it is drawn. `receiver()` (line 2534) answers with the pane where the turn is reached and no such piece is being drawn. Nothing in it knows that a replay is still on its way.
+- **Who calls it.** `apps/desktop/src/renderer/work-item-view.ts#take` (line 636) calls `turns.take(pane)` and then asks the daemon for the replay with an `attach`. `write` (line 1390) hands the replay to the screen with `answered` false where the pane is in `replayed`, the window's note of the panes it drew since the page loaded (line 96). A pane enters that note only when a replay of it is written into a screen.
+- **The cases.** The `screenTurns` block of `apps/desktop/test/view.test.ts` (line 2491) drives the turns with a terminal that draws on request. `apps/desktop/test/terminal-basics.test.ts` starts the built app once for all its cases. `openPane` (line 119) opens each pane a case adds and counts it in `panes`. `closeFromElsewhere` (line 136) has the daemon close a pane by its number, and the daemon does nothing for a number it does not hold.
+- **Constraints.** The terminal's answers and a person's keys leave through one path, `term.onData`, so the screen cannot tell them apart. The built-app files run one at a time, each with `OWLERY_BACKGROUND=1`.
+- **What breaks in six months.** A later change makes the daemon answer the `attach` of a listed session late, or not at all, such as a queue in front of the daemon's messages. A returned pane then stays silent, and nothing on the screen says so: a person's keys vanish. The menu-open case fails then with nothing handed to the pane within its 15 seconds, and names the paste. A case written later that types into a pane right after it came back loses its keys until the replay is drawn, and has to wait on something the replay draws.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| A. The screen sends a returned pane nothing from its take until its replay is drawn (`frame/design.md` *Scope* item 1) | The one of *Technical context*: an `attach` the daemon answers late keeps the pane silent for that long | Chosen. It extends the rule `screenTurns` already keeps, that nothing is sent while a later replay is drawn, to the span before that replay arrives. The probe of `frame/design.md` *Grounding* shows that span is where the unbracketed paste leaves |
+| B. The app stays as it is, and the case pastes again until the paste arrives in brackets, or waits a fixed time after the pane came back | A person who pastes into a pane right after it came back, with a daemon that answers late, has the paste arrive without its brackets, and a paste of several lines then runs line by line in a shell. The case passes by trying again and hides the race, which `routing.md` names as the reason for the review chain | Rejected |
+| C. Every pane is sent nothing from its take until its replay is handed to the terminal, a pane drawn for the first time among them | A person who opens a pane and types at once loses the keys whenever the daemon answers late, and every case that opens a pane and types joins that race. The span while a first replay is drawn still cannot be silenced, since its answers must leave | Rejected. The first replay stays as it is, and `frame/design.md` *Scope* names it out |
+| D. Replace the reused screens: each pane keeps a terminal of its own, which keeps its modes while hidden | Each hidden terminal holds its buffer, and a hidden WebGL canvas holds a framebuffer: one GPU process passed 1 GB with one canvas per terminal | Rejected. The premise that keeps the reused screens is `docs/architecture.md` *Memory design*, the first row of its rules table, read at `f7bbcd7a`: it states the measurement of 2026-11-17 and the rule |
+| E. The window notes each pane's modes as the pane leaves the stage, from the terminal's own `modes`, and writes them into the screen at the next take, before the replay | A hidden pane's modes then have two holders, the daemon's kept output and the window's note. A mode the program changed while the pane was hidden is stale until the replay, so the same defect stays in a smaller form. Only the modes the terminal lists can be noted | Rejected |
+| F. The menu-close case counts its tabs from what it found, and nothing restores the window after a failed case | The other cases that wait for "one tab" still fail after any case that left a pane, and a case that left "Side by side" on still breaks the next case's wait for the keyboard | Rejected for the step after each case of *Scope* item 6, which removes what a failed case left for every case of the file |
+| G. Build here the rows the settle of release 0.0.2 carried into the issue: the case of `test/daemon.test.ts`, the sidebar's click, the runner's first start | Each has a mechanism of its own whose cause this frame did not show, and the issue says its *Done when* is unchanged by them. One pull request would then carry several causes under one seal | Rejected. `frame/questions.md` rows Q2 and Q3 hold them |
+
+## Phases
+
+Each phase ends with the narrow runs its *Verified by* cell names, run from `apps/desktop`. A run of `test/terminal-basics.test.ts` starts the built app: the crafter runs it alone, with `OWLERY_BACKGROUND=1`, after no other Vitest run is left on the machine. The broad gate is the orchestrator's.
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | The screen's rule, its unit cases and its comments: `frame/design.md` *Scope* items 1, 2 and 3. Before any change, the crafter shows scenario 2 red at `f7bbcd7a`. The unit cases are written first and shown red against `screenTurns` as it stands | Scenario 1 by `node scripts/test-in-electron.mjs test/view.test.ts`. The red half of scenario 2 by its command at `f7bbcd7a` with the daemon's edit, which the crafter reverts before the phase's commit | |
+| 2 | The cases of the built app: `frame/design.md` *Scope* items 4, 5 and 6. Before item 6, the crafter shows scenario 3 red at the phase's start with the `throw` at line 1070 | The green half of scenario 2, scenario 3 and scenario 4, each by the command its row of `frame/design.md` names. Every uncommitted edit of a scenario is reverted before the phase's commit | |
+| 3 | The version and the changelog fragment: `frame/design.md` *Scope* items 7 and 8 | Scenario 5 by its `git grep` | |
+
+## Overlap with the release
+
+The spawn names the open work items of issues #149, #154, #191, #134 and #32. Each holds a `routing.md` and no frame on its branch at the time of this frame, so each row is judged from the issue. The work items of issues #154, #191 and #134 meet this work only in the version every pull request of the release builds on: by their issues they change the page's notification, the role session's hand check and the daemon's order of heavy commands, and none of those reads the screen's turns or `test/terminal-basics.test.ts`.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #149, the built-app files share one open app | `apps/desktop/test/terminal-basics.test.ts`. This work changes `openPane`, adds the step after each case, and changes the menu-open case and `pasteOnceBack`. By its issue #149 changes how the file reaches the app, in `beforeAll` and `afterAll`, and has to keep what the file reads from a fresh app: panes numbered from 1 and one tab at the start. `apps/desktop/test/built-app.ts`, whose start #149 rewrites, is not changed here. #149 reloads the page between files, and a reload makes each pane's next replay a first one (`frame/design.md` *Grounding*), so the rule of *Scope* item 1 does not silence a pane at a file's start | #168 | The orchestrator's spawn puts this pull request first, and it carries the version move. It is the smaller diff. Merged first, the step after each case is already there when #149 has several files meet one app, where a pane a failed case left would reach the next file |
+| #32, caps on worktrees and agents | `apps/desktop/src/renderer/view.ts`: this work changes `screenTurns`, and #32 by `docs/architecture.md` *Memory design* makes `STAGE_PANES` a default read from the machine. `docs/architecture.md` *Memory design*: this work adds a rule at the section's end at the settle, and #32 changes the paragraph on four panes. Different units and different text | #168 | The version move, and this work is ready first: the owner reads #32's frame before it is built (`routing.md`) |
+
+## Operational impact
+
+- **This pull request moves the version to 0.0.4.** Line 3 of `apps/desktop/package.json` changes from `"version": "0.0.3"`. The move belongs to phase 3, in the commit that adds `changelog.md`. From this merge on, a workflow the built app writes into a connected repository names the tag `v0.0.4`, which exists once release 0.0.4 is tagged. The same held for 0.0.3 between its first pull request and its tag.
+- **A person's keys and pastes into a pane that just came back onto the stage are dropped until its replay is drawn.** Before, they were dropped for a part of that moment and sent without the program's modes for the rest. The changelog fragment says so.
+- **No migration, no new environment variable, no new dependency and no change of the protocol.**
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |
