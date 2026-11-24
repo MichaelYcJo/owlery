@@ -74,7 +74,7 @@ export function paneSettingsFile(dir: string, id: number): string {
  * person's settings files, so that plugin stays out of this one session and
  * no file of the person's is written. The file is named for the pane, so a
  * launch in another repository writes another file, and it is written over
- * at each launch of a pane of that id.
+ * at the next such launch of a pane of that id.
  */
 export function writePaneSettings(dir: string, id: number, enabledPlugins: Record<string, unknown>): string {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
