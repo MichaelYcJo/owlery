@@ -226,4 +226,27 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha");
     expect(await card("#view-detail .says")).toEqual(drawn);
   });
+
+  it("tells a page loaded again that the app started in the background, so that page keeps its notifications too and raises nothing of the system's", async () => {
+    // The counting stand-in ends with its document, so the new document gets its own before its first script runs. The debugging port runs such a script only once its Page domain is on.
+    await app.cdp("Page.enable");
+    await app.cdp("Page.addScriptToEvaluateOnNewDocument", { source: `window.__constructed = 0; window.Notification = class { static permission = "granted"; constructor() { window.__constructed += 1; } };` });
+    await app.evaluate(`window.__beforeReload = true`);
+    await app.cdp("Page.reload");
+    await app.until(`window.__beforeReload === undefined && ["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front of the page loaded again");
+    expect(await app.evaluate(`[window.owlery.background, Array.isArray(window.__notifications), window.__notifications?.length]`)).toEqual([true, true, 0]);
+
+    // Alpha's agent works, and then waits for the person while the inbox is in front, which raises a notification in the page loaded again.
+    const alpha = (await sessions()).find((session) => session.id === agentPane)?.workItemId;
+    if (alpha === undefined || alpha === null) throw new Error("the daemon lists Alpha's pane with no work item");
+    await app.click("#nav-inbox");
+    await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox screen");
+    const icon = JSON.stringify(`#inbox-screen button.line[data-work-item="${alpha}"] .state-icon`);
+    feed("UserPromptSubmit");
+    await app.until(`document.querySelector(${icon})?.classList.contains("working")`, "Alpha as working");
+    feed("PermissionRequest");
+    await app.until(`window.__notifications.length === 1`, "a notification of the page loaded again");
+    expect(await recorded()).toEqual([{ title: "Alpha", body: "Needs you" }]);
+    expect(await app.evaluate<number>(`window.__constructed`)).toBe(0);
+  });
 });
