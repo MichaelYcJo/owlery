@@ -1,5 +1,6 @@
-// The two controls of the sidebar's foot in the built app: the one that
-// chooses the theme and the one that chooses the appearance. The app starts
+// The controls of the sidebar's foot in the built app: the one that chooses
+// the theme, the one that chooses the appearance, and the one that opens the
+// Accounts dialog, where an account is added with no folder. The app starts
 // once, in the background, on a temporary repository with one work item and
 // one shell pane, so a case reads a terminal's colours too. The pane's
 // process is the receiver, so no shell of the person's and no agent starts.
@@ -7,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GROUNDS } from "../src/main/appearance";
+import { REFRESH_SAYS } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
@@ -223,7 +225,13 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       turn: string;
       fillColour: string;
     }
-    const marks = (): Promise<Record<string, { drawn: Mark; themed: Mark }>> =>
+    /** How wide the filled part is across the middle of the mark, in units of the mark's square of 16, and the width and the height of its box. */
+    interface Lit {
+      across: number;
+      width: number;
+      height: number;
+    }
+    const marks = (): Promise<Record<string, { drawn: Mark; themed: Mark; lit: Lit }>> =>
       app.evaluate(
         `(() => {
           const real = document.querySelector("#inbox-lines .state-icon.no-agent");
@@ -245,9 +253,15 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
             }
             const part = (name) => getComputedStyle(mark.querySelector("path." + name));
             const works = state === "working";
+            // The filled part as the engine draws it: the points of the mark's middle row it fills, a tenth of a unit apart, and its box.
+            const filled = mark.querySelector("path.fill");
+            let across = 0;
+            for (let x = 0.05; x < 16; x += 0.1) if (filled.isPointInFill(new DOMPoint(x, 8))) across += 1;
+            const box = filled.getBBox();
             found[state] = {
               drawn: { line: part("line").getPropertyValue("d"), fill: part("fill").getPropertyValue("d"), track: part("track").getPropertyValue("d"), turn: part("turn").getPropertyValue("d"), fillColour: part("fill").fill },
               themed: { line: shape("--shape-" + state), fill: shape("--shape-" + state + "-fill"), track: shape(works ? "--shape-working-track" : null), turn: shape(works ? "--shape-working-turn" : null), fillColour: colour(state === "waiting" || state === "failed" ? "--state-" + state + "-fill" : "--state-" + state) },
+              lit: { across: across / 10, width: box.width, height: box.height },
             };
             if (!own) mark.remove();
           }
@@ -256,6 +270,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
         })()`,
       );
     const seen: Record<string, Record<string, Mark>> = {};
+    const lit: Record<string, Record<string, Lit>> = {};
     for (const [theme, appearance] of [
       ["night-watch", "light"],
       ["register", "dark"],
@@ -265,17 +280,45 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       await choose("appearance", appearance);
       const found = await marks();
       seen[theme] = {};
-      for (const [state, { drawn, themed }] of Object.entries(found)) {
+      lit[theme] = {};
+      for (const [state, { drawn, themed, lit: filled }] of Object.entries(found)) {
         expect({ theme, state, ...drawn }).toEqual({ theme, state, ...themed });
         // Every state has a part that is drawn.
         expect([drawn.line, drawn.fill, drawn.track, drawn.turn].filter((part) => part !== "none").length).toBeGreaterThan(0);
         seen[theme][state] = drawn;
+        lit[theme][state] = filled;
       }
     }
+    // Night watch draws how far work has come as how full the moon is: the filled part, dark or light as the appearance gives the state's colour, is wider across the mark's middle at work than asleep, and wider finished than at work.
+    const moon = lit["night-watch"] ?? {};
+    expect(moon["no-agent"]?.across).toBeGreaterThan(0);
+    expect(moon.working?.across).toBeGreaterThan(moon["no-agent"]?.across ?? Number.POSITIVE_INFINITY);
+    expect(moon.finished?.across).toBeGreaterThan(moon.working?.across ?? Number.POSITIVE_INFINITY);
+    // Finished is a wholly filled disc: a filled part as wide as it is tall, and no line, no track and no part that turns. At work is a half-filled disc, and nothing of it turns.
+    expect(moon.finished?.width).toBeGreaterThan(0);
+    expect(moon.finished?.width).toBeCloseTo(moon.finished?.height ?? 0, 2);
+    const full = seen["night-watch"]?.finished;
+    expect({ line: full?.line, track: full?.track, turn: full?.turn }).toEqual({ line: "none", track: "none", turn: "none" });
+    expect({ track: seen["night-watch"]?.working?.track, turn: seen["night-watch"]?.working?.turn }).toEqual({ track: "none", turn: "none" });
     // The comparison reads shapes: a wait is Night watch's eye with its pupil, Register's filled box and Desk's filled disc, and the eye's pupil is filled in a colour of its own in the light appearance.
     expect(seen["night-watch"]?.waiting?.line).toMatch(/^path\(/);
     expect(seen.register?.waiting?.line).toBe("none");
     expect(new Set([seen["night-watch"]?.waiting?.fill, seen.register?.waiting?.fill, seen.desk?.waiting?.fill]).size).toBe(3);
     expect(seen["night-watch"]?.waiting?.fillColour).toBe(rgb("#e9b61a"));
+  });
+
+  it("adds an account with no folder from the Accounts dialog the sidebar's foot opens: the daemon makes its folder in the run folder, and the row names it with its sign-in not read yet and offers to sign it in, check its sign-in, refresh its usage with what a refresh spends said beside it, rename it and remove it (scenario 5 in the window, and scenario 15's control drawn and not pressed)", async () => {
+    await app.click("#accounts-button");
+    await app.until(`document.getElementById("accounts-dialog").open`, "the Accounts dialog");
+    await app.click("#accounts-name");
+    await app.cdp("Input.insertText", { text: "Work" });
+    await app.click("#accounts-add");
+    await app.until(`document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the account added");
+    const folder = join(app.userData, "run", "accounts", "1");
+    expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["Work", folder, "Sign-in not read yet", REFRESH_SAYS, "Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
+    expect(existsSync(folder)).toBe(true);
+    expect(await app.evaluate<string>(`document.getElementById("accounts-name").value`)).toBe("");
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 });

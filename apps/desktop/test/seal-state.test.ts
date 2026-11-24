@@ -6,7 +6,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { routingText } from "../src/daemon/chain";
+import { roundBase, routingText, standingOf } from "../src/daemon/chain";
 import { withQuestion } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
 import { gateText } from "../src/daemon/seal-records";
@@ -68,6 +68,15 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     write(repo, `${DIRECTORY}/trail/refusals.md`, "# Refusals\n");
     commitAll(repo, "chore: record the refusals");
     expect(await seal()).toEqual({ state: "sealed", commit: gate, why: null });
+  });
+
+  it("reads the order against the base round 1's record names, whatever base the work item stores, and the seal holds", async () => {
+    const { repo, gate, base } = sealedBranch();
+    // The work item stores another base than the one its first round read the branch against, as after the branch was moved.
+    git(repo, "branch", "develop", base);
+    const item = { worktree: repo, branch: BRANCH, baseBranch: "develop", baseCommit: base };
+    expect((await standingOf(repo, join(repo, DIRECTORY), head(repo), roundBase(item.baseBranch, item.baseCommit, head(repo)), "head")).base).toBe("main");
+    expect(await workItemSeal(item, head(repo))).toEqual({ state: "sealed", commit: gate, why: null });
   });
 
   it("is broken, with the sealed commit and the first path that differs, after a commit that changes a source file, one that changes decisions.md, and one that adds a round record", async () => {

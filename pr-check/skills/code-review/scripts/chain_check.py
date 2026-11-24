@@ -2,11 +2,11 @@
 """chain-check — at the pull request, the records the declared parties owe
 are in the tree and agree with HEAD.
 
-Run by CI on every pull request (`.github/workflows/hygiene.yml`). It judges
-the `seal/threads/<id>/routing.md` naming the pull request's branch and every
-one its own commits add or change. One that reached the branch inside another
-pull request's squash was judged at that pull request and is named, not
-judged (`carried_by`). The arms are nine:
+Run by CI on every pull request (`.github/workflows/owlery-seal.yml`). It
+judges the `seal/threads/<id>/routing.md` naming the pull request's branch and
+every one its own commits add or change. One that reached the branch inside
+another pull request's squash was judged at that pull request and is named,
+not judged (`carried_by`). The arms are nine:
 
   trailer       on every pull request, a declaration or none: each
                 `Seal-Routing` trailer of the pull request's own commits
@@ -125,7 +125,7 @@ Usage:
 check before the commit; CI never passes it. `--sealing` is the broad gate's
 own run, before it writes `trail/gate.md` and the sealer `guarantee.md`: those
 two arms and the guarantee's `original:` line print and do not fail.
-`--post` sends the check's outcome to GitHub as the check `Owlery seal` on
+`--post` sends the check's outcome to GitHub as the check `seal` on
 the payload's `pull_request.head.sha`, with the token of `GITHUB_TOKEN`
 (`post`). `outcome` is the one reading of that outcome: its conclusion and
 title, and the exit code below. A request GitHub refuses is a notice and
@@ -1868,12 +1868,12 @@ def guarantee(reader, root, item, base, notices=None, behind=None):
                 said.line,
                 f"the sealer's verdict reads `{line}`: a ready pull request needs "
                 f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
-                'names something to fix, fix it and start "Get a seal" again '
-                "in Owlery. The question of an `undecided` verdict is decided "
-                "by Owlery's orchestrator agent, or answered in Owlery where "
-                "it parked the work item. Owlery's daemon then runs the broad "
-                "gate and the sealer's stage on the new head, and each appends "
-                "its block",
+                "names something to fix, fix it and start the chain again, in "
+                "the pane's session or by Owlery's daemon. The question of an "
+                "`undecided` verdict is decided by the pane's session or by "
+                "Owlery's orchestrator agent, or answered by the person. The chain "
+                "then runs the broad gate and the sealer's stage on the new "
+                "head, and each appends its block",
             )
         )
     judge = newest.fields.get(FIELDS.JUDGED_BY)
@@ -2329,8 +2329,8 @@ def retired(reader, root, fork, records):
 
 # What `judge` found, which `outcome` reads: whether the check ran, whether
 # it judged a work item, the refusals, whether a refusal fails the pull
-# request, whether the guarantee arm refused, the sealed commit of each
-# judged work item whose seal is broken, the newest verdict block of each
+# request, whether the guarantee arm refused, the newest verdict block of
+# each judged work item whose seal is broken, the newest verdict block of each
 # judged work item as `newest_verdict` gives it, and the sentence that says
 # why nothing was judged or why the check stopped. A seal is broken where
 # the newest verdict block reads `sealed` and the rounds arm, the gate arm
@@ -2463,8 +2463,8 @@ def judge(args):
     # The judged work items whose declaration reads, which the body arm
     # chooses its one work item from.
     bodied = []
-    # Whether the guarantee arm refused, and the sealed commit of each work
-    # item whose seal is broken, which `outcome` tells apart.
+    # Whether the guarantee arm refused, and the newest verdict block of each
+    # work item whose seal is broken, which `outcome` tells apart.
     unsealed, broken = False, []
     for rel in declarations:
         item = os.path.dirname(rel)
@@ -2523,7 +2523,7 @@ def judge(args):
             behind.extend(closing)
         newest = newest_verdict(root, item) if behind else None
         if newest and FIELDS.verdict_word(newest[1]) == FIELDS.SEALED:
-            broken.append(newest[1].fields[FIELDS.TARGET].match["commit"])
+            broken.append(newest[1])
     text, said = (None, BODY_WORKTREE) if WORKTREE else pull_request_body()
     found, unread_body = body(root, bodied, text, said)
     notices.extend(unread_body)
@@ -2551,14 +2551,18 @@ def judge(args):
     return Judged(True, True, problems, strict, unsealed, broken, verdicts, "")
 
 
-# The check `--post` sends, and its title for each outcome.
-CHECK_NAME = "Owlery seal"
+# The check `--post` sends, and its title for each outcome. A seal and a
+# broken seal have a title that names the owl chain, for verdict blocks the
+# owl chain wrote, and one that names no chain.
+CHECK_NAME = "seal"
 POST = "--post"
 SUCCESS, FAILURE, NEUTRAL = "success", "failure", "neutral"
 COULD_NOT_RUN_TITLE = "The seal check could not run"
 NOT_JUDGED_TITLE = "Not judged: no work item is declared"
 SEALED_TITLE = "Sealed at {commits}"
+OWL_CHAIN_SEALED_TITLE = "Sealed by the owl chain at {commits}"
 BROKEN_TITLE = "Seal broken: a commit landed after {commits}"
+OWL_CHAIN_BROKEN_TITLE = "Seal of the owl chain broken: a commit landed after {commits}"
 NO_SEAL_TITLE = "No seal at the head commit"
 REFUSED_TITLE = "The records are refused"
 DRAFT_TITLE = "Draft: judged when it is ready"
@@ -2580,31 +2584,43 @@ def outcome(judged):
     broken seal's sealed commit where a seal is broken, and otherwise by
     whether the guarantee arm refused. With none the check passes, titled
     with each judged work item's sealed commit, or as not judged where it
-    judged none."""
+    judged none. The title of a seal and of a broken seal names the owl
+    chain where every verdict block it names is one the owl chain wrote
+    (`by_owl_chain`)."""
     if not judged.ran:
         return Outcome(2, FAILURE, COULD_NOT_RUN_TITLE)
     if judged.problems and not judged.strict:
         return Outcome(0, NEUTRAL, DRAFT_TITLE)
     if judged.problems and judged.broken:
-        commits = shortened(judged.broken)
-        return Outcome(1, FAILURE, BROKEN_TITLE.format(commits=", ".join(commits)))
+        commits = ", ".join(sealed_commits(judged.broken))
+        title = OWL_CHAIN_BROKEN_TITLE if by_owl_chain(judged.broken) else BROKEN_TITLE
+        return Outcome(1, FAILURE, title.format(commits=commits))
     if judged.problems:
         title = NO_SEAL_TITLE if judged.unsealed else REFUSED_TITLE
         return Outcome(1, FAILURE, title)
-    sealed = shortened(
-        block.fields[FIELDS.TARGET].match["commit"]
-        for _rel, block, _lines in judged.verdicts
-    )
+    blocks = [block for _rel, block, _lines in judged.verdicts]
+    sealed = sealed_commits(blocks)
     if not judged.judged or not sealed:
         return Outcome(0, SUCCESS, NOT_JUDGED_TITLE)
-    return Outcome(0, SUCCESS, SEALED_TITLE.format(commits=", ".join(sealed)))
+    title = OWL_CHAIN_SEALED_TITLE if by_owl_chain(blocks) else SEALED_TITLE
+    return Outcome(0, SUCCESS, title.format(commits=", ".join(sealed)))
 
 
-def shortened(commits):
-    """Each distinct commit of COMMITS by its first seven characters, in the
-    order they come, as a title names them."""
+def by_owl_chain(blocks):
+    """Whether the owl chain wrote each verdict block of BLOCKS: a block that
+    holds a `rules:` line is one it wrote, since the owl chain writes the
+    version of its rules there and the AgenticSeal plugin's sealer writes no
+    such line."""
+    return all(FIELDS.RULES in block.fields for block in blocks)
+
+
+def sealed_commits(blocks):
+    """The commit each verdict block of BLOCKS targets, each distinct one by
+    its first seven characters, in the order they come, as a title names
+    them."""
     seen = []
-    for commit in commits:
+    for block in blocks:
+        commit = block.fields[FIELDS.TARGET].match["commit"]
         if commit[:7] not in seen:
             seen.append(commit[:7])
     return seen
@@ -2650,7 +2666,7 @@ def head_commit():
 
 
 def post(result, judged, environ=None, opener=None):
-    """Sends RESULT as the check `Owlery seal` on the payload's head commit:
+    """Sends RESULT as the check `seal` on the payload's head commit:
     one `POST` to `<GITHUB_API_URL>/repos/<GITHUB_REPOSITORY>/check-runs`
     with the token of `GITHUB_TOKEN`. Returns None where GitHub took it, and
     the sentence of a notice where nothing was sent or GitHub refused it. The
@@ -2698,7 +2714,7 @@ def post(result, judged, environ=None, opener=None):
 
 def main(argv=None):
     """The check. Returns the exit code `outcome` gives, and with `--post`
-    sends the outcome as the check `Owlery seal`."""
+    sends the outcome as the check `seal`."""
     ap = argparse.ArgumentParser(
         prog="chain-check",
         description="At the pull request: the declared parties left the records "

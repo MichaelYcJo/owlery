@@ -4,15 +4,16 @@
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
 // above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place with "Get a seal",
-// which starts the work item's chain, with the work item's pull request
-// under it. The pool of terminal screens the window holds lives here, and so
+// person to allow are answered, and the seal's place with the sentence of
+// the work item's chain, with the work item's pull request under it. The
+// pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import type { HeadlessInfo, LedgerEntry, PaneKind, SealRecords, SessionInfo, WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
@@ -25,6 +26,7 @@ import {
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
+  chainSays,
   closeAsks,
   droppedText,
   GATE_HEAD,
@@ -44,6 +46,9 @@ import {
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
+  paneAccountChange,
+  newPaneMenu,
+  paneButtonTitle,
   paneMenu,
   type PaneMenuAct,
   paneTabs,
@@ -51,12 +56,9 @@ import {
   pullRequestFacts,
   pathTarget,
   recentKept,
-  refusedSeal,
   replayStep,
   repoNameOf,
   screenMoves,
-  sealButton,
-  type SealRefusal,
   sealShown,
   type ScreenTurns,
   screenTurns,
@@ -68,6 +70,10 @@ import {
   webTarget,
   withHeadless,
   withoutHeadless,
+  accountChoices,
+  offersAccounts,
+  tabAccount,
+  viewAccount,
 } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
@@ -106,14 +112,10 @@ let askDrawn: string | undefined;
 let answersRequest: number | undefined;
 // The address of the pull request the view shows, which a press of its row opens.
 let pullRequestUrl: string | undefined;
-// The request a press of "Get a seal" is waiting on, with its work item: the button stays off until the daemon answers.
-let sealRequest: { requestId: number; workItemId: number } | undefined;
 // What the window last read of a broad gate's output (./view, `GateOutput`), which stands under the line of the run it was read of.
 let gateRead: GateOutput | null = null;
 // The request a press of "Show output" is waiting on, with the work item and the run whose line was pressed.
 let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
-// The daemon's refusal of the last "Get a seal", and the work item it refused it for.
-let sealRefused: { workItemId: number; refusal: SealRefusal } | undefined;
 // Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
 let backFront = false;
 // What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
@@ -130,6 +132,8 @@ let mac = false;
 let openWorkItem: (workItemId: number) => void = () => {};
 // What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
 let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
+// What stands before a pane of a work item opens: it calls `open` at once, or after the person answered what the window asks first, which is the chain of the repository's Claude Code panes.
+let beforePane: (workItemId: number, kind: PaneKind, open: () => void) => void = (_workItemId, _kind, open) => open();
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.
@@ -159,6 +163,7 @@ const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
+const askAccount = byId<HTMLSelectElement>("ask-account");
 const headlessList = byId<HTMLUListElement>("headless");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
@@ -166,16 +171,20 @@ const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
-const getSeal = byId<HTMLButtonElement>("get-seal");
 const sealHead = byId("view-seal-head");
 const sealWhy = byId("view-seal-why");
 // The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
 const viewSeal = sealPlace("view", null);
 const sealSays = byId("seal-says");
-const sealRefusal = byId("seal-refusal");
 const pullRequestSection = byId("view-pull-request");
 const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
+const paneAccountDialog = byId<HTMLDialogElement>("pane-account-dialog");
+const paneAccountMenu = byId<HTMLSelectElement>("pane-account-menu");
+const paneAccountError = byId("pane-account-error");
+const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
+/** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
+let accountChange: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
 
@@ -184,13 +193,54 @@ function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
 }
 
+/** The account a menu of a new session's account names, by its id, or nothing for its first choice, which leaves the session to its work item's. A hidden menu names none. */
+function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
+  return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
+}
+
+/** The account a work item gives its new sessions where they name none: its own, else its repository's, else the default. */
+function givenAccount(workItem: WorkItem): number {
+  const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
+  return workItem.accountId ?? repository?.accountId ?? held.accounts?.defaultId ?? SYSTEM_DEFAULT_ID;
+}
+
+/**
+ * Fills the menu of a new headless session's account beside the "Ask"
+ * field for the work item, keeping the choice it held where that is still an
+ * account, and hides it where there is no account to choose. Gives each
+ * button that opens a pane the tooltip that says where it has a menu of
+ * accounts (./view, `newPaneMenu`).
+ */
+function showAccountMenus(workItem: WorkItem): void {
+  const accounts = held.accounts;
+  const offered = offersAccounts(accounts);
+  for (const button of paneButtons.querySelectorAll<HTMLButtonElement>("button[data-kind]")) {
+    const kind = held.paneKinds.find((offeredKind) => offeredKind.kind === button.dataset.kind);
+    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, accounts, givenAccount(workItem)).length > 0);
+  }
+  askAccount.hidden = !offered;
+  if (!accounts || !offered) {
+    askAccount.replaceChildren();
+    delete askAccount.dataset.choices;
+    return;
+  }
+  const kept = askAccount.value;
+  const choices = accountChoices(accounts, "The work item's", givenAccount(workItem));
+  // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
+  const key = JSON.stringify([workItem.id, choices]);
+  if (askAccount.dataset.choices === key) return;
+  askAccount.dataset.choices = key;
+  askAccount.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
+  askAccount.value = choices.some((choice) => choice.value === kept) ? kept : "";
+}
+
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
-function look(property: string): string {
+export function look(property: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
 }
 
 /** The colours a terminal draws its own text and ground in, as the theme in use has them. */
-function terminalColours(): { background: string; foreground: string; cursor: string } {
+export function terminalColours(): { background: string; foreground: string; cursor: string } {
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 
@@ -398,7 +448,10 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
       if (text !== "" && turns.pane === pane) term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
-  else if (chosen === "close") {
+  else if (chosen === "account") {
+    const session = held.sessions.find((listed) => listed.id === pane);
+    if (session) openAccountChange(session);
+  } else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) closePane(session);
   } else if (chosen === "clear") {
@@ -426,7 +479,8 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
   menu.setAttribute("role", "menu");
   menu.tabIndex = -1;
   const buttons: HTMLButtonElement[] = [];
-  for (const item of paneMenu(mac, screen.term.hasSelection())) {
+  const shown = held.sessions.find((listed) => listed.id === screen.turns.pane);
+  for (const item of paneMenu(mac, screen.term.hasSelection(), shown !== undefined && accountOffer(shown) !== null)) {
     if (item === null) {
       const rule = document.createElement("div");
       rule.setAttribute("role", "separator");
@@ -641,6 +695,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
   }
   // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
   if (asking !== undefined && !listed.has(asking)) closeDialog.close();
+  if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -659,20 +714,41 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`. */
-function start(kind: PaneKind, continueLatest: boolean): void {
-  if (held.viewing === undefined) return;
-  send({ type: "start", kind, ...startSize(), requestId: request(), workItemId: held.viewing, ...(continueLatest ? { continueLatest: true } : {}) });
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, under `accountId` where one is given and otherwise under the work item's, once `beforePane` lets it open. */
+function start(kind: PaneKind, continueLatest: boolean, accountId: number | null = null): void {
+  const workItemId = held.viewing;
+  if (workItemId === undefined) return;
+  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...(accountId === null ? {} : { accountId }) }));
 }
 
-/** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
+/**
+ * Builds, once per connection, the view's button for each choice the kinds
+ * of pane the daemon offers give. A press opens the pane under the account
+ * the work item gives. A secondary click, a press of the right button or
+ * with the Control key, opens the button's menu of accounts where it has one
+ * (./view, `newPaneMenu`), and the item chosen opens that one pane under its
+ * account.
+ */
 export function showPaneButtons(): void {
   paneButtons.replaceChildren(
     ...paneChoices(held.paneKinds).map(({ kind, text, hint, continueLatest }) => {
       const button = document.createElement("button");
       button.textContent = text;
-      if (hint !== null) button.title = hint;
+      button.dataset.kind = kind;
+      if (hint !== null) {
+        button.title = hint;
+        button.dataset.hint = hint;
+      }
       button.addEventListener("click", () => start(kind, continueLatest));
+      button.addEventListener("contextmenu", (event) => {
+        const workItem = viewed();
+        const items = workItem ? newPaneMenu(held.paneKinds.find((offered) => offered.kind === kind), held.accounts, givenAccount(workItem)) : [];
+        if (items.length === 0) return;
+        event.preventDefault();
+        openItemMenu(`Accounts to open ${text.replace(/^\+ /, "")} under`, items, { x: event.clientX, y: event.clientY }, (action) => {
+          if (action.do === "pane") start(kind, continueLatest, action.accountId);
+        }, () => button);
+      });
       return button;
     }),
   );
@@ -767,6 +843,7 @@ function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
+  showAccountMenus(workItem);
   const lines = headlessLines(held.headless, workItem);
   const gate = gateLine(workItem, gateRead);
   const key = headlessKey(workItem.id, lines, gate);
@@ -915,11 +992,9 @@ function sendAnswers(): void {
 /**
  * Draws the view's foot for the view's work item: the seal's place and its
  * words for the seal its branch's head holds (./view, `sealShown`), with
- * the seal's sentence under its head where the seal is broken, and
- * "Get a seal" (./view, `sealButton`): the button where the daemon sent the
- * work item's chain, in its words for that seal, the chain's sentence above
- * it and the daemon's refusal of the last press under it, while the chain
- * stands as it stood at that refusal.
+ * the seal's sentence under its head where the seal is broken, and the
+ * sentence of the work item's chain (./view, `chainSays`) under them. The
+ * foot holds nothing to press.
  */
 function showSeal(workItem: WorkItem): void {
   drawSeal(viewSeal, workItem.seal);
@@ -927,13 +1002,7 @@ function showSeal(workItem: WorkItem): void {
   sealHead.textContent = shown.words;
   // The daemon's sentence is plain text, never markup.
   sealWhy.textContent = shown.why;
-  const button = sealButton(workItem, sealRequest?.workItemId === workItem.id, sealRefused?.workItemId === workItem.id ? sealRefused.refusal : null);
-  getSeal.textContent = button.words;
-  getSeal.hidden = !button.offered;
-  getSeal.disabled = !button.enabled;
-  getSeal.title = button.title;
-  sealSays.textContent = button.says;
-  sealRefusal.textContent = button.refusal;
+  sealSays.textContent = chainSays(workItem);
 }
 
 /**
@@ -977,32 +1046,6 @@ function showPullRequest(workItem: WorkItem): void {
   byId("pull-request-failure").textContent = facts.failure;
 }
 
-/** Asks the daemon to start the chain of the work item whose view is on screen, as a press of "Get a seal" does. The daemon answers `done` once the chain has started, and the `inbox` that follows carries it. */
-function askSeal(): void {
-  const workItem = viewed();
-  // One request per answer: a second press before the daemon has answered would ask for a second start.
-  if (!workItem || sealRequest !== undefined || !sealButton(workItem, false, null).enabled) return;
-  sealRequest = { requestId: request(), workItemId: workItem.id };
-  send({ type: "getSeal", requestId: sealRequest.requestId, workItemId: workItem.id });
-  showSeal(workItem);
-}
-
-/**
- * Takes the daemon's answer to a press of "Get a seal", `refusal` being its
- * refusal or null for `done`, and answers whether the request was that
- * press's. A refusal is shown under the button, with the button on again,
- * and is kept with the chain as the window holds it at the answer.
- */
-export function takeSeal(requestId: number, refusal: string | null): boolean {
-  if (requestId !== sealRequest?.requestId) return false;
-  const { workItemId } = sealRequest;
-  sealRefused = refusal === null ? undefined : { workItemId, refusal: refusedSeal(held.workItems.find((item) => item.id === workItemId), refusal) };
-  sealRequest = undefined;
-  const workItem = viewed();
-  if (workItem) showSeal(workItem);
-  return true;
-}
-
 /**
  * Takes the daemon's answer to the section's request, `refusal` being its
  * refusal or null for `done`, and answers whether the request was the
@@ -1038,6 +1081,49 @@ function closePane(session: SessionInfo): void {
   closeDialog.showModal();
 }
 
+/** What the window offers before a pane's account changes (./view, `paneAccountChange`), the pane named as its tab names it. */
+function accountOffer(session: SessionInfo): ReturnType<typeof paneAccountChange> {
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const label = tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null);
+  return paneAccountChange(session, label, held.paneKinds, held.accounts);
+}
+
+/** Opens the dialog that changes a running pane's account, which says before the change that a turn under way is cut, with the first account the pane can change to chosen. */
+function openAccountChange(session: SessionInfo): void {
+  const offer = accountOffer(session);
+  if (!offer || paneAccountDialog.open) return;
+  accountChange = { pane: session.id, requestId: undefined };
+  byId("pane-account-head").textContent = offer.heading;
+  byId("pane-account-says").textContent = offer.says;
+  paneAccountMenu.replaceChildren(...offer.choices.map(({ value, label }) => new Option(label, value)));
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = false;
+  paneAccountDialog.showModal();
+  paneAccountMenu.focus();
+}
+
+/** Sends the change the dialog chose. One request per answer: the dialog's button stays off until the daemon answers. */
+function sendAccountChange(): void {
+  if (!accountChange || paneAccountMenu.value === "") return;
+  const requestId = request();
+  accountChange.requestId = requestId;
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = true;
+  send({ type: "changeAccount", requestId, id: accountChange.pane, accountId: Number(paneAccountMenu.value) });
+}
+
+/** Takes the daemon's answer to the dialog's change, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it with its button on again. */
+export function takeAccountChange(requestId: number, refusal: string | null): boolean {
+  if (accountChange === undefined || accountChange.requestId !== requestId) return false;
+  accountChange.requestId = undefined;
+  if (refusal === null) paneAccountDialog.close();
+  else {
+    paneAccountError.textContent = refusal;
+    paneAccountSubmit.disabled = false;
+  }
+  return true;
+}
+
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
@@ -1051,6 +1137,9 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
+  // The pane's account, where it is another than the one its work item gives, stands after its label.
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const accountName = workItem ? tabAccount(session, workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "";
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -1064,7 +1153,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     showView();
   });
   close.addEventListener("click", () => closePane(session));
-  tab.append(label, close);
+  tab.append(label, ...(accountName === "" ? [] : [part("account", accountName)]), close);
   return tab;
 }
 
@@ -1171,7 +1260,7 @@ export function showView(): void {
   viewFactsTitle.textContent = line.title;
   showState(viewState, line.state, since);
   viewFactList.replaceChildren(
-    ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
+    ...viewFacts(entry, held.paneKinds, now, offersAccounts(held.accounts) ? viewAccount(workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "").flatMap(({ label, value }) => {
       const term = document.createElement("dt");
       term.textContent = label;
       const said = document.createElement("dd");
@@ -1214,8 +1303,6 @@ export function enterView(workItemId: number, pane?: number): void {
   // A prompt typed for one work item is not asked in another.
   if (askingIn !== workItemId) askField.value = "";
   askingIn = workItemId;
-  // A press whose answer never came, as where the daemon ended first, holds the button off no longer.
-  sealRequest = undefined;
   held.viewing = workItemId;
   front = undefined;
   // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
@@ -1263,7 +1350,7 @@ function ask(): void {
   // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
   if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
   askRequest = request();
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value });
+  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value, ...chosenAccount(askAccount) });
 }
 
 /** Takes a headless session the daemon sent, `requestId` being the request it answers where it answers one. */
@@ -1312,8 +1399,9 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void, before: (workItemId: number, kind: PaneKind, open: () => void) => void): void {
   leave = onLeave;
+  beforePane = before;
   mac = isMac;
   openWorkItem = openView;
   reverseDecision = reverse;
@@ -1347,7 +1435,6 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     { capture: true },
   );
   byId("view-seal-place").replaceWith(viewSeal);
-  getSeal.addEventListener("click", askSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
   });
@@ -1370,6 +1457,15 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.
   closeDialog.addEventListener("close", () => screenOf(front)?.term.focus());
+  byId("pane-account-cancel").addEventListener("click", () => paneAccountDialog.close());
+  byId<HTMLFormElement>("pane-account-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendAccountChange();
+  });
+  paneAccountDialog.addEventListener("close", () => {
+    accountChange = undefined;
+    screenOf(front)?.term.focus();
+  });
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
     // The panes come in front, side by side or not, in place of the back.

@@ -19,12 +19,10 @@
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { routingText } from "../src/daemon/chain";
 import { MARKER } from "../src/daemon/records-place";
-import { gateText } from "../src/daemon/seal-records";
-import type { LedgerEntry, ServerMessage, WorkItem } from "../src/shared/protocol";
+import type { ServerMessage, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { closeFinding, commitAll, commitSeal, guaranteeWith, roundRecord, TODAY, write } from "./chain-run";
+import { chainEntry, commitSeal, commitSealedAfterAFix } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
 /** The work items of the case, and the folder of each one's records. */
@@ -36,56 +34,6 @@ const LATER = { title: "Tidy the changelog" };
 /** The symptom of the sealed work item's finding, and the subject of the commit that breaks its seal, each with a word in backticks. */
 const SYMPTOM = "The greeting in `feature.txt` misses its full stop";
 const BREAKING = "feat: add `later`";
-
-/**
- * Commits in a worktree on the work item's branch the records of a chain
- * that sealed it after one fix, each in a commit of its own as a chain
- * commits them: the routing, round 1 on the routing's commit with finding 1
- * at `feature.txt:1`, its symptom `SYMPTOM`, the commit that fixes it, the fix pass's close of the
- * finding with that commit, round 2 on the commits after round 1's target,
- * which confirms the fix, the broad gate's run on round 2's commit against
- * `base`, and a seal of that commit. Gives the commit that fixed the
- * finding.
- */
-function commitSealedAfterAFix(folder: string, given: { workItem: string; branch: string; base: string }): string {
-  const directory = `seal/threads/${given.workItem}`;
-  const record = `${directory}/trail/rounds/round-1.md`;
-  write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
-  const routed = commitAll(folder, "chore: declare the work item's routing");
-  const round1 = roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`, [1]);
-  const heading = "### 1. The greeting of line 1 misses its full stop\n";
-  if (!round1.includes(heading)) throw new Error("round 1's record holds no finding 1 to give the symptom");
-  write(folder, record, round1.replace(heading, `### 1. ${SYMPTOM}\n`));
-  commitAll(folder, "chore: record review round 1");
-  write(folder, "feature.txt", "A greeting.\n");
-  const fix = commitAll(folder, "fix: end the greeting");
-  closeFinding(folder, record, 1, `fixed ${fix}`);
-  const passed = commitAll(folder, "chore: record the fix pass of round 1");
-  write(folder, `${directory}/trail/rounds/round-2.md`, roundRecord(`# Review round 2: ${given.workItem}`, `${passed}, fixes ${routed}..${passed}`, [], ["round-1#1"]));
-  const gate = commitAll(folder, "chore: record review round 2");
-  write(folder, `${directory}/trail/gate.md`, gateText(null, given.workItem, { head: gate, base: given.base }));
-  commitAll(folder, "chore: record the broad gate's run");
-  write(folder, `${directory}/guarantee.md`, guaranteeWith(null, given.workItem, 1, `${gate} against main`));
-  commitAll(folder, "chore: record the sealer's verdict");
-  return fix;
-}
-
-/** One entry of the ledger for a stage of the sealed work item's chain, which reported a converted cost of $0.28 where it is an agent's turn. */
-function entry(workItem: WorkItem, kind: NonNullable<LedgerEntry["chain"]>["kind"], round: number, at: number): LedgerEntry {
-  const turn = kind !== "gate";
-  return {
-    workItemId: workItem.id,
-    repo: workItem.repo,
-    branch: workItem.branch,
-    stage: kind === "gate" ? { role: null, stage: "gate" } : kind === "fix-pass" ? { role: "crafter", stage: "fix-pass" } : kind === "seal" ? { role: "sealer", stage: "seal" } : { role: "proofer", stage: "round" },
-    chain: { kind, round },
-    startedAt: at,
-    endedAt: at + 4 * 60_000,
-    state: "finished",
-    stopped: null,
-    usage: turn ? { costUsd: 0.28, converted: true, models: [{ model: "stand-in", inputTokens: 12_300, outputTokens: 2_100, cacheReadTokens: 48_000, cacheWriteTokens: 9_200, costUsd: 0.28 }] } : null,
-  };
-}
 
 describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
   let app: BuiltApp;
@@ -143,7 +91,7 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     // The daemon runs the CLI at its start, to read its version, and starts no session of it here.
     const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
     // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
     await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
@@ -168,11 +116,11 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     })) as [WorkItem, WorkItem, WorkItem];
 
     const base = git(made.repo, "rev-parse", "HEAD").trim();
-    fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: sealed.branch, base });
+    fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: sealed.branch, base, symptom: SYMPTOM });
     // The ledger's lines of the sealed work item's chain, in the order its stages ended, each after the work item was made.
     const at = Date.now();
     const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["seal", 2]] as const;
-    appendFileSync(join(app.userData, "run", "ledger.jsonl"), stages.map(([kind, round], place) => `${JSON.stringify(entry(sealed, kind, round, at + place * 5 * 60_000))}\n`).join(""), { mode: 0o600 });
+    appendFileSync(join(app.userData, "run", "ledger.jsonl"), stages.map(([kind, round], place) => `${JSON.stringify(chainEntry(sealed, kind, round, at + place * 5 * 60_000))}\n`).join(""), { mode: 0o600 });
     commitSeal(broken.worktree, { workItem: BROKEN.records, branch: broken.branch, base });
     brokenBy = commitFile(broken.worktree, "avatars.ts");
 

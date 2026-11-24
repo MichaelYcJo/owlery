@@ -1,4 +1,4 @@
 {
   "name": "owlery",
-  "description": "The roles an Owlery role session takes: the proofer, the crafter, the sealer and the orchestrator, each with the rules it works under."
+  "description": "The roles of the owl chain: the proofer, the crafter, the sealer and the orchestrator, each with the rules it works under, and how a pane's session runs the chain."
 }

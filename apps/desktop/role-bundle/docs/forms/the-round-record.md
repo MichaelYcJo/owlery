@@ -1,12 +1,14 @@
 # What a review round leaves
 
-The proofer's answer is this record, the daemon writes and commits it, the
+The proofer's answer is this record, Owlery writes and commits it, the
 crafter closes its findings, and
 `skills/code-review/scripts/chain_check.py` reads it at the pull request.
+Owlery is the daemon in a chain the daemon runs, and the chain command in a
+chain a pane's session runs.
 
 ## The round record
 
-**A round is one file, and its text is the proofer's.** The proofer answers with the record, from `templates/records/sdd-round.md`, and the daemon writes that answer unchanged to `seal/threads/<id>/trail/rounds/round-N.md` in the work item's worktree and commits it: a `seal` block holding its `target:` line, then `## Findings` with one `### <n>. <symptom>` section per finding, `## Confirmations` where the round confirmed something, `## Not judged` and `## Probes`. A finding holds one `seal` block of its fields, why it matters with its grounds, the paste-ready fix in a fenced block, and, once it is closed, its close block. The record is written in words, and no
+**A round is one file, and its text is the proofer's.** The proofer answers with the record, from `templates/records/sdd-round.md`, and Owlery writes that answer unchanged to `seal/threads/<id>/trail/rounds/round-N.md` in the work item's worktree and commits it: a `seal` block holding its `target:` line, then `## Findings` with one `### <n>. <symptom>` section per finding, `## Confirmations` where the round confirmed something, `## Not judged` and `## Probes`. A finding holds one `seal` block of its fields, why it matters with its grounds, the paste-ready fix in a fenced block, and, once it is closed, its close block. The record is written in words, and no
 emoji stands anywhere in it. No report file stands beside it and nothing
 generates, copies or derives any part of it.
 check: tests/skills/test_chain_check.py tests/text/test_the_record_is_written_in_words.py
@@ -18,7 +20,7 @@ check: tests/skills/test_chain_check.py
 (fix, or say why not); no script decides on the word, and the agents judge
 it. What this round confirmed holds is a `confirms:` entry of
 `## Confirmations`, and what it could not judge a row of `## Not judged`
-with who answers it; neither is a finding. A wrong sentence an agent reads and acts on is `should`, and so is a wrong line of a work item's own record that a script reads or copies: a line the check reads, a row `seal unverified` reads, or a line Owlery's daemon copies into the pull request's body: the changelog, a finding's heading with its close's verdict, the newest verdict block of `guarantee.md`, the newest run of `trail/gate.md`, or a decision's words. A sentence of a record that restates another record's fact and has drifted from it is a finding, answered by removing the copy and citing the home, never by correcting the copy; one that has not drifted is no finding, since no template holds a place for a copy (`docs/layout/the-record-layout.md` *seal/threads/<work-item-id>/*). A sentence in a record that merely reads badly is not a finding.
+with who answers it; neither is a finding. A wrong sentence an agent reads and acts on is `should`, and so is a wrong line of a work item's own record that a script reads or copies: a line the check reads, a row `seal unverified` reads, or a line Owlery copies into the pull request's body: the changelog, a finding's heading with its close's verdict, the newest verdict block of `guarantee.md`, the newest run of `trail/gate.md`, or a decision's words. A sentence of a record that restates another record's fact and has drifted from it is a finding, answered by removing the copy and citing the home, never by correcting the copy; one that has not drifted is no finding, since no template holds a place for a copy (`docs/layout/the-record-layout.md` *seal/threads/<work-item-id>/*). A sentence in a record that merely reads badly is not a finding.
 check: tests/skills/test_chain_check.py
 
 **A finding's `location:` names where the defect shows, and a `fixed` commit
@@ -95,13 +97,13 @@ check: tests/skills/test_chain_check.py
 
 **Each finding's close block has one writer, and the blocks written at one step reach the branch in a single commit.** A finding a fix pass answers is the pass's to close: it writes the close block last, after
 its fix commits and the corrections its sweep made, because a `fixed`
-verdict names a commit that is already there, and it commits neither. The
-daemon reads the round record in the worktree as the pass left it and
-commits it, once for the whole pass, before it launches the verifying
-round, which can read only what a commit holds. It commits the record only
+verdict names a commit that is already there, and it commits neither.
+Owlery reads the round record in the worktree as the pass left it and
+commits it, once for the whole pass, before the verifying round starts,
+which can read only what a commit holds. It commits the record only
 where it differs from the committed one by close blocks alone, and it edits
-no line of it. The daemon writes no close block: a finding that no fix pass
+no line of it. Owlery writes no close block: a finding that no fix pass
 answers stays open. A second hand on a close block gives a reader nothing:
-made before the daemon's commit it leaves no trace in the history, and made
+made before Owlery's commit it leaves no trace in the history, and made
 after it the round pays one more record commit.
 check: tests/text/test_the_rules_have_one_owner.py tests/text/test_a_moved_rule_leaves_its_definition.py

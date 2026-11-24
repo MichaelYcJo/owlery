@@ -6,45 +6,40 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, UNAUTHORIZED, type Unread, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
-import type { RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
-import { agentEventFor, agentSaid } from "./agent-events";
+import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
+import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
 import { NOTHING_RECORDED, readChainRecords } from "./chain-records";
 import {
   type Ask,
-  BUILT_BY_TRAILER,
+  BASE_NAMED_IN_A_PANE,
+  BASE_RECORDED,
+  type ChainBase,
   CHAIN_STAGES_KEPT,
   ChainStop,
-  GATE_SUBJECT,
   OPEN_PULL_REQUEST,
   ORCHESTRATOR,
   PARKED_SAYS,
   READING_SAYS,
-  REFUSALS_FILE,
   ROUNDS_CEILING,
-  ROUNDS_FOLDER,
   SEALER,
   SEAL_RULING_SUBJECT,
   UNDECIDED_CEILING,
-  VERDICT_SUBJECT,
   type RefusedCall,
   type StagePrompt,
   type StageRefusals,
   StageStopped,
   type Standing,
   type Step,
-  asksOf,
+  baseOf,
   ceilingSays,
   chainStoppedSays,
   convergenceDecided,
   convergenceOf,
   convergencePrompt,
-  fixPassPrompt,
-  fixPassRecord,
-  fixedCommitsHeld,
   gateBefore,
   gateNotRunSays,
   inFolder,
@@ -58,47 +53,48 @@ import {
   pullRequestCarriesSays,
   pullRequestOpenSays,
   pullRequestOwed,
-  refusalsText,
+  recordedBase,
   roundBase,
-  roundFile,
-  roundPrompt,
-  roundRecordOf,
-  routingText,
   rulingPrompt,
   rulingsOf,
   runningSays,
-  sealPrompt,
   sealedSays,
   standingOf,
   stepOwed,
   stoppedSays,
   undecidedAsk,
   undecidedParked,
+  whyNoBase,
   withheldSays,
 } from "./chain";
-import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withApplied, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
+import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
+import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
-import { planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
+import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
 import { type Held, RepositoryStore, type StoredRepository } from "./repositories";
 import { writeRecordFile } from "./record-writer";
-import { THE_SESSION, isSessionId } from "./record-blocks";
+import { SessionLogWatch } from "./session-log";
+import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
 import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
-import { GATE_FILE, GUARANTEE_FILE, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, diffBetween, fileAt, holdsCommit, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, slugFor, trailerValues, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, fileAt, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
+
+/** The text of a session's state where the person interrupted its turn. */
+const INTERRUPTED_TEXT = "The turn was interrupted, and the agent waits for what to do next.";
 
 /** The first `STATE_TEXT_CHARS` characters of a text, less a half of a character the cut would leave at its end. */
 function cutText<T extends string | null>(text: T): T | string {
@@ -144,6 +140,12 @@ const END_WAIT_MS = 3000;
 
 /** How long a headless session may work, from its start, before the daemon stops it, where the options name no time. */
 export const HEADLESS_LIMIT_MS = 60 * 60_000;
+
+/** How long a refresh of an account's usage may run, from its start, before the daemon stops it, where the options name no time. */
+export const REFRESH_LIMIT_MS = 60_000;
+
+/** What the session of a refresh is given: a prompt that asks for nothing, since only the limit values its stream hands over are read. */
+export const REFRESH_PROMPT = "Reply with the single word OK.";
 
 /** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
 export const HEADLESS_KEPT = 50;
@@ -210,17 +212,32 @@ export interface PaneCommand {
   env: Record<string, string>;
 }
 
+/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none, the main checkout of the work item's repository, the chain the person chose for that repository's Claude Code panes, or null where they gave no answer, the config folder of the pane's account, or null where the account has none, as System default has none, and the config folder the pane's agent reads: the account's, or under System default the default login's as the adapter last found it, and null while it has found none. */
+export interface PaneStart {
+  continueLatest: boolean;
+  folder: string;
+  base: string | null;
+  checkout: string;
+  chosen: ChainChoice | null;
+  accountDir: string | null;
+  configDir: string | null;
+  /** The id of the conversation a pane resumes, given only where a pane's account is changed and its hook events carried one. */
+  resume?: string;
+}
+
 export interface DaemonOptions {
   token: string;
   /** The kinds of pane a client may open, as `ready` offers them. */
   paneKinds: readonly PaneKindInfo[];
-  /** The command of a new pane of that kind, given the pane's id and whether the pane starts on the latest conversation of its folder. */
-  commandFor: (kind: PaneKind, id: number, start: { continueLatest: boolean }) => PaneCommand;
+  /** The command of a new pane of that kind, given the pane's id and what its start holds. */
+  commandFor: (kind: PaneKind, id: number, start: PaneStart) => PaneCommand;
   /** The command of a setup pane, given the command a repository's `.worktreesetup` holds and the pane's id; `setupPaneCommand` of the daemon's environment when absent. */
   setupCommandFor?: (command: string, id: number) => PaneCommand;
+  /** Whether Claude Code enables the AgenticSeal plugin for a session in a folder of a repository, given the folder, the repository's main checkout and the config folder the session reads, which is null while the adapter has found no default login's folder. A daemon given none reads no settings of the person's, and tells a client that no repository has the plugin enabled. */
+  pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all six are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all seven are in memory alone. */
   runDir?: string;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -242,10 +259,14 @@ export interface DaemonOptions {
   readyWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
+  /** How long the watch of a working pane's session log waits for a log that does not stand yet; `SESSION_LOG_WAIT_MS` of `session-log.ts` when absent. */
+  sessionLogWaitMs?: number;
   /** How long the daemon waits for the processes of the panes it ended to exit, and for the headless runs it stopped to end, before it refuses what ended them where a pane's has not; 3 seconds when absent. */
   endWaitMs?: number;
   /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. */
   headlessLimitMs?: number;
+  /** How long a refresh of an account's usage may run, from its start, before the daemon stops it; `REFRESH_LIMIT_MS` when absent. */
+  refreshLimitMs?: number;
   /** How many of the headless sessions that ended the daemon keeps, apart from the ones still working; `HEADLESS_KEPT` when absent. */
   keptHeadless?: number;
   /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
@@ -281,11 +302,27 @@ interface Session {
   output: OutputBuffer;
   /** The wait for the first event of a pane whose kind reports state. That event, the pane's end and the daemon's close each cancel it. */
   silentStart: NodeJS.Timeout | undefined;
-  /** Settled once the pane's process has exited. */
+  /** The watch of the session log a working pane's latest event named, where the pane's agent writes an interruption no hook tells. Its state's leaving `working`, the pane's end, its close and the daemon's close each end it. */
+  log: SessionLogWatch | undefined;
+  /** Whether the daemon's log has said that the pane's session log is not read: it says so once a pane. */
+  logUnread: boolean;
+  /** Whether the session's state began where the person interrupted its turn. */
+  interrupted: boolean;
+  /** Settled once the pane's latest process has exited. */
   exited: Promise<void>;
   /** Whether the daemon ended the pane's process, at a close, an archive, a removal or a delete. */
   ended: boolean;
+  /** The folder the pane's process runs in, and the size a client last gave it, with which a process that takes its place starts. */
+  cwd: string;
+  size: { cols: number; rows: number };
+  /** The id of the latest conversation the pane's hook events carried, where it is a UUID, which a change of the pane's account resumes. */
+  conversation: string | undefined;
+  /** Whether the daemon is ending the pane's process for a change of its account, so its end is no end of the pane. */
+  replacing: boolean;
 }
+
+/** The form of a conversation's id, which alone is put on a command line. */
+const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface HeadlessSession {
   info: HeadlessInfo;
@@ -312,6 +349,8 @@ interface HeadlessSession {
   branch: string;
   /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started, which its entry of the ledger names. */
   chain: LedgerEntry["chain"];
+  /** The account the session was launched under, by its id and its name as they stood at its start, which its entry of the ledger names, or null for a session launched under none, through an adapter that declares no accounts. */
+  account: { id: number; name: string } | null;
   /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
 }
@@ -342,6 +381,9 @@ export class Daemon {
   private nextId = 1;
   // The headless sessions, by an id counted apart from the panes'. They live in memory alone.
   private readonly headless = new Map<number, HeadlessSession>();
+  // The last refresh of each account's usage since the daemon started, by the account's id, and what stops each one that runs.
+  private readonly refreshes = new Map<number, AccountRefresh>();
+  private readonly refreshStops = new Map<number, () => Promise<void>>();
   private nextHeadlessId = 1;
   // The ids of the permission requests that wait for the person, counted across every session since the daemon started.
   private nextPermissionId = 1;
@@ -349,6 +391,8 @@ export class Daemon {
   private readonly endedHeadless = new Set<number>();
   private idleTimer: NodeJS.Timeout | undefined;
   private readonly store: RepositoryStore;
+  // The logins of the person's agent and the default one.
+  private readonly accounts: AccountStore;
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
@@ -375,6 +419,8 @@ export class Daemon {
   private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; seal: Seal | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
   private readonly records = new Map<number, RecordsPlace>();
+  /** Which chain each repository's Claude Code panes would run, as `readRecords` last read it, by the repository's id. */
+  private readonly paneChains = new Map<number, { owl: boolean; plugin: boolean }>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
@@ -411,6 +457,11 @@ export class Daemon {
 
   constructor(private readonly options: DaemonOptions) {
     this.store = new RepositoryStore(options.runDir, options.now);
+    this.accounts = new AccountStore(options.runDir);
+    // A setting that names an account the daemon keeps none of, as one whose account left the file, is cleared, so the
+    // next one above is taken and an account added later under that id takes no setting it was never given.
+    for (const repository of this.store.repositories()) if (repository.accountId !== null && !this.accounts.holds(repository.accountId)) this.store.setRepository(repository.id, { accountId: null });
+    for (const { item } of this.store.workItems()) if (item.accountId !== null && !this.accounts.holds(item.accountId)) this.store.setWorkItem(item.id, { accountId: null });
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
@@ -449,19 +500,26 @@ export class Daemon {
    * the person among it. An event that asks a question leaves the session
    * waiting. An event that leaves the state as it was changes none of them.
    * Any event ends the pane's silent start, an event the daemon maps to no
-   * neutral one among them.
+   * neutral one among them. An event that leaves the session working starts
+   * the watch of the session log its `transcript_path` names, where no watch
+   * of that log reads, and every other ends the watch.
    */
   agentEvent(paneId: number, hookName: string, payload: Record<string, unknown>): void {
     const session = this.sessions.get(paneId);
     clearTimeout(session?.silentStart);
+    // The conversation a change of the pane's account resumes, from any event that names one.
+    if (session && typeof payload.session_id === "string" && CONVERSATION_ID.test(payload.session_id)) session.conversation = payload.session_id;
     const event = agentEventFor(hookName);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
     if (!session || !this.reportsState(session.info.kind)) return;
     const said = agentSaid(hookName, payload);
-    const state = agentStateAfter(event, said.questions !== null);
+    const state = agentStateAfter(event, said.questions !== null, session.interrupted);
+    if (state === "working") this.followLog(session, payload.transcript_path);
+    else this.endLog(session);
     if (state === session.info.state) return;
+    session.interrupted = false;
     session.info.state = state;
     session.info.stateSince = state === null ? null : (this.options.now ?? Date.now)();
     session.info.stateText = cutText(said.text);
@@ -640,6 +698,7 @@ export class Daemon {
     clearTimeout(this.idleTimer);
     for (const session of this.sessions.values()) {
       clearTimeout(session.silentStart);
+      this.endLog(session);
       if (session.info.alive) session.terminal.kill();
     }
     // A run whose adapter is still starting is stopped once it has started, and the close does not wait for it.
@@ -650,6 +709,8 @@ export class Daemon {
       if (session.info.state === "working") this.enter(session, "failed", "daemon");
       if (session.run) stops.push(session.run.stop());
     }
+    for (const stop of this.refreshStops.values()) stops.push(stop());
+    this.refreshStops.clear();
     // A broad gate's command is ended as a stage's session is: its chain's run waits for the command's process, and the close waits for that run.
     for (const id of this.gates.keys()) {
       const stopping = this.stopGate(id, "daemon", "the daemon closed");
@@ -725,7 +786,7 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage() });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -742,9 +803,17 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `a pane of kind ${message.kind} continues no conversation` });
           return;
         }
+        let own: number | null;
+        try {
+          // The pane's own account, where it names one, System default among them.
+          own = this.accountSetting(message.accountId) ?? null;
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          return;
+        }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         if (worktree === undefined) return;
-        const info = this.startSession(socket, message, worktree, message.workItemId, continueLatest);
+        const info = this.startSession(socket, message, worktree, message.workItemId, continueLatest, own);
         // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
         this.send(socket, { type: "started", requestId: message.requestId, session: info });
         this.broadcastInbox();
@@ -838,22 +907,108 @@ export class Daemon {
       }
       case "setRepository": {
         try {
-          const { name, icon, defaultBase, hidden } = message;
+          const { name, icon, defaultBase, hidden, paneChain } = message;
           if ((name !== undefined && !isTextOrNull(name)) || (icon !== undefined && !isTextOrNull(icon)) || (defaultBase !== undefined && !isTextOrNull(defaultBase)) || (hidden !== undefined && typeof hidden !== "boolean")) {
             throw new Error("a repository's name, its icon and its base are each a text or null, and whether it is hidden is true or false");
           }
+          if (paneChain !== undefined && paneChain !== null && paneChain !== "owlery" && paneChain !== "plugin") throw new Error('the chain of a repository\'s Claude Code panes is "owlery", "plugin" or null');
           // An empty name and an empty icon are none: the repository is then named by its folder, and shows no icon.
           const trimmed = (text: string | null | undefined): string | null | undefined => (typeof text === "string" ? text.trim() || null : text);
           const character = trimmed(icon);
           if (typeof character === "string" && characters(character) > 1) throw new Error("An icon is one character.");
-          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden });
+          const accountId = this.accountSetting(message.accountId);
+          const was = this.store.repository(message.id)?.accountId;
+          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden, paneChain, accountId });
           if (changed === undefined) throw new Error(`no repository ${String(message.id)}`);
+          // The repository's chain is read in the folder of its account, so another account reads it again.
+          const stored = this.store.repository(message.id);
+          const read = stored !== undefined && stored.accountId !== was && this.readRecords(stored);
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });
-          if (changed) this.broadcastInbox();
+          if (changed || read) this.broadcastInbox();
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
+        return;
+      }
+      case "addAccount": {
+        try {
+          const { name, folder } = message as { name: unknown; folder: unknown };
+          if (typeof name !== "string" || (typeof folder !== "string" && folder !== undefined)) throw new Error("An account is added with a name, and the absolute path of its folder where the person hands one over.");
+          const { logins } = this.options.roleAdapter;
+          if (folder === undefined && logins === undefined) throw new Error("This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder.");
+          // The store refuses an empty name and any folder but one that stands and is no account's yet, in its own words.
+          if (folder !== undefined) this.accounts.addHanded(name, folder, this.options.roleAdapter.name);
+          // A folder the daemon makes is given the person's own names now, where the adapter knows them, and again before each launch under it.
+          else logins?.furnish(this.accounts.addMade(name, this.options.roleAdapter.name).folder);
+          // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          this.broadcastAccounts();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "setDefaultAccount": {
+        try {
+          const { id } = message as { id: unknown };
+          if (typeof id !== "number") throw new Error("The default account is named by its id.");
+          const changed = this.accounts.setDefault(id);
+          // A repository set to no account takes the default, so its chain is read again in the new default's folder. Every repository is read, so `some` is not what gathers the answers.
+          const read = changed ? this.store.repositories().filter((repository) => repository.accountId === null).map((repository) => this.readRecords(repository)) : [];
+          // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastAccounts();
+          if (read.includes(true)) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "renameAccount": {
+        try {
+          const { id, name } = message as { id: unknown; name: unknown };
+          if (typeof id !== "number" || typeof name !== "string") throw new Error("An account is renamed by its id and a name.");
+          // The store refuses an empty name, System default and an id it keeps no account under, in its own words.
+          const changed = this.accounts.rename(id, name);
+          // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (changed) this.broadcastAccounts();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
+      case "removeAccount": {
+        void this.removeAccount(socket, message);
+        return;
+      }
+      case "signIn": {
+        void this.signIn(socket, message);
+        return;
+      }
+      case "changeAccount": {
+        void this.changeAccount(socket, message);
+        return;
+      }
+      case "refreshUsage": {
+        void this.refreshUsage(socket, message);
+        return;
+      }
+      case "readSignIn": {
+        const read = async (): Promise<void> => {
+          try {
+            const { id } = message as { id: unknown };
+            if (typeof id !== "number") throw new Error("An account is named by its id.");
+            const changed = await this.readLogin(this.loginsOf(id).account);
+            // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+            this.send(socket, { type: "done", requestId: message.requestId });
+            if (changed) this.broadcastAccounts();
+          } catch (error) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          }
+        };
+        void read();
         return;
       }
       case "removeRepository": {
@@ -897,6 +1052,7 @@ export class Daemon {
             // The repository's own folder is not touched here, whatever was chosen.
             this.store.removeRepository(repository.id);
             this.records.delete(repository.id);
+            this.paneChains.delete(repository.id);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the removal.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
@@ -970,7 +1126,8 @@ export class Daemon {
           // A work item stands in a group of its own repository, and in no other's.
           const held = this.store.workItem(message.id);
           if (typeof groupId === "number" && held && !held.repository.groups.some((group) => group.id === groupId)) throw new Error(`Group ${String(groupId)} is no group of the work item's repository.`);
-          const changed = this.store.setWorkItem(message.id, { pinned, muted, groupId });
+          const accountId = this.accountSetting(message.accountId);
+          const changed = this.store.setWorkItem(message.id, { pinned, muted, groupId, accountId });
           if (changed === undefined) throw new Error(`no work item ${String(message.id)}`);
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });
@@ -1024,7 +1181,7 @@ export class Daemon {
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the answers.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
-            // The answers left the record with no open question, so a chain they parked runs the step it owes. Its start waits where a `getSeal`'s does.
+            // The answers left the record with no open question, so a chain they parked runs the step it owes. Its start waits where `startChain`'s does.
             if (this.store.workItem(workItemId)?.item.chain?.state === "parked") this.changing = this.changing.then(() => this.resumeChain(workItemId));
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
@@ -1240,6 +1397,7 @@ export class Daemon {
         // Off the lists first, so the process's end is told to nobody as a session's.
         this.sessions.delete(message.id);
         clearTimeout(session.silentStart);
+        this.endLog(session);
         session.ended = true;
         if (session.info.alive) session.terminal.kill();
         this.broadcastInbox();
@@ -1266,31 +1424,19 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `the ${this.options.roleAdapter.name} adapter cannot launch a role: it does not declare ${lacks.join(" and ")}` });
           return;
         }
+        let own: number | null;
+        try {
+          // The session's own account, where it names one, System default among them.
+          own = this.accountSetting(message.accountId) ?? null;
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+          return;
+        }
         const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
         const held = this.store.workItem(message.workItemId);
         if (worktree === undefined || held === undefined) return;
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
-        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
-        return;
-      }
-      case "getSeal": {
-        const start = async (): Promise<void> => {
-          try {
-            const { workItemId } = message as { workItemId: unknown };
-            if (typeof workItemId !== "number") throw new Error("a seal is asked for a work item");
-            // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
-            const worktree = this.worktreeFor(socket, message.requestId, workItemId);
-            if (worktree === undefined) return;
-            await this.beginChain(workItemId, worktree, true);
-            // The answer first, so the client that asked knows its request was carried out when the inbox carries the chain.
-            this.send(socket, { type: "done", requestId: message.requestId });
-            this.broadcastInbox();
-          } catch (error) {
-            this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-          }
-        };
-        // A chain commits in the worktree and finds its records by the branch's name, so its start waits behind the creations, the renames of a branch and the deletes. The chain itself does not hold them back.
-        this.changing = this.changing.then(start);
+        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, own, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
         return;
       }
       case "stopHeadless": {
@@ -1410,6 +1556,7 @@ export class Daemon {
         const session = this.sessions.get(message.id);
         // A window fits the screen it shows an exited pane on. The pseudo-terminal of a process that exited is closed, and a size set on it throws.
         if (session?.info.alive) session.terminal.resize(message.cols, message.rows);
+        if (session && typeof message.cols === "number" && typeof message.rows === "number") session.size = { cols: message.cols, rows: message.rows };
         return;
       }
       default:
@@ -1428,6 +1575,308 @@ export class Daemon {
     // A person can remove a worktree's folder by hand, and a process cannot start in it.
     if (!existsSync(workItem.worktree)) return `the folder of work item ${workItem.id} is gone: ${workItem.worktree}`;
     return null;
+  }
+
+  /** The account a request sets, as it named it: nothing where it named none, null for none, or the id of an account the daemon keeps. It throws, with a sentence, for any other value and for an id the daemon keeps no account under. */
+  private accountSetting(value: unknown): number | null | undefined {
+    if (value === undefined || value === null) return value;
+    if (typeof value !== "number") throw new Error("An account is named by its id, or null for none.");
+    if (!this.accounts.holds(value)) throw new Error(`No account ${String(value)} is kept.`);
+    return value;
+  }
+
+  /**
+   * The config folders a launch under an account is given: the account's
+   * own, or null for an account with none, as System default has none, or
+   * where no account is named; and the folder the agent then reads, which is
+   * the account's, or the default login's as the adapter last found it, and
+   * null while it has found none.
+   */
+  private foldersOf(accountId: number | null): { accountDir: string | null; configDir: string | null } {
+    const accountDir = accountId === null ? null : (this.accounts.account(accountId)?.folder ?? null);
+    return { accountDir, configDir: accountDir ?? this.options.roleAdapter.defaultLoginFolder?.() ?? null };
+  }
+
+  /** The account of an id and the adapter's part of accounts, for a request that signs the account in or reads its login. It throws, with a sentence, for System default, an id the daemon keeps no account under, and an adapter that signs no account in. */
+  private loginsOf(id: number): { account: StoredAccount; logins: AccountLogins } {
+    if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} is signed in with the agent in a terminal of your own.`);
+    const account = this.accounts.account(id);
+    if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+    const { logins } = this.options.roleAdapter;
+    if (logins === undefined) throw new Error("This agent signs no account in here.");
+    return { account, logins };
+  }
+
+  /** Asks the adapter's agent whether a login stands in an account's folder, keeps its word, and answers whether the word is another than the store held. It rejects, with the agent's sentence, where the agent could not say, and with the store's where the account was removed while the agent answered. */
+  private async readLogin(account: StoredAccount): Promise<boolean> {
+    const { logins } = this.loginsOf(account.id);
+    const status = await logins.status(account.folder);
+    return this.accounts.setLogin(account.id, status);
+  }
+
+  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a working headless session, and a refresh of its usage. */
+  private runningUnder(id: number): string[] {
+    const titleOf = (workItemId: number | null): string => (workItemId === null ? "" : (this.store.workItem(workItemId)?.item.title ?? ""));
+    const panes = [...this.sessions.values()]
+      .filter(({ info }) => info.alive && info.accountId === id)
+      .map(({ info }) => (info.signsIn === id ? "its sign-in pane" : `the ${this.options.paneKinds.find((offered) => offered.kind === info.kind)?.label ?? info.kind} pane in "${titleOf(info.workItemId)}"`));
+    const headless = [...this.headless.values()].filter(({ info }) => info.state === "working" && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
+    return [...panes, ...headless, ...(this.refreshes.get(id)?.state === "running" ? ["a refresh of its usage"] : [])];
+  }
+
+  /**
+   * Removes an account at a request: refused while anything runs under it,
+   * then, for a folder the daemon made, the folder is signed out through the
+   * adapter's agent and removed, and every setting that named the account is
+   * cleared. The repositories whose account that changes have their chain
+   * read again, as a change of their setting has. Something that started
+   * under the account while its folder was signed out refuses the removal,
+   * and the account stays, signed out.
+   */
+  private async removeAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "removeAccount" }>): Promise<void> {
+    try {
+      const { id } = message as { id: unknown };
+      if (typeof id !== "number") throw new Error("An account is named by its id.");
+      if (id === SYSTEM_DEFAULT_ID) throw new Error(`${SYSTEM_DEFAULT_NAME} is never removed.`);
+      const account = this.accounts.account(id);
+      if (account === undefined) throw new Error(`No account ${String(id)} is kept.`);
+      const refused = (running: string[]): Error => new Error(`"${account.name}" is not removed while something runs under it: ${running.join("; ")}.`);
+      if (this.runningUnder(id).length > 0) throw refused(this.runningUnder(id));
+      if (account.made) {
+        const { logins } = this.options.roleAdapter;
+        // A folder the daemon made was signed in through the adapter, and is signed out the same way before it goes, so no login of it is left behind.
+        if (logins === undefined) throw new Error("This agent signs no account out here, so the account's folder stays.");
+        await logins.signOut(account.folder);
+        if (this.runningUnder(id).length > 0) throw refused(this.runningUnder(id));
+        if (this.accounts.account(id) !== account) throw new Error(`No account ${String(id)} is kept.`);
+      }
+      const defaultChanged = this.accounts.remove(id);
+      const cleared = this.store.repositories().filter((repository) => repository.accountId === id);
+      for (const repository of cleared) this.store.setRepository(repository.id, { accountId: null });
+      for (const { item } of this.store.workItems()) if (item.accountId === id) this.store.setWorkItem(item.id, { accountId: null });
+      // A repository set to no account takes the default, so where the default was this account those are read again too.
+      for (const repository of this.store.repositories()) if (cleared.some((was) => was.id === repository.id) || (defaultChanged && repository.accountId === null)) this.readRecords(repository);
+      // The answer first, so the client that asked knows its request was carried out when the accounts and the lists carry the change.
+      this.send(socket, { type: "done", requestId: message.requestId });
+      this.broadcastAccounts();
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Starts an account's sign-in pane at a request, in the account's folder and under it, and answers with `started`. */
+  private async signIn(socket: WebSocket, message: Extract<ClientMessage, { type: "signIn" }>): Promise<void> {
+    try {
+      const { id, cols, rows } = message as { id: unknown; cols: unknown; rows: unknown };
+      if (typeof id !== "number" || typeof cols !== "number" || typeof rows !== "number") throw new Error("A sign-in is asked for an account's id, with the size of its pane.");
+      const { account, logins } = this.loginsOf(id);
+      if ([...this.sessions.values()].some(({ info }) => info.alive && info.signsIn === id)) throw new Error(`A sign-in of "${account.name}" is open already.`);
+      const command = await logins.signIn(account.folder);
+      if (this.accounts.account(id) !== account) throw new Error(`No account ${String(id)} is kept.`);
+      const info = this.startSession(socket, { kind: "shell", cols, rows }, account.folder, null, false, null, () => command, id);
+      // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
+      this.send(socket, { type: "started", requestId: message.requestId, session: info });
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** An account's name, System default's among them, or its id where the daemon keeps none under it. */
+  private accountNamed(id: number): string {
+    return id === SYSTEM_DEFAULT_ID ? SYSTEM_DEFAULT_NAME : (this.accounts.account(id)?.name ?? String(id));
+  }
+
+  /**
+   * Changes the account of a pane whose process runs, at a request: the
+   * daemon gives the new account's folder the names it lacks, ends the
+   * pane's process and waits for its exit, and starts the agent in the same
+   * pane under the new account, on the conversation the pane's hook events
+   * last named, as a new pane of the work item would be launched now. The
+   * pane keeps its id, its tab and what it printed, and nothing the old
+   * process's events left. It is refused, with its reason and nothing
+   * ended, for a headless session, a sign-in pane, a pane whose kind
+   * resumes no conversation, as a shell's, a pane that runs under no account
+   * or whose process ended, an account the daemon does not keep or the one
+   * the pane runs under, where the two accounts' folders do not keep
+   * the same conversations, in which the new one would not find the pane's,
+   * and while a change of the pane waits already. It starts nothing where
+   * the old process has not exited within the wait an archive takes, which
+   * then ends the pane when it exits, and where the pane was closed, its
+   * work item archived or removed, the daemon closed or the new account
+   * removed while the old process ended.
+   */
+  private async changeAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "changeAccount" }>): Promise<void> {
+    try {
+      const { id, accountId, headless } = message as { id: unknown; accountId: unknown; headless?: unknown };
+      if (typeof id !== "number" || typeof accountId !== "number") throw new Error("A change of account names the pane and the account.");
+      if (headless === true) throw new Error("A session asked in a work item keeps the account it started under. Ask again under the other account.");
+      const session = this.sessions.get(id);
+      if (!session) throw new Error(`No pane ${String(id)} is open.`);
+      const { info } = session;
+      if ((info.signsIn ?? null) !== null) throw new Error("A sign-in pane runs under the account it signs in.");
+      if (this.options.paneKinds.find((offered) => offered.kind === info.kind)?.continues !== true) throw new Error("A shell keeps the environment it started with, so its account is not changed. Open a new pane under the other account.");
+      const from = info.accountId ?? null;
+      const held = info.workItemId === null ? undefined : this.store.workItem(info.workItemId);
+      if (from === null || held === undefined) throw new Error("The pane runs under no account.");
+      if (!info.alive) throw new Error("The pane's process has ended, so it has nothing to move to another account.");
+      // One change at a time: a second change while the first waits would start a second process on the conversation.
+      if (session.replacing) throw new Error("The pane's account is being changed already.");
+      const to = this.accountSetting(accountId) as number;
+      if (to === from) throw new Error(`The pane runs under "${this.accountNamed(to)}" already.`);
+      // The new folder is given the person's names first, its link to the conversations among them.
+      this.furnish(to);
+      const kept = this.conversationsOf(from);
+      if (kept === null || kept !== this.conversationsOf(to)) throw new Error(`"${this.accountNamed(from)}" and "${this.accountNamed(to)}" do not keep the same conversations, so the pane's conversation would not be found under "${this.accountNamed(to)}".`);
+      session.replacing = true;
+      session.terminal.kill();
+      // The wait is bounded as an archive's is, so a process that ignores its hangup leaves no request unanswered.
+      let waitTimer: NodeJS.Timeout | undefined;
+      const exitedInTime = await Promise.race([session.exited.then(() => true), new Promise<boolean>((resolve) => (waitTimer = setTimeout(() => resolve(false), this.options.endWaitMs ?? END_WAIT_MS)))]);
+      clearTimeout(waitTimer);
+      session.replacing = false;
+      // The process ends the pane when it exits, as any end of it does.
+      if (!exitedInTime) throw new Error("The pane's process did not end in time, so its account was not changed. The pane ends once its process exits.");
+      // What ended the pane while its process ended: its close, an archive or a removal of its work item, whose end its exit reported, or the daemon's close.
+      if (this.closed || session.ended || this.sessions.get(id) !== session) throw new Error("The pane was closed before its account changed.");
+      if (!this.accounts.holds(to)) {
+        // The account was removed while the process ended: the pane stays ended under its own account and says why.
+        this.standsEnded(session, `\r\n[the pane could not start: no account ${String(to)} is kept]\r\n`);
+        throw new Error(`No account ${String(to)} is kept.`);
+      }
+      // Nothing of the old process stays on the pane: its state, its interruption and a log it could not read.
+      Object.assign(info, { accountId: to, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
+      session.interrupted = false;
+      session.logUnread = false;
+      const { repository } = held;
+      try {
+        const launch = this.options.commandFor(info.kind, id, { continueLatest: false, folder: session.cwd, base: this.paneBase(held.item.id), checkout: repository.folder, chosen: repository.paneChain ?? null, ...this.foldersOf(to), ...(session.conversation === undefined ? {} : { resume: session.conversation }) });
+        session.terminal = this.spawnPane(launch, session.cwd, session.size);
+      } catch (error) {
+        this.standsEnded(session, `\r\n[the pane could not start under "${this.accountNamed(to)}": ${error instanceof Error ? error.message : String(error)}]\r\n`);
+        throw error;
+      }
+      info.alive = true;
+      this.watchProcess(session);
+      // The answer first, so the client that asked knows the change was carried out when the inbox names the new account.
+      this.send(socket, { type: "done", requestId: message.requestId });
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /** Leaves a pane whose process ended for a change of its account ended, with the sentence `said` of why in what it printed, and tells every client. */
+  private standsEnded(session: Session, said: string): void {
+    session.output.append(said);
+    this.sendOutput(session.info.id, said);
+    this.broadcastInbox();
+    this.checkIdle();
+  }
+
+  /** Gives the folder of an account the daemon made the person's names it lacks, through the adapter, before a launch under it: nothing for System default, for no account, for a folder handed over and for an adapter that declares no accounts or signs none in. */
+  private furnish(accountId: number | null): void {
+    const account = accountId === null ? undefined : this.accounts.account(accountId);
+    if (account?.made && this.options.roleAdapter.features.includes("accounts")) this.options.roleAdapter.logins?.furnish(account.folder);
+  }
+
+  /** Sends every client the accounts and the default one, after either changed. */
+  private broadcastAccounts(): void {
+    this.broadcast({ type: "accounts", ...this.accountsMessage() });
+  }
+
+  /** Where the agent keeps the conversations of an account's config folder, as the adapter reads it now, or null where it keeps none there and where the account has no folder, as System default before the adapter found one. */
+  private conversationsOf(accountId: number): string | null {
+    const { configDir } = this.foldersOf(accountId);
+    return configDir === null ? null : (this.options.roleAdapter.conversationsOf?.(configDir) ?? null);
+  }
+
+  /** The accounts as a message carries them: each with its refresh and where it keeps its conversations, read now, the default one, and whether the adapter refreshes usage. */
+  private accountsMessage(): { accounts: Account[]; defaultAccountId: number; refreshesUsage: boolean } {
+    return { accounts: this.accounts.listed((id) => this.refreshes.get(id) ?? null).map((account) => ({ ...account, conversations: this.conversationsOf(account.id) })), defaultAccountId: this.accounts.defaultId(), refreshesUsage: this.options.roleAdapter.features.includes("limit-refresh") };
+  }
+
+  /**
+   * Refreshes an account's usage at a request, the person's press: refused
+   * while something runs under the account, which hands over its values
+   * itself, and while a refresh of it runs. Otherwise the daemon starts one
+   * session through the adapter under the account, as a headless session of
+   * it would be launched but with no role and as a refresh, in the empty
+   * folder of its run folder, so no repository's file is read. It keeps the
+   * limit values the session hands over, and ends the session at its result
+   * or after `REFRESH_LIMIT_MS`. The refresh is no headless session of a
+   * work item, so it is listed with its account and gets no entry in the
+   * ledger.
+   */
+  private async refreshUsage(socket: WebSocket, message: Extract<ClientMessage, { type: "refreshUsage" }>): Promise<void> {
+    const now = this.options.now ?? Date.now;
+    let id: number;
+    let cwd: string;
+    const adapter = this.options.roleAdapter;
+    try {
+      const { id: named } = message as { id: unknown };
+      if (typeof named !== "number") throw new Error("A refresh of usage names the account.");
+      id = named;
+      if (!this.accounts.holds(id)) throw new Error(`No account ${String(id)} is kept.`);
+      if (!adapter.features.includes("limit-refresh")) throw new Error(`The ${adapter.name} adapter does not refresh an account's usage.`);
+      // Only an adapter that launches a session under an account's folder reads that account's usage; another reads its default login's.
+      if (id !== SYSTEM_DEFAULT_ID && !adapter.features.includes("accounts")) throw new Error(`The ${adapter.name} adapter launches no session under an account's folder, so it refreshes the usage of ${SYSTEM_DEFAULT_NAME} alone.`);
+      if (this.refreshes.get(id)?.state === "running") throw new Error(`The usage of "${this.accountNamed(id)}" is being refreshed already.`);
+      const running = this.runningUnder(id);
+      if (running.length > 0) throw new Error(`The usage of "${this.accountNamed(id)}" is not refreshed while something runs under it, which hands over its values itself: ${running.join("; ")}.`);
+      cwd = this.accounts.refreshFolder();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+      return;
+    }
+    const account = this.accounts.account(id);
+    const accountDir = account !== undefined && adapter.features.includes("accounts") ? account.folder : undefined;
+    this.furnish(id);
+    this.refreshes.set(id, { state: "running", startedAt: now() });
+    // The answer first, so the client that asked knows its request was carried out when the accounts carry the refresh.
+    this.send(socket, { type: "done", requestId: message.requestId });
+    this.broadcastAccounts();
+    let handed = 0;
+    let usage: Usage | null = null;
+    let run: RoleRun | undefined;
+    let ended = false;
+    const stopRun = (): Promise<void> => run?.stop() ?? Promise.resolve();
+    const end = (error: string | null): void => {
+      if (ended) return;
+      ended = true;
+      clearTimeout(limit);
+      this.refreshStops.delete(id);
+      void stopRun();
+      if (this.closed) return;
+      // No account is removed while its refresh runs (`runningUnder`), so the account still stands.
+      this.refreshes.set(id, { state: "ended", at: now(), handed, usage, error });
+      this.broadcastAccounts();
+    };
+    const limit = setTimeout(() => end("The refresh gave no result within a minute and was stopped."), this.options.refreshLimitMs ?? REFRESH_LIMIT_MS);
+    this.refreshStops.set(id, () => {
+      ended = true;
+      clearTimeout(limit);
+      return stopRun();
+    });
+    const onEvent = (event: RoleEvent): void => {
+      if (ended) return;
+      if (event.type === "limit") {
+        handed += 1;
+        this.accounts.setLimit(id, event, now());
+      } else if (event.type === "permission") run?.answer(event.id, { allow: false, reason: "A refresh of usage holds no tool." });
+      else if (event.type === "result") {
+        usage = event.usage;
+        end(event.isError ? event.text || "The refresh's session ended with an error." : null);
+      } else if (event.type === "exit") end(`The refresh's session exited with code ${String(event.exitCode)} and gave no result.`);
+    };
+    try {
+      run = await adapter.start({ prompt: REFRESH_PROMPT, cwd, refresh: true, ...(accountDir === undefined ? {} : { accountDir }) }, onEvent);
+      // A refresh that ended while the adapter was starting, at its limit or at the daemon's close, stopped no run.
+      if (ended) void run.stop();
+    } catch (error) {
+      end(error instanceof Error ? error.message : String(error));
+    }
   }
 
   /** The worktree of the work item a request names; where it has none to run in (`whyNoRun`), the request is answered with an error. */
@@ -1584,8 +2033,8 @@ export class Daemon {
     return stopping;
   }
 
-  /** Starts a headless session's run through the adapter, and keeps what its events say of it. */
-  private startHeadless(session: HeadlessSession, cwd: string): void {
+  /** Starts a headless session's run through the adapter, under the account's folder where one is given, and keeps what its events say of it. */
+  private startHeadless(session: HeadlessSession, cwd: string, accountDir: string | undefined): void {
     const { info } = session;
     const failed = (message: string): void => {
       info.state = "failed";
@@ -1593,6 +2042,12 @@ export class Daemon {
       this.headlessChanged(session);
     };
     const onEvent = (event: RoleEvent): void => {
+      // What a session says of its account's limit is kept whenever it says it, so an account that runs sessions shows its values with no refresh.
+      if (event.type === "limit") {
+        // A session launched under none ran under the default login, whose values these are.
+        if (this.accounts.setLimit(session.account?.id ?? SYSTEM_DEFAULT_ID, event, (this.options.now ?? Date.now)())) this.broadcastAccounts();
+        return;
+      }
       if (event.type === "exit") {
         // A session that left the list is told to nobody again.
         if (this.headless.get(info.id) !== session) return;
@@ -1640,7 +2095,7 @@ export class Daemon {
       info.answer = event.text;
       this.headlessChanged(session);
     };
-    session.started = this.options.roleAdapter.start({ prompt: session.prompt, cwd, ...(info.role ? { role: info.role } : {}) }, onEvent).then(
+    session.started = this.options.roleAdapter.start({ prompt: session.prompt, cwd, ...(info.role ? { role: info.role } : {}), ...(accountDir === undefined ? {} : { accountDir }) }, onEvent).then(
       (run) => {
         // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
         if (this.closed || info.state !== "working") void run.stop();
@@ -1672,15 +2127,27 @@ export class Daemon {
    * client that asked. The session keeps the repository's folder and the
    * branch as the store holds them now, and `chain`, the kind and the round
    * of the chain's stage it begins for or null for an `ask`, which its entry
-   * of the ledger names.
+   * of the ledger names. It runs under the account `accountFor` gives now
+   * from `own`, the session's own account or null where it names none, the
+   * work item's, the repository's and the default, and the adapter is given
+   * that account's folder where it has one. Through an adapter that does not
+   * declare `accounts` it runs under none: it is given no folder, carries no
+   * account and names none in its entry, and its limit values are kept as
+   * System default's.
    */
-  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, first?: (info: HeadlessInfo) => void): HeadlessSession {
+  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, own: number | null, first?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
     });
+    // Through an adapter that declares no accounts a session runs under the agent's default login whatever setting is nearest, so it is launched under none.
+    const accountId = this.options.roleAdapter.features.includes("accounts") ? accountFor(own, item, repository, this.accounts.defaultId()) : null;
+    // Undefined for System default, which has no folder, and for none.
+    const account = accountId === null ? undefined : this.accounts.account(accountId);
+    const accountDir = account?.folder;
+    this.furnish(accountId);
     const session: HeadlessSession = {
-      info: { id: this.nextHeadlessId++, workItemId: item.id, prompt: prompt.shown, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role },
+      info: { id: this.nextHeadlessId++, workItemId: item.id, prompt: prompt.shown, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role, accountId },
       prompt: prompt.given,
       run: undefined,
       started: Promise.resolve(undefined),
@@ -1693,13 +2160,14 @@ export class Daemon {
       repo: repository.folder,
       branch: item.branch,
       chain,
+      account: accountId === null ? null : { id: accountId, name: account?.name ?? SYSTEM_DEFAULT_NAME },
       entered: false,
     };
     session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
     this.headless.set(session.info.id, session);
     first?.(session.info);
     this.headlessChanged(session);
-    this.startHeadless(session, worktree);
+    this.startHeadless(session, worktree, accountDir);
     return session;
   }
 
@@ -1743,35 +2211,89 @@ export class Daemon {
     if (session.entered) return;
     session.entered = true;
     const { info } = session;
-    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, chain: session.chain, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage });
+    this.ledger.add({ workItemId: info.workItemId, repo: session.repo, branch: session.branch, stage: info.role, chain: session.chain, startedAt: info.startedAt, endedAt: (this.options.now ?? Date.now)(), state, stopped, usage: info.usage, account: session.account });
   }
 
-  /** Starts a pane's process in `cwd`, and sends its output to the client that asked for it. `continueLatest` is true only for a `start` that asked it of a kind that continues. `commandOf` gives the command of a pane that runs another than its kind's, as a setup pane does. */
-  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number, continueLatest = false, commandOf?: (id: number) => PaneCommand): SessionInfo {
+  /**
+   * The base a pane's environment names for the chain command: what round
+   * 1's target would name for the work item (`chain.ts#roundBase`), which is
+   * its base branch where the target line takes the name, and otherwise the
+   * commit it was cut at. Null where the work item records neither: a launch
+   * reads no head, and the chain command then asks for `--base`.
+   */
+  private paneBase(workItemId: number): string | null {
+    const item = this.store.workItem(workItemId)?.item;
+    return item === undefined ? null : roundBase(item.baseBranch, item.baseCommit, "") || null;
+  }
+
+  /**
+   * Starts a pane's process in `cwd`, and sends its output to the client that
+   * asked for it. `continueLatest` is true only for a `start` that asked it of
+   * a kind that continues. A pane of a kind that declares `accounts` runs
+   * under the account `accountFor` gives now from `own`, the pane's own
+   * account or null where it names none, the work item's, the repository's
+   * and the default, and its start names that account's folder. `commandOf`
+   * gives the command of a pane that runs another than its kind's, as a setup
+   * pane does, which runs under no account. A sign-in pane, `signsIn`, runs
+   * the command `commandOf` gives under the account it signs in, in no work
+   * item, and at its process's end the daemon reads the account's login. A
+   * launch under an account whose folder the daemon made gives that folder
+   * the person's names it lacks first.
+   */
+  private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null, continueLatest = false, own: number | null = null, commandOf?: (id: number) => PaneCommand, signsIn: number | null = null): SessionInfo {
     const id = this.nextId++;
-    const { command, args, env } = commandOf ? commandOf(id) : this.options.commandFor(pane.kind, id, { continueLatest });
-    const terminal = TerminalSession.spawn({
-      command,
-      args,
-      cwd,
-      cols: pane.cols,
-      rows: pane.rows,
-      env: { ...process.env, ...env },
-    });
-    let exited = (): void => {};
+    const held = workItemId === null ? undefined : this.store.workItem(workItemId);
+    const repository = held?.repository;
+    const accountId = signsIn ?? (commandOf || !held || !this.options.paneKinds.some((offered) => offered.kind === pane.kind && offered.accounts === true) ? null : accountFor(own, held.item, held.repository, this.accounts.defaultId()));
+    this.furnish(accountId);
+    const launch = commandOf ? commandOf(id) : workItemId === null ? undefined : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
+    // Only a pane that runs a command of its own opens in no work item.
+    if (launch === undefined) throw new Error("a pane opens in a work item");
+    const size = { cols: pane.cols, rows: pane.rows };
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
-      terminal,
+      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
+      terminal: this.spawnPane(launch, cwd, size, signsIn === null),
       output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
       silentStart: undefined,
-      exited: new Promise<void>((resolve) => {
-        exited = resolve;
-      }),
+      log: undefined,
+      logUnread: false,
+      interrupted: false,
+      exited: Promise.resolve(),
       ended: false,
+      cwd,
+      size,
+      conversation: undefined,
+      replacing: false,
     };
     this.sessions.set(id, session);
-    if (this.reportsState(pane.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
-    // What the session prints is kept for a replay and sent to the clients that receive the session.
+    this.watchProcess(session);
+    this.clients.get(socket)?.add(id);
+    this.checkIdle();
+    return session.info;
+  }
+
+  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
+  private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }, inherit = true): TerminalSession {
+    // A sign-in pane runs in the cleared environment its command names, as `auth status` and `auth logout` do; the terminal adds its own names.
+    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...process.env, ...env } : env });
+  }
+
+  /**
+   * Follows the pane's latest process: what it prints is kept for a replay
+   * and sent to the clients that receive the pane, and its end is the pane's
+   * end, which every client is told of. A process the daemon ended for a
+   * change of the pane's account ends nothing of the pane: the next process
+   * takes its place.
+   */
+  private watchProcess(session: Session): void {
+    const { terminal } = session;
+    const { id, workItemId } = session.info;
+    const signsIn = session.info.signsIn ?? null;
+    let exited = (): void => {};
+    session.exited = new Promise<void>((resolve) => {
+      exited = resolve;
+    });
+    if (this.reportsState(session.info.kind)) session.silentStart = setTimeout(() => this.silentStartOver(session), this.options.silentStartMs ?? SILENT_START_MS);
     const print = (data: string): void => {
       session.output.append(data);
       this.sendOutput(id, data);
@@ -1779,10 +2301,29 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
+      // A change of the account waits on this exit, unless the pane's close, an archive or a removal ended the pane meanwhile: then the exit is the pane's end.
+      if (session.replacing && !session.ended) {
+        clearTimeout(session.silentStart);
+        this.endLog(session);
+        exited();
+        return;
+      }
       // A setup ends with its pane's process, whether or not the pane is still listed.
-      const setupEnded = this.setupExited(workItemId, id, exitCode, signal, session.ended);
+      const setupEnded = workItemId !== null && this.setupExited(workItemId, id, exitCode, signal, session.ended);
+      // A sign-in ended, however it went, so the account's login is read again. A daemon that is closing reads nothing.
+      if (signsIn !== null && !this.closed) {
+        const account = this.accounts.account(signsIn);
+        if (account !== undefined)
+          void this.readLogin(account).then(
+            (changed) => {
+              if (changed) this.broadcastAccounts();
+            },
+            (error: unknown) => console.error(`the login of account ${String(signsIn)} was not read: ${error instanceof Error ? error.message : String(error)}`),
+          );
+      }
       exited();
       clearTimeout(session.silentStart);
+      this.endLog(session);
       // A closed pane is on no list, and its end is no client's news.
       if (this.sessions.get(id) === session) {
         // The exit line is the session's last output, so a replay of an exited session ends with it and no client writes one of its own.
@@ -1792,9 +2333,6 @@ export class Daemon {
       } else if (setupEnded) this.broadcastInbox();
       this.checkIdle();
     });
-    this.clients.get(socket)?.add(id);
-    this.checkIdle();
-    return session.info;
   }
 
   /**
@@ -1812,7 +2350,7 @@ export class Daemon {
     if (setup?.state === "running" && command !== null) {
       const commandFor = this.options.setupCommandFor ?? ((text: string, id: number) => setupPaneCommand(process.env, text, id));
       try {
-        const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, (id) => commandFor(command, id));
+        const info = this.startSession(socket, { kind: "shell", cols: size.cols, rows: size.rows }, cwd, workItemId, false, null, (id) => commandFor(command, id));
         recorded = { ...setup, paneId: info.id };
       } catch (error) {
         recorded = endedSetup(setup, { exitCode: null, failure: `The setup pane could not start: ${error instanceof Error ? error.message : String(error)}` }, (this.options.now ?? Date.now)());
@@ -1858,6 +2396,54 @@ export class Daemon {
     this.broadcastInbox();
   }
 
+  /**
+   * Watches the session log at `path` for a working pane, where no watch of
+   * that log reads: a watch of another log ends first. A path that is no
+   * text starts nothing, and leaves the watch that reads as it is. Each line
+   * the log gains is read for the entry of an interrupted turn, and nothing
+   * else of it is kept or sent.
+   */
+  private followLog(session: Session, path: unknown): void {
+    if (typeof path !== "string") return;
+    if (session.log?.open && session.log.path === path) return;
+    session.log?.end();
+    session.log = new SessionLogWatch(
+      path,
+      (line) => {
+        if (isInterruptionEntry(line)) this.interruptedTurn(session);
+      },
+      (error) => {
+        if (session.logUnread) return;
+        session.logUnread = true;
+        console.error(`the session log of pane ${String(session.info.id)} is not read, so its state is what its hook events say: ${error.message}`);
+      },
+      this.options.sessionLogWaitMs,
+    );
+  }
+
+  private endLog(session: Session): void {
+    session.log?.end();
+    session.log = undefined;
+  }
+
+  /**
+   * Lists as waiting a working pane whose session log gained the entry of an
+   * interrupted turn, with the interruption's text and no tool, and tells
+   * every client of the interruption as of an agent's event. The watch ends
+   * with the working state, so the pane is working here.
+   */
+  private interruptedTurn(session: Session): void {
+    this.endLog(session);
+    this.broadcast({ type: "agent", id: session.info.id, event: "interrupted", tool: null, at: Date.now() });
+    session.interrupted = true;
+    session.info.state = agentStateAfter("interrupted");
+    session.info.stateSince = (this.options.now ?? Date.now)();
+    session.info.stateText = INTERRUPTED_TEXT;
+    session.info.stateTool = null;
+    session.info.stateQuestions = null;
+    this.broadcastInbox();
+  }
+
   private tokenMatches(token: unknown): boolean {
     if (typeof token !== "string") return false;
     const given = Buffer.from(token);
@@ -1897,16 +2483,30 @@ export class Daemon {
   }
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
-  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null } };
+  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, paneChain, groups, accountId }: StoredRepository): Repository {
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
   }
 
-  /** Reads what a repository's main checkout holds of the records place, from its working tree, and answers whether it is another than was last read. */
-  private readRecords({ id, folder }: StoredRepository): boolean {
+  /**
+   * Reads what a repository's main checkout holds of the records place, from
+   * its working tree, and which chain its Claude Code panes would run there:
+   * whether the checkout is on the owl chain, and whether Claude Code enables
+   * the AgenticSeal plugin for it under the config folder of the account a
+   * new pane of the repository takes where neither the pane nor its work
+   * item names one. It answers whether any of it is another than was last
+   * read.
+   */
+  private readRecords(repository: StoredRepository): boolean {
+    const { id, folder } = repository;
     const read = readRecordsPlace(folder);
     const known = this.records.get(id) ?? { root: null, check: null, broadGate: null };
     this.records.set(id, read);
-    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate;
+    // Read under the account a new pane of the repository takes where neither the pane nor its work item names one.
+    const { configDir } = this.foldersOf(accountFor(null, { accountId: null }, repository, this.accounts.defaultId()));
+    const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder, configDir) ?? false };
+    const chained = this.paneChains.get(id) ?? { owl: false, plugin: false };
+    this.paneChains.set(id, chain);
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
   }
 
   /** The version the workflow of a setup fetches the check at. A daemon given none refuses the plan and the setup. */
@@ -2062,13 +2662,39 @@ export class Daemon {
   }
 
   /**
+   * Starts a work item's chain, and resolves once it has started and every
+   * client was sent the lists that carry it. No client message starts a
+   * chain: the daemon's own code calls this. It rejects with a sentence that
+   * says why, with nothing started and nothing written, for a work item
+   * nothing runs in (`whyNoRun`) and where `whyNoChain` gives a reason. A
+   * chain commits in the worktree and finds its records by the branch's
+   * name, so its start waits behind the creations, the renames of a branch
+   * and the deletes, and the chain itself does not hold them back.
+   * `byPerson` says that a person's word made the start (`beginChain`).
+   */
+  startChain(workItemId: number, byPerson: boolean): Promise<void> {
+    const started = this.changing.then(async () => {
+      // Nothing runs in a work item the daemon does not list, nor in an archived one, nor in one being deleted.
+      const gone = this.whyNoRun(workItemId);
+      if (gone !== null) throw new Error(gone);
+      const held = this.store.workItem(workItemId);
+      if (!held) throw new Error(`no work item ${String(workItemId)}`);
+      await this.beginChain(workItemId, held.item.worktree, byPerson);
+      this.broadcastInbox();
+    });
+    // A start that was refused holds back nothing that waits behind it.
+    this.changing = started.catch(() => undefined);
+    return started;
+  }
+
+  /**
    * Starts a work item's chain in its worktree, where `whyNoChain` gives no
    * reason against it, and throws that reason, with nothing started, where
    * it gives one. A person's word that is being written or committed in the
    * worktree lands first, so the first round's target holds it. The chain is
    * stored `running` with the stages of the starts before this one, which
    * say what ran, and its run begins in a later turn of the daemon's thread,
-   * after the caller has answered. `byPerson` says that a person's `getSeal`
+   * after the caller has answered. `byPerson` says that a person's word
    * made the start, which a chain stopped by the orchestrator's judgment or
    * at the ceiling of its rounds takes as the answer (`chain.ts#gateBefore`).
    */
@@ -2087,8 +2713,8 @@ export class Daemon {
    * Starts a parked chain again once the person's answers left the work
    * item's record with no open question: the chain runs the step its records
    * owe. Where nothing can start in the work item, or the start is refused
-   * as a `getSeal`'s would be, the chain is `stopped` with a sentence that
-   * says why, and a later `getSeal` starts it. A chain that is no longer
+   * as any start is (`whyNoChain`), the chain is `stopped` with a sentence
+   * that says why, and a later start runs it. A chain that is no longer
    * parked is left as it is.
    */
   private async resumeChain(workItemId: number): Promise<void> {
@@ -2106,8 +2732,8 @@ export class Daemon {
   }
 
   /**
-   * Why a chain cannot start for a work item `worktreeFor` gave a worktree
-   * of, as a sentence a window shows as it is, or null where it can. The
+   * Why a chain cannot start for a work item something can run in
+   * (`whyNoRun`), as a sentence a window shows as it is, or null where it can. The
    * first of these that holds is the reason: a chain of the work item is
    * running; a session of it is working; the worktree cannot take a commit
    * (`worktrees.ts#whyNoCommit`); it holds no records root; the `Broad gate`
@@ -2115,8 +2741,11 @@ export class Daemon {
    * round would be spent for nothing; two directories
    * of its records name the branch; it holds a change no commit holds, or an
    * untracked file, outside the work item's directory, and anywhere where
-   * the work item has no directory yet; the work item records no base
-   * commit; its branch holds no commit after it; the adapter cannot launch a
+   * the work item has no directory yet; the branch left the base its chain
+   * reads it against (`chain.ts#whyNoBase`), which is the base round 1's
+   * record names where one stands and the work item's stored base
+   * otherwise; the chain has no base commit; its branch holds no commit
+   * after it; the adapter cannot launch a
    * role; the work item's record holds an open question. It throws where
    * the record stands and cannot be read (`repository-file.ts#repositoryFileText`).
    * It writes nothing and starts nothing.
@@ -2124,9 +2753,9 @@ export class Daemon {
   private async whyNoChain(workItemId: number): Promise<string | null> {
     const held = this.store.workItem(workItemId);
     if (!held) return `no work item ${String(workItemId)}`;
-    const { worktree, branch, baseCommit } = held.item;
+    const { worktree, branch } = held.item;
     if (this.chains.has(workItemId)) return `The chain of work item ${String(workItemId)} is already running.`;
-    if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Get a seal once the session has finished.`;
+    if (this.works(workItemId)) return `A session of work item ${String(workItemId)} is working, and a round reads a tree nothing is changing. Its chain can start once the session has finished.`;
     const why = await whyNoCommit(worktree, branch);
     if (why !== null) return `Owlery cannot commit a record in the worktree now: ${why}.`;
     const root = rootOf(worktree);
@@ -2138,8 +2767,13 @@ export class Daemon {
     const inside = directory === undefined ? null : relative(worktree, directory);
     const loose = (await uncommittedPaths(worktree)).filter((path) => inside === null || !inFolder(path, inside));
     if (loose.length > 0) return `The worktree holds a change no commit holds, at ${loose[0] ?? ""}${loose.length > 1 ? ` and ${String(loose.length - 1)} more` : ""}. A round reads a committed tree: commit the change or remove it first.`;
-    if (baseCommit === null) return "The work item records no commit its branch was cut at, so a round has no base to read the branch against.";
-    const ahead = await newCommits(held.repository.folder, branch, baseCommit);
+    const head = await worktreeHead(worktree);
+    const recorded = directory === undefined ? null : await recordedBase(worktree, directory, head);
+    const base = await this.chainBase(held.item, directory ?? null, head);
+    const left = await whyNoBase(worktree, head, base, recorded === null ? BASE_NAMED_IN_A_PANE : BASE_RECORDED);
+    if (left !== null) return left;
+    if (base.commit === null) return "The work item records no commit its branch was cut at, so a round has no base to read the branch against.";
+    const ahead = await newCommits(held.repository.folder, branch, base.commit);
     if (ahead === null) return "Git could not count the commits the branch holds after its base.";
     if (ahead === 0) return "The branch holds no commit after its base, so a round has nothing to read.";
     const lacks = ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
@@ -2183,7 +2817,7 @@ export class Daemon {
    * A chain that rests or stops asks for the read of its branch
    * (`readBranchNow`), so the seal its stages committed reaches the window
    * without a wait of one interval.
-   * `byPerson` says that a person's `getSeal` started the run.
+   * `byPerson` says that a person's word started the run.
    */
   private async runChain(workItemId: number, byPerson: boolean): Promise<void> {
     const rest = (state: Chain["state"], says: string): void => {
@@ -2203,23 +2837,25 @@ export class Daemon {
         if (gone !== null) throw new ChainStop(gone);
         const held = this.store.workItem(workItemId);
         if (!held) return;
-        const { worktree, branch, baseBranch, baseCommit } = held.item;
+        const { worktree, branch } = held.item;
         const why = await whyNoCommit(worktree, branch);
         if (why !== null) throw new ChainStop(why);
         const directory = await this.chainDirectory(held);
         const head = await worktreeHead(worktree);
-        const standing = await standingOf(worktree, directory, head, roundBase(baseBranch, baseCommit, head), "worktree");
+        // The base follows the records: round 1's record names it once it stands, and the work item's stored base before that.
+        const base = await this.chainBase(held.item, directory, head);
+        const standing = await standingOf(worktree, directory, head, base.named, "worktree");
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
         // The step `sealed` owes the pull request stage where the routing sends the work to one and the stored pull request does not carry the head.
-        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step)) ?? sealedSays(step.round, step.at));
-        if (step.is === "gate") await this.runGate(held, directory, standing, step.round);
+        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step, base)) ?? sealedSays(step.round, step.at));
+        if (step.is === "gate") await this.runGate(held, directory, standing, step.round, base);
         else if (step.is === "seal") {
-          const withheld = await this.runSeal(held, directory, standing, step);
+          const withheld = await this.runSeal(held, directory, standing, step, base);
           if (withheld !== null) return rest("stopped", withheldSays(withheld));
         } else if (step.is === "round") {
-          const asks = await this.runRound(held, directory, standing, step);
+          const asks = await this.runRound(held, directory, standing, step, base);
           if (asks.length > 0) await this.runRuling(held, directory, standing.directory, "round", step.round, "proofer", asks);
         } else {
           const stages = this.store.workItem(workItemId)?.item.chain?.stages ?? [];
@@ -2252,79 +2888,39 @@ export class Daemon {
     }
   }
 
-  /**
-   * The work item's directory in its worktree, for a chain: the one whose
-   * `routing.md` names the branch. Where none does, it makes one,
-   * `<root>/threads/<seconds>-<slug>/`, from the daemon's clock in whole
-   * seconds and the slug of the branch's last part, writes its `routing.md`
-   * (`chain.ts#routingText`) through the writer of a work item's records and
-   * commits that file alone, so the first round's target holds it. It throws
-   * a `ChainStop` where two directories name the branch, where the worktree
-   * holds no records root, where the new directory's name is taken, and
-   * what the writer and the commit throw. A directory whose routing does not
-   * read as naming the branch, as for a branch's name with a `|` in it, is
-   * found by no later step, and the chain then stops on the taken name.
-   */
-  private async chainDirectory({ item }: Held): Promise<string> {
+  /** The work item's directory in its worktree, for a chain, made and committed with its `routing.md` where none names the branch (`stage-records.ts#declaredDirectory`), from the daemon's clock and in the worktree's turn. */
+  private chainDirectory({ item }: Held): Promise<string> {
     const { worktree, branch } = item;
-    const directories = workItemDirectories(worktree, branch);
-    const [found] = directories;
-    if (directories.length > 1) throw new ChainStop(`two directories of the worktree's records name the branch ${branch}`);
-    if (found !== undefined) return found;
-    const root = rootOf(worktree);
-    if (root === null) throw new ChainStop("the worktree holds no place for work records");
-    const now = (this.options.now ?? Date.now)();
-    const name = `${String(Math.floor(now / 1000))}-${slugFor(branch.slice(branch.lastIndexOf("/") + 1)) || "work-item"}`;
-    const directory = join(worktree, root, "threads", name);
-    const file = join(directory, ROUTING_FILE);
-    if (existsSync(directory)) throw new ChainStop(`${relative(worktree, directory)} stands already, and its routing names another branch`);
-    const at = new Date(now);
-    // The day as the person's own clock has it, which is the day they pressed the button.
-    const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`);
-    await this.chainCommit(item, directory, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) });
-    return directory;
+    return declaredDirectory(worktree, branch, (this.options.now ?? Date.now)(), (act) => this.inWorktree(worktree, act));
   }
 
-  /**
-   * Makes one commit of a chain in a work item's worktree, after every
-   * commit that was asked for there before it: it runs `write`, appends
-   * one row to `trail/refusals.md` for each call the stage's role's rule
-   * refused (`chain.ts#refusalsText`), then commits the files given, each a
-   * file of the work item's directory, with the work item's record of
-   * decisions and its refusals where each stands, together and nothing else
-   * (`worktrees.ts#commitPaths`), with the subject given, the trailer
-   * `Seal-Routing:` that names the directory, and below it each trailer the
-   * stage gives. It throws a `ChainStop` with
-   * what a write refused, or with git's first words where the commit
-   * failed, a hook's refusal among them: the files then stand written and
-   * not committed.
-   */
+  /** Makes one commit of a chain in a work item's worktree (`stage-records.ts#commitRecords`), after every commit that was asked for there before it. */
   private chainCommit(item: Held["item"], directory: string, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals; trailers?: readonly string[] } = {}): Promise<void> {
-    const { worktree, branch } = item;
-    return this.inWorktree(worktree, async () => {
-      const record = join(directory, RECORD_FILE);
-      const refusals = join(directory, REFUSALS_FILE);
-      try {
-        stage.write?.();
-        if (stage.refused !== undefined && stage.refused.calls.length > 0) writeRecordFile(worktree, refusals, refusalsText(repositoryFileText(refusals), basename(directory), stage.refused));
-      } catch (error) {
-        throw new ChainStop(error instanceof Error ? error.message : String(error));
-      }
-      const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
-      try {
-        await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])]);
-      } catch (error) {
-        const [said] = (error instanceof Error ? error.message : String(error)).split("\n");
-        throw new ChainStop(`${relative(worktree, files[0])} was written and not committed: ${said ?? ""}`);
-      }
-    });
+    return commitRecords(this.placeOf(item, directory), files, subject, stage, this.turnOf(item));
   }
 
-  /** Throws a `ChainStop` where the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
-  private async noChangeOutside(worktree: string, directory: string): Promise<void> {
-    const inside = relative(worktree, directory);
-    const loose = (await uncommittedPaths(worktree)).filter((path) => !inFolder(path, inside));
-    if (loose.length > 0) throw new ChainStop(`the worktree holds a change no commit holds outside the work item's directory, at ${loose[0] ?? ""}${loose.length > 1 ? ` and ${String(loose.length - 1)} more` : ""}`);
+  /** Where a work item's records are written, as the module of a stage's records takes it. */
+  private placeOf(item: Held["item"], directory: string): Place {
+    return { worktree: item.worktree, branch: item.branch, directory };
+  }
+
+  /** The turn of a work item's worktree, which a record's commit takes: after every commit of a person's word that was asked for there (`inWorktree`). */
+  private turnOf(item: Held["item"]): InTurn {
+    return (act) => this.inWorktree(item.worktree, act);
+  }
+
+  /**
+   * The base a work item's chain reads its branch against at the head given
+   * (`chain.ts#baseOf`): the one round 1's record names, where the head
+   * holds that record in the work item's directory, and otherwise the one
+   * the work item stores, which git reads as the base branch where that
+   * names a commit and as the commit the branch was cut at where it does
+   * not. `directory` is null for a work item with no directory yet.
+   */
+  private async chainBase(item: Held["item"], directory: string | null, head: string): Promise<ChainBase> {
+    const { worktree, baseBranch, baseCommit } = item;
+    const reads = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? head;
+    return baseOf(worktree, head, directory === null ? null : await recordedBase(worktree, directory, head), { named: roundBase(baseBranch, baseCommit, head), commit: baseCommit, reads, branch: baseBranch });
   }
 
   /**
@@ -2346,7 +2942,7 @@ export class Daemon {
     const held = this.store.workItem(workItemId);
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
-    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree);
+    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null);
     const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
     this.chainSet(workItemId, { ...before, says: runningSays(kind, round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
     await Promise.race([session.ended, this.closes]);
@@ -2383,23 +2979,10 @@ export class Daemon {
    * the questions the answer asks above its record (`chain.ts#asksOf`), and
    * an `asks:` block the reader refuses fails the stage as well.
    */
-  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>): Promise<Ask[]> {
-    const { worktree } = item;
-    // Round 1 reads the branch from where it left its base, and a verifying round the commits after the last target.
-    const base = step.from === null ? ((item.baseBranch !== null && (await commitNamed(worktree, item.baseBranch)) !== null ? item.baseBranch : item.baseCommit) ?? standing.head) : step.from;
-    const { paths, text } = await diffBetween(worktree, base, standing.head, step.from === null);
-    const prompt = roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(directory, RECORD_FILE)), paths, diff: text });
-    const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
-    return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, worktree, prompt, async (answer, refused) => {
-      const record = roundRecordOf(answer, { round: step.round, workItem: basename(directory), target: step.target, earlier: standing.rounds });
-      // The record's reader refused a record that holds an `asks:` block, so each question stands above the record's heading.
-      const asks = asksOf(answer);
-      const head = await worktreeHead(worktree);
-      if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the round, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the round read another tree than its target`);
-      await this.noChangeOutside(worktree, directory);
-      await this.chainCommit(item, directory, [file], `chore: record review round ${String(step.round)}`, { write: () => writeRecordFile(worktree, file, record), refused });
-      return asks;
-    });
+  private async runRound({ item }: Held, directory: string, standing: Standing, step: Extract<Step, { is: "round" }>, base: ChainBase): Promise<Ask[]> {
+    const place = this.placeOf(item, directory);
+    const prompt = await roundStage(place, standing, step, base);
+    return this.runStage(item.id, "round", step.round, { role: "proofer", stage: "round" }, item.worktree, prompt, (answer, refused) => recordRound(place, standing, step, answer, refused, this.turnOf(item)));
   }
 
   /**
@@ -2424,28 +3007,15 @@ export class Daemon {
    */
   private async runFixPass(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "fix-pass" }>, second: boolean): Promise<Ask[]> {
     const { item } = held;
-    const { worktree } = item;
-    const file = join(directory, ROUNDS_FOLDER, roundFile(step.round));
-    const target = standing.rounds.at(-1)?.target.commit ?? standing.head;
-    const committed = (await fileAt(worktree, standing.head, relative(worktree, file))) ?? "";
-    const prompt = fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals });
-    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, worktree, prompt, async (answer, refused, named) => {
-      const asks = asksOf(answer);
-      const head = await worktreeHead(worktree);
-      await this.noChangeOutside(worktree, directory);
-      const left = repositoryFileText(file);
-      if (left === null) throw new ChainStop(`the round record no longer stands at ${relative(worktree, file)}`);
-      const { closes, open } = fixPassRecord(committed, left);
-      await fixedCommitsHeld(worktree, closes, head, target);
-      // Each reversal the pass was given is taken in at the head the pass left, which the next round reads.
+    const place = this.placeOf(item, directory);
+    const { prompt, committed } = await fixPassStage(place, standing, step);
+    return this.runStage(item.id, "fix-pass", step.round, { role: "crafter", stage: "fix-pass" }, item.worktree, prompt, async (answer, refused, named) => {
+      // The reversals the pass took in are read into the daemon's own copy of the record once they are written.
       const applied = (): void => {
-        if (step.reversals.length === 0) return;
-        writeRecord(worktree, directory, (text) => step.reversals.reduce((next, reversal) => withApplied(next, reversal.id, head), text));
         this.readRecord(held);
         this.flushTimes();
       };
-      const trailers = named !== null && isSessionId(named.id) ? [`${BUILT_BY_TRAILER}: ${named.id}`] : [];
-      await this.chainCommit(item, directory, [file], `chore: record the fix pass of round ${String(step.round)}`, { write: applied, refused, trailers });
+      const { asks, open } = await recordFixPass(place, standing, step, { committed, answer, builtBy: named?.id ?? null, refused, applied }, this.turnOf(item));
       if (open.length > 0 && second) throw new ChainStop(leftOpenAgain(open));
       if (open.length > 0 && asks.length === 0) throw new ChainStop(leftOpen(open));
       return asks;
@@ -2547,42 +3117,21 @@ export class Daemon {
    * asked, in the commit that carries the verdict. It gives null for every
    * verdict but `withheld`.
    */
-  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>): Promise<string | null> {
+  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
-    const { worktree, baseBranch, baseCommit } = item;
-    const file = join(directory, GUARANTEE_FILE);
-    const target = `${step.commit} against ${standing.base}`;
-    // The branch is read from where it left its base, as round 1 reads it.
-    const base = (baseBranch !== null && (await commitNamed(worktree, baseBranch)) !== null ? baseBranch : baseCommit) ?? standing.head;
-    // A seal a later commit broke, which the newest verdict block names, hands the sealer the part that changed since its commit: the newest block's run is the one before this.
-    const sealed = standing.sealCommit;
-    const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
-    const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
-    const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-    const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
+    const place = this.placeOf(item, directory);
+    const { prompt, target } = await sealStage(place, standing, step, base);
     // Whether this run's `undecided` verdict is one the orchestrator rules on, or one past the ceiling.
-    const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < (this.options.undecidedCeiling ?? UNDECIDED_CEILING);
-    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, worktree, prompt, async (answer, refused, named) => {
-      const section = sectionOf(answer, { run: step.run, target });
-      if (named === null) throw new ChainStop("its session named no id of its own, and a verdict names the session that judged");
-      if (named.model === null) throw new ChainStop("its session named no model, and a verdict names the model that judged");
+    const ceiling = this.options.undecidedCeiling ?? UNDECIDED_CEILING;
+    const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < ceiling;
+    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, item.worktree, prompt, async (answer, refused, named) => {
       const version = this.options.version;
       if (version === undefined) throw new ChainStop("this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under");
-      const head = await worktreeHead(worktree);
-      if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the seal, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the sealer read`);
-      await this.noChangeOutside(worktree, directory);
-      const routing = await fileAt(worktree, head, relative(worktree, join(directory, ROUTING_FILE)));
-      const passes = baseCommit === null ? [] : (await trailerValues(worktree, [baseCommit, base], step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
-      const builtBy = [...(routingAnswer(routing ?? "", "Implementation") === THE_SESSION ? [THE_SESSION] : []), ...passes];
-      const stood = await fileAt(worktree, head, relative(worktree, file));
-      const written = guaranteeText(stood, basename(directory), section, { builtBy, judgedBy: named.id, model: named.model, version });
-      const newest = readGuarantee(written).verdicts.at(-1);
-      if (newest === undefined) throw new ChainStop("the section appended to the guarantee holds no verdict");
-      if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), this.options.undecidedCeiling ?? UNDECIDED_CEILING)] }) === undefined) {
-        throw new ChainStop("its question was not written into the work item's record of decisions");
-      }
-      await this.chainCommit(item, directory, [file], VERDICT_SUBJECT, { write: () => writeRecordFile(worktree, file, written), refused });
-      return newest;
+      // The question of an `undecided` verdict past the ceiling parks the work item in the commit that carries the verdict.
+      const before = (newest: Verdict): void => {
+        if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), ceiling)] }) === undefined) throw new ChainStop("its question was not written into the work item's record of decisions");
+      };
+      return recordVerdict(place, standing, step, base, { answer, target, judgedBy: named?.id ?? null, model: named?.model ?? null, version, refused, before }, this.turnOf(item));
     });
     if (verdict.is === "undecided" && ruled) await this.runRuling(held, directory, standing.directory, "seal", step.round, "sealer", [undecidedAsk(step.run, verdict.says ?? "")], SEAL_RULING_SUBJECT);
     return verdict.is === "withheld" ? (verdict.says ?? "") : null;
@@ -2619,19 +3168,18 @@ export class Daemon {
    * daemon, keeps nothing the command printed and stores nothing of the
    * chain, so the stage stays stored as working with no output.
    */
-  private async runGate(held: Held, directory: string, standing: Standing, round: number): Promise<void> {
+  private async runGate(held: Held, directory: string, standing: Standing, round: number, base: ChainBase): Promise<void> {
     const { item, repository } = held;
-    const { worktree, baseCommit } = item;
+    const { worktree } = item;
     const now = this.options.now ?? Date.now;
-    const file = join(directory, GATE_FILE);
-    const notRun = (why: string): StageStopped => new StageStopped(gateNotRunSays(why));
-    const head = await worktreeHead(worktree);
-    if (head !== standing.head) throw notRun(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
-    const loose = await this.looseOutside(worktree, directory);
-    if (loose !== null) throw notRun(loose);
-    const command = readRecordsPlace(worktree).broadGate ?? "";
-    if (command.trim() === "") throw notRun(`the worktree's config.json names no command under "Broad gate"`);
-    if (baseCommit === null) throw notRun("the work item records no commit its branch was cut at, so the run's record has no base to name");
+    const place = this.placeOf(item, directory);
+    let owed: { command: string; head: string; base: string };
+    try {
+      owed = await gateOwed(place, standing, base);
+    } catch (error) {
+      throw new StageStopped(gateNotRunSays(error instanceof Error ? error.message : String(error)));
+    }
+    const { command } = owed;
     const env = await this.commandEnvironment();
     // Nothing starts in a daemon that closed or in a work item that was archived, is being deleted or lost its folder while the shell was asked.
     if (this.closed) throw new ChainStop("the daemon closed");
@@ -2654,7 +3202,7 @@ export class Daemon {
     clearTimeout(gate.limit);
     this.gates.delete(item.id);
     const endedAt = now();
-    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null });
+    const enter = (state: LedgerEntry["state"], stopped: LedgerEntry["stopped"]): void => this.ledger.add({ workItemId: item.id, repo: repository.folder, branch: item.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round }, startedAt, endedAt, state, stopped, usage: null, account: null });
     if (this.closed) {
       enter("failed", "daemon");
       throw new ChainStop("the daemon closed");
@@ -2668,13 +3216,7 @@ export class Daemon {
     else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
     else {
       try {
-        const after = await worktreeHead(worktree);
-        if (after !== head) throw new ChainStop(`the worktree's head moved during the run, from ${head.slice(0, 7)} to ${after.slice(0, 7)}, so the command did not run on one commit`);
-        const left = await this.looseOutside(worktree, directory);
-        if (left !== null) throw new ChainStop(`after the run ${left}`);
-        // The record's text is built on the file as the head holds it, so no line the worktree alone holds is committed with the run.
-        const stood = await fileAt(worktree, head, relative(worktree, file));
-        await this.chainCommit(item, directory, [file], GATE_SUBJECT, { write: () => writeRecordFile(worktree, file, gateText(stood, basename(directory), { head, base: baseCommit })) });
+        await recordGate(place, { head: owed.head, base: owed.base }, this.turnOf(item));
       } catch (error) {
         if (this.closed) throw error;
         failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
@@ -2728,9 +3270,9 @@ export class Daemon {
    * with the chain's sentence, and the stored pull request is as it was. A
    * daemon that closed meanwhile stores nothing.
    */
-  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>): Promise<string | null> {
+  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
-    const { worktree, branch, baseBranch, baseCommit, title } = item;
+    const { worktree, branch, title } = item;
     const routing = await fileAt(worktree, standing.head, relative(worktree, join(directory, ROUTING_FILE)));
     const destination = routingAnswer(routing ?? "", "Destination");
     if (!pullRequestOwed(destination, item.pullRequest, standing.head)) {
@@ -2754,12 +3296,12 @@ export class Daemon {
       const cli = this.githubCli(env, worktree, "open");
       const head = await worktreeHead(worktree);
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
-      const target = await pushTarget(worktree, baseBranch);
+      const target = await pushTarget(worktree, base.branch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
       // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
       const { entries, unread } = this.ledger.read(item.id, item.createdAt);
       const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
-      const named = await pullRequestTitle(worktree, title, baseCommit, head);
+      const named = await pullRequestTitle(worktree, title, base.commit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
       if (listed.length > 1) throw new Error(`the branch has the open pull requests ${listed.map(({ number }) => `#${String(number)}`).join(", ")}, and Owlery opens or updates one`);
@@ -2821,17 +3363,6 @@ export class Daemon {
     }
     const folder = mkdtempSync(join(tmpdir(), "owlery-pull-request-"));
     return { file: join(folder, "body.md"), remove: () => rmSync(folder, { recursive: true, force: true }) };
-  }
-
-  /** Why a broad gate cannot run on the worktree as the head's tree, as the second half of a sentence, or null where it can: the worktree holds a change no commit holds, or an untracked file, outside the work item's directory. */
-  private async looseOutside(worktree: string, directory: string): Promise<string | null> {
-    try {
-      await this.noChangeOutside(worktree, directory);
-      return null;
-    } catch (error) {
-      if (!(error instanceof ChainStop)) throw error;
-      return error.message;
-    }
   }
 
   /**
@@ -3149,11 +3680,17 @@ export class Daemon {
    * client where the answer differs from the one the daemon holds. A client
    * that has not been sent its `ready` yet reads the answer there. Where the
    * adapter was asked again meanwhile, this answer is dropped: the later
-   * ask's is the newer reading.
+   * ask's is the newer reading. The notice waits on the adapter's lookup,
+   * which finds System default's folder, so where that changed where
+   * System default keeps its conversations, every client is sent the
+   * accounts again.
    */
   private async readAgentNotice(): Promise<void> {
     const ask = ++this.noticeAsks;
+    const before = this.conversationsOf(SYSTEM_DEFAULT_ID);
     const notice = await this.options.roleAdapter.notice();
+    // A window told no place for System default before the lookup answered is told it now.
+    if (this.conversationsOf(SYSTEM_DEFAULT_ID) !== before) this.broadcastAccounts();
     if (ask !== this.noticeAsks || notice === this.agentNotice) return;
     this.agentNotice = notice;
     this.broadcast({ type: "agentNotice", notice });

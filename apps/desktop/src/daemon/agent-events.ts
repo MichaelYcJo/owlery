@@ -40,6 +40,29 @@ const MOST_CHOICES = 8;
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
 const isText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
+/** The texts of the entry Claude Code writes into its session log when the person interrupts a turn: of a reply, and of a tool call. No hook event says so. */
+const CLAUDE_CODE_INTERRUPTED = ["[Request interrupted by user]", "[Request interrupted by user for tool use]"];
+
+/**
+ * Whether one line of a Claude Code session log is the entry of an
+ * interrupted turn: a person's entry, of no subagent, whose content holds a
+ * text block whose text, without the white space at its ends, is one of the
+ * two texts. An entry a message of the person's wrote when it cut the turn is
+ * none, because the agent works on that message at once. A line that does
+ * not parse is none.
+ */
+export function isInterruptionEntry(line: string): boolean {
+  let entry: unknown;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return false;
+  }
+  if (!isRecord(entry) || entry.type !== "user" || entry.isSidechain === true || entry.interruptedBySendNow === true) return false;
+  const content = isRecord(entry.message) ? entry.message.content : undefined;
+  return Array.isArray(content) && content.some((block) => isRecord(block) && block.type === "text" && typeof block.text === "string" && CLAUDE_CODE_INTERRUPTED.includes(block.text.trim()));
+}
+
 /** The choices of one question: each option whose label is text, with its description as what it leads to, or the empty text where the description is no text. */
 function choicesOf(options: unknown): AskedQuestion["options"] {
   const entries = Array.isArray(options) ? options : [];

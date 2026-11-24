@@ -1,21 +1,26 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import type { RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
 import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
 import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
+import { hookSettings, paneCommands, writeHookSettings } from "../src/daemon/hooks";
+import { readPlugins } from "../src/daemon/claude-plugins";
+import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { type DecisionRecord, RECORD_FILE, readDecisionRecord, withApplied, withCarried, withDecision, withReversal } from "../src/daemon/decision-record";
 import { MARKER, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
+import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
@@ -27,8 +32,8 @@ const TOKEN = "t".repeat(64);
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
-const SESSION_FIELDS = ["alive", "id", "kind", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
+const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -39,7 +44,9 @@ const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null }
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
 const NO_RECORDS = { root: null, check: null, broadGate: null };
-const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS };
+/** Which chain a repository's Claude Code panes run where its checkout holds no workflow of Owlery's and no person answered. */
+const NO_CHAIN = { owl: false, plugin: false, chosen: null };
+const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS, chain: NO_CHAIN, accountId: null };
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -247,7 +254,7 @@ describe("sessions", () => {
     await new Promise((r) => setTimeout(r, 500));
     const second = await client(url);
     const ready = await second.message("ready");
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE }]);
     second.send({ type: "attach", id: session.id });
     const replay = await second.message("replay");
     expect(replay.data).toContain("first");
@@ -410,7 +417,7 @@ describe("sessions", () => {
     const exit = await c.message("exit");
     expect(exit).toEqual({ type: "exit", id: session.id, exitCode: 3 });
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, ...NO_STATE }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE }]);
   });
 
   it("gives each session's process the pane's id and the hook socket", async () => {
@@ -450,8 +457,8 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
-    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
     // The creating client receives the pane's output, as with a pane it started.
@@ -494,17 +501,19 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
-    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
+    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "chain", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
     expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
+    expect(Object.keys(ready.repositories[0]!.chain).sort()).toEqual(["chosen", "owl", "plugin"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
-    expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["continues", "kind", "label", "reportsState"]);
+    expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["accounts", "continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
-      expect(Object.keys(lists.sessions[0]!).sort()).toEqual(SESSION_FIELDS);
+      // The look keeps no account a pane was launched under, as it keeps none set on a work item.
+      expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain, and keeps the seal reading the lists carried.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded") : WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, and keeps the seal reading the lists carried.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -781,7 +790,7 @@ describe("work items", () => {
     const { workItem } = await c.message("workItemCreated");
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     const { session } = await c.message("started", (m) => m.requestId === 2);
-    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
   });
 
@@ -824,19 +833,19 @@ describe("work items", () => {
     const { session } = await c.message("started", (m) => m.requestId === 2);
     // The pane a work item is created with is asked nothing, and the continuing pane is the one asked.
     expect(asked).toEqual([
-      ["shell", first.id, { continueLatest: false }],
-      ["claude", session.id, { continueLatest: true }],
+      ["shell", first.id, { continueLatest: false, folder: workItem.worktree, base: "main", checkout: workItem.repo, chosen: null, accountDir: null, configDir: null }],
+      ["claude", session.id, { continueLatest: true, folder: workItem.worktree, base: "main", checkout: workItem.repo, chosen: null, accountDir: null, configDir: null }],
     ]);
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
     // A continued session is listed and told as any pane of its kind is.
     d.agentEvent(session.id, "UserPromptSubmit", {});
     await c.message("inbox", (m) => m.sessions.find((s) => s.id === session.id)?.state === "working");
   });
 
-  it("asks the command of a pane to continue nothing where the start does not ask it", async () => {
+  it("asks the command of a pane to continue nothing where the start does not ask it, and names the pane's folder and the work item's base", async () => {
     const asked: unknown[][] = [];
-    const { url } = await daemonWithWorkItem({
+    const { url, workItem } = await daemonWithWorkItem({
       commandFor: (...given) => {
         asked.push(given);
         return printsItsFolder();
@@ -846,7 +855,7 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(asked).toEqual([["claude", session.id, { continueLatest: false }]]);
+    expect(asked).toEqual([["claude", session.id, { continueLatest: false, folder: workItem.worktree, base: workItem.baseBranch, checkout: workItem.repo, chosen: null, accountDir: null, configDir: null }]]);
   });
 
   it("answers a start that asks a kind that does not continue to continue with an error, and starts nothing", async () => {
@@ -1300,7 +1309,7 @@ describe("repositories", () => {
     const ready = await c.message("ready");
     expect(ready.repositories).toEqual([
       { id: 1, folder: "/r/project", name: "The project", ...PLAIN, customName: "The project" },
-      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }], records: NO_RECORDS },
+      { id: 4, folder: "/r/docs", name: "docs", customName: null, icon: "D", defaultBase: "origin/main", hidden: true, groups: [{ id: 3, name: "Later" }], records: NO_RECORDS, chain: NO_CHAIN, accountId: null },
     ]);
     expect(ready.workItems.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.pinned, w.muted, w.groupId, w.archivedAt])).toEqual([
       [1, 1, "/r/project", "The project", false, false, null, null],
@@ -2774,7 +2783,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     d.agentEvent(session.id, "Stop", {});
     const last = await c.message("inbox", (m) => stateOf(m, session.id) === "finished");
-    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
+    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
     expect(last.workItems).toEqual([workItem]);
   });
 
@@ -2819,7 +2828,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
   });
 
   it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
@@ -2829,7 +2838,7 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     /** The session as a client that says hello now is given it. */
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } });
@@ -2951,7 +2960,7 @@ describe("the inbox", () => {
     await bystander.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     // The time is the one the silence was called at, and not the pane's start.
     clock = 700;
     const waiting = { ...session, state: "waiting", stateSince: 700, stateText: null, stateTool: null };
@@ -3062,6 +3071,176 @@ describe("the inbox", () => {
     expect(read).toBe(before);
   });
 
+  /** What a session the person interrupted is listed with, beside its time. */
+  const INTERRUPTED = { state: "waiting", stateText: "The turn was interrupted, and the agent waits for what to do next.", stateTool: null, stateQuestions: null };
+
+  const interruptions = (c: { messages: ServerMessage[] }) => c.messages.filter((m) => m.type === "agent" && m.event === "interrupted");
+
+  it("lists a Claude Code session whose tool call the person interrupted as waiting, from the entry its session log gained, and tells every client of the interruption", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    // The log as it stood when the person sent the prompt that asks for the Bash call.
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "working", stateSince: 100, stateText: null, stateTool: null, stateQuestions: null }]);
+    clock = 200;
+    // The Esc's batch, and what the recording shows after it: a batch at the session's end, and its `SessionEnd`, to which Owlery does not listen.
+    await replay(d, session.id, log, TOOL_ESC, Infinity);
+    const waiting = { ...session, ...INTERRUPTED, stateSince: 200 };
+    for (const each of [c, bystander]) {
+      expect((await each.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+      expect(interruptions(each)).toEqual([{ type: "agent", id: session.id, event: "interrupted", tool: null, at: expect.any(Number) }]);
+    }
+    // The session waits now, so its log is no longer read: the same entry again tells nobody of a second interruption.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(200);
+    expect(interruptions(c)).toHaveLength(1);
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting"]);
+  });
+
+  it("lists a Claude Code session whose reply the person interrupted as waiting, though its session log did not stand yet when the prompt arrived", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    await replay(d, session.id, log, 0, REPLY_ESC);
+    expect((await (await client(url)).message("ready")).sessions[0]?.state).toBe("working");
+    await replay(d, session.id, log, REPLY_ESC, SECOND_PROMPT);
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+    expect(interruptions(c)).toHaveLength(1);
+  });
+
+  it("keeps an interrupted session waiting, from the interruption's time and with its text, at the end or the failure of a tool that arrives later, and lists it working from the next prompt as before", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const listed = async () => (await (await client(url)).message("ready")).sessions[0];
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    await replay(d, session.id, log, SECOND_PROMPT, TOOL_ESC);
+    // The Esc's batch, and before the daemon reads it the end of the call the Esc stopped, as a command that ran when the Esc came may send it.
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
+    await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
+    clock = 200;
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUseFailure", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, ...INTERRUPTED, stateSince: 100 });
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    d.agentEvent(session.id, "PostToolUse", { tool_name: "Bash", transcript_path: log });
+    expect(await listed()).toEqual({ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null, stateQuestions: null });
+    // One inbox for the pane's start and one per state.
+    expect(inboxes(c).map((m) => stateOf(m, session.id))).toEqual([null, "working", "waiting", "working"]);
+  });
+
+  it("leaves a session working where its session log never stands or is removed while it is read, throws nothing, says so once a pane in its log, and finishes the session at its turn's end", async () => {
+    const said = logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const never = (await c.message("started", (m) => m.requestId === 1)).session;
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    const removed = (await c.message("started", (m) => m.requestId === 2)).session;
+    const missing = sessionLog(cleanups);
+    d.agentEvent(never.id, "UserPromptSubmit", { transcript_path: missing });
+    await pause(300);
+    d.agentEvent(never.id, "PreToolUse", { tool_name: "Bash", transcript_path: missing });
+    await pause(300);
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(removed.id, "UserPromptSubmit", { transcript_path: log });
+    // The watch is armed at the next turn of the loop, and a removal before it is reported to nobody.
+    await pause(60);
+    rmSync(log);
+    await pause(300);
+    const listed = (await (await client(url)).message("ready")).sessions;
+    expect(listed.map(({ state }) => state)).toEqual(["working", "working"]);
+    expect(said.filter((line) => line.includes("session log"))).toEqual([`the session log of pane ${String(never.id)} is not read, so its state is what its hook events say: ${missing} did not stand within 100 ms`, expect.stringMatching(new RegExp(`^the session log of pane ${String(removed.id)} is not read, so its state is what its hook events say: ENOENT`))]);
+    for (const { id } of [never, removed]) d.agentEvent(id, "Stop", {});
+    expect((await (await client(url)).message("ready")).sessions.map(({ state }) => state)).toEqual(["finished", "finished"]);
+    expect(interruptions(c)).toEqual([]);
+  });
+
+  it("watches a session log again at the next working event that names it, where the last watch of it gave up because it did not stand", async () => {
+    logged();
+    const { daemon: d, url } = await daemonWithWorkItem({ sessionLogWaitMs: 100 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(300);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "PreToolUse", { tool_name: "Bash", transcript_path: log });
+    await pause(60);
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([{ ...session, ...INTERRUPTED, stateSince: expect.any(Number) }]);
+  });
+
+  it("reads no session log of a pane that is not working: one whose turn finished, one that was closed and one whose process exited, each while it worked", async () => {
+    // The shell ignores the signal a close sends, so the closed pane's process outlives its close, and ends at a line.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; read line; exit 0"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    const panes = [];
+    for (const requestId of [1, 2, 3]) {
+      c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+      panes.push({ id: (await c.message("started", (m) => m.requestId === requestId)).session.id, log: sessionLog(cleanups) });
+    }
+    const [finished, closed, exited] = panes as [(typeof panes)[number], (typeof panes)[number], (typeof panes)[number]];
+    for (const { id, log } of panes) {
+      writeFileSync(log, lines(0, SECOND_PROMPT));
+      d.agentEvent(id, "UserPromptSubmit", { transcript_path: log });
+    }
+    d.agentEvent(finished.id, "Stop", { transcript_path: finished.log });
+    c.send({ type: "close", id: closed.id });
+    c.send({ type: "input", id: exited.id, data: "go\n" });
+    await c.message("exit", (m) => m.id === exited.id);
+    for (const { log } of panes) appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    expect(interruptions(c)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions.map(({ id, state }) => [id, state])).toEqual([
+      [finished.id, "finished"],
+      [exited.id, "working"],
+    ]);
+  });
+
+  it("reads no session log after the daemon closed, though a working pane's process outlives the close", async () => {
+    let read = 0;
+    // The shell ignores the signal a close sends.
+    const { daemon: d, url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), now: () => ++read });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    await pause(60);
+    await d.close();
+    const before = read;
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    // An interruption that is read reads the clock for the state's time.
+    expect(read).toBe(before);
+  });
+
   it("tells every client of a work item one of them creates, of a pane one starts, and of a state that changes", async () => {
     const { repo, root } = repository();
     const { daemon: d, url } = await daemon({ worktreesRoot: root });
@@ -3108,7 +3287,7 @@ describe("the inbox", () => {
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, accountId: 0, signsIn: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
@@ -4325,7 +4504,7 @@ describe("the commit of a person's word", () => {
 
   it("refuses a rename of the branch while the work item's chain is running, with the branch, the routing and the name as they were, takes a rename of the name alone meanwhile, and renames the branch once the chain rests", async () => {
     // The fake proofer's answer holds no round record, so the chain stops when round 1's session ends.
-    const { c, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
+    const { c, d, workItems } = await withWorkItems(["First name"], { roleAdapter: fakeAdapter({ delayMs: 250 }) });
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
     // A chain starts only on a branch whose records name a broad gate command.
@@ -4335,8 +4514,7 @@ describe("the commit of a person's word", () => {
     const stood = readFileSync(join(directory, "routing.md"), "utf8");
     const chainOf = (): WorkItem["chain"] | undefined => c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems : [])).at(-1)?.chain;
 
-    c.send({ type: "getSeal", requestId: 1, workItemId: a.id });
-    await c.message("done", (m) => m.requestId === 1);
+    await d.startChain(a.id, true);
     c.send({ type: "renameWorkItem", requestId: 2, id: a.id, title: "Second name", branch: true });
     expect((await c.message("error", (m) => m.requestId === 2)).message).toBe("The work item's chain is running, and it finds the work item's records by the branch's name. Rename the branch once the chain rests.");
     expect(chainOf()?.state).toBe("running");
@@ -4510,6 +4688,39 @@ describe("the commit of a person's word", () => {
     expect(recordIn(directory)).toEqual(committed);
   });
 
+  it("commits a word given once the person interrupted the turn of the work item's working pane, read from its session log, and that commit carries the word left while the pane worked", async () => {
+    const { d, c, workItems } = await withWorkItems(["Interrupted", "Quiet"]);
+    const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
+    const directory = withDirectory(a);
+    withDirectory(b);
+    for (const says of ["One.", "Two."]) d.decided(a.id, { ...DEFAULT, says });
+    d.decided(b.id, DEFAULT);
+    const reverse = async (requestId: number, workItemId: number, decisionId: number): Promise<void> => {
+      c.send({ type: "reverseDecision", requestId, workItemId, decisionId, message: `Not ${String(decisionId)}.` });
+      await c.message("done", (m) => m.requestId === requestId);
+    };
+
+    // A Claude Code pane of the first work item works.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 1, workItemId: a.id });
+    const { session } = await c.message("started", (m) => m.requestId === 1);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await reverse(2, a.id, 1);
+    await reverse(3, b.id, 1);
+    await c.until(() => (commitsIn(b.worktree) === 2 ? true : undefined), 3000);
+    expect(commitsIn(a.worktree)).toBe(1);
+
+    // The person presses Esc during the pane's Bash call, and the pane's process stays.
+    await interruptToolCall(d, session.id, sessionLog(cleanups));
+    await c.message("inbox", (m) => m.sessions.some((each) => each.id === session.id && each.alive && each.state === "waiting"));
+    await reverse(4, a.id, 2);
+    await d.close();
+    expect(commitsIn(a.worktree)).toBe(2);
+    expect(newest(a.worktree).subject).toBe("chore: record the person's reversal of decision 2");
+    const committed = readDecisionRecord(git(a.worktree, "show", "HEAD:seal/threads/1-item/decisions.md"));
+    expect(committed.decisions.map(({ state }) => state)).toEqual([1, 2].map((id) => ({ is: "reversed", message: `Not ${String(id)}.` })));
+    expect(recordIn(directory)).toEqual(committed);
+  });
+
   it("makes the commits of one worktree one after another, each of the file as it stands at its turn: two reversals written while a commit is under way wait for it, the first of them is committed with the second's word in it, the second's turn commits nothing, and the log holds nothing", async () => {
     const { d, c, made: repository, workItems } = await withWorkItems(["Thrice"]);
     const a = workItems[0]!;
@@ -4596,7 +4807,7 @@ describe("the last look", () => {
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
   /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep, and with its seal reading. */
-  const asLooked = ({ recorded: _recorded, ...kept }: WorkItem): WorkItem => kept;
+  const asLooked = ({ recorded: _recorded, accountId: _accountId, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -4619,7 +4830,7 @@ describe("the last look", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
     expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
   });
 
   it("replaces the look with the one of a later `looked`, from whichever client", async () => {
@@ -4635,7 +4846,9 @@ describe("the last look", () => {
     const { session } = await two.message("started");
     clock = 200;
     await looked(two);
-    expect(await lookNow(url)).toEqual({ at: 200, sessions: [session], workItems: [expect.objectContaining({ id: 1 })] });
+    // The look keeps no account a pane was launched under, and no account whose sign-in it runs.
+    const { accountId: _, signsIn: __, ...lookedSession } = session;
+    expect(await lookNow(url)).toEqual({ at: 200, sessions: [lookedSession], workItems: [expect.objectContaining({ id: 1 })] });
   });
 
   it("tells a client of the look only in its `ready`: a `looked` is answered with nothing and sent to nobody", async () => {
@@ -4753,7 +4966,7 @@ describe("headless sessions", () => {
     const { clients, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ pieces: () => ["A barn ", "owl."] }) }, 2);
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?" });
-    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null };
+    const working = { id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, accountId: 0 };
     expect(await one.message("asked")).toEqual({ type: "asked", requestId: 5, headless: working });
     for (const c of [one, two]) {
       await c.message("headless", (m) => m.headless.state === "finished");
@@ -4784,7 +4997,7 @@ describe("headless sessions", () => {
     const [one, two] = clients as [(typeof clients)[0], (typeof clients)[0]];
     const role = { role: "proofer", stage: "round" } as const;
     one.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Which owl?", role });
-    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role });
+    expect((await one.message("asked")).headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Which owl?", state: "working", answer: "", error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role, accountId: 0 });
     for (const c of [one, two]) {
       const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
       expect(headless.answer).toBe('As the proofer at the stage round, you asked: "Which owl?"');
@@ -4936,7 +5149,7 @@ describe("headless sessions", () => {
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: 'You asked: "Remembered?"', error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: null, accountId: 0 });
   });
 
   it("lists no headless session where none was asked, and counts them apart from the panes", async () => {
@@ -4958,7 +5171,7 @@ describe("headless sessions", () => {
     const asked = await c.message("asked");
     const changed = await c.message("headless", (m) => m.headless.state === "finished");
     const ready = await (await client(url)).message("ready");
-    const fields = ["answer", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const fields = ["accountId", "answer", "error", "errorOutput", "id", "prompt", "role", "startedAt", "state", "stopped", "usage", "workItemId"];
     expect(Object.keys(asked).sort()).toEqual(["headless", "requestId", "type"]);
     expect(Object.keys(changed).sort()).toEqual(["headless", "type"]);
     for (const info of [asked.headless, ...told(c), ready.headless[0]!]) expect(Object.keys(info).sort()).toEqual(fields);
@@ -5296,7 +5509,7 @@ describe("headless sessions", () => {
   describe("the ledger", () => {
     type Client = Awaited<ReturnType<typeof client>>;
     const USAGE: Usage = { costUsd: 0.25, converted: true, models: [{ model: "owl-1", inputTokens: 10, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, costUsd: 0.25 }] };
-    const ENTRY_FIELDS = ["branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
+    const ENTRY_FIELDS = ["account", "branch", "chain", "endedAt", "repo", "stage", "startedAt", "state", "stopped", "usage", "workItemId"];
     const PROOFER = { role: "proofer", stage: "round" } as const;
 
     /** A run folder the case's daemons share, removed after the case. */
@@ -5336,7 +5549,7 @@ describe("headless sessions", () => {
       clock = 3000;
       await asked(c, workItem.id, "And you?");
       const answer = await ledgerOf(c, workItem.id);
-      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null };
+      const kept = { workItemId: workItem.id, repo: workItem.repo, branch: workItem.branch, state: "finished", stopped: null, account: { id: 0, name: "System default" } };
       expect(answer).toEqual({
         type: "ledger",
         requestId: answer.requestId,
@@ -5357,7 +5570,7 @@ describe("headless sessions", () => {
       const status = () => [git(workItem.worktree, "status", "--porcelain", "--ignored"), git(workItem.repo, "status", "--porcelain", "--ignored")];
       const before = status();
       await asked(c, workItem.id, "Which owl?", PROOFER);
-      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE };
+      const kept = { workItemId: 1, repo: workItem.repo, branch: workItem.branch, stage: PROOFER, chain: null, startedAt: 1234, endedAt: 1234, state: "finished", stopped: null, usage: USAGE, account: { id: 0, name: "System default" } };
       expect(await ledgerOf(c, workItem.id)).toMatchObject({ entries: [kept], unread: 0 });
       expect(status()).toEqual(before);
       await first.close();
@@ -6284,7 +6497,7 @@ describe("keeping the Mac awake", () => {
     for (const each of both) expect(told(each)).toEqual([{ choice: "working", held: true }]);
   });
 
-  it.each(["asks a permission", "exits", "is closed"] as const)("keeps the hold while one of two panes still works, and releases it once when the other %s, telling every client", async (end) => {
+  it.each(["asks a permission", "exits", "is closed", "is interrupted"] as const)("keeps the hold while one of two panes still works, and releases it once when the other %s, telling every client", async (end) => {
     const { daemon: d, url, c, both, seen, workingPane } = await held();
     const first = await workingPane();
     const second = await workingPane();
@@ -6295,6 +6508,8 @@ describe("keeping the Mac awake", () => {
     if (end === "asks a permission") d.agentEvent(second.id, "PermissionRequest", {});
     if (end === "exits") c.send({ type: "input", id: second.id, data: "go\n" });
     if (end === "is closed") c.send({ type: "close", id: second.id });
+    // The person presses Esc during the pane's Bash call, which its session log tells and no hook does.
+    if (end === "is interrupted") await interruptToolCall(d, second.id, sessionLog(cleanups));
     for (const each of both) expect((await each.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
     expect(seen).toMatchObject({ held: 1, released: 1 });
     // A pane that exited keeps `working` as its last state, and no longer counts.
@@ -6455,7 +6670,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["agentNotice", "archived", "headless", "lastLook", "paneKinds", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);
@@ -6525,14 +6740,14 @@ describe("the watch of an open pull request", () => {
 
   it("reads the pull request at a client's hello and again while its checks run, with one call of gh and no agent, and holds neither the Mac nor a session for it", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     const c = await client(w.url);
     const pending = await c.until(() => (pullRequestIn(c)?.checks === "pending" ? pullRequestIn(c) : undefined));
-    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: "https://github.com/owner/project/runs/Owlery seal" }], listCount: 1, readAt: 7 });
+    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "seal", state: "pending", link: "https://github.com/owner/project/runs/seal" }], listCount: 1, readAt: 7 });
     expect(w.gh.calls()[0]).toEqual(VIEW);
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")]);
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
     const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
-    expect(passed?.list).toEqual([{ name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" }]);
+    expect(passed?.list).toEqual([{ name: "seal", state: "passed", link: "https://github.com/owner/project/runs/seal" }]);
     // Each read is the one call, and none started a session or held the Mac.
     for (const call of w.gh.calls()) expect(call).toEqual(VIEW);
     expect(c.messages.some((m) => m.type === "headless")).toBe(false);
@@ -6550,7 +6765,7 @@ describe("the watch of an open pull request", () => {
 
   it("reads again soon while GitHub's head is not the commit the stage pushed, though the checks passed", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")], { headRefOid: "e".repeat(40) });
     const c = await client(w.url);
     await c.until(() => (w.gh.calls().length >= 3 ? true : undefined));
     expect(pullRequestIn(c)).toMatchObject({ head: "e".repeat(40), pushed: w.at, checks: "passed" });
@@ -6558,19 +6773,19 @@ describe("the watch of an open pull request", () => {
 
   it("lists a failed check with its address, and gives the pull request the failed result", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
+    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
     const c = await client(w.url);
     const failed = await c.until(() => (pullRequestIn(c)?.checks === "failed" ? pullRequestIn(c) : undefined));
     expect(failed?.list).toEqual([
       { name: "build", state: "failed", link: "https://github.com/owner/project/runs/build" },
-      { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/Owlery seal" },
+      { name: "seal", state: "passed", link: "https://github.com/owner/project/runs/seal" },
     ]);
   });
 
   it("reads a merged and a closed pull request no more", async () => {
     for (const [state, as] of [["MERGED", "merged"], ["CLOSED", "closed"]] as const) {
       const w = await watched();
-      w.answer([run("Owlery seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
+      w.answer([run("seal", "IN_PROGRESS")], { state, mergedAt: state === "MERGED" ? "2026-11-23T10:00:00Z" : null });
       const c = await client(w.url);
       await c.until(() => (pullRequestIn(c)?.state === as ? true : undefined));
       await pause(500);
@@ -6587,7 +6802,7 @@ describe("the watch of an open pull request", () => {
     // Not after 100 milliseconds, as while checks run.
     await pause(300);
     expect(w.gh.calls()).toHaveLength(1);
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     const read = await c.until(() => (pullRequestIn(c)?.failure === null ? pullRequestIn(c) : undefined));
     expect(read).toMatchObject({ checks: "pending", failure: null, readAt: 7 });
     expect(w.gh.calls()).toHaveLength(2);
@@ -6595,7 +6810,7 @@ describe("the watch of an open pull request", () => {
     w.gh.answer("view", { out: "not json\n" });
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
     // So is an answer whose checks are no list.
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     await c.until(() => (pullRequestIn(c)?.failure === null ? true : undefined));
     w.gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: w.at, mergedAt: null, statusCheckRollup: null }) });
     expect(await c.until(() => pullRequestIn(c)?.failure ?? undefined)).toBe("gh pr view printed no pull request Owlery reads");
@@ -6610,7 +6825,7 @@ describe("the watch of an open pull request", () => {
 
   it("calls gh for no work item while no client is connected, nor once its client left, nor for an archived work item", async () => {
     const w = await watched();
-    w.answer([run("Owlery seal", "IN_PROGRESS")]);
+    w.answer([run("seal", "IN_PROGRESS")]);
     await pause(400);
     expect(w.gh.calls()).toHaveLength(0);
     const c = await client(w.url);
@@ -6622,9 +6837,712 @@ describe("the watch of an open pull request", () => {
     expect(w.gh.calls()).toHaveLength(calls);
     // Of two work items, the archived one's pull request is not read, and the other's is, in the same turn.
     const archived = await watched({}, { archivedAt: 5 }, {});
-    archived.answer([run("Owlery seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
+    archived.answer([run("seal", "IN_PROGRESS")], { number: 2, url: SECOND_URL });
     const other = await client(archived.url);
     await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
     expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
+  });
+});
+
+describe("a Claude Code pane and the owl chain", () => {
+  /** A stand-in for the person's shell: it writes the arguments it was given, one a line, and then its environment, into a file named for the pane, and ends. No `claude` runs. */
+  function standInShell(base: string): { shell: string; given: (pane: number) => Promise<{ args: string[]; env: Record<string, string> }> } {
+    const shell = join(base, "shell-stand-in");
+    writeFileSync(shell, `#!/bin/sh\n{ printf '%s\\n' "$@"; printf -- '--env--\\n'; env; } > '${base}'/pane-$OWLERY_PANE_ID.partial\nmv '${base}'/pane-$OWLERY_PANE_ID.partial '${base}'/pane-$OWLERY_PANE_ID.txt\n`, { mode: 0o755 });
+    const given = async (pane: number) => {
+      const file = join(base, `pane-${String(pane)}.txt`);
+      const end = Date.now() + 5000;
+      while (!existsSync(file)) {
+        if (Date.now() > end) throw new Error(`pane ${String(pane)} wrote nothing`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      const [args = "", env = ""] = readFileSync(file, "utf8").split("--env--\n");
+      return { args: args.split("\n").slice(0, -1), env: Object.fromEntries(env.split("\n").filter((line) => line.includes("=")).map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)])) };
+    };
+    return { shell, given };
+  }
+
+  /** The Claude Code config folder a case's daemon reads: `.claude` of a home of the case's own, which holds nothing unless the case writes it. */
+  const configOf = (made: { base: string }): string => join(made.base, "home", ".claude");
+  const KEY = "agentic@agenticseal";
+
+  /** Writes a config folder whose user settings enable the AgenticSeal plugin and one other, with the plugin installed under the folder, at a path that holds the script its check runs. */
+  function withPlugin(made: { base: string }): string {
+    const config = configOf(made);
+    const installed = join(config, "plugins", "cache", "agenticseal", "agentic", "1.0.0");
+    mkdirSync(join(installed, "skills", "code-review", "scripts"), { recursive: true });
+    writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
+    writeFileSync(join(config, "settings.json"), `${JSON.stringify({ model: "opus", enabledPlugins: { [KEY]: true, "notes@somewhere": true } }, null, 2)}\n`);
+    writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
+    return config;
+  }
+
+  /** A daemon whose panes are launched as the app's daemon launches them (`main.ts`), with the stand-in for the shell, a run folder of the case's own, a stand-in for the chain command's script, and an adapter that answers the config folder of the case's own as the default login's, and a client of it. */
+  async function launching(made: { base: string; root: string }, options: Partial<DaemonOptions> = {}) {
+    const runDir = join(made.base, "run");
+    const script = join(made.base, "chain-stand-in.js");
+    writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const bundleDir = join(made.base, "bundle");
+    const stand = standInShell(made.base);
+    const settings = writeHookSettings(runDir);
+    const chain = writePaneChain(runDir, { node: process.execPath, script, bundleDir });
+    const { url } = await daemon({
+      runDir,
+      worktreesRoot: made.root,
+      roleAdapter: fakeAdapter({ defaultLoginFolder: configOf(made) }),
+      commandFor: paneCommands({ SHELL: stand.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain)),
+      pluginEnabled: (folder, checkout, configDir) => readPlugins(folder, checkout, configDir).agenticSeal.length > 0,
+      ...options,
+    });
+    const c = await client(url);
+    await c.message("ready");
+    return { c, runDir, settings, chain, bundleDir, given: stand.given };
+  }
+
+  /** Writes a config folder a person hands over at `config`, whose user settings enable the AgenticSeal plugin and one other, with the plugin installed under the folder. */
+  function handedWithPlugin(config: string): string {
+    const installed = join(config, "plugins", "cache", "agenticseal", "agentic", "1.0.0");
+    mkdirSync(join(installed, "skills", "code-review", "scripts"), { recursive: true });
+    writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
+    writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: true, "notes@handed": true } })}\n`);
+    writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
+    return config;
+  }
+
+  /** Each file under the folders with its bytes, and each link with where it points, so a case reads that nothing was added, removed or written. */
+  function heldIn(...folders: string[]): unknown[] {
+    return folders.flatMap((folder) =>
+      (readdirSync(folder, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean; isSymbolicLink(): boolean }[])
+        .map((entry) => {
+          const path = join(entry.parentPath, entry.name);
+          return [path, entry.isSymbolicLink() ? `-> ${readlinkSync(path)}` : entry.isFile() ? readFileSync(path, "base64") : null];
+        })
+        .sort(),
+    );
+  }
+
+  it("reads what a Claude Code pane carries in the folder of its account: the person's own under System default, which enables no plugin, a handed folder that enables the plugin, and a folder whose settings and plugins are links into the person's own; launches the handed account's pane with a settings file of its own that holds that folder's keys with the plugin's key false, the others with the shared file, and changes no file of any folder (scenario 16)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "plugins"), { recursive: true });
+    writeFileSync(join(own, "settings.json"), `${JSON.stringify({ enabledPlugins: { "notes@own": true } })}\n`);
+    writeFileSync(join(own, "plugins", "installed_plugins.json"), '{ "version": 2, "plugins": {} }\n');
+    const handed = handedWithPlugin(join(made.base, "handed"));
+    const linked = join(made.base, "linked");
+    mkdirSync(linked);
+    symlinkSync(join(own, "settings.json"), join(linked, "settings.json"));
+    symlinkSync(join(own, "plugins"), join(linked, "plugins"));
+    const before = heldIn(own, handed, linked);
+    const { c, runDir, settings, given } = await launching(made);
+    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
+    c.send({ type: "addAccount", requestId: 2, name: "Linked", folder: linked });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Three logins", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    // The person's answer is the owl chain, so a pane whose folder enables the plugin carries the chain with the plugin kept out.
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, paneChain: "owlery" });
+    await c.message("done", (m) => m.requestId === 4);
+    const launched = async (requestId: number, accountId: number) => {
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId, workItemId: workItem.id, accountId });
+      const { session } = await c.message("started", (m) => m.requestId === requestId);
+      return { id: session.id, command: (await given(session.id)).args[3]! };
+    };
+    const carried = `--plugin-dir '${join(made.base, "bundle")}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`;
+    const system = await launched(10, 0);
+    expect(system.command).toBe(`exec claude --settings '${settings}' ${carried}`);
+    const byHanded = await launched(11, 1);
+    const file = join(runDir, `claude-pane-${String(byHanded.id)}.json`);
+    expect(byHanded.command).toBe(`exec env CLAUDE_CONFIG_DIR='${handed}' claude --settings '${file}' ${carried}`);
+    expect(JSON.parse(readFileSync(file, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@handed": true } });
+    const byLinked = await launched(12, 2);
+    expect(byLinked.command).toBe(`exec env CLAUDE_CONFIG_DIR='${linked}' claude --settings '${settings}' ${carried}`);
+    expect(existsSync(join(runDir, `claude-pane-${String(system.id)}.json`))).toBe(false);
+    expect(existsSync(join(runDir, `claude-pane-${String(byLinked.id)}.json`))).toBe(false);
+    expect(heldIn(own, handed, linked)).toEqual(before);
+  });
+
+  it("sends a repository's chain read in the folder of the account a new pane of it takes, reads it again when the repository's account or the default changes, and launches a pane of a work item set to an account whose folder enables the plugin with nothing of the bundle while no answer is kept (scenario 16)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const handed = handedWithPlugin(join(made.base, "handed"));
+    // The commits are read at the hello and not again within the case, so a chain read anew is read by the request that changed the account.
+    const { c, settings, given } = await launching(made, { commitPollMs: 3_600_000 });
+    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
+    await c.message("accounts", (m) => m.accounts.length === 2);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Asked by the repository", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    /** The chain the last inbox sends of the repository, once it says the plugin is enabled or not as `plugin` says. */
+    const chainOf = (plugin: boolean) => c.until(() => {
+      const chain = c.messages.findLast((m) => m.type === "inbox")?.repositories[0]?.chain;
+      return chain?.plugin === plugin ? chain : undefined;
+    });
+    expect(await chainOf(false)).toEqual({ owl: true, plugin: false, chosen: null });
+    c.send({ type: "setRepository", requestId: 3, id: workItem.repoId, accountId: 1 });
+    expect(await chainOf(true)).toEqual({ owl: true, plugin: true, chosen: null });
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, accountId: null });
+    expect(await chainOf(false)).toEqual({ owl: true, plugin: false, chosen: null });
+    // The default names the account a repository set to none takes.
+    c.send({ type: "setDefaultAccount", requestId: 5, id: 1 });
+    expect((await chainOf(true)).plugin).toBe(true);
+    c.send({ type: "setDefaultAccount", requestId: 6, id: 0 });
+    expect((await chainOf(false)).plugin).toBe(false);
+    // A work item set to the handed account in a repository set to none: the window is asked nothing, and the pane carries nothing of the bundle.
+    c.send({ type: "setWorkItem", requestId: 7, id: workItem.id, accountId: 1 });
+    await c.message("done", (m) => m.requestId === 7);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 8, workItemId: workItem.id });
+    const { session } = await c.message("started", (m) => m.requestId === 8);
+    const pane = await given(session.id);
+    expect(pane.args[3]).toBe(`exec env CLAUDE_CONFIG_DIR='${handed}' claude --settings '${settings}'`);
+    expect(pane.env.OWLERY_CHAIN).toBeUndefined();
+    expect(c.messages.findLast((m) => m.type === "inbox")?.repositories[0]?.chain).toEqual({ owl: true, plugin: false, chosen: null });
+  });
+
+  it("reads under System default the folder the adapter's lookup names, over the one the daemon's own environment names, and the daemon's own while the lookup has given no answer (scenario 16)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const looked = handedWithPlugin(join(made.base, "looked"));
+    const daemons = join(made.base, "daemons");
+    mkdirSync(daemons);
+    writeFileSync(join(daemons, "settings.json"), "{}\n");
+    const own = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = daemons;
+    cleanups.push(() => {
+      if (own === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = own;
+    });
+    const answered = await launching(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: looked }) });
+    answered.c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    expect((await answered.c.message("inbox", (m) => m.repositories.length === 1)).repositories[0]?.chain).toEqual({ owl: true, plugin: true, chosen: null });
+    // An adapter with no answer: the folder of the daemon's environment, which enables nothing, and then the one that does.
+    const unanswered = await launching(repositoryWith(".github/workflows/owlery-seal.yml"), { roleAdapter: fakeAdapter() });
+    unanswered.c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    expect((await unanswered.c.message("inbox", (m) => m.repositories.length === 1)).repositories[0]?.chain.plugin).toBe(false);
+    process.env.CLAUDE_CONFIG_DIR = looked;
+    unanswered.c.send({ type: "addRepository", requestId: 2, folder: made.repo });
+    await unanswered.c.message("done", (m) => m.requestId === 2);
+    expect(await unanswered.c.until(() => (unanswered.c.messages.findLast((m) => m.type === "inbox")?.repositories[0]?.chain.plugin === true ? true : undefined))).toBe(true);
+  });
+
+  /** A temporary repository whose main checkout holds the workflow at `path`, committed, so a work item's worktree holds it. */
+  function repositoryWith(path: string | null, text = "name: a check\n") {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    if (path !== null) {
+      mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+      writeFileSync(join(made.repo, path), text);
+      git(made.repo, "add", "--all");
+      git(made.repo, "commit", "--quiet", "-m", "ci: a check");
+    }
+    return made;
+  }
+  const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n';
+
+  it("launches a Claude Code pane of a work item whose worktree holds Owlery's workflow with the role bundle, the head of the run folder and a launcher of the chain command that runs, and a shell of the same work item with none of them", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const { c, runDir, settings, chain, bundleDir, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On the owl chain", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.args).toEqual(["-l", "-i", "-c", `exec claude --settings '${settings}' --plugin-dir '${bundleDir}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`]);
+    expect(readFileSync(join(runDir, "pane-head.md"), "utf8")).toBe(paneHead());
+    expect([pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE, pane.env.OWLERY_PANE_ID]).toEqual([chain.launcher, "main", String(session.id)]);
+    // The launcher the pane's environment names runs the command's script and hands it its arguments.
+    expect(JSON.parse(spawnSync(pane.env.OWLERY_CHAIN!, ["owed", "--base", "main"], { encoding: "utf8", cwd: workItem.worktree }).stdout)).toEqual(["owed", "--base", "main"]);
+    // A pane that continues carries the same, before the option that continues.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id, continueLatest: true });
+    const continued = await given((await c.message("started", (m) => m.requestId === 2)).session.id);
+    expect(continued.args[3]).toBe(`${pane.args[3]!} --continue`);
+    // A shell of the work item is the person's login shell, with no word of the chain.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    const shell = await given((await c.message("started", (m) => m.requestId === 3)).session.id);
+    expect(shell.args).toEqual(["-l"]);
+    expect([shell.env.OWLERY_CHAIN, shell.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+  });
+
+  it.each([
+    ["AgenticSeal's check", ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`],
+    ["no check", null, ""],
+  ])("launches a Claude Code pane of a work item whose worktree holds %s with the settings alone", async (_what, path, text) => {
+    const made = repositoryWith(path, text);
+    const { c, settings, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "On no chain of Owlery's", kind: "claude", cols: 80, rows: 24 });
+    const { session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.args).toEqual(["-l", "-i", "-c", `exec claude --settings '${settings}'`]);
+    expect([pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE]).toEqual([undefined, undefined]);
+  });
+
+  it("leaves every file under the person's Claude Code folder with the bytes it held, and adds none, when a pane on the owl chain opens and ends", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const home = join(made.base, "home");
+    mkdirSync(join(home, ".claude", "plugins"), { recursive: true });
+    writeFileSync(join(home, ".claude", "settings.json"), '{ "enabledPlugins": { "agentic@agenticseal": true } }\n');
+    writeFileSync(join(home, ".claude", "plugins", "installed_plugins.json"), '{ "version": 2, "plugins": {} }\n');
+    const held = (): unknown[] =>
+      (readdirSync(join(home, ".claude"), { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+        .map((entry) => [join(entry.parentPath, entry.name), entry.isFile() ? readFileSync(join(entry.parentPath, entry.name), "base64") : null])
+        .sort();
+    const before = held();
+    // The daemon and the pane it launches both read this home, until the case ends.
+    const own = process.env.HOME;
+    process.env.HOME = home;
+    cleanups.push(() => {
+      process.env.HOME = own;
+    });
+    const { c, given } = await launching(made);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Settings stay", kind: "claude", cols: 80, rows: 24 });
+    const { session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.env.HOME).toBe(home);
+    expect(pane.env.OWLERY_CHAIN).toBeDefined();
+    await c.message("exit", (m) => m.id === session.id);
+    expect(held()).toEqual(before);
+  });
+
+  it("tells a client which chain a repository's Claude Code panes run, launches a pane with nothing of the bundle while the plugin is enabled and no answer is kept, keeps the person's answer on the repository, and launches the next pane by it: under the owl chain with the bundle and a settings file of the pane's own that holds the hooks and the person's enabledPlugins with the plugin's key false, and under the plugin with the settings alone", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    withPlugin(made);
+    const { c, runDir, settings, chain, bundleDir, given } = await launching(made);
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    // The daemon read the checkout and the person's settings at the addition: both chains would run, and no answer is kept.
+    const added = await c.message("inbox", (m) => m.repositories.length === 1);
+    expect(added.repositories[0]?.chain).toEqual({ owl: true, plugin: true, chosen: null });
+    const id = added.repositories[0]!.id;
+    const alone = `exec claude --settings '${settings}'`;
+    const carried = (own: string) => `exec claude --settings '${own}' --plugin-dir '${bundleDir}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`;
+
+    // A pane the daemon launches while the answer is absent carries nothing of the bundle.
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Chosen", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    const unanswered = await given(session.id);
+    expect(unanswered.args[3]).toBe(alone);
+    expect(unanswered.env.OWLERY_CHAIN).toBeUndefined();
+
+    /** Sets the answer, waits for the inbox that carries it, opens a Claude Code pane of the work item and gives what it was launched with. */
+    const under = async (requestId: number, paneChain: "owlery" | "plugin" | null) => {
+      c.send({ type: "setRepository", requestId, id, paneChain });
+      await c.message("done", (m) => m.requestId === requestId);
+      await c.until(() => (c.messages.findLast((m) => m.type === "inbox")?.repositories[0]?.chain.chosen === paneChain ? true : undefined));
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: requestId + 100, workItemId: workItem.id });
+      const started = (await c.message("started", (m) => m.requestId === requestId + 100)).session.id;
+      return { pane: started, ...(await given(started)) };
+    };
+
+    // The owl chain: the bundle, and a settings file of the pane's own in the run folder.
+    const owl = await under(3, "owlery");
+    const own = join(runDir, `claude-pane-${String(owl.pane)}.json`);
+    expect(owl.args[3]).toBe(carried(own));
+    expect(owl.env.OWLERY_CHAIN).toBe(chain.launcher);
+    expect(JSON.parse(readFileSync(own, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@somewhere": true } });
+    // The answer outlives the daemon.
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ repositories: [{ id, paneChain: "owlery" }] });
+    // The next pane asks nothing of anybody and is launched the same way, with a file of its own.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 50, workItemId: workItem.id, continueLatest: true });
+    const next = (await c.message("started", (m) => m.requestId === 50)).session.id;
+    expect((await given(next)).args[3]).toBe(`${carried(join(runDir, `claude-pane-${String(next)}.json`))} --continue`);
+    // A shell of the work item is asked nothing and carries nothing.
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 51, workItemId: workItem.id });
+    const shell = await given((await c.message("started", (m) => m.requestId === 51)).session.id);
+    expect([shell.args, shell.env.OWLERY_CHAIN]).toEqual([["-l"], undefined]);
+
+    // The AgenticSeal plugin: the pane is Claude Code as it is.
+    const plugin = await under(4, "plugin");
+    expect(plugin.args[3]).toBe(alone);
+    expect(plugin.env.OWLERY_CHAIN).toBeUndefined();
+    expect(existsSync(join(runDir, `claude-pane-${String(plugin.pane)}.json`))).toBe(false);
+    // The settings change the answer back, and take it away.
+    expect((await under(5, "owlery")).env.OWLERY_CHAIN).toBe(chain.launcher);
+    expect((await under(6, null)).args[3]).toBe(alone);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ repositories: [{ id, paneChain: null }] });
+    // An answer that is neither chain is refused, and nothing is kept of it.
+    c.send({ type: "setRepository", requestId: 7, id, paneChain: "both" });
+    expect(await c.message("error", (m) => m.requestId === 7)).toEqual({ type: "error", requestId: 7, message: 'the chain of a repository\'s Claude Code panes is "owlery", "plugin" or null' });
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ repositories: [{ id, paneChain: null }] });
+  });
+
+  it("reads the person's settings again at each read of the repositories and at each launch, the local file of the main checkout among them, so a client is told once the plugin is turned off there, and a pane of a worktree then carries the owl chain with the settings file every pane shares, whatever answer is kept", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    withPlugin(made);
+    const { c, settings, chain, given } = await launching(made, { commitPollMs: 200 });
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Turned off", kind: "claude", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("inbox", (m) => m.repositories[0]?.chain.plugin === true);
+    c.send({ type: "setRepository", requestId: 2, id: 1, paneChain: "plugin" });
+    await c.message("done", (m) => m.requestId === 2);
+    // The person turns the plugin off for this repository, in the local settings file of its main checkout, which no worktree holds a copy of.
+    mkdirSync(join(made.repo, ".claude"));
+    writeFileSync(join(made.repo, ".claude", "settings.local.json"), `${JSON.stringify({ enabledPlugins: { [KEY]: false } })}\n`);
+    expect(existsSync(join(workItem.worktree, ".claude"))).toBe(false);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id });
+    const started = (await c.message("started", (m) => m.requestId === 3)).session.id;
+    const pane = await given(started);
+    expect(pane.args[3]).toContain(`exec claude --settings '${settings}' --plugin-dir `);
+    expect(pane.env.OWLERY_CHAIN).toBe(chain.launcher);
+    expect((await c.message("inbox", (m) => m.repositories[0]?.chain.plugin === false && m.repositories[0]?.chain.chosen === "plugin")).repositories[0]?.chain).toEqual({ owl: true, plugin: false, chosen: "plugin" });
+    // With no pane and no request to carry it, the next read of the repositories alone tells the clients that the plugin is on again.
+    await c.message("exit", (m) => m.id === started);
+    await c.until(() => (c.messages.at(-1)?.type === "inbox" || c.messages.at(-1)?.type === "exit" ? true : undefined));
+    await new Promise((r) => setTimeout(r, 600));
+    const quiet = c.messages.length;
+    rmSync(join(made.repo, ".claude"), { recursive: true });
+    expect((await c.until(() => c.messages.slice(quiet).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.repositories[0]?.chain.plugin === true))).repositories[0]?.chain).toEqual({ owl: true, plugin: true, chosen: "plugin" });
+  });
+
+  it.each(["owlery", "plugin"] as const)("leaves every file under the person's Claude Code folder with the bytes it held, and adds none, when a pane opens and ends under the answer %s with the plugin enabled", async (paneChain) => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const config = withPlugin(made);
+    const held = (): unknown[] =>
+      (readdirSync(config, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[])
+        .map((entry) => [join(entry.parentPath, entry.name), entry.isFile() ? readFileSync(join(entry.parentPath, entry.name), "base64") : null])
+        .sort();
+    const before = held();
+    // The daemon and the pane it launches both read this home, until the case ends.
+    const own = process.env.HOME;
+    process.env.HOME = join(made.base, "home");
+    cleanups.push(() => {
+      process.env.HOME = own;
+    });
+    const { c, runDir, given } = await launching(made);
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    await c.message("inbox", (m) => m.repositories[0]?.chain.plugin === true);
+    c.send({ type: "setRepository", requestId: 2, id: 1, paneChain });
+    await c.message("done", (m) => m.requestId === 2);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Settings stay", kind: "claude", cols: 80, rows: 24 });
+    const { session } = await c.message("workItemCreated");
+    const pane = await given(session.id);
+    expect(pane.env.HOME).toBe(join(made.base, "home"));
+    // Under the owl chain the pane's own settings file stands in Owlery's run folder, and under the plugin none is written.
+    expect([pane.env.OWLERY_CHAIN !== undefined, existsSync(join(runDir, `claude-pane-${String(session.id)}.json`))]).toEqual(paneChain === "owlery" ? [true, true] : [false, false]);
+    await c.message("exit", (m) => m.id === session.id);
+    expect(held()).toEqual(before);
+  });
+
+  /** The id of the conversation the recorded session's hook events carry (`fixtures/claude-interrupted-turn.json`). */
+  const CONVERSATION = "a99099b6-accd-47d0-853b-547820b31e6d";
+
+  /** A stand-in for the person's shell that stays: once it listens for its end and has written its size, it writes `start` and the command it was given into a file named for the pane, and its process id into another, runs until it is ended, and then writes `end`. No `claude` runs. Its files stand in a folder of their own, removed after the daemon closed, since a process ended at the close still writes. */
+  function holdingShell(at: string): { shell: string; launches: (pane: number, count: number) => Promise<string[]>; pid: (pane: number) => number; size: (pane: number) => string } {
+    const base = mkdtempSync(join(tmpdir(), "owlery-holding-shell-"));
+    cleanups.push(() => rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }));
+    const shell = join(at, "holding-shell");
+    writeFileSync(shell, `#!/bin/sh\nlog='${base}'/launches-$OWLERY_PANE_ID.txt\nprintf '%s\\n' $$ > '${base}'/pid-$OWLERY_PANE_ID.txt\ntrap 'sleep 0.2; printf "end\\n" >> "$log"; exit 0' HUP TERM\nstty size > '${base}'/size-$OWLERY_PANE_ID.txt\nprintf 'start %s\\n' "$4" >> "$log"\nwhile :; do sleep 0.05; done\n`, { mode: 0o755 });
+    const read = (pane: number): string[] => {
+      const file = join(base, `launches-${String(pane)}.txt`);
+      return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1) : [];
+    };
+    const launches = async (pane: number, count: number) => {
+      const end = Date.now() + 5000;
+      while (read(pane).length < count) {
+        if (Date.now() > end) throw new Error(`pane ${String(pane)} wrote ${String(read(pane).length)} of ${String(count)} lines: ${read(pane).join(" | ")}`);
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      return read(pane);
+    };
+    return { shell, launches, pid: (pane) => Number(readFileSync(join(base, `pid-${String(pane)}.txt`), "utf8")), size: (pane) => readFileSync(join(base, `size-${String(pane)}.txt`), "utf8").trim() };
+  }
+
+  /** A daemon whose panes are launched as `launching` launches them, with the stand-in for the shell that stays, and a client of it. The command of a pane launched under the folder `unstartable` cannot be written, as where its settings file cannot be. */
+  async function changing(made: { base: string; root: string }, options: Partial<DaemonOptions> = {}, unstartable?: string) {
+    const runDir = join(made.base, "run");
+    const script = join(made.base, "chain-stand-in.js");
+    writeFileSync(script, "process.stdout.write(JSON.stringify(process.argv.slice(2)));\n");
+    const bundleDir = join(made.base, "bundle");
+    const hold = holdingShell(made.base);
+    const settings = writeHookSettings(runDir);
+    const chain = writePaneChain(runDir, { node: process.execPath, script, bundleDir });
+    const launch = paneCommands({ SHELL: hold.shell }, settings, join(runDir, "hooks.sock"), carriedIn(chain));
+    const { daemon: d, url } = await daemon({
+      runDir,
+      worktreesRoot: made.root,
+      roleAdapter: fakeAdapter({ defaultLoginFolder: configOf(made) }),
+      commandFor: (kind, id, start) => {
+        if (unstartable !== undefined && start.accountDir === unstartable) throw new Error("the pane's settings file could not be written");
+        return launch(kind, id, start);
+      },
+      pluginEnabled: (folder, checkout, configDir) => readPlugins(folder, checkout, configDir).agenticSeal.length > 0,
+      ...options,
+    });
+    const c = await client(url);
+    await c.message("ready");
+    const answer = (requestId: number) => c.until(() => c.messages.find((m): m is Extract<ServerMessage, { type: "done" | "error" }> => (m.type === "done" || m.type === "error") && m.requestId === requestId));
+    return { d, c, url, runDir, settings, answer, carried: `--plugin-dir '${bundleDir}' --append-system-prompt-file '${join(runDir, "pane-head.md")}'`, launches: hold.launches, pid: hold.pid, size: hold.size };
+  }
+
+  /** A config folder at `folder` whose `projects` is a link to `projects`, the conversations it then keeps. */
+  function sharing(folder: string, projects: string): string {
+    mkdirSync(folder, { recursive: true });
+    symlinkSync(projects, join(folder, "projects"));
+    return folder;
+  }
+
+  it("changes a running Claude Code pane's account: ends its process and waits for its exit, makes the new account's missing links, and starts the CLI on the pane's conversation under the new folder, with the owl chain's options and no --continue, in the same pane, which names the new account, shows nothing of the old process and reads its session log no more; a pane whose events carried no conversation's id starts anew (scenario 8)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    writeFileSync(join(own, "CLAUDE.md"), "# mine\n");
+    const handed = sharing(join(made.base, "handed"), join(own, "projects"));
+    const logins = claudeLogins({ locate: () => Promise.reject(new Error("no CLI runs in a case")), envOf: () => ({}), ownFolder: () => own });
+    const { d, c, url, runDir, settings, carried, launches, answer, size } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
+    c.send({ type: "addAccount", requestId: 2, name: "Made" });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    const madeFolder = join(runDir, "accounts", "2");
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Moved", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, paneChain: "owlery" });
+    await c.message("done", (m) => m.requestId === 4);
+    const opened = async (requestId: number) => {
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId, workItemId: workItem.id, accountId: 1 });
+      return (await c.message("started", (m) => m.requestId === requestId)).session;
+    };
+    const pane = await opened(5);
+    const first = `start exec env CLAUDE_CONFIG_DIR='${handed}' claude --settings '${settings}' ${carried}`;
+    expect(await launches(pane.id, 1)).toEqual([first]);
+    // The pane works on a turn of a conversation, and its session log is read.
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(pane.id, "UserPromptSubmit", { session_id: CONVERSATION, transcript_path: log });
+    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "working"));
+    rmSync(join(madeFolder, "CLAUDE.md"));
+    expect(size(pane.id)).toBe("24 80");
+    c.send({ type: "resize", id: pane.id, cols: 100, rows: 30 });
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect(await launches(pane.id, 3)).toEqual([first, "end", `start exec env CLAUDE_CONFIG_DIR='${madeFolder}' claude --settings '${settings}' ${carried} --resume '${CONVERSATION}'`]);
+    expect(readlinkSync(join(madeFolder, "CLAUDE.md"))).toBe(join(own, "CLAUDE.md"));
+    // The new process starts at the size the window last gave the pane.
+    expect(size(pane.id)).toBe("30 100");
+    const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && listed.accountId === 2)));
+    expect(inbox.sessions.find((listed) => listed.id === pane.id)).toEqual({ ...pane, accountId: 2, alive: true, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
+    // The old process's session log is read no more: the interruption it gains now tells nobody, and the pane never ended for any client.
+    appendFileSync(log, lines(SECOND_PROMPT, Infinity));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(c.messages.slice(from).filter((m) => (m.type === "agent" || m.type === "exit") && m.id === pane.id)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions.find((listed) => listed.id === pane.id)?.state ?? null).toBeNull();
+    // An id that is no conversation's is never put on the command line: that pane starts anew under the new account.
+    const fresh = await opened(7);
+    await launches(fresh.id, 1);
+    d.agentEvent(fresh.id, "UserPromptSubmit", { session_id: "x'; rm -rf ~; '" });
+    c.send({ type: "changeAccount", requestId: 8, id: fresh.id, accountId: 2 });
+    expect(await answer(8)).toEqual({ type: "done", requestId: 8 });
+    expect((await launches(fresh.id, 3))[2]).toBe(`start exec env CLAUDE_CONFIG_DIR='${madeFolder}' claude --settings '${settings}' ${carried}`);
+  });
+
+  it("starts a changed pane with the settings file a launch under the new account gives: the shared one where the new folder enables no AgenticSeal plugin, and the pane's own, holding the new folder's keys with the plugin's key false, where it does (scenario 8)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const projects = join(made.base, "projects");
+    mkdirSync(projects);
+    const withIt = handedWithPlugin(sharing(join(made.base, "with"), projects));
+    const without = sharing(join(made.base, "without"), projects);
+    const { c, runDir, settings, carried, launches, answer } = await changing(made);
+    c.send({ type: "addAccount", requestId: 1, name: "With", folder: withIt });
+    c.send({ type: "addAccount", requestId: 2, name: "Without", folder: without });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Plugins follow", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "setRepository", requestId: 4, id: workItem.repoId, paneChain: "owlery" });
+    await c.message("done", (m) => m.requestId === 4);
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 5, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 5)).session;
+    const ownFile = join(runDir, `claude-pane-${String(pane.id)}.json`);
+    expect((await launches(pane.id, 1))[0]).toBe(`start exec env CLAUDE_CONFIG_DIR='${withIt}' claude --settings '${ownFile}' ${carried}`);
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect((await launches(pane.id, 3))[2]).toBe(`start exec env CLAUDE_CONFIG_DIR='${without}' claude --settings '${settings}' ${carried}`);
+    // The way back writes the pane's own file again, from the folder it then reads.
+    rmSync(ownFile);
+    c.send({ type: "changeAccount", requestId: 7, id: pane.id, accountId: 1 });
+    expect(await answer(7)).toEqual({ type: "done", requestId: 7 });
+    expect((await launches(pane.id, 5))[4]).toBe(`start exec env CLAUDE_CONFIG_DIR='${withIt}' claude --settings '${ownFile}' ${carried}`);
+    expect(JSON.parse(readFileSync(ownFile, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@handed": true } });
+  });
+
+  it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, of a pane whose process ended, and a second change of a pane while the first waits (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const other = join(made.base, "other");
+    mkdirSync(join(other, "projects"), { recursive: true });
+    let release = (): void => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    cleanups.push(() => release());
+    const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null }), signOut: () => Promise.resolve() };
+    const { c, launches, answer, pid } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins, work: () => held }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Other", folder: other });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Refused", kind: "shell", cols: 80, rows: 24 });
+    const { workItem, session: shell } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    c.send({ type: "ask", requestId: 5, workItemId: workItem.id, prompt: "Hold" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 5);
+    c.send({ type: "signIn", requestId: 6, id: 1, cols: 80, rows: 12 });
+    const signIn = (await c.message("started", (m) => m.requestId === 6)).session;
+    const refused = async (requestId: number, change: { id: number; accountId: number; headless?: true }) => {
+      c.send({ type: "changeAccount", requestId, ...change });
+      return ((await answer(requestId)) as { message?: string }).message;
+    };
+    expect(await refused(10, { id: shell.id, accountId: 1 })).toBe("A shell keeps the environment it started with, so its account is not changed. Open a new pane under the other account.");
+    expect(await refused(11, { id: signIn.id, accountId: 2 })).toBe("A sign-in pane runs under the account it signs in.");
+    expect(await refused(12, { id: headless.id, headless: true, accountId: 2 })).toBe("A session asked in a work item keeps the account it started under. Ask again under the other account.");
+    expect(await refused(13, { id: pane.id, accountId: 2 })).toBe(`"Same" and "Other" do not keep the same conversations, so the pane's conversation would not be found under "Other".`);
+    expect(await refused(14, { id: pane.id, accountId: 1 })).toBe(`The pane runs under "Same" already.`);
+    expect(await refused(15, { id: pane.id, accountId: 9 })).toBe("No account 9 is kept.");
+    expect(await refused(16, { id: 99, accountId: 0 })).toBe("No pane 99 is open.");
+    // Two folders that keep no conversations at all keep none in common either.
+    for (const [requestId, name] of [[20, "Bare"], [21, "Bare too"]] as const) {
+      mkdirSync(join(made.base, name));
+      c.send({ type: "addAccount", requestId, name, folder: join(made.base, name) });
+      await answer(requestId);
+    }
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 22, workItemId: workItem.id, accountId: 3 });
+    const bare = (await c.message("started", (m) => m.requestId === 22)).session;
+    await launches(bare.id, 1);
+    expect(await refused(23, { id: bare.id, accountId: 4 })).toBe(`"Bare" and "Bare too" do not keep the same conversations, so the pane's conversation would not be found under "Bare too".`);
+    // Nothing was ended: the pane's process runs, the session works, and the shell and the sign-in pane stand.
+    expect(await launches(pane.id, 1)).toHaveLength(1);
+    const listed = await c.until(() => c.messages.findLast((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
+    expect([shell.id, signIn.id, pane.id].map((id) => listed.sessions.find((each) => each.id === id)?.alive)).toEqual([true, true, true]);
+    expect(c.messages.findLast((m): m is Extract<ServerMessage, { type: "headless" }> => m.type === "headless" && m.headless.id === headless.id)?.headless.state ?? headless.state).toBe("working");
+    // A pane closed while its process ends is not started again.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 24, workItemId: workItem.id, accountId: 1 });
+    const closed = (await c.message("started", (m) => m.requestId === 24)).session;
+    await launches(closed.id, 1);
+    c.send({ type: "changeAccount", requestId: 25, id: closed.id, accountId: 0 });
+    c.send({ type: "close", id: closed.id });
+    expect(await answer(25)).toEqual({ type: "error", requestId: 25, message: "The pane was closed before its account changed." });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await launches(closed.id, 2)).toEqual([expect.stringMatching(/^start /), "end"]);
+    // Two changes of one pane sent together: the second is refused, and one process at a time runs the pane.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 26, workItemId: workItem.id, accountId: 1 });
+    const twice = (await c.message("started", (m) => m.requestId === 26)).session;
+    await launches(twice.id, 1);
+    c.send({ type: "changeAccount", requestId: 27, id: twice.id, accountId: 0 });
+    c.send({ type: "changeAccount", requestId: 28, id: twice.id, accountId: 0 });
+    expect(await answer(28)).toEqual({ type: "error", requestId: 28, message: "The pane's account is being changed already." });
+    expect(await answer(27)).toEqual({ type: "done", requestId: 27 });
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await launches(twice.id, 3)).filter((line) => line.startsWith("start "))).toHaveLength(2);
+    // A pane whose process ended has nothing to move.
+    process.kill(pid(pane.id), "SIGTERM");
+    await c.message("exit", (m) => m.id === pane.id);
+    expect(await refused(17, { id: pane.id, accountId: 0 })).toBe("The pane's process has ended, so it has nothing to move to another account.");
+    release();
+  });
+
+  it("drops on a changed pane what the old process's events left, an interruption and a log that went unread, so the new process's events alone set its state and its log is said again where it is not read; and leaves a pane whose new process cannot start ended, saying why (scenario 8)", async () => {
+    const said = logged();
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const broken = sharing(join(made.base, "broken"), join(own, "projects"));
+    const { d, c, launches, answer } = await changing(made, { sessionLogWaitMs: 100 }, broken);
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Broken", folder: broken });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Left behind", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    const unread = (path: string) => said.filter((line) => line.startsWith(`the session log of pane ${String(pane.id)} is not read`) && line.includes(path));
+    // A log the old process named is never read, and its turn ends interrupted.
+    const missing = sessionLog(cleanups);
+    d.agentEvent(pane.id, "UserPromptSubmit", { transcript_path: missing });
+    await c.until(() => (unread(missing).length === 1 ? true : undefined));
+    await interruptToolCall(d, pane.id, sessionLog(cleanups));
+    await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.state === "waiting"));
+    c.send({ type: "changeAccount", requestId: 5, id: pane.id, accountId: 0 });
+    expect(await answer(5)).toEqual({ type: "done", requestId: 5 });
+    // The new process's tool end leaves it working, as no interruption of its own began its state.
+    const changed = c.messages.length;
+    d.agentEvent(pane.id, "PostToolUse", { tool_name: "Bash" });
+    const after = await c.until(() => c.messages.slice(changed).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && (m.sessions.find((listed) => listed.id === pane.id)?.state ?? null) !== null));
+    expect(after.sessions.find((listed) => listed.id === pane.id)?.state).toBe("working");
+    const again = sessionLog(cleanups);
+    d.agentEvent(pane.id, "UserPromptSubmit", { transcript_path: again });
+    await c.until(() => (unread(again).length === 1 ? true : undefined));
+    // Under a folder whose launch cannot start, the pane stays, ended, and says why.
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "error", requestId: 6, message: "the pane's settings file could not be written" });
+    const ended = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && !listed.alive)));
+    expect(ended.sessions.find((listed) => listed.id === pane.id)?.accountId).toBe(2);
+    expect(c.messages.slice(from).some((m) => m.type === "output" && m.id === pane.id && m.data.includes(`[the pane could not start under "Broken": the pane's settings file could not be written]`))).toBe(true);
+  });
+
+  it("starts no process for a change whose account was removed, whose work item was archived or whose daemon closed while the old process ended: the pane ends as its process did, and one whose account went says why (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const gone = sharing(join(made.base, "gone"), join(own, "projects"));
+    const { d, c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }) });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 2, name: "Gone", folder: gone });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    const item = async (requestId: number, title: string) => {
+      c.send({ type: "createWorkItem", requestId, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
+      return c.message("workItemCreated", (m) => m.workItem.title === title);
+    };
+    const opened = async (requestId: number, workItemId: number) => {
+      c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId, workItemId, accountId: 1 });
+      const pane = (await c.message("started", (m) => m.requestId === requestId)).session;
+      await launches(pane.id, 1);
+      return pane;
+    };
+    const ended = [expect.stringMatching(/^start /), "end"];
+    // The account the pane changes to is removed while the old process ends: the pane stays ended under its own account and says why.
+    const { workItem: kept } = await item(3, "Kept");
+    const lost = await opened(4, kept.id);
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 5, id: lost.id, accountId: 2 });
+    c.send({ type: "removeAccount", requestId: 6, id: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    expect(await answer(5)).toEqual({ type: "error", requestId: 5, message: "No account 2 is kept." });
+    const listed = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((each) => each.id === lost.id && !each.alive)));
+    expect(listed.sessions.find((each) => each.id === lost.id)?.accountId).toBe(1);
+    expect(c.messages.slice(from).some((m) => m.type === "output" && m.id === lost.id && m.data.includes("[the pane could not start: no account 2 is kept]"))).toBe(true);
+    // The work item is archived while the old process ends.
+    const { workItem: archived, session: shell } = await item(7, "Archived");
+    const pane = await opened(8, archived.id);
+    c.send({ type: "changeAccount", requestId: 9, id: pane.id, accountId: 0 });
+    c.send({ type: "archiveWorkItem", requestId: 10, id: archived.id, running: { panes: [shell.id, pane.id], headless: [] } });
+    expect(await answer(9)).toEqual({ type: "error", requestId: 9, message: "The pane was closed before its account changed." });
+    expect(await answer(10)).toEqual({ type: "done", requestId: 10 });
+    await c.message("exit", (m) => m.id === pane.id);
+    // The daemon closes while the old process ends.
+    const last = await opened(11, kept.id);
+    c.send({ type: "changeAccount", requestId: 12, id: last.id, accountId: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    await d.close();
+    await new Promise((r) => setTimeout(r, 400));
+    expect([await launches(lost.id, 2), await launches(pane.id, 2), await launches(last.id, 2)]).toEqual([ended, ended, ended]);
+  });
+
+  it("refuses a change whose pane's process has not ended within the wait, and the pane then ends when its process exits, as any end of it does (scenario 9)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const own = configOf(made);
+    mkdirSync(join(own, "projects"), { recursive: true });
+    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const { c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }), endWaitMs: 50 });
+    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    await c.message("accounts", (m) => m.accounts.length === 2);
+    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Slow", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 3, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 3)).session;
+    await launches(pane.id, 1);
+    // The stand-in takes 200 ms to answer its hangup, four times the wait.
+    c.send({ type: "changeAccount", requestId: 4, id: pane.id, accountId: 0 });
+    expect(await answer(4)).toEqual({ type: "error", requestId: 4, message: "The pane's process did not end in time, so its account was not changed. The pane ends once its process exits." });
+    await c.message("exit", (m) => m.id === pane.id);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await launches(pane.id, 2)).toEqual([expect.stringMatching(/^start /), "end"]);
   });
 });

@@ -17,18 +17,21 @@
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
-import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { menuOpen, openMenu } from "./menu";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
+import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
 import {
   agentKind,
   archivalOf,
+  asksChain,
   asksFetch,
+  CHAIN_CHOICES,
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
@@ -71,7 +74,14 @@ import {
   repositoryMenu,
   runningSessions,
   settingsBases,
+  settingsChain,
   settingsFields,
+  accountChoices,
+  accountRemoval,
+  accountRows,
+  REFRESH_SAYS,
+  heldAccounts,
+  offersAccounts,
   shownSetup,
   workItemFields,
   workItemMenu,
@@ -86,7 +96,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSeal, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -162,6 +172,17 @@ const registerOnly = byId<HTMLInputElement>("work-item-register-only");
 const settingsDialog = byId<HTMLDialogElement>("settings-dialog");
 const settingsName = byId<HTMLInputElement>("settings-name");
 const settingsBase = byId<HTMLSelectElement>("settings-base");
+const settingsChainField = byId("settings-chain-field");
+const settingsChainMenu = byId<HTMLSelectElement>("settings-chain");
+const settingsAccountField = byId("settings-account-field");
+const settingsAccountMenu = byId<HTMLSelectElement>("settings-account");
+const accountDialog = byId<HTMLDialogElement>("account-dialog");
+const accountMenu = byId<HTMLSelectElement>("account-menu");
+const accountsDialog = byId<HTMLDialogElement>("accounts-dialog");
+const accountsName = byId<HTMLInputElement>("accounts-name");
+const accountsError = byId("accounts-error");
+const accountsButton = byId<HTMLButtonElement>("accounts-button");
+const chainDialog = byId<HTMLDialogElement>("chain-dialog");
 const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const groupDialog = byId<HTMLDialogElement>("group-dialog");
@@ -188,12 +209,14 @@ interface Asking {
 }
 const FORM: Asking = { dialog: workItemDialog, error: formError, button: createButton };
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
+const CHAIN: Asking = { dialog: chainDialog, error: byId("chain-error"), button: byId<HTMLButtonElement>("chain-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
 const REVERSE: Asking = { dialog: reverseDialog, error: byId("reverse-error"), button: byId<HTMLButtonElement>("reverse-submit") };
 const REMOVE: Asking = { dialog: removeDialog, error: byId("remove-error"), button: byId<HTMLButtonElement>("remove-submit") };
 const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error"), button: byId<HTMLButtonElement>("sessions-submit") };
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
+const ACCOUNT: Asking = { dialog: accountDialog, error: byId("account-error"), button: byId<HTMLButtonElement>("account-submit") };
 const RECORDS: Asking = { dialog: recordsPlaceDialog, error: byId("records-error"), button: byId<HTMLButtonElement>("records-submit") };
 // The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
 const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
@@ -394,6 +417,8 @@ function answered(requestId: number, refusal: string | null): boolean {
   if (!of.dialog.open) return false;
   if (refusal === null) {
     of.dialog.close();
+    // The daemon keeps the answer now, so the pane the person asked for opens under it.
+    if (of === CHAIN) chainAsked?.open();
   } else {
     of.error.textContent = refusal;
     of.button.disabled = false;
@@ -476,6 +501,9 @@ function pressMenu(action: MenuAction): void {
     case "rename":
       openRename(action.id);
       return;
+    case "account":
+      openAccount(action.id);
+      return;
     case "open":
       void window.owlery.openFolder(action.folder, action.app).then((failure) => {
         if (failure !== null) tell(failure);
@@ -531,7 +559,7 @@ function openRepositoryMenu(repositoryId: number, at: { x: number; y: number }, 
 function openWorkItemMenu(workItemId: number, at: { x: number; y: number }, within: Element): void {
   const workItem = [...held.workItems, ...held.archived].find((known) => known.id === workItemId);
   if (!workItem) return;
-  openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps, repositoryOf(workItem.repoId)?.groups ?? []), at, pressMenu, () => lineIn(within, workItemId));
+  openMenu(`Menu of ${workItem.title}`, workItemMenu(workItem, held.apps, repositoryOf(workItem.repoId)?.groups ?? [], offersAccounts(held.accounts)), at, pressMenu, () => lineIn(within, workItemId));
 }
 
 /** Opens the menu of a work item's line, or of a repository's row, at a press of the right button on it, and at a press with the Control key, which raises the same event. */
@@ -640,6 +668,47 @@ function rename(): void {
   send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked && !renameBranch.disabled });
 }
 
+/**
+ * What the chain dialog last asked: the repository it asks for, and what
+ * opens the pane the person asked for. It is read at the daemon's answer to
+ * what the dialog sent, and at nothing else, so a dialog closed with no
+ * answer opens no pane. Nothing clears it at the dialog's `close` event: the
+ * page delivers that event late, after a dialog opened again, and a clear
+ * there would drop what the open dialog waits on.
+ */
+let chainAsked: { repositoryId: number; open: () => void } | undefined;
+
+/**
+ * Opens a pane of `kind` in a repository through `open`, after the person
+ * said which chain runs in the repository's Claude Code panes where the
+ * window asks it (./view, `asksChain`). The dialog opens over the "New work
+ * item" form where the pane is a new work item's first, so the form keeps
+ * what was typed. A dialog that is closed with no answer opens no pane and
+ * keeps no answer.
+ */
+function beforePane(repository: Repository | undefined, kind: PaneKind, open: () => void): void {
+  if (repository === undefined || !asksChain(repository, kind)) {
+    open();
+    return;
+  }
+  if (chainDialog.open) return;
+  forget(chainDialog);
+  CHAIN.error.textContent = "";
+  CHAIN.button.disabled = false;
+  // The owl chain is the default, and the person confirms it or chooses the plugin.
+  byId<HTMLInputElement>("chain-owlery").checked = true;
+  chainAsked = { repositoryId: repository.id, open };
+  chainDialog.showModal();
+}
+
+/** Sends the answer the chain dialog holds, to be kept on the repository. */
+function answerChain(): void {
+  const asked = chainAsked;
+  if (asked === undefined) return;
+  const paneChain = byId<HTMLInputElement>("chain-plugin").checked ? "plugin" : "owlery";
+  ask(CHAIN, (requestId) => ({ type: "setRepository", requestId, id: asked.repositoryId, paneChain }));
+}
+
 /** The last part of a folder's path, which names a repository a person gave no name. */
 function lastPart(folder: string): string {
   return folder.split("/").filter(Boolean).at(-1) ?? folder;
@@ -670,6 +739,14 @@ function openSettings(repositoryId: number): void {
   settingsName.placeholder = lastPart(repository.folder);
   settingsPlan = null;
   showSettingsBases(repository.defaultBase ?? "");
+  const chain = settingsChain(repository);
+  settingsChainField.hidden = !chain.shown;
+  settingsChainMenu.replaceChildren(...CHAIN_CHOICES.map(({ value, label }) => new Option(label, value)));
+  settingsChainMenu.value = chain.value;
+  // The account's menu is shown only where there is an account to choose, and its first choice leaves the repository to the default.
+  settingsAccountField.hidden = !offersAccounts(held.accounts);
+  settingsAccountMenu.replaceChildren(...(held.accounts ? accountChoices(held.accounts, "The default", held.accounts.defaultId) : []).map(({ value, label }) => new Option(label, value)));
+  settingsAccountMenu.value = String(repository.accountId ?? "");
   settingsName.select();
   // A plan lists the repository's bases as the form's menu lists them, and creates nothing.
   settingsPlanRequest = request();
@@ -692,9 +769,235 @@ function takeSettingsPlan(requestId: number, plan: PlanAnswered): boolean {
 function saveSettings(): void {
   const repository = repositoryOf(settingsOf);
   if (!repository) return;
-  const fields = settingsFields(repository, settingsName.value, settingsBase.value);
+  // A hidden menu of accounts changes no account.
+  const fields = settingsFields(repository, settingsName.value, settingsBase.value, settingsChainMenu.value, ...(settingsAccountField.hidden ? [] : [settingsAccountMenu.value]));
   if (Object.keys(fields).length === 0) settingsDialog.close();
   else ask(SETTINGS, (requestId) => ({ type: "setRepository", requestId, id: repository.id, ...fields }));
+}
+
+/** The work item whose account the account dialog sets, while it is open. */
+let accountOf: number | undefined;
+
+/** Opens the dialog that sets a work item's account, with the one set on it chosen, and its first choice, which leaves it to its repository's, named with the account that gives. */
+function openAccount(workItemId: number): void {
+  const workItem = held.workItems.find((listed) => listed.id === workItemId);
+  const accounts = held.accounts;
+  if (!workItem || !accounts || !opened(ACCOUNT)) return;
+  accountOf = workItemId;
+  const gives = repositoryOf(workItem.repoId)?.accountId ?? accounts.defaultId;
+  accountMenu.replaceChildren(...accountChoices(accounts, "The repository's", gives).map(({ value, label }) => new Option(label, value)));
+  accountMenu.value = String(workItem.accountId ?? "");
+  accountMenu.focus();
+}
+
+/** Sends the account the dialog chose for its work item, and closes it where the choice is the one set. */
+function saveAccount(): void {
+  const workItem = held.workItems.find((listed) => listed.id === accountOf);
+  if (!workItem) return;
+  const accountId = accountMenu.value === "" ? null : Number(accountMenu.value);
+  if (accountId === (workItem.accountId ?? null)) accountDialog.close();
+  else ask(ACCOUNT, (requestId) => ({ type: "setWorkItem", requestId, id: workItem.id, accountId }));
+}
+
+// The requests the Accounts dialog sent, which its own place answers: the dialog stays open, and a refusal is said in it.
+const accountsAsked = new Set<number>();
+// The account whose row shows the field that renames it, while one does.
+let renamingAccount: number | undefined;
+
+// The account whose row asks whether to remove it, while one does.
+let removingAccount: number | undefined;
+
+/** Sends a request of the Accounts dialog, and answers with its id. */
+function askAccounts(message: (requestId: number) => ClientMessage): number {
+  const requestId = request();
+  accountsAsked.add(requestId);
+  accountsError.textContent = "";
+  send(message(requestId));
+  return requestId;
+}
+
+/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
+function takeAccountsAnswer(requestId: number, refusal: string | null): boolean {
+  if (!accountsAsked.delete(requestId)) return false;
+  if (refusal !== null) {
+    signInRefused(requestId);
+    accountsError.textContent = refusal;
+    return true;
+  }
+  accountsError.textContent = "";
+  accountsName.value = "";
+  renamingAccount = undefined;
+  removingAccount = undefined;
+  // The `accounts` that carries a change draws the list again, and a request that changed nothing sends none.
+  if (accountsDialog.open) showAccounts();
+  return true;
+}
+
+/** Shows the Accounts dialog's entry in the sidebar's foot where the daemon keeps accounts, and hides it against a daemon of an earlier build. */
+function showAccountsEntry(): void {
+  accountsButton.hidden = held.accounts === null;
+}
+
+/** Opens the Accounts dialog, against a daemon that keeps accounts and where no other dialog is open. */
+function openAccounts(): void {
+  if (held.accounts === null || dialogOpen()) return;
+  renamingAccount = undefined;
+  removingAccount = undefined;
+  accountsName.value = "";
+  accountsError.textContent = "";
+  showAccounts();
+  accountsDialog.showModal();
+}
+
+/**
+ * Draws the Accounts dialog's rows: each account's name, with its folder and
+ * its sign-in under it, the default said in words or the button that makes
+ * it the default, the buttons that sign it in and read its sign-in again,
+ * and the buttons that rename and remove it, its limit values and its last
+ * refresh under its sign-in, and "Refresh usage" with what a refresh spends
+ * said beside it; while it is renamed, the field
+ * and its two buttons; and while its removal is asked, what the removal does
+ * and clears, and its two buttons. The sign-in pane the dialog draws is
+ * shown under the list.
+ */
+function showAccounts(): void {
+  showSignIn();
+  byId("accounts-list").replaceChildren(
+    // Whether a session runs under an account is read as the dialog is drawn: a session that starts later is refused its refresh by the daemon, in words.
+    ...accountRows(held.accounts, Date.now(), held.sessions, held.headless).map((row) => {
+      const item = document.createElement("li");
+      item.dataset.account = String(row.id);
+      const button = (text: string, act: () => void): HTMLButtonElement => {
+        const made = document.createElement("button");
+        made.type = "button";
+        made.className = "quiet";
+        made.textContent = text;
+        made.addEventListener("click", act);
+        return made;
+      };
+      const acts = document.createElement("span");
+      acts.className = "account-acts";
+      if (renamingAccount === row.id) {
+        const field = document.createElement("input");
+        field.autocomplete = "off";
+        field.value = row.name;
+        field.setAttribute("aria-label", `New name of ${row.name}`);
+        const save = (): void => {
+          const id = row.id;
+          askAccounts((requestId) => ({ type: "renameAccount", requestId, id, name: field.value }));
+        };
+        field.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          save();
+        });
+        acts.append(
+          button("Cancel", () => {
+            renamingAccount = undefined;
+            showAccounts();
+          }),
+          button("Rename", save),
+        );
+        item.append(field, acts);
+        queueMicrotask(() => field.select());
+        return item;
+      }
+      const removal = removingAccount === row.id && held.accounts !== null ? accountRemoval(held.accounts, row.id, held.repositories, held.workItems, held.archived) : null;
+      if (removal !== null) {
+        const asks = document.createElement("span");
+        asks.className = "account-name";
+        const says = document.createElement("span");
+        says.textContent = removal.says;
+        asks.append(says);
+        for (const line of removal.cleared) {
+          const cleared = document.createElement("span");
+          cleared.className = "account-folder";
+          cleared.textContent = line;
+          asks.append(cleared);
+        }
+        const id = row.id;
+        acts.append(
+          button("Cancel", () => {
+            removingAccount = undefined;
+            showAccounts();
+          }),
+          button("Remove the account", () => askAccounts((requestId) => ({ type: "removeAccount", requestId, id }))),
+        );
+        item.append(asks, acts);
+        return item;
+      }
+      const named = document.createElement("span");
+      named.className = "account-name";
+      const name = document.createElement("span");
+      name.textContent = row.name;
+      const folder = document.createElement("span");
+      folder.className = "account-folder";
+      folder.textContent = row.folder;
+      named.append(name, folder);
+      if (row.signIn !== null) {
+        const signIn = document.createElement("span");
+        signIn.className = "account-sign-in";
+        signIn.textContent = row.signIn;
+        named.append(signIn);
+      }
+      for (const line of [...row.usage, ...(row.refreshed === null ? [] : [row.refreshed]), ...(row.offersRefresh ? [REFRESH_SAYS] : [])]) {
+        const said = document.createElement("span");
+        said.className = "account-usage";
+        said.textContent = line;
+        named.append(said);
+      }
+      if (row.isDefault) {
+        const said = document.createElement("span");
+        said.className = "is-default";
+        said.textContent = "The default";
+        acts.append(said);
+      } else {
+        const id = row.id;
+        acts.append(button("Make the default", () => askAccounts((requestId) => ({ type: "setDefaultAccount", requestId, id }))));
+      }
+      if (row.offersSignIn) {
+        const id = row.id;
+        acts.append(
+          button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id)),
+          button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))),
+        );
+      }
+      if (row.offersRefresh) {
+        const id = row.id;
+        acts.append(button("Refresh usage", () => askAccounts((requestId) => ({ type: "refreshUsage", requestId, id }))));
+      }
+      if (!row.fixed)
+        acts.append(
+          button("Rename", () => {
+            renamingAccount = row.id;
+            removingAccount = undefined;
+            showAccounts();
+          }),
+          button("Remove…", () => {
+            removingAccount = row.id;
+            renamingAccount = undefined;
+            showAccounts();
+          }),
+        );
+      item.append(named, acts);
+      return item;
+    }),
+  );
+}
+
+/** Adds an account whose folder the daemon makes, under the name typed. The person signs it in from its row. */
+function addMadeAccount(): void {
+  const name = accountsName.value;
+  askAccounts((requestId) => ({ type: "addAccount", requestId, name }));
+}
+
+/** Adds the account a person hands over: the folder chosen in the system's dialog, under the name typed. A dialog that chose no folder adds nothing. */
+function addAccount(): void {
+  const name = accountsName.value;
+  void window.owlery.pickFolder().then((folder) => {
+    if (folder === null || !accountsDialog.open) return;
+    askAccounts((requestId) => ({ type: "addAccount", requestId, name, folder }));
+  });
 }
 
 /** Opens the dialog that takes a repository's icon, with the one it has selected in the field. */
@@ -1420,6 +1723,12 @@ function createWorkItem(): void {
   send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize(), setupCommand: shown.setupCommand });
 }
 
+/** Creates the work item the form holds, after the person said which chain runs where the window asks it of the form's repository. A folder that is no repository the window holds is asked nothing. */
+function createAfterChain(): void {
+  const kind = held.paneKinds.find((offered) => offered.kind === kindField.value);
+  beforePane(held.repositories.find((repository) => repository.folder === repoField.value), kind?.kind ?? "shell", createWorkItem);
+}
+
 /** Registers the repository of the form's folder, with no work item: the daemon's answer closes the form, and its refusal is shown in it, as a creation's is. */
 function registerRepository(): void {
   const fields = registerFields(repoField.value);
@@ -1450,6 +1759,9 @@ function onMessage(message: ServerMessage): void {
       showKeepAwake();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
+      // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
+      held.accounts = heldAccounts(message);
+      showAccountsEntry();
       // The counts of this `ready` were read from git at this window's hello, so the work items the summary lists are chosen here, and held until the next load. What each line says is worked out again at each drawing.
       held.changed = held.lastLook ? changedSet(held.lastLook, held.workItems, held.sessions, held.paneKinds) : { ids: [], unread: [] };
       showPaneButtons();
@@ -1465,6 +1777,19 @@ function onMessage(message: ServerMessage): void {
     }
     case "inbox":
       takeLists(message);
+      // The sign-in pane ended or was closed elsewhere.
+      if (accountsDialog.open) showSignIn();
+      return;
+    case "accounts":
+      // An account was added, renamed or made the default, here or in another client: every name drawn of one is drawn again.
+      held.accounts = heldAccounts(message);
+      showAccountsEntry();
+      // What a person typed in the dialog stays: a change another client made closes no field of this one.
+      if (accountsDialog.open) showAccounts();
+      // The lists stand as they were: each screen draws the names again.
+      showSidebar();
+      listInFront()?.show();
+      if (front === "view") showView();
       return;
     case "keepAwake":
       // The daemon's choice changed, here or in another client, or its hold began or ended.
@@ -1479,6 +1804,12 @@ function onMessage(message: ServerMessage): void {
       return;
     case "started":
       tell("");
+      // A sign-in pane is drawn in the Accounts dialog, which keeps receiving its output.
+      if (accountsAsked.delete(message.requestId)) {
+        takeStarted(message.session);
+        takeSignInStarted(message.requestId, message.session.id);
+        return;
+      }
       takeStarted(message.session);
       detachUnshown(message.session.id);
       return;
@@ -1536,10 +1867,9 @@ function onMessage(message: ServerMessage): void {
         return;
       }
       if (answered(message.requestId, null)) return;
+      if (takeAccountsAnswer(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
-      if (takeAnswers(message.requestId, null)) return;
-      // The chain a press of "Get a seal" asked for has started.
-      if (takeSeal(message.requestId, null)) return;
+      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -1581,13 +1911,13 @@ function onMessage(message: ServerMessage): void {
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
       // The refusal of the answers to a parked work item's questions is its view's section's to show.
-      if (takeAnswers(message.requestId, message.message)) return;
-      // The refusal of a chain's start is its view's to show, under "Get a seal".
-      if (takeSeal(message.requestId, message.message)) return;
+      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
       if (takeBackRefusal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
       if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      // A refused request of the Accounts dialog is said in it.
+      if (takeAccountsAnswer(message.requestId, message.message)) return;
       if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
@@ -1612,6 +1942,7 @@ function onMessage(message: ServerMessage): void {
     case "replay":
     case "output":
       write(message.id, message.type, message.data);
+      if (message.type === "output") writeSignIn(message.id, message.data);
       return;
     case "exit":
       // The window draws nothing for it: the session's output ends with the exit line, and the `inbox` that follows lists the pane as ended.
@@ -1676,7 +2007,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"), MAC, openView, openReverse);
+initView(() => openList("inbox"), MAC, openView, openReverse, (workItemId, kind, open) => beforePane(repositoryOf(held.workItems.find((workItem) => workItem.id === workItemId)?.repoId), kind, open));
 initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
@@ -1747,7 +2078,7 @@ byId<HTMLFormElement>("rename-form").addEventListener("submit", (event) => {
 workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (registerOnly.checked) registerRepository();
-  else createWorkItem();
+  else createAfterChain();
 });
 registerOnly.closest("label")?.setAttribute("title", REGISTER_ONLY_SAYS);
 registerOnly.addEventListener("change", showFormMode);
@@ -1755,6 +2086,11 @@ byId("settings-cancel").addEventListener("click", () => settingsDialog.close());
 byId<HTMLFormElement>("settings-form").addEventListener("submit", (event) => {
   event.preventDefault();
   saveSettings();
+});
+byId("chain-cancel").addEventListener("click", () => chainDialog.close());
+byId<HTMLFormElement>("chain-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  answerChain();
 });
 byId("icon-cancel").addEventListener("click", () => iconDialog.close());
 byId<HTMLFormElement>("icon-form").addEventListener("submit", (event) => {
@@ -1778,6 +2114,20 @@ byId<HTMLFormElement>("reverse-form").addEventListener("submit", (event) => {
   if (of !== undefined) ask(REVERSE, (requestId) => ({ type: "reverseDecision", requestId, ...of, message: reverseMessage.value }));
 });
 byId("hidden-close").addEventListener("click", () => hiddenDialog.close());
+byId("account-cancel").addEventListener("click", () => accountDialog.close());
+byId<HTMLFormElement>("account-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  saveAccount();
+});
+accountsButton.addEventListener("click", openAccounts);
+byId("accounts-close").addEventListener("click", () => accountsDialog.close());
+byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
+  event.preventDefault();
+  addMadeAccount();
+});
+byId("accounts-folder").addEventListener("click", addAccount);
+byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
+window.owlery.onAccountsMenu(openAccounts);
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
   event.preventDefault();

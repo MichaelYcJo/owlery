@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountChoices,
+  accountName,
+  accountRemoval,
+  accountRows,
+  REFRESH_SAYS,
+  heldAccounts,
+  lineAccount,
+  offersAccounts,
+  viewAccount,
   agentKind,
   ageOf,
   ahead,
@@ -9,6 +18,7 @@ import {
   answersFor,
   approvalPlaces,
   askButton,
+  asksChain,
   askedSection,
   asksFetch,
   backKey,
@@ -20,10 +30,12 @@ import {
   bellSays,
   cardStaysAt,
   chainNotifications,
+  chainSays,
   changedSet,
   changedSetAfter,
   changesOf,
   changesSince,
+  CHAIN_CHOICES,
   choiceNote,
   closeAsks,
   codeParts,
@@ -89,6 +101,9 @@ import {
   paneInFront,
   paneKey,
   paneMenu,
+  paneAccountChange,
+  newPaneMenu,
+  paneButtonTitle,
   paneTabs,
   parkNotifications,
   permissionNotifications,
@@ -108,7 +123,6 @@ import {
   lacksRecords,
   recordsDialog,
   recordsOf,
-  refusedSeal,
   registered,
   repositoryMenu,
   rowButtons,
@@ -116,12 +130,12 @@ import {
   runningSessions,
   screenMoves,
   screenTurns,
-  sealButton,
   sealNotifications,
   sealShown,
   sealSinceLook,
   selectedLine,
   settingsBases,
+  settingsChain,
   settingsFields,
   setupMark,
   setupSection,
@@ -137,6 +151,7 @@ import {
   summaryCount,
   summaryHead,
   summarySentence,
+  tabAccount,
   tabLabel,
   tellsSize,
   viewFacts,
@@ -147,13 +162,14 @@ import {
   workItemFields,
   workItemMenu,
   type FormPlan,
+  type HeldAccounts,
   type InboxLine,
   type MenuEntry,
   type SealSince,
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -186,7 +202,7 @@ const LOGIN: WorkItem = {
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null } };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false, plugin: false, chosen: null } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -551,6 +567,15 @@ describe("workItemMenu", () => {
     expect(workItemMenu(LOGIN, [], GROUPS).map((item) => item.label)).toEqual(["Rename", "Open in", "Copy path", "Copy branch name", "Pin", "Mute notifications", "Move to Later", "Move to Drafts", "Archive", "Delete"]);
   });
 
+  it("holds Account… after Rename where the window offers a choice of account, which opens the dialog of the work item's account, and none where it offers none or the work item is archived", () => {
+    expect(plain(workItemMenu(LOGIN, [], [], true)).slice(0, 2)).toEqual([
+      { label: "Rename", action: { do: "rename", id: 1 }, divides: false },
+      { label: "Account…", action: { do: "account", id: 1 }, divides: false },
+    ]);
+    expect(workItemMenu(LOGIN, [], [], false).map((item) => item.label)).not.toContain("Account…");
+    expect(workItemMenu({ ...LOGIN, archivedAt: 50 }, [], [], true).map((item) => item.label)).not.toContain("Account…");
+  });
+
   it("holds for an archived work item, in this order, Restore, Open in with its submenu of Finder and each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
@@ -881,6 +906,78 @@ describe("settingsFields", () => {
     expect(settingsFields(NAMED, "Renamed", "main")).toEqual({ name: "Renamed", defaultBase: "main" });
     expect(settingsFields(NAMED, " The project ", "develop")).toEqual({});
     expect(settingsFields(PROJECT, "  ", "")).toEqual({});
+  });
+
+  it("sends the chain of the Claude Code panes where the menu's value is another than the answer kept, null for no answer, and nothing where it is the answer kept or the dialog gives no value", () => {
+    const BOTH: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: null } };
+    const ANSWERED: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: "owlery" } };
+    expect(settingsFields(BOTH, "", "", "owlery")).toEqual({ paneChain: "owlery" });
+    expect(settingsFields(BOTH, "", "", "plugin")).toEqual({ paneChain: "plugin" });
+    expect(settingsFields(BOTH, "", "", "")).toEqual({});
+    expect(settingsFields(ANSWERED, "", "", "owlery")).toEqual({});
+    expect(settingsFields(ANSWERED, "", "", "plugin")).toEqual({ paneChain: "plugin" });
+    expect(settingsFields(ANSWERED, "", "", "")).toEqual({ paneChain: null });
+    // A caller that gives no value changes no answer.
+    expect(settingsFields(ANSWERED, "Named", "")).toEqual({ name: "Named" });
+    // A repository of a daemon of an earlier build has no chain, and a menu left on its first choice sends nothing for it.
+    const { chain: _, ...earlier } = ANSWERED;
+    expect(settingsFields(earlier as Repository, "", "", "")).toEqual({});
+  });
+
+  it("sends the account where the menu's value is another than the one set on the repository, null for the first choice, which leaves it to the default, and nothing where it is the one set or the dialog gives no value", () => {
+    const SET: Repository = { ...PROJECT, accountId: 2 };
+    expect(settingsFields(PROJECT, "", "", "", "2")).toEqual({ accountId: 2 });
+    expect(settingsFields(PROJECT, "", "", "", "0")).toEqual({ accountId: 0 });
+    expect(settingsFields(PROJECT, "", "", "", "")).toEqual({});
+    expect(settingsFields(SET, "", "", "", "2")).toEqual({});
+    expect(settingsFields(SET, "", "", "", "")).toEqual({ accountId: null });
+    expect(settingsFields(SET, "Named", "")).toEqual({ name: "Named" });
+  });
+});
+
+describe("asksChain", () => {
+  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
+
+  it("asks before a Claude Code pane of a repository on the owl chain whose Claude Code enables the AgenticSeal plugin, while no answer is kept, and never before a shell", () => {
+    expect(asksChain(of(true, true, null), "claude")).toBe(true);
+    expect(asksChain(of(true, true, null), "shell")).toBe(false);
+  });
+
+  it("asks nothing once an answer is kept, where the repository is on no chain of Owlery's, where the plugin is not enabled, for a repository of a daemon of an earlier build, and for a folder the window holds no repository of", () => {
+    expect(asksChain(of(true, true, "owlery"), "claude")).toBe(false);
+    expect(asksChain(of(true, true, "plugin"), "claude")).toBe(false);
+    expect(asksChain(of(false, true, null), "claude")).toBe(false);
+    expect(asksChain(of(true, false, null), "claude")).toBe(false);
+    const { chain: _, ...earlier } = of(true, true, null);
+    expect(asksChain(earlier as Repository, "claude")).toBe(false);
+    expect(asksChain(undefined, "claude")).toBe(false);
+  });
+});
+
+describe("settingsChain", () => {
+  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
+
+  it("shows the chain's field where the choice is read, with the answer kept as the menu's value and the first choice where none is", () => {
+    expect(settingsChain(of(true, true, null))).toEqual({ shown: true, value: "" });
+    expect(settingsChain(of(true, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
+    expect(settingsChain(of(true, true, "plugin"))).toEqual({ shown: true, value: "plugin" });
+  });
+
+  it("shows the field where an answer is kept though the choice is not read now, and hides it where neither holds and for a repository of a daemon of an earlier build", () => {
+    expect(settingsChain(of(true, false, "plugin"))).toEqual({ shown: true, value: "plugin" });
+    expect(settingsChain(of(false, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
+    expect(settingsChain(of(true, false, null))).toEqual({ shown: false, value: "" });
+    expect(settingsChain(of(false, true, null))).toEqual({ shown: false, value: "" });
+    const { chain: _, ...earlier } = of(true, true, null);
+    expect(settingsChain(earlier as Repository)).toEqual({ shown: false, value: "" });
+  });
+
+  it("offers the two chains by the values the daemon keeps, after the choice that takes the answer away", () => {
+    expect(CHAIN_CHOICES.map(({ value, label }) => [value, label])).toEqual([
+      ["", "Ask at the next Claude Code pane"],
+      ["owlery", "The owl chain"],
+      ["plugin", "The AgenticSeal plugin"],
+    ]);
   });
 });
 
@@ -1635,59 +1732,21 @@ describe("a work item's chain", () => {
     }
   });
 
-  it('offers "Get a seal" with the chain\'s sentence where the daemon sent the chain, disabled while the chain runs and while the window\'s own request waits for its answer, and says a refusal the daemon gave for the chain as it stands, and none while the chain runs', () => {
-    const start = "Start the review rounds on Fix the login bug";
-    expect(sealButton(LOGIN, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: "" });
-    expect(sealButton(STOPPED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: "" });
-    expect(sealButton(RESTED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The sealer sealed 1a2b3c4, after round 1.", refusal: "" });
-    expect(sealButton(PARKED, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "The work item waits for the answers to its questions.", refusal: "" });
-    expect(sealButton(RUNNING, false, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is running.", says: "Review round 1 is running.", refusal: "" });
-    expect(sealButton(STOPPED, true, null)).toEqual({ words: "Get a seal", offered: true, enabled: false, title: "The chain is starting.", says: STOPPED_SAYS, refusal: "" });
-    const refused = "The branch holds no commit after its base, so a round has nothing to read.";
-    expect(sealButton(LOGIN, false, refusedSeal(LOGIN, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: "", refusal: refused });
-    expect(sealButton(STOPPED, false, refusedSeal(STOPPED, refused))).toEqual({ words: "Get a seal", offered: true, enabled: true, title: start, says: STOPPED_SAYS, refusal: refused });
-    // A chain that runs was started since the refusal, and one that is running says no refusal of a press on it.
-    expect(sealButton(RUNNING, false, refusedSeal(STOPPED, refused)).refusal).toBe("");
-    expect(sealButton(RUNNING, false, refusedSeal(RUNNING, "The chain of work item 1 is already running.")).refusal).toBe("");
+  it("says at the view's foot the sentence of the chain the daemon sent, in whichever state it stands, and nothing where no chain ran for the work item", () => {
+    expect(chainSays(LOGIN)).toBe("");
+    expect(chainSays(STOPPED)).toBe(STOPPED_SAYS);
+    expect(chainSays(RESTED)).toBe("The sealer sealed 1a2b3c4, after round 1.");
+    expect(chainSays(PARKED)).toBe("The work item waits for the answers to its questions.");
+    expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
 
-  it('turns the words of the button to "Get a new seal" where the seal the branch\'s head holds is broken, and leaves every other part of the button as the chain gives it', () => {
-    const commit = "1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b";
-    const broke: Seal = { state: "broken", commit, why: "`src/app.ts` changed after the sealed commit `1a2b3c4`." };
-    for (const workItem of [LOGIN, STOPPED, RESTED, RUNNING]) expect(sealButton({ ...workItem, seal: broke }, false, null)).toEqual({ ...sealButton(workItem, false, null), words: "Get a new seal" });
-    // A seal that holds, none, and a daemon of an earlier build, which sends no seal.
-    for (const seal of [{ state: "sealed", commit, why: null } as const, null]) expect(sealButton({ ...STOPPED, seal }, false, null).words).toBe("Get a seal");
-    expect(sealButton(STOPPED, false, null).words).toBe("Get a seal");
-  });
-
-  it("says a refusal only while the chain stands as it stood when the daemon refused: not once a chain that no press of this window started has run and rests in another state, or in the same state since a later time", () => {
-    const waits = "The work item waits for the answers to its open questions. Answer them first.";
-    const atParked = refusedSeal(PARKED, waits);
-    expect(atParked).toEqual({ says: waits, state: "parked", since: NOW - 4 * MINUTE });
-    expect(sealButton(PARKED, false, atParked).refusal).toBe(waits);
-    // The person answered, the chain ran by itself and rests: no question is open any more.
-    for (const rests of [STOPPED, RESTED]) expect(sealButton(rests, false, atParked).refusal).toBe("");
-    // A chain another window started stopped again: the same state, since a later time.
-    const loose = "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.";
-    const atStopped = refusedSeal(STOPPED, loose);
-    expect(sealButton(STOPPED, false, atStopped).refusal).toBe(loose);
-    expect(sealButton({ ...STOPPED, chain: chain("stopped", { stages: [ROUND, FIX], since: NOW - MINUTE }) }, false, atStopped).refusal).toBe("");
-    // A refusal for a work item no chain ran for holds until one runs, and one for a work item the window no longer lists is kept as for none.
-    const atNone = refusedSeal(LOGIN, loose);
-    expect(atNone).toEqual({ says: loose, state: null, since: null });
-    expect(refusedSeal(undefined, loose)).toEqual(atNone);
-    expect(sealButton(LOGIN, false, atNone).refusal).toBe(loose);
-    expect(sealButton(STOPPED, false, atNone).refusal).toBe("");
-  });
-
-  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line, and offers no "Get a seal" for it', () => {
+  it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line and at its view\'s foot', () => {
     for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(EARLIER, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
     expect(lineText(EARLIER, finished, false)).toEqual(lineText(LOGIN, finished, false));
     expect(lineSince(EARLIER, finished)).toBe(NOW - 50 * MINUTE);
     expect(chainNotifications([EARLIER], [EARLIER], undefined)).toEqual([]);
     expect(chainNotifications([EARLIER], [STOPPED], undefined)).toHaveLength(1);
-    expect(sealButton(EARLIER, false, null)).toEqual({ words: "Get a seal", offered: false, enabled: false, title: "", says: "", refusal: "" });
-    expect(sealButton(EARLIER, false, refusedSeal(EARLIER, "refused")).offered).toBe(false);
+    expect(chainSays(EARLIER)).toBe("");
   });
 });
 
@@ -4096,6 +4155,217 @@ describe("viewFacts", () => {
     const entries = workItemEntries([item], [session(3, { kind: "shell" })], KINDS);
     expect(entries.map((entry) => viewFacts(entry, KINDS, NOW)[0])).toEqual([{ label: "Agent", value: "None" }]);
   });
+
+  it("names the work item's account after the agent where one is given, and no account where none is", () => {
+    const [entry] = workItemEntries([item], [], KINDS);
+    expect(viewFacts(entry!, KINDS, NOW, "Work").slice(0, 2)).toEqual([
+      { label: "Agent", value: "None" },
+      { label: "Account", value: "Work" },
+    ]);
+    expect(viewFacts(entry!, KINDS, NOW, "").map((fact) => fact.label)).toEqual(["Agent", "Started", "Base", "Worktree"]);
+  });
+});
+
+describe("accounts in the window", () => {
+  const SYSTEM = { id: 0, name: "System default", made: false, folder: null, signedIn: null, loginEndsAt: null, limits: [], refresh: null };
+  const WORK = { id: 1, name: "Work", made: false, folder: "/Users/person/.claude-work", signedIn: null, loginEndsAt: null, limits: [], refresh: null };
+  const HOME = { id: 2, name: "Home", made: false, folder: "/Users/person/.claude-home", signedIn: null, loginEndsAt: null, limits: [], refresh: null };
+  const HELD = { accounts: [SYSTEM, WORK, HOME], defaultId: 0 };
+
+  it("holds the accounts and the default a daemon sends, and none against a daemon of an earlier build, which sends neither, so the window shows no account control and no account name (scenario 14)", () => {
+    expect(heldAccounts({ accounts: [SYSTEM, WORK], defaultAccountId: 1 })).toEqual({ accounts: [SYSTEM, WORK], defaultId: 1, refreshesUsage: false });
+    expect(heldAccounts({})).toBeNull();
+    expect(offersAccounts(null)).toBe(false);
+    expect(lineAccount({ ...LOGIN, accountId: 1 }, PROJECT, [], [], null)).toBe("");
+    expect(viewAccount(LOGIN, PROJECT, null)).toBe("");
+    expect(tabAccount(session(3, { accountId: 1 }), LOGIN, PROJECT, null)).toBe("");
+    expect(accountRows(null, NOW)).toEqual([]);
+  });
+
+  it("offers a choice of account only where the daemon keeps one beside System default", () => {
+    expect(offersAccounts({ accounts: [SYSTEM], defaultId: 0 })).toBe(false);
+    expect(offersAccounts(HELD)).toBe(true);
+  });
+
+  it("names an account by its id, and an id the window holds no account of by nothing", () => {
+    expect(accountName(HELD, 2)).toBe("Home");
+    expect(accountName(HELD, 0)).toBe("System default");
+    expect(accountName(HELD, 9)).toBe("");
+  });
+
+  it("names on a line the work item's account where it differs from the one its repository gives, else a running session's that differs, and nothing where every one is the repository's", () => {
+    const repository = { ...PROJECT, accountId: 1 };
+    expect(lineAccount({ ...LOGIN, accountId: 2 }, repository, [], [], HELD)).toBe("Home");
+    expect(lineAccount({ ...LOGIN, accountId: 1 }, repository, [], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 1 })], [], HELD)).toBe("");
+    // A live pane of another account, and a working headless session of another.
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 0 })], [], HELD)).toBe("System default");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, alive: false })], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, workItemId: 2 })], [], HELD)).toBe("");
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2 })], HELD)).toBe("Home");
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "finished" })], HELD)).toBe("");
+    // A repository set to none gives the default.
+    expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], HELD)).toBe("");
+    expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], { ...HELD, defaultId: 1 })).toBe("System default");
+  });
+
+  it("names in a work item's view the account its sessions take where they name none of their own: its own, else its repository's, else the default", () => {
+    expect(viewAccount({ ...LOGIN, accountId: 2 }, { ...PROJECT, accountId: 1 }, HELD)).toBe("Home");
+    expect(viewAccount(LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("Work");
+    expect(viewAccount(LOGIN, PROJECT, { ...HELD, defaultId: 2 })).toBe("Home");
+    expect(viewAccount(LOGIN, undefined, HELD)).toBe("System default");
+  });
+
+  it("names on a pane's tab the pane's account where it differs from the work item's, and nothing for a pane launched under none or under the work item's", () => {
+    expect(tabAccount(session(3, { accountId: 2 }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("Home");
+    expect(tabAccount(session(3, { accountId: 1 }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+    expect(tabAccount(session(3, { accountId: null }), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+    expect(tabAccount(session(3), LOGIN, { ...PROJECT, accountId: 1 }, HELD)).toBe("");
+  });
+
+  it("lists the rows of the Accounts dialog in the daemon's order, each with its name, its folder, whether it is the default, whether it keeps its name, its sign-in in words and whether it offers one", () => {
+    expect(accountRows({ ...HELD, defaultId: 1 }, NOW)).toEqual([
+      { id: 0, name: "System default", folder: "The folder your login shell gives Claude Code", isDefault: false, fixed: true, signIn: null, offersSignIn: false, usage: [], refreshed: null, offersRefresh: false },
+      { id: 1, name: "Work", folder: "/Users/person/.claude-work", isDefault: true, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true, usage: [], refreshed: null, offersRefresh: false },
+      { id: 2, name: "Home", folder: "/Users/person/.claude-home", isDefault: false, fixed: false, signIn: "Sign-in not read yet", offersSignIn: true, usage: [], refreshed: null, offersRefresh: false },
+    ]);
+  });
+
+  it("offers \"Refresh usage\" on a row, with what a refresh spends said beside it, only where the daemon refreshes usage, no refresh of the account runs, and no live pane nor working session runs under it (scenario 15's control)", () => {
+    const held = { ...HELD, refreshesUsage: true };
+    const offers = (heldNow: HeldAccounts, sessions: SessionInfo[] = [], running: HeadlessInfo[] = []): boolean[] => accountRows(heldNow, NOW, sessions, running).map((row) => row.offersRefresh);
+    expect(offers(held)).toEqual([true, true, true]);
+    expect(offers(HELD)).toEqual([false, false, false]);
+    expect(offers({ ...held, refreshesUsage: false })).toEqual([false, false, false]);
+    expect(offers(held, [session(3, { accountId: 1 }), session(4, { accountId: 2, alive: false })])).toEqual([true, false, true]);
+    expect(offers(held, [], [headless(5, { accountId: 2 }), headless(6, { accountId: 0, state: "finished" })])).toEqual([true, true, false]);
+    expect(offers({ ...held, accounts: [SYSTEM, { ...WORK, refresh: { state: "running", startedAt: NOW } }, HOME] })).toEqual([true, false, true]);
+    expect(REFRESH_SAYS).toBe("A refresh starts one short Claude Code session under the account, and uses a little of its limit.");
+  });
+
+  it("says each limit value the CLI handed over with its window and its time, and no number it did not hand over; and the last refresh, running or ended, with what it handed over and its cost (scenario 15's row)", () => {
+    const rowOf = (account: Partial<Account>): { usage: string[]; refreshed: string | null } => {
+      const { usage, refreshed } = accountRows({ accounts: [SYSTEM, { ...WORK, ...account }], defaultId: 0 }, NOW)[1]!;
+      return { usage, refreshed };
+    };
+    expect(
+      rowOf({
+        limits: [
+          { status: "near", used: 0.42, resetsAt: NOW + 90 * 60_000, window: "five_hour", at: NOW - 5 * 60_000 },
+          { status: "ok", used: null, resetsAt: null, window: "seven_day", at: NOW - 5 * 60_000 },
+          { status: null, used: null, resetsAt: null, window: null, at: NOW },
+          { status: "reached", used: 1, resetsAt: NOW - 60_000, window: "an_hourly", at: NOW - 3 * 3_600_000 },
+        ],
+      }).usage,
+    ).toEqual([
+      "5-hour limit: near the limit, 42% used, resets in 1 h 30 min, as of 5 min ago",
+      "Weekly limit: within the limit, as of 5 min ago",
+      "Usage limit: Claude Code gave no value, as of less than a minute ago",
+      "an_hourly: the limit is reached, 100% used, its reset time has passed, as of 3 h ago",
+    ]);
+    expect(rowOf({}).usage).toEqual([]);
+    expect(rowOf({}).refreshed).toBeNull();
+    expect(rowOf({ refresh: { state: "running", startedAt: NOW } }).refreshed).toBe("Refreshing the usage\u2026");
+    const converted = { costUsd: 0.003, converted: true, models: [] };
+    expect(rowOf({ refresh: { state: "ended", at: NOW - 2 * 60_000, handed: 1, usage: converted, error: null } }).refreshed).toBe("Refreshed 2 min ago. It cost under $0.01, converted at API prices and not charged.");
+    expect(rowOf({ refresh: { state: "ended", at: NOW, handed: 0, usage: { ...converted, costUsd: 0.02, converted: false }, error: null } }).refreshed).toBe("The refresh less than a minute ago ended, and Claude Code handed over no usage value. It cost $0.02.");
+    expect(rowOf({ refresh: { state: "ended", at: NOW, handed: 0, usage: null, error: "The refresh gave no result within a minute and was stopped." } }).refreshed).toBe("The refresh less than a minute ago failed: The refresh gave no result within a minute and was stopped. It reported no cost.");
+  });
+
+  it("says each account's sign-in as the agent last gave it: not signed in, signed in with no end named, the time until its login ends, and that it may have ended once that time is past (the sign-in of scenario 11)", () => {
+    const signIn = (signedIn: boolean | null, loginEndsAt: number | null): string | null => accountRows({ accounts: [SYSTEM, { ...WORK, made: true, signedIn, loginEndsAt }], defaultId: 0 }, NOW)[1]!.signIn;
+    expect(signIn(false, null)).toBe("Not signed in");
+    expect(signIn(true, null)).toBe("Signed in");
+    expect(signIn(true, NOW + 26 * 24 * 3_600_000)).toBe("Signed in, the login ends in 26 days");
+    expect(signIn(true, NOW + 90 * 60_000)).toBe("Signed in, the login ends in 1 h 30 min");
+    expect(signIn(true, NOW)).toBe("Signed in, the login may have ended");
+    expect(signIn(true, NOW - 60_000)).toBe("Signed in, the login may have ended");
+    expect(signIn(null, null)).toBe("Sign-in not read yet");
+  });
+
+  it("names before a removal each repository and work item, archived among them, whose setting is cleared, and a default that goes back to System default, and says what becomes of the account's folder (scenario 13's dialog)", () => {
+    const made = { ...WORK, made: true, folder: "/Users/person/Owlery/run/accounts/1" };
+    const held = { accounts: [SYSTEM, made, HOME], defaultId: 1 };
+    const other = { ...PROJECT, id: 2, name: "other", accountId: 2 };
+    const workItems = [{ ...LOGIN, accountId: 1 }, { ...SEARCH, accountId: 2 }];
+    const archived = [{ ...LOGIN, id: 3, title: "An old one", archivedAt: NOW, accountId: 1 }];
+    expect(accountRemoval(held, 1, [{ ...PROJECT, accountId: 1 }, other], workItems, archived)).toEqual({
+      says: 'Remove "Work"? Owlery signs its folder out with Claude Code and removes the folder.',
+      cleared: ["The default goes back to System default.", "The repository project goes back to the default.", 'The work item "Fix the login bug" goes back to its repository\'s account.', 'The work item "An old one" goes back to its repository\'s account.'],
+    });
+    expect(accountRemoval(held, 2, [PROJECT, other], workItems, [])).toEqual({
+      says: 'Remove "Home"? Its folder stays as it is: /Users/person/.claude-home',
+      cleared: ["The repository other goes back to the default.", 'The work item "Speed up search" goes back to its repository\'s account.'],
+    });
+    expect(accountRemoval(held, 9, [PROJECT], workItems, [])).toBeNull();
+    expect(accountRemoval(held, 0, [PROJECT], workItems, [])).toBeNull();
+  });
+
+  it("lists a sign-in pane, which runs in no work item, on no work item's line, tabs or view, and names it by its kind alone among what the app's end would end (scenario 6's window)", () => {
+    const signIn = session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 });
+    expect(paneTabs(LOGIN, [signIn])).toEqual([]);
+    expect(inboxLine(LOGIN, [signIn], KINDS)).toEqual(inboxLine(LOGIN, [], KINDS));
+    expect(lineAccount(LOGIN, { ...PROJECT, accountId: 2 }, [signIn], [], HELD)).toBe("");
+    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual(["Shell"]);
+  });
+
+  it("gives an account's menu a first choice that leaves the account to the setting above, named with the account it gives, then each account in the daemon's order", () => {
+    expect(accountChoices(HELD, "The default", 1)).toEqual([
+      { value: "", label: "The default (Work)" },
+      { value: "0", label: "System default" },
+      { value: "1", label: "Work" },
+      { value: "2", label: "Home" },
+    ]);
+  });
+
+  it("gives a button that opens a pane of a kind that takes an account a menu whose first item opens it under the account the work item gives, named as the Ask row's menu names it, and the other accounts after it, and says so in the button's tooltip; gives none to a kind that takes no account, and none where no account stands beside System default (scope item 10)", () => {
+    const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: kind.kind === "claude" }));
+    const claude = kinds.find((kind) => kind.kind === "claude");
+    expect(newPaneMenu(claude, HELD, 1)).toEqual([
+      { label: "The work item's (Work)", description: "Open the pane under the account the work item gives", action: { do: "pane", accountId: null }, divides: false },
+      { label: "System default", description: "Open the pane under System default", action: { do: "pane", accountId: 0 }, divides: true },
+      { label: "Home", description: "Open the pane under Home", action: { do: "pane", accountId: 2 }, divides: false },
+    ]);
+    expect(newPaneMenu(kinds.find((kind) => kind.kind === "shell"), HELD, 1)).toEqual([]);
+    expect(newPaneMenu(claude, { accounts: [SYSTEM], defaultId: 0 }, 0)).toEqual([]);
+    expect(newPaneMenu(claude, null, 0)).toEqual([]);
+    expect(paneButtonTitle(null, true)).toBe("Right-click to open it under another account");
+    expect(paneButtonTitle("Start on the latest conversation of this worktree", true)).toBe("Start on the latest conversation of this worktree. Right-click to open it under another account");
+    expect([paneButtonTitle(null, false), paneButtonTitle("Start on the latest conversation of this worktree", false)]).toEqual(["", "Start on the latest conversation of this worktree"]);
+  });
+
+  it("offers to change the account of a running Claude Code pane to each account that keeps the pane's account's conversations, and says before the change that a turn under way is cut; offers nothing where no account keeps them, for a shell, a sign-in pane, an ended pane, a pane of a daemon of an earlier build, and where no account stands beside System default (scenarios 8 and 9's window)", () => {
+    const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: true }));
+    // A keeps the conversations B keeps, C keeps its own, D keeps none, and System default's folder is not found yet.
+    const kept = "/Users/person/.claude/projects";
+    const [a, b, c, d] = [
+      { ...WORK, id: 1, name: "A", conversations: kept },
+      { ...HOME, id: 2, name: "B", conversations: kept },
+      { ...HOME, id: 3, name: "C", folder: "/Users/person/.claude-c", conversations: "/Users/person/.claude-c/projects" },
+      { ...HOME, id: 4, name: "D", folder: "/Users/person/.claude-d", conversations: null },
+    ];
+    const shared = { accounts: [{ ...SYSTEM, conversations: null }, a, b, c, d], defaultId: 0 };
+    const running = session(3, { accountId: 1 });
+    expect(paneAccountChange(running, "Claude Code", kinds, shared)).toEqual({
+      heading: "Change the account of Claude Code",
+      says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
+      choices: [{ value: "2", label: "B" }],
+    });
+    expect(paneAccountChange(running, "Claude Code", kinds, { accounts: [{ ...SYSTEM, conversations: null }, a, c, d], defaultId: 0 })).toBeNull();
+    // Two accounts that keep no conversations keep none in common, and a daemon that sends no place offers none.
+    expect(paneAccountChange(session(3, { accountId: 4 }), "Claude Code", kinds, shared)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, HELD)).toBeNull();
+    expect(paneAccountChange(session(4, { kind: "shell", accountId: 1 }), "Shell", kinds, shared)).toBeNull();
+    expect(paneAccountChange(session(9, { kind: "shell", workItemId: null, accountId: 1, signsIn: 1 }), "Shell", kinds, shared)).toBeNull();
+    expect(paneAccountChange({ ...running, alive: false }, "Claude Code", kinds, shared)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", KINDS, shared)).toBeNull();
+    expect(paneAccountChange(session(5), "Claude Code", kinds, shared)).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, { accounts: [SYSTEM], defaultId: 0 })).toBeNull();
+    expect(paneAccountChange(running, "Claude Code", kinds, null)).toBeNull();
+    // The pane's menu offers it before "Close Pane", only for such a pane.
+    expect(paneMenu(true, false, true).flatMap((item) => (item === null ? ["-"] : [`${item.text}${item.keys === "" ? "" : ` ${item.keys}`}`])).slice(-3)).toEqual(["-", "Change Account\u2026", "Close Pane \u2318W"]);
+    expect(paneMenu(true, false).some((item) => item?.act === "account")).toBe(false);
+  });
 });
 
 describe("keyHints", () => {
@@ -4183,8 +4453,8 @@ describe("the dialog of the records place", () => {
   });
 
   it("tells an administrator how to make the seal check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
-    const REQUIRED = "The workflow posts its verdict as the check `Owlery seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `Owlery seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `Owlery seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
-    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `Owlery seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
+    const REQUIRED = "The workflow posts its verdict as the check `seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
     expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
     const owlery = recordsDialog({ ...PROJECT, records: { root: "seal", check: ".github/workflows/owlery-seal.yml", broadGate: "make check" } }, kept(PLAN, "seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"), "", "");
     expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
@@ -4234,9 +4504,9 @@ describe("a work item's pull request", () => {
   const URL = "https://github.com/owner/project/pull/12";
   const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
   const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
-  const SEAL_PASSED = { name: "Owlery seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const SEAL_PASSED = { name: "seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
   const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
-  const PENDING = with_({ checks: "pending", list: [{ name: "Owlery seal", state: "pending", link: null }], listCount: 1 });
+  const PENDING = with_({ checks: "pending", list: [{ name: "seal", state: "pending", link: null }], listCount: 1 });
   const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
   const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
   const OPEN = with_({});
@@ -4275,9 +4545,9 @@ describe("a work item's pull request", () => {
   });
 
   it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
-    const passed = { name: "Owlery seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    const passed = { name: "seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
     expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
-    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "Owlery seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
+    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
     // The checks in the order the daemon keeps them, the failed ones first.
     expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
     expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");

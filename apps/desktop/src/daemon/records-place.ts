@@ -21,7 +21,7 @@ const ROOTS = ["seal", "agentic-seal"] as const;
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
 /** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
-const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
+export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
 /**
@@ -56,19 +56,18 @@ function configText(command: string): string {
  * The workflow a setup writes, for a version of Owlery: it fetches the check
  * from Owlery's repository at the tag of that version, and at the release's
  * branch until the tag exists, and runs the check's script under
- * `pr-check/` with `--post`. The job's name is one check's name on GitHub,
- * and the script posts its verdict as a second, `Owlery seal`, with the
+ * `pr-check/` with `--post`. The job's id, `records`, is one check's name on
+ * GitHub, and the script posts its verdict as a second, `seal`, with the
  * run's token, which the job's permissions let write a check.
  */
 export function workflowText(version: string): string {
   return `# The pull request check of Owlery: a pull request that declares a work item
 # carries the records it owes, and a ready one carries a seal at its head.
 # A pull request that declares no work item is not judged.
-# The check posts its verdict as the check \`Owlery seal\` on the pull
-# request's head commit, which an administrator can make required.
-# Owlery wrote this file when the repository was connected. It fetches the
-# check from Owlery's repository at the release that wrote it. The line moves
-# when a person edits it.
+# The check posts its verdict as the check \`seal\` on the pull request's
+# head commit, which an administrator can make required.
+# This file fetches the check from Owlery's repository at one release, the
+# one named below. That line moves when the file is written again.
 
 name: seal
 
@@ -86,7 +85,7 @@ permissions:
   checks: write
 
 jobs:
-  seal:
+  records:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +150,20 @@ export function rootOf(folder: string): string | null {
 function checkOf(folder: string): string | null {
   if (stands(folder, WORKFLOW)) return WORKFLOW;
   return runsPluginCheck(textOf(join(folder, PLUGIN_WORKFLOW))) ? PLUGIN_WORKFLOW : null;
+}
+
+/**
+ * Whether a folder is on the owl chain: Owlery's workflow stands in it,
+ * committed or not. A Claude Code pane that opens in such a folder carries
+ * the chain, but where the person's Claude Code enables the AgenticSeal
+ * plugin there and they did not choose the owl chain for the repository
+ * (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
+ * `hygiene.yml` alone, with no check, or that does not stand is on none of
+ * Owlery's. The folder is read as it stands at the call, and nothing of it
+ * is kept.
+ */
+export function onOwlChain(folder: string): boolean {
+  return stands(folder, WORKFLOW);
 }
 
 /**

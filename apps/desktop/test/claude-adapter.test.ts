@@ -50,6 +50,12 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
+  it("gives a refresh of an account's usage no tool at all, one turn and no transcript, in place of the default tools less three, and nothing else (scenario 15)", () => {
+    const plain = claudeArgs("/work/tree");
+    const at = plain.indexOf("--disallowedTools");
+    expect(claudeArgs("/work/tree", undefined, true)).toEqual([...plain.slice(0, at), "--tools", "", "--max-turns", "1", "--no-session-persistence", ...plain.slice(at + 2)]);
+  });
+
   it("gives a role launch the role's tools as one value in place of the default tools, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
     const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"] };
     expect(claudeArgs("/work/tree", role)).toEqual([
@@ -92,7 +98,7 @@ describe("the Claude adapter's launch", () => {
     }
   });
 
-  it("gives the session five names of the environment and nothing else of the daemon's", () => {
+  it("gives a session under System default, where the login shell holds no config folder, five names of the environment and nothing else of the daemon's, the daemon's own config folder neither", () => {
     const daemonEnv = {
       HOME: "/Users/person",
       USER: "person",
@@ -103,13 +109,28 @@ describe("the Claude adapter's launch", () => {
       CLAUDECODE: "1",
       ANTHROPIC_API_KEY: "not-passed",
       OWLERY_RUN_DIR: "/run",
+      CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon",
     };
-    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin")).toEqual({
+    const five = {
       HOME: "/Users/person",
       USER: "person",
       PATH: "/Users/person/.local/bin:/usr/bin",
       LANG: "ko_KR.UTF-8",
       CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+    };
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin")).toEqual(five);
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin", null)).toEqual(five);
+    expect(claudeEnv(daemonEnv, "/Users/person/.local/bin:/usr/bin", "")).toEqual(five);
+  });
+
+  it("gives a session the config folder it is given, an account's or the login shell's, as CLAUDE_CONFIG_DIR beside the five names", () => {
+    expect(claudeEnv({ HOME: "/Users/person", USER: "person", LANG: "ko_KR.UTF-8", CLAUDE_CONFIG_DIR: "/elsewhere" }, "/usr/bin", "/Users/person/accounts/work")).toEqual({
+      HOME: "/Users/person",
+      USER: "person",
+      PATH: "/usr/bin",
+      LANG: "ko_KR.UTF-8",
+      CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1",
+      CLAUDE_CONFIG_DIR: "/Users/person/accounts/work",
     });
   });
 
@@ -137,9 +158,11 @@ describe("finding the user's CLI", () => {
     expect(lookupCommand({}).command).toBe("/bin/zsh");
   });
 
-  it("reads the CLI's path and the shell's PATH from between whatever else the shell printed", () => {
-    const printed = "Welcome back\n\n__owlery_cli=/Users/person/.local/bin/claude\n__owlery_path=/Users/person/.local/bin:/usr/bin\nbye\n";
-    expect(parseLookup(printed)).toEqual({ cli: "/Users/person/.local/bin/claude", path: "/Users/person/.local/bin:/usr/bin" });
+  it("reads the CLI's path, the shell's PATH and the shell's config folder from between whatever else the shell printed, and no config folder where the shell holds none or printed no such line", () => {
+    const printed = "Welcome back\n\n__owlery_cli=/Users/person/.local/bin/claude\n__owlery_path=/Users/person/.local/bin:/usr/bin\n__owlery_config=/Users/person/.claude-work\nbye\n";
+    expect(parseLookup(printed)).toEqual({ cli: "/Users/person/.local/bin/claude", path: "/Users/person/.local/bin:/usr/bin", configDir: "/Users/person/.claude-work" });
+    expect(parseLookup("\n__owlery_cli=/bin/claude\n__owlery_path=/usr/bin\n__owlery_config=\n")).toEqual({ cli: "/bin/claude", path: "/usr/bin", configDir: null });
+    expect(parseLookup("\n__owlery_cli=/bin/claude\n__owlery_path=/usr/bin\n")).toEqual({ cli: "/bin/claude", path: "/usr/bin", configDir: null });
   });
 
   it("finds nothing where the shell names no file: an empty answer, an alias, or no answer at all", () => {
@@ -149,12 +172,16 @@ describe("finding the user's CLI", () => {
     expect(parseLookup("")).toBeUndefined();
   });
 
-  it("the script it runs prints both, in a real shell", async () => {
+  it("the script it runs prints the three, in a real shell, and an empty config folder where the shell holds none", async () => {
     const folder = temporaryFolder();
     script(folder, "claude", "exit 0");
     const { execFileSync } = await import("node:child_process");
     const printed = execFileSync("/bin/sh", ["-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin` }, encoding: "utf8" });
-    expect(parseLookup(printed)).toEqual({ cli: join(folder, "claude"), path: `${folder}:/usr/bin:/bin` });
+    expect(parseLookup(printed)).toEqual({ cli: join(folder, "claude"), path: `${folder}:/usr/bin:/bin`, configDir: null });
+    const configured = execFileSync("/bin/sh", ["-u", "-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin`, CLAUDE_CONFIG_DIR: "/Users/person/.claude-work" }, encoding: "utf8" });
+    expect(parseLookup(configured)?.configDir).toBe("/Users/person/.claude-work");
+    // A shell that refuses an unset name still prints the lines.
+    expect(parseLookup(execFileSync("/bin/sh", ["-u", "-c", LOOKUP_SCRIPT], { env: { PATH: `${folder}:/usr/bin:/bin` }, encoding: "utf8" }))?.configDir).toBeNull();
   });
 });
 
@@ -163,20 +190,20 @@ describe("the Claude adapter's run", () => {
    * A shell that stands for the user's login shell and names `cli` as the CLI
    * it found. It counts its own runs in a file beside it.
    */
-  function fakeShell(folder: string, cli: string): { env: NodeJS.ProcessEnv; lookups: () => number } {
+  function fakeShell(folder: string, cli: string, configDir = ""): { env: NodeJS.ProcessEnv; lookups: () => number } {
     const count = join(folder, "lookups");
     writeFileSync(count, "");
-    const shell = script(folder, "shell", `echo x >> '${count}'\nprintf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script(folder, "shell", `echo x >> '${count}'\nprintf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' '${configDir}'`);
     return { env: { SHELL: shell, HOME: folder, USER: "person", SECRET: "not-passed" }, lookups: () => readFileSync(count, "utf8").length / 2 };
   }
 
-  /** Starts one run and gives its events once it has exited. */
-  async function run(env: NodeJS.ProcessEnv, prompt: string, cwd: string): Promise<RoleEvent[]> {
+  /** Starts one run, under the account's folder where one is given, and gives its events once it has exited. */
+  async function run(env: NodeJS.ProcessEnv, prompt: string, cwd: string, accountDir?: string): Promise<RoleEvent[]> {
     const adapter = claudeAdapter(env);
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
       adapter
-        .start({ prompt, cwd }, (event) => {
+        .start({ prompt, cwd, ...(accountDir === undefined ? {} : { accountDir }) }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })
@@ -185,9 +212,94 @@ describe("the Claude adapter's run", () => {
     return events;
   }
 
-  it("declares its name and the two features: it sets a session's tools by its role, and it reports permission requests and takes their answers", () => {
+  it("declares its name and the four features: it sets a session's tools by its role, it reports permission requests and takes their answers, it launches a session under an account's folder, and it starts the refresh of an account's usage", () => {
     expect(claudeAdapter({}).name).toBe("claude");
-    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests"]);
+    expect(claudeAdapter({}).features).toEqual(["role-tools", "permission-requests", "accounts", "limit-refresh"]);
+  });
+
+  it("launches a refresh with the arguments of a refresh under the account's folder, and reports the limit its stream hands over before its result (scenario 15)", async () => {
+    const folder = temporaryFolder();
+    const cwd = temporaryFolder();
+    const account = temporaryFolder();
+    const cli = script(
+      folder,
+      "cli",
+      [
+        `for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`,
+        `env | sort > '${folder}/env'`,
+        `echo '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1800000000,"rateLimitType":"five_hour","utilization":0.3}}'`,
+        `echo '{"type":"result","is_error":false,"result":"OK","total_cost_usd":0.002}'`,
+        "cat > /dev/null",
+        "exit 0",
+      ].join("\n"),
+    );
+    const adapter = claudeAdapter(fakeShell(folder, cli).env);
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      adapter
+        .start({ prompt: "Reply with the single word OK.", cwd, accountDir: account, refresh: true }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd, undefined, true));
+    expect(readFileSync(join(folder, "env"), "utf8").split("\n")).toContain(`CLAUDE_CONFIG_DIR=${account}`);
+    expect(events).toEqual([
+      { type: "limit", status: "ok", used: 0.3, resetsAt: 1_800_000_000_000, window: "five_hour" },
+      { type: "result", text: "OK", isError: false, usage: { costUsd: 0.002, converted: true, models: [] } },
+      { type: "exit", exitCode: 0, errorOutput: "" },
+    ]);
+  });
+
+  it("launches the CLI with the account's folder as CLAUDE_CONFIG_DIR where it is given one, over the login shell's, with the login shell's where it is given none, and with no such name where the shell holds none either (the role session's half of scenario 3)", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", [`env | sort > '${folder}/env'`, `echo '{"type":"result","is_error":false,"result":"owl"}'`, "cat > /dev/null", "exit 0"].join("\n"));
+    const configOf = (): string | undefined => readFileSync(join(folder, "env"), "utf8").split("\n").find((line) => line.startsWith("CLAUDE_CONFIG_DIR="))?.slice("CLAUDE_CONFIG_DIR=".length);
+    const shellHolds = fakeShell(folder, cli, "/Users/person/.claude-of-the-shell").env;
+    await run(shellHolds, "Q", folder, "/Users/person/accounts/work");
+    expect(configOf()).toBe("/Users/person/accounts/work");
+    await run(shellHolds, "Q", folder);
+    expect(configOf()).toBe("/Users/person/.claude-of-the-shell");
+    await run({ ...fakeShell(folder, cli).env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" }, "Q", folder);
+    expect(configOf()).toBeUndefined();
+  });
+
+  it("answers which folder the default login lives in from its lookup: none before the lookup answered and after one that failed, the folder the login shell names, and .claude of the home where the shell names none, whatever the daemon's own environment names", async () => {
+    const folder = temporaryFolder();
+    const cli = script(folder, "cli", "exit 0");
+    const named = claudeAdapter({ ...fakeShell(folder, cli, "/Users/person/.claude-of-the-shell").env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    expect(named.defaultLoginFolder?.()).toBeNull();
+    // The notice asks the lookup, as the daemon does at its start.
+    await named.notice();
+    expect(named.defaultLoginFolder?.()).toBe("/Users/person/.claude-of-the-shell");
+    const unnamed = claudeAdapter({ ...fakeShell(folder, cli).env, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    await unnamed.notice();
+    expect(unnamed.defaultLoginFolder?.()).toBe(join(folder, ".claude"));
+    const lost = claudeAdapter({ SHELL: script(folder, "lost", "exit 1"), HOME: folder, CLAUDE_CONFIG_DIR: "/Users/person/.claude-of-the-daemon" });
+    await lost.notice();
+    expect(lost.defaultLoginFolder?.()).toBeNull();
+  });
+
+  it("signs an account's folder in and out and reads its login through the CLI its lookup found, under a session's environment with the folder as CLAUDE_CONFIG_DIR, and links the person's names only once the lookup has answered", async () => {
+    const folder = temporaryFolder();
+    const own = join(folder, "own");
+    mkdirSync(own);
+    writeFileSync(join(own, "settings.json"), "{}\n");
+    const account = join(folder, "account");
+    mkdirSync(account);
+    const cli = join(folder, "claude");
+    writeFileSync(cli, readFileSync(join(__dirname, "fixtures", "claude-auth-stand-in", "claude")));
+    chmodSync(cli, 0o755);
+    const adapter = claudeAdapter(fakeShell(folder, cli, own).env);
+    adapter.logins?.furnish(account);
+    expect(readdirSync(account)).toEqual([]);
+    expect(await adapter.logins?.signIn(account)).toEqual({ command: cli, args: ["auth", "login"], env: { HOME: folder, USER: "person", PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8", CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1", CLAUDE_CONFIG_DIR: account } });
+    adapter.logins?.furnish(account);
+    expect(readdirSync(account)).toEqual(["settings.json"]);
+    expect(await adapter.logins?.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    await adapter.logins?.signOut(account);
+    expect(readFileSync(join(folder, "calls"), "utf8")).toBe(`auth status|${account}\nauth logout|${account}\n`);
   });
 
   it("launches the CLI the shell found, in the folder, with the flags and the five names, writes the handshake and then the prompt on standard input, ends the input at the result, and maps what it prints", async () => {
@@ -576,7 +688,7 @@ describe("a role's rules file", () => {
         "",
         "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.",
         "",
-        "The bundle holds documents only. A path under those four directories that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+        "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
       ].join("\n"),
     );
@@ -588,6 +700,23 @@ describe("a role's rules file", () => {
         `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
       );
     }
+  });
+
+  it("opens the rules of a pane's subagent with a head that differs from a role session's in two sentences: the documents are not said to be in its context, and it holds those of the tools its definition names that the session offers, under the person's own permission settings, with no word of the daemon", () => {
+    for (const pair of ROLE_STAGES) {
+      const session = rulesHead("/app/dist/bundle", pair).split("\n");
+      const pane = rulesHead("/app/dist/bundle", pair, "pane").split("\n");
+      expect(rulesHead("/app/dist/bundle", pair, "session").split("\n"), pair.role).toEqual(session);
+      expect(pane.length, pair.role).toBe(session.length);
+      expect(pane.flatMap((line, index) => (line === session[index] ? [] : [line])), pair.role).toEqual([
+        "The documents below follow this head whole, in this order, so do not open them again in the bundle:",
+        "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call.",
+      ]);
+      expect(pane.join("\n"), pair.role).not.toContain("daemon");
+    }
+    const bundle = scratchBundle(temporaryFolder());
+    expect(rulesText(bundle, PROOFER, "pane").startsWith(`${rulesHead(bundle, PROOFER, "pane")}\n===== skills/core/SKILL.md =====\n`)).toBe(true);
+    expect(rulesText(bundle, PROOFER, "pane").slice(rulesHead(bundle, PROOFER, "pane").length)).toBe(rulesText(bundle, PROOFER).slice(rulesHead(bundle, PROOFER).length));
   });
 
   it("holds the head, then each document after a line that names it, whole and without its frontmatter, in the table's order", () => {
@@ -1124,14 +1253,31 @@ describe("the output stream, as one real run printed it", () => {
       isError: false,
       usage: { costUsd: 0.0508754, converted: true, models: [{ model: "claude-opus-5-5", inputTokens: 2, outputTokens: 4, cacheReadTokens: 11617, cacheWriteTokens: 6058, costUsd: 0.0508754 }] },
     });
-    expect(events).toHaveLength(texts.length + 1);
+    // The answer's pieces, the one limit of the run's `rate_limit_event` line, and the result.
+    expect(events).toHaveLength(texts.length + 2);
   });
 
-  it("drops every line that is neither the answer's text nor the result", () => {
+  it("drops every line that is neither the answer's text, nor the limit, nor the result", () => {
     for (const line of lines) {
       const type = typeOf(line);
-      if (type !== "assistant" && type !== "result") expect(eventsForLine(line), type).toEqual([]);
+      if (type !== "assistant" && type !== "result" && type !== "rate_limit_event") expect(eventsForLine(line), type).toEqual([]);
     }
+  });
+
+  it("maps the run's `rate_limit_event` line, which a turn far from any limit printed, to one limit for each window of its `unifiedWindows`, named by the window, with a reset of 0 as none (scenario 15)", () => {
+    const line = lines.find((recorded) => typeOf(recorded) === "rate_limit_event")!;
+    expect(eventsForLine(line)).toEqual([{ type: "limit", status: "ok", used: 0, resetsAt: null, window: "seven_day" }]);
+  });
+
+  it("maps a limit line with no windows by its own values, named by `rateLimitType`, and gives null for each value the line holds in no form of the reference's (scenario 15)", () => {
+    const limit = (info: object) => eventsForLine(JSON.stringify({ type: "rate_limit_event", rate_limit_info: info }));
+    expect(limit({ status: "allowed_warning", utilization: 0.8, resetsAt: 1_800_000_000, rateLimitType: "five_hour" })).toEqual([{ type: "limit", status: "near", used: 0.8, resetsAt: 1_800_000_000_000, window: "five_hour" }]);
+    // A reset too large for seconds is read as milliseconds.
+    expect(limit({ status: "rejected", resetsAt: 1_800_000_000_000 })).toEqual([{ type: "limit", status: "reached", used: null, resetsAt: 1_800_000_000_000, window: null }]);
+    expect(limit({ status: "throttled", utilization: 80, resetsAt: "soon", rateLimitType: "" })).toEqual([{ type: "limit", status: null, used: null, resetsAt: null, window: null }]);
+    expect(limit({ unifiedWindows: { five_hour: { status: "allowed", utilization: 0.5, resetsAt: 1_800_000_000 }, seven_day: "full" } })).toEqual([{ type: "limit", status: "ok", used: 0.5, resetsAt: 1_800_000_000_000, window: "five_hour" }]);
+    expect(eventsForLine('{"type":"rate_limit_event"}')).toEqual([]);
+    expect(eventsForLine('{"type":"rate_limit_event","rate_limit_info":[]}')).toEqual([]);
   });
 
   it("drops a line that is not JSON, or is JSON of another shape", () => {

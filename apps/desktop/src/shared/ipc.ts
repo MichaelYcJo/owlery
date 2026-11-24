@@ -35,6 +35,8 @@ export const Channel = {
   endDaemon: "owlery:end-daemon",
   /** Sent by the main process without being asked, at a click on one of the menu's two entries that end the daemon. */
   daemonMenu: "owlery:daemon-menu",
+  /** Sent by the main process without being asked, at a click on the menu's "Accounts…". */
+  accountsMenu: "owlery:accounts-menu",
 } as const;
 
 /** What follows the daemon's end: the daemon of the running build is started again, or the app quits and starts none. */
@@ -97,4 +99,6 @@ export interface OwleryApi {
   endDaemon(then: DaemonEnd): Promise<string | null>;
   /** Has `listener` called whenever a person chooses "Restart Daemon…" or "Quit Owlery Completely…" in the application menu, with which of the two. */
   onDaemonMenu(listener: (chosen: DaemonEnd) => void): void;
+  /** Has `listener` called whenever a person chooses "Accounts…" in the application menu. */
+  onAccountsMenu(listener: () => void): void;
 }

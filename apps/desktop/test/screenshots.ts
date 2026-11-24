@@ -7,8 +7,8 @@ import { join, resolve } from "node:path";
 import { APPEARANCES, type Appearance, lookChoice, THEMES, type Theme } from "../src/shared/appearance";
 import type { SessionInfo, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
-/** The views a run captures, in the order it draws them: the summary, which leads with the finished work item's seal, given since the look the run took, and the broken work item's, broken since, the inbox, the view of the work item that needs the person, the view of the work item parked with questions, the view of the finished work item, whose seal holds and whose pull request's checks passed, the view of the work item whose seal a later commit broke, a work item's menu and the "New work item" form. */
-export const VIEWS = ["summary", "inbox", "view", "parked", "finished", "broken", "menu", "dialog"] as const;
+/** The views a run captures, in the order it draws them: the summary, which leads with the finished work item's seal, given since the look the run took, and the broken work item's, broken since, the inbox, the view of the work item that needs the person, the view of the work item parked with questions, the view of the finished work item, whose seal holds and whose pull request's checks passed, the view of the work item whose seal a later commit broke, a work item's menu, the "New work item" form, the dialog that asks which chain the repository's Claude Code panes run, over the view of the work item that needs the person, the repository's settings with the field that keeps the answer and the account's field, and the Accounts dialog. */
+export const VIEWS = ["summary", "inbox", "view", "parked", "finished", "broken", "menu", "dialog", "chain", "settings", "accounts"] as const;
 export type View = (typeof VIEWS)[number];
 
 /** One screenshot: a view in a theme and an appearance, and the name of its file. */

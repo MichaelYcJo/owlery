@@ -308,6 +308,21 @@
       .line.selected:active { background: var(--pressed); }
       /* On the selected line and on the sidebar's item of what is in front, an age and a count are in the muted ink: the faint one does not stand apart from a selected ground. */
       .line.selected .age, .side-item[aria-current] .age, .side-item[aria-current] .count { color: var(--ink-muted); }
+      /* An account's name on a line and on a tab, where it differs from the one its repository or its work item gives, is a fact: it stands after the line's age and after the tab's label. A selected line draws it as it draws its age. */
+      .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
+      #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
+      .line.selected .account { color: var(--ink-muted); }
+      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
+      #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
+      #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
+      #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #accounts-list li .is-default { color: var(--ink-muted); }
+      #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
+      /* A limit value, the last refresh and what a refresh spends are sentences, so they wrap where a folder is cut. */
+      #accounts-list li .account-usage { font-size: var(--size-caption); color: var(--ink-muted); }
+      /* The sign-in pane takes the width of eighty columns, so the dialog that holds it is wider than the others. */
+      #accounts-dialog { width: min(760px, 92vw); }
+      #accounts-terminal { padding: var(--space-3); border-radius: var(--radius-card); background: var(--terminal-ground); overflow: hidden; }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
@@ -473,12 +488,9 @@
       /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
       #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
       #view-seal .why:empty { display: none; }
-      /* The chain's sentence stands above the button that starts the chain, and the daemon's refusal of a start under it. */
-      #view-seal .says, #view-seal .refusal { font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; }
-      #view-seal .says { margin-top: var(--space-3); color: var(--ink); }
-      #view-seal .refusal { color: var(--state-failed); }
-      #view-seal .says:empty, #view-seal .refusal:empty { display: none; }
-      #get-seal { align-self: flex-start; margin-top: var(--space-3); }
+      /* The sentence of the work item's chain stands under the seal's words, and takes no room where no chain ran. */
+      #view-seal .says { margin-top: var(--space-3); font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; color: var(--ink); }
+      #view-seal .says:empty { display: none; }
       /* The work item's pull request, under the seal's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
       #view-pull-request { flex: none; display: flex; flex-direction: column; box-sizing: border-box; max-height: 30%; overflow: auto; padding: var(--space-3) var(--space-6) var(--space-5); border-top: 1px solid var(--rule); font-size: var(--size-second); }
       #view-pull-request .row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--detail-line); padding: var(--space-1) var(--space-2); border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
@@ -496,6 +508,8 @@
       #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
       #ask-form { flex: none; display: flex; gap: var(--space-3); }
       #ask-form input { flex: 1; min-width: 0; }
+      /* The account a new headless session runs under, beside the field: its first choice is the work item's, and it keeps the prefix and about 18 characters of a name while the field gives up the width. */
+      #ask-account { flex: none; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
       #headless { min-height: 0; overflow: auto; font-size: var(--size-second); }
       #headless li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
       #headless li:last-child { border-bottom: 0; }
@@ -526,10 +540,12 @@
       dialog .row { display: flex; gap: var(--space-3); margin-top: var(--space-3); }
       dialog .row.end { justify-content: flex-end; gap: var(--space-4); margin-top: 0; }
       dialog input, dialog select { flex: 1; min-width: 0; font-size: var(--size-text); }
-      /* A choice of a dialog: its box, then its words, on one line. */
+      /* A choice of a dialog: its box or its mark, then its words, on one line. */
       dialog label.check { display: flex; align-items: center; gap: var(--space-3); color: var(--ink); }
       dialog label.check:has(input:disabled) { color: var(--ink-faint); }
-      dialog input[type="checkbox"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      dialog input[type="checkbox"], dialog input[type="radio"] { flex: none; width: var(--icon); height: var(--icon); margin: 0; padding: 0; box-shadow: none; }
+      /* One of two choices is marked in the strong ink, as an option of a question is, and never in the system's own accent. */
+      dialog input[type="radio"] { accent-color: var(--ink-strong); }
       #rename-plan { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-faint); overflow-wrap: anywhere; }
       #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
       /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */
@@ -631,6 +647,10 @@
       <div id="repositories"></div>
       <div id="sidebar-foot">
         <p id="status" role="status"></p>
+        <!-- Hidden until the daemon's `ready` carries its accounts, and against a daemon that sends none. -->
+        <button id="accounts-button" class="icon-button" type="button" aria-label="Accounts" title="Accounts…" hidden>
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="5.5" r="2.8" /><path d="M2.8 13.5a5.2 5.2 0 0 1 10.4 0" /></svg>
+        </button>
         <!-- Hidden until the daemon's `ready` carries its choice, and against a daemon that sends none. -->
         <label id="keep-awake-control" class="icon-button" hidden>
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6.5h8v3.2a3.3 3.3 0 0 1-3.3 3.3H6.3A3.3 3.3 0 0 1 3 9.7z" /><path d="M11 7.5h1a1.5 1.5 0 0 1 0 3h-1.1" /><path d="M5.5 2.5v1.8M8.5 2.5v1.8" /></svg>
@@ -746,6 +766,8 @@
           <h2 class="caption">Ask</h2>
           <form id="ask-form">
             <input id="ask-prompt" autocomplete="off" aria-label="What to ask in this work item" />
+            <!-- Hidden where the daemon keeps no account beside System default. -->
+            <select id="ask-account" aria-label="Account of the session" hidden></select>
             <button type="submit" id="ask-submit" class="quiet">Ask</button>
           </form>
           <ul id="headless"></ul>
@@ -757,8 +779,6 @@
             <span id="view-seal-why" class="why"></span>
             <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
             <span id="seal-says" class="says"></span>
-            <button type="button" id="get-seal" class="primary" hidden>Get a seal</button>
-            <span id="seal-refusal" class="refusal" role="alert"></span>
           </span>
         </section>
         <section id="view-pull-request" aria-label="Pull request" hidden>
@@ -835,10 +855,37 @@
             <select id="settings-base"></select>
           </span>
         </label>
+        <label id="settings-chain-field">
+          Claude Code panes run
+          <span class="row">
+            <select id="settings-chain"></select>
+          </span>
+        </label>
+        <!-- Hidden where the daemon keeps no account beside System default. -->
+        <label id="settings-account-field" hidden>
+          Sessions run under
+          <span class="row">
+            <select id="settings-account"></select>
+          </span>
+        </label>
         <p id="settings-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="settings-cancel" class="quiet">Cancel</button>
           <button type="submit" id="settings-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="chain-dialog">
+      <form id="chain-form">
+        <h2 class="head">Choose the chain of this repository's Claude Code panes</h2>
+        <p class="says">This repository's check is Owlery's, and your Claude Code enables the AgenticSeal plugin here. One chain seals a repository, so a pane runs one of the two.</p>
+        <label class="check"><input type="radio" name="chain" id="chain-owlery" value="owlery" />The owl chain: the pane carries Owlery's roles, and the AgenticSeal plugin is off in that pane alone.</label>
+        <label class="check"><input type="radio" name="chain" id="chain-plugin" value="plugin" />The AgenticSeal plugin: the pane is Claude Code as you set it up, with nothing of Owlery's.</label>
+        <p class="says">Owlery asks once for a repository and changes none of your settings files. The repository's settings change the answer.</p>
+        <p id="chain-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="chain-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="chain-submit" class="primary">Open the pane</button>
         </div>
       </form>
     </dialog>
@@ -867,6 +914,51 @@
         <div class="row end">
           <button type="button" id="group-cancel" class="quiet">Cancel</button>
           <button type="submit" id="group-submit" class="primary">Create</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="account-dialog">
+      <form id="account-form">
+        <h2 class="head">Choose the account of this work item</h2>
+        <p class="says">The work item's new sessions run under it. A session that runs keeps the account it started under.</p>
+        <label>
+          Sessions run under
+          <span class="row">
+            <select id="account-menu"></select>
+          </span>
+        </label>
+        <p id="account-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="account-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="account-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="accounts-dialog">
+      <h2 class="head">Accounts</h2>
+      <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
+      <ul id="accounts-list" class="named whole"></ul>
+      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <section id="accounts-sign-in" hidden>
+        <h3 id="accounts-sign-in-head" class="caption"></h3>
+        <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
+        <div id="accounts-terminal"></div>
+        <div class="row end">
+          <button type="button" id="accounts-sign-in-close" class="quiet">Close the sign-in</button>
+        </div>
+      </section>
+      <form id="accounts-form">
+        <h3 class="caption">Add an account</h3>
+        <label>
+          Name
+          <span class="row"><input id="accounts-name" autocomplete="off" /></span>
+        </label>
+        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
+        <p id="accounts-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
+          <button type="submit" id="accounts-add" class="quiet">Add an account</button>
+          <button type="button" id="accounts-close" class="primary">Done</button>
         </div>
       </form>
     </dialog>
@@ -981,6 +1073,23 @@
         <div class="row end">
           <button type="button" id="records-cancel" class="quiet">Not now</button>
           <button type="submit" id="records-submit" class="primary">Set up and commit</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="pane-account-dialog">
+      <form id="pane-account-form">
+        <h2 id="pane-account-head" class="head"></h2>
+        <p id="pane-account-says" class="says"></p>
+        <label>
+          Run the pane under
+          <span class="row">
+            <select id="pane-account-menu"></select>
+          </span>
+        </label>
+        <p id="pane-account-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="pane-account-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="pane-account-submit" class="primary">Change the account</button>
         </div>
       </form>
     </dialog>

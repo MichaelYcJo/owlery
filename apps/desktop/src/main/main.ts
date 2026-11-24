@@ -10,7 +10,7 @@ import { chooseClipboard } from "./clipboard";
 import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
 import { daemonControl } from "./daemon-control";
 import { chooseOpener, openLink, takeOpener } from "./links";
-import { type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON } from "./menu";
+import { ACCOUNTS, type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON } from "./menu";
 import { staysOnPage } from "./navigation";
 import { copyText, installedApps, openFolder, trashFolder, type Openers } from "./openers";
 import { chooseFinder, pathsOf, showInFinder } from "./paths";
@@ -97,10 +97,20 @@ const control = daemonControl({
  * told once it has loaded.
  */
 function tellDaemonMenu(chosen: DaemonEnd): void {
+  tellWindow((win) => win.webContents.send(Channel.daemonMenu, chosen));
+}
+
+/** Tells the window of a click on the menu's "Accounts…", brought forward or made as a click that ends the daemon is told. */
+function tellAccountsMenu(): void {
+  tellWindow((win) => win.webContents.send(Channel.accountsMenu));
+}
+
+/** Brings the window forward, or makes one, and has `tell` say a menu's click to it once its page has loaded. */
+function tellWindow(tell: (win: BrowserWindow) => void): void {
   const [open] = BrowserWindow.getAllWindows();
   const win = open ?? createWindow();
   if (open) comeForward(open, background, () => app.focus({ steal: true }));
-  const send = (): void => win.webContents.send(Channel.daemonMenu, chosen);
+  const send = (): void => tell(win);
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
   else send();
 }
@@ -205,7 +215,7 @@ app.whenReady().then(() => {
     }
   }
   // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.
-  Menu.setApplicationMenu(Menu.buildFromTemplate(withClicks(menuTemplate(process.platform), { [RESTART_DAEMON]: () => tellDaemonMenu("restart"), [QUIT_COMPLETELY]: () => tellDaemonMenu("quit") })));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(withClicks(menuTemplate(process.platform), { [ACCOUNTS]: tellAccountsMenu, [RESTART_DAEMON]: () => tellDaemonMenu("restart"), [QUIT_COMPLETELY]: () => tellDaemonMenu("quit") })));
   createWindow();
   // A click on the Dock icon arrives here. It shows the window a close hid, and makes one where none is left.
   app.on("activate", () => {

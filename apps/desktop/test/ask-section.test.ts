@@ -65,7 +65,7 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
       `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nif [ -f '${join(made.base, "asks")}' ]; then\nread -r handshake\nread -r prompt\n${asking}\nread -r first\nread -r second\nprintf '%s\\n%s\\n' "$first" "$second" > '${join(made.base, "answers")}'\nprintf '%s\\n' '${result}'\nexec cat > /dev/null\nfi\nif [ -f '${hang}' ]; then printf 'warning: no config\\nerror: the stand-in printed this\\n' >&2; echo $$ > '${join(made.base, "cli-pid")}'; exec sleep 60; fi\nprintf 'error: quick failure\\n' >&2\nexit 3`,
     );
     // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
     // The recorder stands before any session starts, so no notification of this run reaches the system.
     await app.evaluate(`(() => {

@@ -1,11 +1,11 @@
 // The place for work records and the pull request check, as connecting a
 // repository creates them: what a plan names, what a setup writes and
 // commits, and what stands and is kept. Each case runs in a temporary
-// repository, never in Owlery's own.
+// repository, never in Owlery's own, which one case reads for its workflow.
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MARKER, SUBJECT, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
+import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
@@ -13,7 +13,7 @@ const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const VERSION = "1.2.3";
 /** The step of AgenticSeal's `hygiene.yml` that runs the check, as its 0.38.4 template writes it. */
-const PLUGIN_CHECK = 'jobs:\n  seal:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
+const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
 /** The refusal of a plan where the checkout does not hold a path of the place as the commit does. */
 const differs = (names: string): string =>
   `This checkout does not hold ${names} as the commit it stands at does. Owlery plans the records place from the commit, which is what a clone and the check on GitHub get. Commit what is named or put it back as the commit has it, widening a sparse checkout that leaves it out, and open this again.`;
@@ -146,6 +146,20 @@ describe("the records place", () => {
     const plugin = repository();
     write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
     expect(readRecordsPlace(plugin).check).toBe(".github/workflows/hygiene.yml");
+  });
+
+  it("reads a folder as on the owl chain where Owlery's workflow stands in it, committed or not, and as on none where AgenticSeal's check stands alone, where a project's own hygiene.yml does, and where no workflow does", () => {
+    const repo = repository();
+    expect(onOwlChain(repo)).toBe(false);
+    write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
+    expect(onOwlChain(repo)).toBe(false);
+    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint\n");
+    expect(onOwlChain(repo)).toBe(false);
+    // The folder is read as it stands, so a branch that installs the workflow carries the chain before its commit.
+    write(repo, WORKFLOW, workflowText(VERSION));
+    expect(onOwlChain(repo)).toBe(true);
+    // A folder that does not stand holds no workflow.
+    expect(onOwlChain(join(repo, "absent"))).toBe(false);
   });
 
   it("writes only what a root lacks: the config.json of a root that holds none, and no Broad gate into a config.json that stands without the key", async () => {
@@ -792,10 +806,12 @@ describe("the records place", () => {
     expect(status(fresh)).toBe("");
   });
 
-  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `Owlery seal` with the run's token", () => {
+  it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `seal` with the run's token from a job of another name, `records`", () => {
     const text = workflowText(VERSION);
     expect(text).toContain("\nname: seal\n");
-    expect(text).toContain("\njobs:\n  seal:\n");
+    expect(text).toContain("\njobs:\n  records:\n");
+    expect(text).not.toContain("\n  seal:\n");
+    expect(text).toContain("\n# The check posts its verdict as the check `seal` on the pull request's\n");
     expect(text).toContain('git clone --quiet --depth 1 --branch v1.2.3 \\\n            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery" \\\n          || git clone --quiet --depth 1 --branch release/v1.2.3 \\\n            https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery"\n');
     expect(text).toContain("- name: the check, at Owlery 1.2.3\n");
     expect(text).not.toContain("<version>");
@@ -809,6 +825,11 @@ describe("the records place", () => {
     expect(text).toContain("        env:\n          GITHUB_TOKEN: ${{ github.token }}\n");
     // The marker the root's README opens with is the one the taken check tells a root by.
     expect(readFileSync(join(PR_CHECK, "lib", "optin.py"), "utf8")).toContain(`\nMARKER = ${JSON.stringify(MARKER)}\n`);
+  });
+
+  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it", () => {
+    const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
+    expect(readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8")).toBe(workflowText(version));
   });
 
   it("proposes a broad gate command from the package.json of the repository: its check script before its test script, run by the package manager whose lock file stands, and none where it reads neither", () => {
