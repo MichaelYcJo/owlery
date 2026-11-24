@@ -65,6 +65,11 @@ it("refuses a branch that left the commit round 1's record names as its base, wi
 
 The fix pass judges whether the daemon's half also takes a case in `apps/desktop/test/chain.test.ts`, beside the one at line 1475. The two halves share `baseOf`, so the command's case reds the line both read.
 
+```seal
+verdict: fixed f013d37
+answer: The record's `baseOf` and its case were applied as written, after reading both against scope item 13 and every caller of `baseOf`. A base recorded as a commit is now that commit, so `whyNoBase` refuses a branch that left it, in the chain command and in the daemon's chain. The case failed before the fix with `owed` owing round 2, and fails again with the one line put back. The daemon's half takes no case of its own, since `Daemon#chainBase` hands the same `baseOf` the same recorded commit. `docs/architecture.md:306`, its Korean edition and the case at `chain-command.test.ts:164` state what the fix builds and did not change.
+```
+
 ### 2. The roadmap says the owl chain seals this repository's pull requests from release 0.0.3 on, and its own ground 4 and the tree say from #176 on
 
 ```seal
@@ -81,6 +86,11 @@ Why it matters: the bullet "Each milestone has to be in effect before the next o
 
 <!-- docs/roadmap.ko.md:69 -->
 - **다음 마일스톤의 일을 시작하기 전에 앞 마일스톤이 실제로 쓰이고 있어야 합니다.** 저장소 소유자는 마일스톤 1의 빌드에서 일하면서 마일스톤 2를 만들고, 이슈 #176의 PR부터는 owl 체인이 Owlery 자신의 PR에 인장을 찍습니다([이 순서인 까닭](#이-순서인-까닭), 넷째 근거).
+```
+
+```seal
+verdict: fixed f69c268
+answer: Both editions take the record's sentence at line 69, so the bullet and ground 4 say the same: from the pull request of issue #176 on. The two other sentences of each edition that say "from release 0.0.3" state what a pane carries, not which chain seals this repository, and stand.
 ```
 
 ## Confirmations
