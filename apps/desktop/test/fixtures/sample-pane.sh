@@ -11,7 +11,7 @@
 # GitHub. No chain runs in the screenshot run: the daemon calls `gh` to read
 # the pull request the run stored for one work item.
 if [ ! -t 0 ]; then
-  printf '\n__owlery_cli=%s\n__owlery_path=%s\n' "${0%/*}/sample-cli.sh" "${0%/*}/sample-gh:/usr/bin:/bin"
+  printf '\n__owlery_cli=%s\n__owlery_path=%s\n__owlery_config=%s\n' "${0%/*}/sample-cli.sh" "${0%/*}/sample-gh:/usr/bin:/bin" "${CLAUDE_CONFIG_DIR:-}"
   exit 0
 fi
 # A setup pane runs `$SHELL -l -i -c <the command .worktreesetup holds>`, and

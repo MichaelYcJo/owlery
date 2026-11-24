@@ -42,6 +42,9 @@ const api: OwleryApi = {
       if (chosen === "restart" || chosen === "quit") listener(chosen);
     });
   },
+  onAccountsMenu: (listener) => {
+    ipcRenderer.on(Channel.accountsMenu, () => listener());
+  },
 };
 
 contextBridge.exposeInMainWorld("owlery", api);

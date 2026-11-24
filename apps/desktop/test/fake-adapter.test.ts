@@ -43,11 +43,37 @@ describe("the fake adapter", () => {
     expect((await runWhole(fakeAdapter({ fail: "exit" }), "Q")).map((event) => event.type)).toEqual(["session", "exit"]);
   });
 
-  it("declares its name and the two features, or the list it was told to declare in their place", () => {
+  it("declares its name and the four features, or the list it was told to declare in their place", () => {
     expect(fakeAdapter().name).toBe("fake");
-    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests"]);
+    expect(fakeAdapter().features).toEqual(["role-tools", "permission-requests", "accounts", "limit-refresh"]);
     expect(fakeAdapter({ features: ["role-tools"] }).features).toEqual(["role-tools"]);
     expect(fakeAdapter({ features: [] }).features).toEqual([]);
+  });
+
+  it("reports the limits it was given for the prompt, the role and whether the session is a refresh, after the answer and before the result, and none where it was given none (scenario 15)", async () => {
+    const given: [string, string | undefined, boolean][] = [];
+    const adapter = fakeAdapter({
+      limits: (prompt, role, refresh) => {
+        given.push([prompt, role?.role, refresh]);
+        return refresh ? [{ status: "near", used: 0.9, resetsAt: null, window: "five_hour" }] : [];
+      },
+    });
+    const events: RoleEvent[] = [];
+    await new Promise<void>((resolve, reject) => {
+      adapter
+        .start({ prompt: "OK?", cwd: "/nowhere", refresh: true }, (event) => {
+          events.push(event);
+          if (event.type === "exit") resolve();
+        })
+        .catch(reject);
+    });
+    expect(events.map((event) => event.type)).toEqual(["session", "text", "limit", "result", "exit"]);
+    expect(events[2]).toEqual({ type: "limit", status: "near", used: 0.9, resetsAt: null, window: "five_hour" });
+    expect((await run(adapter, "Q", { role: "proofer", stage: "round" })).map((event) => event.type)).toEqual(["text", "result", "exit"]);
+    expect(given).toEqual([
+      ["OK?", undefined, true],
+      ["Q", "proofer", false],
+    ]);
   });
 
   it("answers a prompt with a text that quotes it, then the result and exit 0", async () => {
@@ -77,6 +103,21 @@ describe("the fake adapter", () => {
     ]);
     expect((await run(fakeAdapter(), "Q", { role: "crafter", stage: "fix-pass" }))[0]).toEqual({ type: "text", text: 'As the crafter at the stage fix-pass, you asked: "Q"' });
     expect((await run(fakeAdapter(), "Q"))[0]).toEqual({ type: "text", text: 'You asked: "Q"' });
+  });
+
+  it("started under an account's folder, names that folder at the end of the text it answers with, and started under none names none", async () => {
+    const under = async (role?: RoleStage): Promise<RoleEvent[]> => {
+      const events: RoleEvent[] = [];
+      await new Promise<void>((resolve) => {
+        void fakeAdapter().start({ prompt: "Q", cwd: "/nowhere", accountDir: "/accounts/work", ...(role ? { role } : {}) }, (event) => {
+          if (event.type !== "session") events.push(event);
+          if (event.type === "exit") resolve();
+        });
+      });
+      return events;
+    };
+    expect((await under())[0]).toEqual({ type: "text", text: 'You asked: "Q" under the config folder /accounts/work' });
+    expect((await under({ role: "proofer", stage: "round" })).at(-2)).toMatchObject({ type: "result", text: 'As the proofer at the stage round, you asked: "Q" under the config folder /accounts/work' });
   });
 
   it("gives its pieces the role it was started with, and nothing where it was started with none", async () => {
@@ -281,5 +322,10 @@ describe("the fake adapter", () => {
     const adapter = fakeAdapter({ notice: "The fake agent is old." });
     expect(await adapter.notice()).toBe("The fake agent is old.");
     expect(await adapter.notice()).toBe("The fake agent is old.");
+  });
+
+  it("answers the folder of the default login its options name, and none where they name none, as an adapter whose lookup gave no answer", () => {
+    expect(fakeAdapter().defaultLoginFolder?.()).toBeNull();
+    expect(fakeAdapter({ defaultLoginFolder: "/Users/person/.claude" }).defaultLoginFolder?.()).toBe("/Users/person/.claude");
   });
 });

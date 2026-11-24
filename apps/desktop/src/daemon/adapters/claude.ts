@@ -5,12 +5,14 @@
 // permission check off (docs/roadmap.md, milestone 1).
 import { execFile, spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
+import { CONFIG_DIR_VARIABLE, claudeLogins, conversationsIn } from "./claude-accounts";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
@@ -72,8 +74,10 @@ function firstOf(text: string): string {
  * reads the bundle's other documents. A launch with no role keeps Claude
  * Code's default tools, less the three the CLI adds where a host answers its
  * prompts, which ask a person something no stream of this session carries.
+ * A refresh of an account's usage, which has no role, holds no tool at all,
+ * takes one turn and writes no transcript.
  */
-export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }): string[] {
+export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }, refresh = false): string[] {
   return [
     "-p",
     "--input-format",
@@ -91,7 +95,7 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     "default",
     "--permission-prompt-tool",
     "stdio",
-    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
+    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : refresh ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
@@ -100,18 +104,23 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
 }
 
 /**
- * The environment of a headless session: five names and nothing else of the
- * daemon's, so no plugin, setting or token comes in through a variable. `path`
- * is the PATH of the user's login shell. A daemon the app started from the
- * Finder has no LANG, and the session then cannot read or print Korean.
+ * The environment of a headless session: five names, and the config folder
+ * where one is given, and nothing else of the daemon's, so no plugin, setting
+ * or token comes in through a variable. `path` is the PATH of the user's
+ * login shell. `configDir` is the folder of the session's account, or under
+ * System default the one the user's login shell names, so a pane and a role
+ * session of one work item run under one login; with neither the CLI keeps
+ * its default folder. A daemon the app started from the Finder has no LANG,
+ * and the session then cannot read or print Korean.
  */
-export function claudeEnv(env: NodeJS.ProcessEnv, path: string): Record<string, string> {
+export function claudeEnv(env: NodeJS.ProcessEnv, path: string, configDir?: string | null): Record<string, string> {
   const session: Record<string, string> = {};
   if (env.HOME) session.HOME = env.HOME;
   if (env.USER) session.USER = env.USER;
   session.PATH = path;
   session.LANG = env.LANG || "en_US.UTF-8";
   session.CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD = "1";
+  if (configDir) session[CONFIG_DIR_VARIABLE] = configDir;
   return session;
 }
 
@@ -123,8 +132,8 @@ export function promptLine(prompt: string): string {
 /** The line that opens a session's input, before the prompt: the handshake of a host that answers the session's control requests. */
 export const INITIALIZE_LINE = `${JSON.stringify({ type: "control_request", request_id: "owlery-initialize", request: { subtype: "initialize" } })}\n`;
 
-/** What the lookup has the shell print: the CLI's path and the shell's PATH, each on a marked line of its own. */
-export const LOOKUP_SCRIPT = `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' "$(command -v claude)" "$PATH"`;
+/** What the lookup has the shell print: the CLI's path, the shell's PATH and the config folder the shell names, each on a marked line of its own, the last empty where the shell names none. */
+export const LOOKUP_SCRIPT = `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' "$(command -v claude)" "$PATH" "\${${CONFIG_DIR_VARIABLE}:-}"`;
 
 /**
  * The command that finds the CLI: the user's interactive login shell, as a
@@ -137,14 +146,14 @@ export function lookupCommand(env: NodeJS.ProcessEnv): { command: string; args: 
   return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", LOOKUP_SCRIPT] };
 }
 
-/** Reads the two marked lines out of what the shell printed; nothing where it named no file as the CLI. */
-export function parseLookup(printed: string): { cli: string; path: string } | undefined {
+/** Reads the marked lines out of what the shell printed, the config folder null where the shell named none; nothing where it named no file as the CLI. */
+export function parseLookup(printed: string): { cli: string; path: string; configDir: string | null } | undefined {
   const marked = (name: string): string | undefined => new RegExp(`^__owlery_${name}=(.*)$`, "m").exec(printed)?.[1];
   const cli = marked("cli");
   const path = marked("path");
   // An alias or a shell function is answered by its name, which is no file to launch.
   if (!cli?.startsWith("/") || !path) return undefined;
-  return { cli, path };
+  return { cli, path, configDir: marked("config") || null };
 }
 
 /**
@@ -296,10 +305,53 @@ function usageOf(record: Record<string, unknown>, keyed: boolean): Usage | null 
   };
 }
 
+/** How the stream names a limit's state, as the reference's `SDKRateLimitEvent` names it, read into the neutral event's. */
+const LIMIT_STATUS: Readonly<Record<string, "ok" | "near" | "reached">> = { allowed: "ok", allowed_warning: "near", rejected: "reached" };
+
+const recordOrNothing = (value: unknown): Record<string, unknown> | undefined => (typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined);
+
+/**
+ * The limit events of a `rate_limit_event` line, from its `rate_limit_info`.
+ * The reference's type names `status`, `utilization` and `resetsAt`, and no
+ * window. The run recorded in `test/fixtures/claude-stream.jsonl`, a turn far
+ * from any limit, carried the line with `rateLimitType` naming its window and
+ * `unifiedWindows` holding each window's three values, and the line is read
+ * as that run printed it: one event for each window of `unifiedWindows`,
+ * named by its key, and where it holds none, one event of the line's own
+ * values named by `rateLimitType`. A value the line does not hold in the
+ * reference's form is null: a status the reference does not name, a
+ * utilization outside 0 to 1, since nothing says what another range would
+ * mean, and a reset at or before the epoch. `resetsAt` is read as seconds
+ * since the epoch, as Claude Code's status line gives a reset, and a value
+ * too large for seconds before the year 5000 as milliseconds.
+ */
+function limitsOf(record: Record<string, unknown>): RoleEvent[] {
+  const info = recordOrNothing(record.rate_limit_info);
+  if (info === undefined) return [];
+  const limitOf = (values: Record<string, unknown>, window: unknown): RoleEvent => {
+    const { status, utilization, resetsAt } = values;
+    const used = numberOf(utilization);
+    const resets = numberOf(resetsAt);
+    return {
+      type: "limit",
+      status: typeof status === "string" && Object.hasOwn(LIMIT_STATUS, status) ? LIMIT_STATUS[status]! : null,
+      used: used !== null && used >= 0 && used <= 1 ? used : null,
+      resetsAt: resets === null || resets <= 0 ? null : resets < 1e11 ? resets * 1000 : resets,
+      window: typeof window === "string" && window !== "" ? window : null,
+    };
+  };
+  const windows = Object.entries(recordOrNothing(info.unifiedWindows) ?? {}).flatMap(([window, values]) => {
+    const held = recordOrNothing(values);
+    return held === undefined ? [] : [limitOf(held, window)];
+  });
+  return windows.length > 0 ? windows : [limitOf(info, info.rateLimitType)];
+}
+
 /**
  * Maps one line of the output stream to neutral events: the text blocks of an
- * `assistant` message, the `result` line with what the turn used, a request
- * to use a tool, and the withdrawal of one. Every other line is dropped, a
+ * `assistant` message, the `result` line with what the turn used, what a
+ * `rate_limit_event` line says of the account's limit, a request to use a
+ * tool, and the withdrawal of one. Every other line is dropped, a
  * control line of another kind among them, and so is a line that is not
  * JSON. The `init` line gives no event here: a run reports its `session`
  * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a launch
@@ -320,6 +372,7 @@ export function eventsForLine(line: string, held?: readonly string[], keyed = fa
     if (!Array.isArray(content)) return [];
     return content.filter(isTextBlock).map((block) => ({ type: "text", text: block.text }));
   }
+  if (record.type === "rate_limit_event") return limitsOf(record);
   if (record.type === "result") {
     return [
       {
@@ -371,23 +424,29 @@ export function roleCheck(line: string, agent: string): { seen: boolean; failure
  * neither launches sessions with no role alone.
  */
 export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs?: number; bundleDir?: string; rulesDir?: string } = {}): RoleAdapter {
+  type Lookup = NonNullable<ReturnType<typeof parseLookup>>;
   // Asked of the login shell once per daemon process, for the sessions and the notices together; a lookup that failed is asked again.
-  let found: Promise<{ cli: string; path: string }> | undefined;
+  let found: Promise<Lookup> | undefined;
+  // What the lookup answered, once it has: the default login's folder is read from it without a wait.
+  let answered: Lookup | undefined;
 
-  const lookup = (): Promise<{ cli: string; path: string }> => {
+  const lookup = (): Promise<Lookup> => {
     const { command, args } = lookupCommand(env);
     return new Promise((resolve, reject) => {
       execFile(command, args, { env: terminalEnv(env), encoding: "utf8", timeout: options.lookupTimeoutMs ?? 10_000 }, (error, stdout) => {
         // The exit code is the profile's last word, not the lookup's: what was printed decides.
         const result = parseLookup(stdout);
-        if (result) resolve(result);
+        if (result) {
+          answered = result;
+          resolve(result);
+        }
         else if (error && "killed" in error && error.killed) reject(new Error(`the login shell (${command}) did not answer where claude is`));
         else reject(new Error(`claude was not found by the login shell (${command})`));
       }).stdin?.end();
     });
   };
 
-  const located = (): Promise<{ cli: string; path: string }> =>
+  const located = (): Promise<Lookup> =>
     (found ??= lookup().catch((error: unknown) => {
       found = undefined;
       throw error;
@@ -410,15 +469,19 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role) };
   };
 
+  // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.
+  const defaultLoginFolder = (): string | null => (answered === undefined ? null : (answered.configDir ?? join(env.HOME || homedir(), ".claude")));
+
   return {
     name: "claude",
-    features: ["role-tools", "permission-requests"],
-    async start({ prompt, cwd, role }, listener) {
+    features: ["role-tools", "permission-requests", "accounts", "limit-refresh"],
+    async start({ prompt, cwd, role, accountDir, refresh }, listener) {
       const launch = role && launchOf(role);
-      const { cli, path } = await located();
+      const { cli, path, configDir } = await located();
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
-      // signal to the group also reaches what the CLI started in it, such as a tool's shell.
-      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path), stdio: ["pipe", "pipe", "pipe"], detached: true });
+      // signal to the group also reaches what the CLI started in it, such as a tool's shell. The account's folder, and
+      // under System default the folder the login shell names, as a pane of the work item would run under it.
+      const child = spawn(cli, claudeArgs(cwd, launch, refresh === true && launch === undefined), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
@@ -543,5 +606,9 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         return null;
       }
     },
+    defaultLoginFolder,
+    conversationsOf: conversationsIn,
+    // The CLI the lookup finds signs a folder in and out, under the environment a role session is given, so no variable of the daemon's reaches it.
+    logins: claudeLogins({ locate: located, envOf: (path, folder) => claudeEnv(env, path, folder), ownFolder: defaultLoginFolder }),
   };
 }

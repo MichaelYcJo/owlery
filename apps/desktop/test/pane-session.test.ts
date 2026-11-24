@@ -122,7 +122,7 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     server.onEvent((event) => events.push(event));
     // Under the choice the person's own settings are read for the plugin, as the daemon reads them. With no answer the pane is launched as the daemon launches one where it finds no such plugin, so the first case runs on a machine that enables it too.
     const carries = chosen === null ? carriedIn(chain, () => ({ enabled: {}, agenticSeal: [] })) : carriedIn(chain);
-    const { command, args, env } = paneCommands(process.env, settings, server.socketPath, carries)("claude", 1, { continueLatest: false, folder: repo, base: "main", checkout: repo, chosen });
+    const { command, args, env } = paneCommands(process.env, settings, server.socketPath, carries)("claude", 1, { continueLatest: false, folder: repo, base: "main", checkout: repo, chosen, accountDir: null, configDir: null });
     expect(env.OWLERY_CHAIN, "the pane carries the owl chain").toBe(chain.launcher);
     const settingsFile = /--settings '([^']+)'/u.exec(args[3] ?? "")?.[1] ?? "";
     const paneEnv = { ...process.env, ...env, OWLERY_RUN_DIR: runDir };

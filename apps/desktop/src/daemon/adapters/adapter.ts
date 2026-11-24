@@ -20,7 +20,9 @@ export type RoleEvent =
   // The agent asks to make one call, and makes none of it before `RoleRun.answer` is called with this `id`. `path` is the file a read or a write names, and null otherwise. `text` is what a person reads of the call: the path, the command, or the call's input, 2,000 characters at most, and a cut text ends with a mark that says so.
   | { type: "permission"; id: string; tool: string; action: PermissionAction; path: string | null; text: string }
   // The agent no longer waits for an answer to the request `id`.
-  | { type: "permission-withdrawn"; id: string };
+  | { type: "permission-withdrawn"; id: string }
+  // What the agent's stream says of the usage limit of the account the session runs under, each value null where the agent gave none: whether the limit is far (`ok`), near or reached, the part of it used as a fraction from 0 to 1, the time in milliseconds since the epoch at which it resets, and the limit's name where the agent names one.
+  | { type: "limit"; status: "ok" | "near" | "reached" | null; used: number | null; resetsAt: number | null; window: string | null };
 
 export interface RoleRun {
   /**
@@ -32,26 +34,90 @@ export interface RoleRun {
   answer(id: string, answer: { allow: true } | { allow: false; reason: string }): void;
 }
 
-/** A feature an adapter can declare: it sets a session's tools by its role, and it reports permission requests and takes their answers. */
-export type RoleFeature = "role-tools" | "permission-requests";
+/** A feature an adapter can declare: it sets a session's tools by its role, it reports permission requests and takes their answers, it launches a session under the account whose config folder it is given, and it starts the short session that refreshes an account's usage (`refresh`). */
+export type RoleFeature = "role-tools" | "permission-requests" | "accounts" | "limit-refresh";
 
 export interface RoleAdapter {
   readonly name: string;
-  /** The features this adapter supports. The daemon starts a role session only through an adapter that declares both, and a session with no role through any. */
+  /** The features this adapter supports. The daemon starts a role session only through an adapter that declares `role-tools` and `permission-requests`, and a session with no role through any; `accounts` decides only whether a session is given its account's folder, and `limit-refresh` whether the daemon starts a refresh through it. */
   readonly features: readonly RoleFeature[];
   /**
    * Starts one session that answers `prompt` in the folder `cwd`, and reports
    * its events to `listener`, none of them before the promise resolves. With
    * `role`, the session is launched as that role at that stage, with whatever
    * the adapter's agent takes a role through; without it the session has no
-   * role. The promise rejects, with a message a person can read, where no
-   * session started.
+   * role. With `accountDir`, which the daemon gives only an adapter that
+   * declares `accounts`, the session runs under the login that config folder
+   * holds. With `refresh`, which the daemon gives only an adapter that
+   * declares `limit-refresh` and never with a role, the session holds no
+   * tool, takes one turn and writes no transcript, and is started only for
+   * the `limit` events its stream hands over. The promise rejects, with a
+   * message a person can read, where no session started.
    */
-  start(options: { prompt: string; cwd: string; role?: RoleStage }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string; refresh?: true }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
   /**
    * What a person should know of the adapter's agent before any session
    * starts, as a sentence a window shows as it is, or null where there is
    * nothing to say. It is read anew at each call, and it does not reject.
    */
   notice(): Promise<string | null>;
+  /**
+   * The config folder the agent's default login lives in, which a session
+   * given no account's folder runs under, as the adapter last found it, or
+   * null where it has found none yet. It answers at once and starts no
+   * search: the daemon reads it where it launches a pane and where it reads
+   * a repository's settings, and asks `notice` at its start, which has the
+   * adapter look its agent up. An adapter with no such answer is read as one
+   * that has found none.
+   */
+  defaultLoginFolder?(): string | null;
+  /**
+   * The real path of the folder the agent keeps the conversations of the
+   * config folder `folder` in, or null where the folder holds none. Two
+   * config folders whose answers are one keep the same conversations, so a
+   * conversation of one is resumed under the other. It reads the path alone
+   * and nothing inside it. An adapter without it keeps no conversation two
+   * folders share.
+   */
+  conversationsOf?(folder: string): string | null;
+  /**
+   * What the adapter's agent does with an account's config folder: lends a
+   * folder the daemon made what belongs to the person, signs a folder in and
+   * out, and says whether a login stands in it. The daemon calls it only for
+   * an account's folder and reads no file of the folder itself. An adapter
+   * without it signs no account in, and the daemon makes no account's folder
+   * for it.
+   */
+  readonly logins?: AccountLogins;
+}
+
+/** Whether a login stands in a config folder, and the daemon's clock at which it is expected to end, or null where the agent named no end. */
+export interface LoginStatus {
+  signedIn: boolean;
+  loginEndsAt: number | null;
+}
+
+/** The process a sign-in pane runs: the file to execute, its arguments, and the whole environment it is given, to which the terminal adds only its own names. */
+export interface LoginCommand {
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+}
+
+/** An adapter's part of the accounts the daemon keeps, each named by its config folder. */
+export interface AccountLogins {
+  /**
+   * Gives a folder the daemon made for an account what belongs to the person
+   * in the agent's default login, as the adapter's agent shares it, and adds
+   * only what the folder lacks. It writes nothing into the default login's
+   * folder, does nothing while the adapter has not found that folder, and
+   * does not throw: a name it cannot give stays missing until the next call.
+   */
+  furnish(folder: string): void;
+  /** The process of a pane in which the person signs the folder in, through the agent's own sign-in. It rejects, with a sentence a person reads, where the adapter cannot find its agent. */
+  signIn(folder: string): Promise<LoginCommand>;
+  /** Whether a login stands in the folder. It rejects, with a sentence a person reads, where the agent could not say. */
+  status(folder: string): Promise<LoginStatus>;
+  /** Signs the folder out, through the agent's own command. It rejects, with a sentence a person reads, where the agent did not. */
+  signOut(folder: string): Promise<void>;
 }

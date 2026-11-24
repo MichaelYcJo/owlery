@@ -3,8 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
-import { type Back, composeBack } from "../shared/seal-back";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -1719,10 +1719,11 @@ export function fileLines(workItem: WorkItem): { sum: string; lines: { path: str
 }
 
 /** The facts of a view's right column, in their order: the agent, which is the label of the kind of the pane the state is read from, when the work item was started, its base and its worktree. */
-export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number): { label: string; value: string }[] {
+export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now: number, account = ""): { label: string; value: string }[] {
   const kind = paneKinds.find((offered) => offered.kind === entry.session?.kind);
   return [
     { label: "Agent", value: kind ? kind.label : "None" },
+    ...(account === "" ? [] : [{ label: "Account", value: account }]),
     { label: "Started", value: `${ageOf(entry.workItem.createdAt, now)} ago` },
     { label: "Base", value: ahead(entry.workItem).fact },
     { label: "Worktree", value: entry.workItem.worktree },
@@ -1893,7 +1894,7 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
 }
 
 /** What an item of a pane's menu does. */
-export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "close";
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "account" | "close";
 
 /** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
 export interface PaneMenuItem {
@@ -1909,10 +1910,12 @@ export interface PaneMenuItem {
  * show the keys that do the same, and no other item shows one, since no key
  * of the window does what it does. On another keyboard no item shows a key.
  * "Copy" can be pressed only where the terminal holds a `selection`.
+ * "Change Account…" stands before "Close Pane" only where the pane's account
+ * can be changed (`paneAccountChange`), and shows no key.
  */
-export function paneMenu(mac: boolean, selection: boolean): (PaneMenuItem | null)[] {
+export function paneMenu(mac: boolean, selection: boolean, changesAccount = false): (PaneMenuItem | null)[] {
   const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
-  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, item("Close Pane", "close", "\u2318W")];
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
 }
 
 /** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
@@ -2074,11 +2077,12 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * opens a folder in Finder, where `app` is null, or in an installed app.
  */
 export type MenuAction =
-  | { do: "rename" | "archive" | "restore" | "delete"; id: number }
+  | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
   | { do: "open"; folder: string; app: string | null }
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
-  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number };
+  | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
+  | { do: "pane"; accountId: number | null };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2131,13 +2135,14 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 /**
  * A work item's menu, in its order: Rename; "Open in", whose submenu lists
  * Finder and each installed editor and terminal; Copy path and Copy branch
- * name; Pin or Unpin, and Mute notifications or Unmute notifications; "Move
+ * name; "Account…", after Rename, where `accounts` says the window offers a
+ * choice of account (`offersAccounts`); Pin or Unpin, and Mute notifications or Unmute notifications; "Move
  * to" for each of `groups`, the groups of its repository, but the one it
  * stands in, and "Move out of" that one; Archive and Delete. The menu of an
  * archived work item holds Restore, "Open in", the two copies and Delete.
  * The folder that is opened and copied is the work item's worktree.
  */
-export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[]): MenuEntry[] {
+export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[], accounts = false): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
   const copies: MenuItem[] = [
@@ -2153,6 +2158,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
   if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, open, ...copies, remove(true)];
   return [
     { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    ...(accounts ? [{ label: "Account…", description: "Choose the account the work item's new sessions run under.", action: { do: "account" as const, id }, divides: false }] : []),
     open,
     ...copies,
     workItem.pinned
@@ -2751,15 +2757,246 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice, and the chain of its Claude Code panes where the menu's
- * value is another than the answer kept, null for no answer. A field that
- * did not change is left out, and an object with none is nothing to send.
+ * first choice, the chain of its Claude Code panes where the menu's
+ * value is another than the answer kept, null for no answer, and the
+ * account where the menu's value, an account's id, is another than the one
+ * set on the repository, null for the first choice, which leaves it to the
+ * default. A field that did not change is left out, and an object with
+ * none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? ""): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null } {
+export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? "", account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null; accountId?: number | null } {
   const named = name.trim() || null;
   const chosen = base || null;
   const runs = chain === "owlery" || chain === "plugin" ? chain : null;
-  return { ...(named === repository.customName ? {} : { name: named }), ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }), ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }) };
+  const set = account === "" ? null : Number(account);
+  return {
+    ...(named === repository.customName ? {} : { name: named }),
+    ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }),
+    ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }),
+    ...(set === (repository.accountId ?? null) ? {} : { accountId: set }),
+  };
+}
+
+/** The accounts a daemon keeps and the id of the default one, as the window holds them. */
+export interface HeldAccounts {
+  accounts: Account[];
+  defaultId: number;
+  /** Whether the daemon refreshes an account's usage; no where absent. */
+  refreshesUsage?: boolean;
+}
+
+/** The accounts and the default a `ready` or an `accounts` message carries, with whether the daemon refreshes usage, or null for a daemon of an earlier build, which sends no accounts: the window then shows no account control and no account's name. */
+export function heldAccounts(message: { accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean }): HeldAccounts | null {
+  if (message.accounts === undefined || message.defaultAccountId === undefined) return null;
+  return { accounts: [...message.accounts], defaultId: message.defaultAccountId, refreshesUsage: message.refreshesUsage === true };
+}
+
+/** Whether the window offers a choice of account: only where the daemon keeps an account beside System default, since with System default alone there is nothing to choose. */
+export function offersAccounts(held: HeldAccounts | null): boolean {
+  return held !== null && held.accounts.some((account) => account.id !== SYSTEM_DEFAULT_ID);
+}
+
+/** The name of the account of `id`, or nothing where the window holds no account of it. */
+export function accountName(held: HeldAccounts, id: number): string {
+  return held.accounts.find((account) => account.id === id)?.name ?? "";
+}
+
+/** The account a repository gives its work items: the one set on it, else the default. */
+function repositoryAccount(repository: Repository | undefined, held: HeldAccounts): number {
+  return repository?.accountId ?? held.defaultId;
+}
+
+/**
+ * The name a line of the inbox shows of a work item's account: the work
+ * item's own where it differs from the one its repository gives, else the
+ * first live pane's or working headless session's of the work item whose
+ * account differs from it, and nothing where every one is the repository's,
+ * or where the window holds no accounts.
+ */
+export function lineAccount(workItem: WorkItem, repository: Repository | undefined, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], held: HeldAccounts | null): string {
+  if (held === null) return "";
+  const given = repositoryAccount(repository, held);
+  const differs = (id: number | null | undefined): id is number => id !== null && id !== undefined && id !== given;
+  if (differs(workItem.accountId)) return accountName(held, workItem.accountId);
+  const running = [
+    ...sessions.filter((session) => session.alive && session.workItemId === workItem.id).map((session) => session.accountId),
+    ...headless.filter((session) => session.state === "working" && session.workItemId === workItem.id).map((session) => session.accountId),
+  ].find(differs);
+  return running === undefined ? "" : accountName(held, running);
+}
+
+/** The name a work item's view shows of the account its sessions take where they name none of their own (`accountFor`): its own, else its repository's, else the default. Nothing where the window holds no accounts. */
+export function viewAccount(workItem: WorkItem, repository: Repository | undefined, held: HeldAccounts | null): string {
+  if (held === null) return "";
+  return accountName(held, accountFor(null, workItem, { accountId: repositoryAccount(repository, held) }, held.defaultId));
+}
+
+/** The name a pane's tab shows of the pane's account: the account it was launched under where that differs from the one its work item gives, and nothing for a pane launched under none, under the work item's, or where the window holds no accounts. */
+export function tabAccount(session: SessionInfo, workItem: WorkItem, repository: Repository | undefined, held: HeldAccounts | null): string {
+  if (held === null || session.accountId === null || session.accountId === undefined) return "";
+  const given = accountFor(null, workItem, { accountId: repositoryAccount(repository, held) }, held.defaultId);
+  return session.accountId === given ? "" : accountName(held, session.accountId);
+}
+
+/**
+ * One row of the Accounts dialog: the account's id and name, its folder in
+ * words, whether it is the default, whether it keeps its name and is never
+ * removed, as System default does, its sign-in in words, and whether it
+ * offers "Sign in", as an account with a folder does. System default's
+ * sign-in is the person's own terminal's, so its row says nothing of it.
+ * Then its usage: one line for each limit value its sessions handed over,
+ * its last refresh in words, and whether it offers "Refresh usage".
+ */
+export interface AccountRow {
+  id: number;
+  name: string;
+  folder: string;
+  isDefault: boolean;
+  fixed: boolean;
+  signIn: string | null;
+  offersSignIn: boolean;
+  usage: string[];
+  refreshed: string | null;
+  offersRefresh: boolean;
+}
+
+/** What the Accounts dialog says beside "Refresh usage", before the press. */
+export const REFRESH_SAYS = "A refresh starts one short Claude Code session under the account, and uses a little of its limit.";
+
+/** A limit's name as the agent names it, in words where Owlery knows the name, and as the agent wrote it otherwise. */
+function windowWords(window: string | null): string {
+  if (window === null) return "Usage limit";
+  return { five_hour: "5-hour limit", seven_day: "Weekly limit", seven_day_opus: "Weekly Opus limit", seven_day_sonnet: "Weekly Sonnet limit" }[window] ?? window;
+}
+
+/** One limit value in words, `now` being the window's clock: its name, each value the agent gave and no other, and how long ago it arrived. */
+function limitWords(limit: AccountLimit, now: number): string {
+  const said = [
+    ...(limit.status === null ? [] : [{ ok: "within the limit", near: "near the limit", reached: "the limit is reached" }[limit.status]]),
+    ...(limit.used === null ? [] : [`${String(Math.round(limit.used * 100))}% used`]),
+    ...(limit.resetsAt === null ? [] : [limit.resetsAt > now ? `resets in ${ageOf(now, limit.resetsAt)}` : "its reset time has passed"]),
+  ];
+  return `${windowWords(limit.window)}: ${said.length === 0 ? "Claude Code gave no value" : said.join(", ")}, as of ${ageOf(limit.at, now)} ago`;
+}
+
+/** An account's last refresh in words, `now` being the window's clock: that it runs, or how it ended, whether Claude Code handed over a value, and the cost its turn reported. Nothing where none ran. */
+function refreshWords(refresh: AccountRefresh | null, now: number): string | null {
+  if (refresh === null) return null;
+  if (refresh.state === "running") return "Refreshing the usage\u2026";
+  const cost = refresh.usage === null || refresh.usage.costUsd === null ? "It reported no cost." : `It cost ${costWords(refresh.usage.costUsd)}${refresh.usage.converted ? ", converted at API prices and not charged" : ""}.`;
+  if (refresh.error !== null) return `The refresh ${ageOf(refresh.at, now)} ago failed: ${refresh.error} ${cost}`;
+  return refresh.handed === 0 ? `The refresh ${ageOf(refresh.at, now)} ago ended, and Claude Code handed over no usage value. ${cost}` : `Refreshed ${ageOf(refresh.at, now)} ago. ${cost}`;
+}
+
+/** An account's sign-in in words, as the agent last gave it, `now` being the window's clock: whether a login stands, and the time until it ends where the agent named an end. Once that time is past the login may have ended, which the agent says when asked again. */
+function signInWords(account: Account, now: number): string | null {
+  if (account.folder === null) return null;
+  if (account.signedIn === null) return "Sign-in not read yet";
+  if (!account.signedIn) return "Not signed in";
+  if (account.loginEndsAt === null) return "Signed in";
+  return account.loginEndsAt > now ? `Signed in, the login ends in ${ageOf(now, account.loginEndsAt)}` : "Signed in, the login may have ended";
+}
+
+/**
+ * The rows of the Accounts dialog, in the daemon's order, System default
+ * first, `now` being the window's clock. "Refresh usage" stands where the
+ * daemon refreshes usage, no refresh of the account runs, and none of the
+ * `sessions` is a live pane under it nor any of `headless` a working session
+ * under it, since a session hands over its values itself.
+ */
+export function accountRows(held: HeldAccounts | null, now: number, sessions: readonly SessionInfo[] = [], headless: readonly HeadlessInfo[] = []): AccountRow[] {
+  if (held === null) return [];
+  const runs = (id: number): boolean => sessions.some((session) => session.alive && session.accountId === id) || headless.some((session) => session.state === "working" && session.accountId === id);
+  return held.accounts.map((account) => ({
+    id: account.id,
+    name: account.name,
+    folder: account.folder ?? "The folder your login shell gives Claude Code",
+    isDefault: account.id === held.defaultId,
+    fixed: account.id === SYSTEM_DEFAULT_ID,
+    signIn: signInWords(account, now),
+    offersSignIn: account.folder !== null,
+    usage: account.limits.map((limit) => limitWords(limit, now)),
+    refreshed: refreshWords(account.refresh, now),
+    offersRefresh: held.refreshesUsage === true && account.refresh?.state !== "running" && !runs(account.id),
+  }));
+}
+
+/**
+ * What the Accounts dialog says before a removal of the account `id`: what
+ * becomes of its folder, and each setting the removal clears, so the nearest
+ * setting above takes over: a default that named it, each repository's, and
+ * each work item's, the archived among them. Null for System default, which
+ * is never removed, and for an id the window holds no account of.
+ */
+export function accountRemoval(held: HeldAccounts, id: number, repositories: readonly Repository[], workItems: readonly WorkItem[], archived: readonly WorkItem[]): { says: string; cleared: string[] } | null {
+  const account = held.accounts.find((kept) => kept.id === id);
+  if (account === undefined || account.folder === null) return null;
+  const says = account.made ? `Remove "${account.name}"? Owlery signs its folder out with Claude Code and removes the folder.` : `Remove "${account.name}"? Its folder stays as it is: ${account.folder}`;
+  return {
+    says,
+    cleared: [
+      ...(held.defaultId === id ? ["The default goes back to System default."] : []),
+      ...repositories.filter((repository) => repository.accountId === id).map((repository) => `The repository ${repository.name} goes back to the default.`),
+      ...[...workItems, ...archived].filter((workItem) => workItem.accountId === id).map((workItem) => `The work item "${workItem.title}" goes back to its repository's account.`),
+    ],
+  };
+}
+
+/** The choices of a menu of accounts: a first one, of the value "", that leaves the account to the setting above, named `first` with the account `gives` it gives, then each account by its id, in the daemon's order. */
+export function accountChoices(held: HeldAccounts, first: string, gives: number): { value: string; label: string }[] {
+  return [{ value: "", label: `${first} (${accountName(held, gives)})` }, ...held.accounts.map((account) => ({ value: String(account.id), label: account.name }))];
+}
+
+/**
+ * The menu of a button that opens a pane of `kind`, opened at a secondary
+ * click: its first item opens the pane under the account `gives`, the one
+ * the work item gives, named as the Ask row's menu names it, and an item for
+ * each other account follows, in the daemon's order, below a rule. Each
+ * opens that one pane under its account (`accountId`, null for the work
+ * item's). None for a kind that takes no account, and none where no account
+ * stands beside System default, as against a daemon of an earlier build.
+ */
+export function newPaneMenu(kind: PaneKindInfo | undefined, held: HeldAccounts | null, gives: number): MenuItem[] {
+  if (held === null || !offersAccounts(held) || kind?.accounts !== true) return [];
+  const others = held.accounts.filter((account) => account.id !== gives);
+  return [
+    { label: `The work item's (${accountName(held, gives)})`, description: "Open the pane under the account the work item gives", action: { do: "pane", accountId: null }, divides: false },
+    ...others.map((account, index) => ({ label: account.name, description: `Open the pane under ${account.name}`, action: { do: "pane", accountId: account.id } as const, divides: index === 0 })),
+  ];
+}
+
+/** The tooltip of a button that opens a pane: its own `hint`, and where the button has a menu of accounts (`newPaneMenu`), the sentence that says it is there. */
+export function paneButtonTitle(hint: string | null, offersMenu: boolean): string {
+  const menu = "Right-click to open it under another account";
+  if (!offersMenu) return hint ?? "";
+  return hint === null ? menu : `${hint}. ${menu}`;
+}
+
+/**
+ * What the window offers before the account of a running pane changes, the
+ * pane's `label` naming it: the heading, the sentence that says what the
+ * change does, a turn under way cut among it, and each account the pane can
+ * change to, in the daemon's order: each but its own whose conversations
+ * (`Account.conversations`) are the pane's account's and not null. Nothing
+ * for a pane whose kind resumes no conversation, as a shell's, or is launched
+ * under no account, for a sign-in pane, a pane whose process ended, a pane of
+ * a daemon of an earlier build, which names no account, and where no account
+ * keeps the pane's conversations, System default alone among them.
+ */
+export function paneAccountChange(session: SessionInfo, label: string, paneKinds: readonly PaneKindInfo[], held: HeldAccounts | null): { heading: string; says: string; choices: { value: string; label: string }[] } | null {
+  const kind = paneKinds.find((offered) => offered.kind === session.kind);
+  if (held === null || !offersAccounts(held) || kind?.continues !== true || kind.accounts !== true) return null;
+  // A sign-in pane is a shell, so its kind offers it nothing.
+  if (!session.alive || session.accountId === null || session.accountId === undefined) return null;
+  // Only an account that keeps the pane's conversations can resume it, and the daemon refuses every other.
+  const kept = held.accounts.find((account) => account.id === session.accountId)?.conversations ?? null;
+  const choices = kept === null ? [] : held.accounts.filter((account) => account.id !== session.accountId && account.conversations === kept);
+  if (choices.length === 0) return null;
+  return {
+    heading: `Change the account of ${label}`,
+    says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
+    choices: choices.map((account) => ({ value: String(account.id), label: account.name })),
+  };
 }
 
 /** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */

@@ -17,7 +17,7 @@ const BRING_W = ["close", "fileMenu", "windowMenu"];
 describe("menuTemplate", () => {
   it("names the app in the app's menu on macOS, where the app's package name would stand otherwise", () => {
     const labels = (under(menuTemplate("darwin"), "Owlery") as MenuEntry[]).map((entry) => entry.label ?? entry.role ?? entry.type);
-    expect(labels).toEqual(["About Owlery", "separator", "services", "separator", "Hide Owlery", "hideOthers", "unhide", "separator", "Restart Daemon…", "separator", "Quit Owlery Completely…", "Quit Owlery"]);
+    expect(labels).toEqual(["About Owlery", "separator", "Accounts…", "separator", "services", "separator", "Hide Owlery", "hideOthers", "unhide", "separator", "Restart Daemon…", "separator", "Quit Owlery Completely…", "Quit Owlery"]);
   });
 
   it('closes the window on Shift+Command+W, from "File"', () => {
@@ -30,6 +30,8 @@ describe("menuTemplate", () => {
     expect(under(template, "File")).toEqual([
       { label: "Close Window", role: "close", accelerator: "Shift+CommandOrControl+W" },
       { type: "separator" },
+      { id: "accounts", label: "Accounts…" },
+      { type: "separator" },
       { id: "restart-daemon", label: "Restart Daemon…" },
       { type: "separator" },
       { id: "quit-completely", label: "Quit Owlery Completely…" },
@@ -37,11 +39,12 @@ describe("menuTemplate", () => {
     ]);
   });
 
-  it.each(["darwin", "linux", "win32"] as const)("gives the two entries that end the daemon an id each on %s, by which the main process gives each its click, and neither a role nor a key", (platform) => {
+  it.each(["darwin", "linux", "win32"] as const)("gives the entry that opens the Accounts dialog and the two entries that end the daemon an id each on %s, by which the main process gives each its click, and neither a role nor a key", (platform) => {
     const ending = entries(menuTemplate(platform))
       .map(({ entry }) => entry)
       .filter((entry) => entry.id !== undefined);
     expect(ending).toEqual([
+      { id: "accounts", label: "Accounts…" },
       { id: "restart-daemon", label: "Restart Daemon…" },
       { id: "quit-completely", label: "Quit Owlery Completely…" },
     ]);

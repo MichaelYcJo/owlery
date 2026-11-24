@@ -1,0 +1,39 @@
+#!/bin/sh
+# A stand-in for the `claude` CLI's `auth` commands, run from a copy in a
+# case's own folder. It keeps its "login" as one file in the folder that
+# CLAUDE_CONFIG_DIR names, as the CLI keeps a login per config folder, and
+# notes each call, with its arguments and that folder, in `calls` beside
+# itself. `auth login` writes the environment it was given into `login-env`
+# beside itself, and waits while `hold-login` stands beside the stand-in,
+# as a sign-in waits on the browser, and then signs the folder in, unless
+# `refuse-login` stands there. `auth status` prints JSON and exits 0 where
+# the folder is signed in and 1 where it is not, as the CLI reference says
+# the CLI does. `auth logout` signs it out, unless `refuse-logout` stands
+# there. It reaches no network and reads no login of the person's.
+here="${0%/*}"
+printf '%s|%s\n' "$*" "${CLAUDE_CONFIG_DIR:-}" >> "$here/calls"
+[ "$1" = auth ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ] || exit 64
+login="$CLAUDE_CONFIG_DIR/.stand-in-login"
+case "$2" in
+  login)
+    env > "$here/login-env"
+    while [ -e "$here/hold-login" ]; do sleep 0.05; done
+    [ -e "$here/refuse-login" ] && { echo "Login refused." >&2; exit 1; }
+    : > "$login"
+    echo "Login successful."
+    ;;
+  status)
+    if [ -e "$login" ]; then
+      printf '{"loggedIn":true,"authMethod":"claude.ai","configDirectory":"%s","loginExpiresAt":"2026-12-20T09:30:00.000Z"}\n' "$CLAUDE_CONFIG_DIR"
+    else
+      printf '{"loggedIn":false,"authMethod":"none","configDirectory":"%s","loginExpiresAt":null}\n' "$CLAUDE_CONFIG_DIR"
+      exit 1
+    fi
+    ;;
+  logout)
+    [ -e "$here/refuse-logout" ] && { echo "Logout failed." >&2; exit 2; }
+    rm -f "$login"
+    echo "Successfully logged out."
+    ;;
+  *) exit 64 ;;
+esac

@@ -91,7 +91,7 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     // The daemon runs the CLI at its start, to read its version, and starts no session of it here.
     const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
     // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
+    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
     await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");

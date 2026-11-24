@@ -19,8 +19,11 @@ export interface PluginsRead {
 /**
  * The Claude Code config folder of an environment: the one
  * `CLAUDE_CONFIG_DIR` names, which Claude Code itself reads there, and
- * `.claude` of the person's home otherwise. A pane inherits the daemon's
- * environment, so the folder of the daemon's is the folder of its panes.
+ * `.claude` of the person's home otherwise. The reader takes the daemon's
+ * own only while the person's login shell has given no answer of its
+ * folder: a pane's `claude` reads the folder its login shell names, which
+ * is another than the daemon's where the profile exports one the daemon's
+ * environment does not hold.
  */
 export function claudeConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLAUDE_CONFIG_DIR || join(env.HOME || homedir(), ".claude");
@@ -45,7 +48,8 @@ function enabledIn(file: string): Record<string, unknown> {
 /**
  * Reads what Claude Code enables of plugins for a session in `folder`, a
  * worktree of the repository whose main checkout is `checkout`, under the
- * config folder `configDir`. Three files state it, and a later one wins for
+ * config folder `configDir`, and under the folder of the daemon's own
+ * environment (`claudeConfigDir`) where it is null. Three files state it, and a later one wins for
  * a key two of them state: `settings.json` of the config folder,
  * `.claude/settings.json` of the folder, and `.claude/settings.local.json`
  * of the main checkout, which is the local file of each of its worktrees.
@@ -58,11 +62,12 @@ function enabledIn(file: string): Record<string, unknown> {
  * otherwise. A file that does not stand or holds no JSON object states
  * nothing.
  */
-export function readPlugins(folder: string, checkout: string, configDir: string = claudeConfigDir()): PluginsRead {
-  const enabled = { ...enabledIn(join(configDir, "settings.json")), ...enabledIn(join(folder, ".claude", "settings.json")), ...enabledIn(join(checkout, ".claude", "settings.local.json")) };
+export function readPlugins(folder: string, checkout: string, configDir: string | null = null): PluginsRead {
+  const config = configDir ?? claudeConfigDir();
+  const enabled = { ...enabledIn(join(config, "settings.json")), ...enabledIn(join(folder, ".claude", "settings.json")), ...enabledIn(join(checkout, ".claude", "settings.local.json")) };
   const on = Object.keys(enabled).filter((key) => enabled[key] !== false);
   if (on.length === 0) return { enabled, agenticSeal: [] };
-  const installed = objectIn(join(configDir, "plugins", "installed_plugins.json"))?.plugins;
+  const installed = objectIn(join(config, "plugins", "installed_plugins.json"))?.plugins;
   const entries = (key: string): unknown[] => {
     const listed = typeof installed === "object" && installed !== null ? (installed as Record<string, unknown>)[key] : undefined;
     return Array.isArray(listed) ? listed : [];

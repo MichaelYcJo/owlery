@@ -2254,7 +2254,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     // The ledger holds one entry for each stage: the proofer's session, the gate, and the sealer's session, which no call of the seal's own made.
     const ledger = await c.asked({ type: "readLedger", requestId: 20, workItemId: a.id });
     expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, state }) => [stage, state]) : ledger).toEqual([[{ role: "proofer", stage: "round" }, "finished"], [{ role: null, stage: "gate" }, "finished"], [{ role: "sealer", stage: "seal" }, "finished"]]);
-    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null }]);
+    expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null, account: null }]);
     // `true` printed nothing, so nothing is kept.
     expect(await output(c, a.id, 3)).toBe("Owlery keeps no output of a broad gate of work item 1.");
 

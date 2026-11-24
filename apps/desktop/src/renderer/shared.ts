@@ -5,7 +5,7 @@
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -28,6 +28,8 @@ export const held = {
   headless: [] as HeadlessInfo[],
   /** The look the daemon held when this window said hello, or null where no person looked before. The window keeps none of its own. */
   lastLook: null as Look | null,
+  /** The accounts the daemon keeps and the default one, as `ready` and each `accounts` since said them, or null against a daemon of an earlier build, which sends none: the window then shows no account control and no account's name (./view, `heldAccounts`). */
+  accounts: null as HeldAccounts | null,
   /** When the daemon keeps the Mac awake and whether it does now, as `ready` and each `keepAwake` since said it, or null against a daemon that sends none: one of an earlier build, or one that can hold nothing. */
   keepAwake: null as KeepAwake | null,
   /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without a seal reading, which join where their seal was then given or broke since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */

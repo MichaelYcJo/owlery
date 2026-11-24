@@ -57,10 +57,10 @@ async function main(): Promise<void> {
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
-    // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the person's Claude Code enables the AgenticSeal plugin there, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.
+    // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the pane's Claude Code enables the AgenticSeal plugin there, under the config folder of the pane's account, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.
     commandFor: paneCommands(process.env, hookSettingsFile, hooks.socketPath, carriedIn(paneChain)),
-    // The person's Claude Code settings are read, never written, under the config folder this process's environment names, which is the folder of its panes.
-    pluginEnabled: (folder, checkout) => readPlugins(folder, checkout).agenticSeal.length > 0,
+    // The person's Claude Code settings are read, never written, under the config folder the daemon names for the repository's account, which under System default is the one the person's login shell names.
+    pluginEnabled: (folder, checkout, configDir) => readPlugins(folder, checkout, configDir).agenticSeal.length > 0,
     // Every headless session is the user's own CLI, found once through their login shell. A role session loads the
     // role bundle the build put beside this script, and its rules file is written into the run folder.
     roleAdapter: claudeAdapter(process.env, { bundleDir: beside === undefined ? undefined : join(beside, "bundle"), rulesDir: join(runDir, "roles") }),

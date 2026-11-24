@@ -12,7 +12,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import type { HeadlessInfo, LedgerEntry, PaneKind, SealRecords, SessionInfo, WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
 import {
   answersFor,
@@ -45,6 +46,9 @@ import {
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
+  paneAccountChange,
+  newPaneMenu,
+  paneButtonTitle,
   paneMenu,
   type PaneMenuAct,
   paneTabs,
@@ -66,6 +70,10 @@ import {
   webTarget,
   withHeadless,
   withoutHeadless,
+  accountChoices,
+  offersAccounts,
+  tabAccount,
+  viewAccount,
 } from "./view";
 
 /** A terminal screen: one terminal with its element under the stage. It holds a pane while that pane is on the stage, and is free otherwise. */
@@ -155,6 +163,7 @@ const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
 const askForm = byId<HTMLFormElement>("ask-form");
 const askField = byId<HTMLInputElement>("ask-prompt");
 const askSubmit = byId<HTMLButtonElement>("ask-submit");
+const askAccount = byId<HTMLSelectElement>("ask-account");
 const headlessList = byId<HTMLUListElement>("headless");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
@@ -170,6 +179,12 @@ const sealSays = byId("seal-says");
 const pullRequestSection = byId("view-pull-request");
 const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
+const paneAccountDialog = byId<HTMLDialogElement>("pane-account-dialog");
+const paneAccountMenu = byId<HTMLSelectElement>("pane-account-menu");
+const paneAccountError = byId("pane-account-error");
+const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
+/** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
+let accountChange: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
 
@@ -178,13 +193,54 @@ function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
 }
 
+/** The account a menu of a new session's account names, by its id, or nothing for its first choice, which leaves the session to its work item's. A hidden menu names none. */
+function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
+  return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
+}
+
+/** The account a work item gives its new sessions where they name none: its own, else its repository's, else the default. */
+function givenAccount(workItem: WorkItem): number {
+  const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
+  return workItem.accountId ?? repository?.accountId ?? held.accounts?.defaultId ?? SYSTEM_DEFAULT_ID;
+}
+
+/**
+ * Fills the menu of a new headless session's account beside the "Ask"
+ * field for the work item, keeping the choice it held where that is still an
+ * account, and hides it where there is no account to choose. Gives each
+ * button that opens a pane the tooltip that says where it has a menu of
+ * accounts (./view, `newPaneMenu`).
+ */
+function showAccountMenus(workItem: WorkItem): void {
+  const accounts = held.accounts;
+  const offered = offersAccounts(accounts);
+  for (const button of paneButtons.querySelectorAll<HTMLButtonElement>("button[data-kind]")) {
+    const kind = held.paneKinds.find((offeredKind) => offeredKind.kind === button.dataset.kind);
+    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, accounts, givenAccount(workItem)).length > 0);
+  }
+  askAccount.hidden = !offered;
+  if (!accounts || !offered) {
+    askAccount.replaceChildren();
+    delete askAccount.dataset.choices;
+    return;
+  }
+  const kept = askAccount.value;
+  const choices = accountChoices(accounts, "The work item's", givenAccount(workItem));
+  // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
+  const key = JSON.stringify([workItem.id, choices]);
+  if (askAccount.dataset.choices === key) return;
+  askAccount.dataset.choices = key;
+  askAccount.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
+  askAccount.value = choices.some((choice) => choice.value === kept) ? kept : "";
+}
+
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
-function look(property: string): string {
+export function look(property: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(property).trim();
 }
 
 /** The colours a terminal draws its own text and ground in, as the theme in use has them. */
-function terminalColours(): { background: string; foreground: string; cursor: string } {
+export function terminalColours(): { background: string; foreground: string; cursor: string } {
   return { background: look("--terminal-ground"), foreground: look("--terminal-ink"), cursor: look("--terminal-ink") };
 }
 
@@ -392,7 +448,10 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
       if (text !== "" && turns.pane === pane) term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
-  else if (chosen === "close") {
+  else if (chosen === "account") {
+    const session = held.sessions.find((listed) => listed.id === pane);
+    if (session) openAccountChange(session);
+  } else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) closePane(session);
   } else if (chosen === "clear") {
@@ -420,7 +479,8 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
   menu.setAttribute("role", "menu");
   menu.tabIndex = -1;
   const buttons: HTMLButtonElement[] = [];
-  for (const item of paneMenu(mac, screen.term.hasSelection())) {
+  const shown = held.sessions.find((listed) => listed.id === screen.turns.pane);
+  for (const item of paneMenu(mac, screen.term.hasSelection(), shown !== undefined && accountOffer(shown) !== null)) {
     if (item === null) {
       const rule = document.createElement("div");
       rule.setAttribute("role", "separator");
@@ -635,6 +695,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
   }
   // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
   if (asking !== undefined && !listed.has(asking)) closeDialog.close();
+  if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -653,21 +714,41 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, once `beforePane` lets it open. */
-function start(kind: PaneKind, continueLatest: boolean): void {
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, under `accountId` where one is given and otherwise under the work item's, once `beforePane` lets it open. */
+function start(kind: PaneKind, continueLatest: boolean, accountId: number | null = null): void {
   const workItemId = held.viewing;
   if (workItemId === undefined) return;
-  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}) }));
+  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...(accountId === null ? {} : { accountId }) }));
 }
 
-/** Builds, once per connection, the view's button for each choice the kinds of pane the daemon offers give. */
+/**
+ * Builds, once per connection, the view's button for each choice the kinds
+ * of pane the daemon offers give. A press opens the pane under the account
+ * the work item gives. A secondary click, a press of the right button or
+ * with the Control key, opens the button's menu of accounts where it has one
+ * (./view, `newPaneMenu`), and the item chosen opens that one pane under its
+ * account.
+ */
 export function showPaneButtons(): void {
   paneButtons.replaceChildren(
     ...paneChoices(held.paneKinds).map(({ kind, text, hint, continueLatest }) => {
       const button = document.createElement("button");
       button.textContent = text;
-      if (hint !== null) button.title = hint;
+      button.dataset.kind = kind;
+      if (hint !== null) {
+        button.title = hint;
+        button.dataset.hint = hint;
+      }
       button.addEventListener("click", () => start(kind, continueLatest));
+      button.addEventListener("contextmenu", (event) => {
+        const workItem = viewed();
+        const items = workItem ? newPaneMenu(held.paneKinds.find((offered) => offered.kind === kind), held.accounts, givenAccount(workItem)) : [];
+        if (items.length === 0) return;
+        event.preventDefault();
+        openItemMenu(`Accounts to open ${text.replace(/^\+ /, "")} under`, items, { x: event.clientX, y: event.clientY }, (action) => {
+          if (action.do === "pane") start(kind, continueLatest, action.accountId);
+        }, () => button);
+      });
       return button;
     }),
   );
@@ -762,6 +843,7 @@ function showAskSection(): void {
   const workItem = viewed();
   if (!workItem) return;
   showAsk(workItem);
+  showAccountMenus(workItem);
   const lines = headlessLines(held.headless, workItem);
   const gate = gateLine(workItem, gateRead);
   const key = headlessKey(workItem.id, lines, gate);
@@ -999,6 +1081,49 @@ function closePane(session: SessionInfo): void {
   closeDialog.showModal();
 }
 
+/** What the window offers before a pane's account changes (./view, `paneAccountChange`), the pane named as its tab names it. */
+function accountOffer(session: SessionInfo): ReturnType<typeof paneAccountChange> {
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const label = tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null);
+  return paneAccountChange(session, label, held.paneKinds, held.accounts);
+}
+
+/** Opens the dialog that changes a running pane's account, which says before the change that a turn under way is cut, with the first account the pane can change to chosen. */
+function openAccountChange(session: SessionInfo): void {
+  const offer = accountOffer(session);
+  if (!offer || paneAccountDialog.open) return;
+  accountChange = { pane: session.id, requestId: undefined };
+  byId("pane-account-head").textContent = offer.heading;
+  byId("pane-account-says").textContent = offer.says;
+  paneAccountMenu.replaceChildren(...offer.choices.map(({ value, label }) => new Option(label, value)));
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = false;
+  paneAccountDialog.showModal();
+  paneAccountMenu.focus();
+}
+
+/** Sends the change the dialog chose. One request per answer: the dialog's button stays off until the daemon answers. */
+function sendAccountChange(): void {
+  if (!accountChange || paneAccountMenu.value === "") return;
+  const requestId = request();
+  accountChange.requestId = requestId;
+  paneAccountError.textContent = "";
+  paneAccountSubmit.disabled = true;
+  send({ type: "changeAccount", requestId, id: accountChange.pane, accountId: Number(paneAccountMenu.value) });
+}
+
+/** Takes the daemon's answer to the dialog's change, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it with its button on again. */
+export function takeAccountChange(requestId: number, refusal: string | null): boolean {
+  if (accountChange === undefined || accountChange.requestId !== requestId) return false;
+  accountChange.requestId = undefined;
+  if (refusal === null) paneAccountDialog.close();
+  else {
+    paneAccountError.textContent = refusal;
+    paneAccountSubmit.disabled = false;
+  }
+  return true;
+}
+
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
@@ -1012,6 +1137,9 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
+  // The pane's account, where it is another than the one its work item gives, stands after its label.
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  const accountName = workItem ? tabAccount(session, workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "";
   const close = document.createElement("button");
   close.className = "close";
   close.textContent = "×";
@@ -1025,7 +1153,7 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     showView();
   });
   close.addEventListener("click", () => closePane(session));
-  tab.append(label, close);
+  tab.append(label, ...(accountName === "" ? [] : [part("account", accountName)]), close);
   return tab;
 }
 
@@ -1132,7 +1260,7 @@ export function showView(): void {
   viewFactsTitle.textContent = line.title;
   showState(viewState, line.state, since);
   viewFactList.replaceChildren(
-    ...viewFacts(entry, held.paneKinds, now).flatMap(({ label, value }) => {
+    ...viewFacts(entry, held.paneKinds, now, offersAccounts(held.accounts) ? viewAccount(workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "").flatMap(({ label, value }) => {
       const term = document.createElement("dt");
       term.textContent = label;
       const said = document.createElement("dd");
@@ -1222,7 +1350,7 @@ function ask(): void {
   // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
   if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
   askRequest = request();
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value });
+  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value, ...chosenAccount(askAccount) });
 }
 
 /** Takes a headless session the daemon sent, `requestId` being the request it answers where it answers one. */
@@ -1329,6 +1457,15 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.
   closeDialog.addEventListener("close", () => screenOf(front)?.term.focus());
+  byId("pane-account-cancel").addEventListener("click", () => paneAccountDialog.close());
+  byId<HTMLFormElement>("pane-account-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendAccountChange();
+  });
+  paneAccountDialog.addEventListener("close", () => {
+    accountChange = undefined;
+    screenOf(front)?.term.focus();
+  });
   sideBySideButton.addEventListener("click", () => {
     sideBySide = !sideBySide;
     // The panes come in front, side by side or not, in place of the back.

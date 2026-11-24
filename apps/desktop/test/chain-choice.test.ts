@@ -84,7 +84,7 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     // Stands for the login shell and for a pane's shell. Asked for a Claude Code pane's command it notes the command and stays a moment, and asked anything else it names no CLI and ends.
     launched = join(made.base, "launched");
     const shell = join(made.base, "shell");
-    writeFileSync(shell, ["#!/bin/sh", `if [ "$3" = -c ] && [ "\${4#exec claude }" != "$4" ]; then printf '%s\\n' "$4" >> '${launched}'; sleep 2; exit 0; fi`, `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '/usr/bin/false' '/usr/bin:/bin'`, ""].join("\n"));
+    writeFileSync(shell, ["#!/bin/sh", `if [ "$3" = -c ] && [ "\${4#exec claude }" != "$4" ]; then printf '%s\\n' "$4" >> '${launched}'; sleep 2; exit 0; fi`, `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '/usr/bin/false' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`, ""].join("\n"));
     chmodSync(shell, 0o755);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config });
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });

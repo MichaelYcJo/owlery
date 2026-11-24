@@ -72,8 +72,8 @@ describe("writePaneChain", () => {
 describe("carriedIn", () => {
   const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
 
-  /** A start of a pane in a folder, of a repository whose main checkout is that folder, with the person's answer. */
-  const start = (folder: string, chosen: "owlery" | "plugin" | null = null) => ({ continueLatest: false, folder, base: "main", checkout: folder, chosen });
+  /** A start of a pane in a folder, of a repository whose main checkout is that folder, with the person's answer, under System default before the lookup answered. */
+  const start = (folder: string, chosen: "owlery" | "plugin" | null = null) => ({ continueLatest: false, folder, base: "main", checkout: folder, chosen, accountDir: null, configDir: null });
   /** A folder on the owl chain. */
   function onOwlChain(): string {
     const folder = scratch();
@@ -97,16 +97,16 @@ describe("carriedIn", () => {
 
   it("carries the chain whatever the person answered where their Claude Code enables no AgenticSeal plugin, with the settings file every pane shares, and reads no settings for a folder that is on no chain of Owlery's", () => {
     const folder = onOwlChain();
-    const asked: string[][] = [];
-    const carries = carriedIn(chain, (at, checkout) => {
-      asked.push([at, checkout]);
+    const asked: (string | null)[][] = [];
+    const carries = carriedIn(chain, (at, checkout, configDir) => {
+      asked.push([at, checkout, configDir]);
       return NO_PLUGIN();
     });
     for (const chosen of [null, "owlery", "plugin"] as const) expect(carries(start(folder, chosen)), String(chosen)).toEqual({ chain, enabledPlugins: null });
     expect(carries({ ...start(scratch(), "owlery"), checkout: "/r/elsewhere" })).toBeNull();
     // The reader is given the pane's folder and the repository's main checkout, for a folder on the owl chain alone.
     expect(carries({ ...start(folder), checkout: "/r/main" })).not.toBeNull();
-    expect(asked).toEqual([[folder, folder], [folder, folder], [folder, folder], [folder, "/r/main"]]);
+    expect(asked).toEqual([[folder, folder, null], [folder, folder, null], [folder, folder, null], [folder, "/r/main", null]]);
   });
 
   it("carries the chain under the answer \"the owl chain\" alone where the plugin is enabled, with enabledPlugins as the person's files state it and each key of the plugin set to false, and carries nothing under the answer \"the AgenticSeal plugin\" or while no answer is kept", () => {
@@ -118,5 +118,22 @@ describe("carriedIn", () => {
     expect(carries(start(folder, null))).toBeNull();
     // What the reader gave is not changed.
     expect(enabled["agentic@agenticseal"]).toBe(true);
+  });
+
+  it("gives its reader the config folder the start names, which is the pane's account's or the person's own, so a pane is launched by what its own folder enables (scenario 16)", () => {
+    const folder = onOwlChain();
+    const read: (string | null)[] = [];
+    // The handed account's folder enables the plugin, and the person's own enables none.
+    const carries = carriedIn(chain, (_at, _checkout, configDir) => {
+      read.push(configDir);
+      return configDir === "/accounts/handed" ? { enabled: { "agentic@agenticseal": true }, agenticSeal: ["agentic@agenticseal"] } : NO_PLUGIN();
+    });
+    const handed = { ...start(folder, "owlery"), accountDir: "/accounts/handed", configDir: "/accounts/handed" };
+    const own = { ...start(folder, "owlery"), configDir: "/Users/person/.claude" };
+    expect(carries(handed)).toEqual({ chain, enabledPlugins: { "agentic@agenticseal": false } });
+    expect(carries(own)).toEqual({ chain, enabledPlugins: null });
+    // Where no answer is kept, the pane whose own folder enables the plugin carries nothing of the bundle.
+    expect(carries({ ...handed, chosen: null })).toBeNull();
+    expect(read).toEqual(["/accounts/handed", "/Users/person/.claude", "/accounts/handed"]);
   });
 });

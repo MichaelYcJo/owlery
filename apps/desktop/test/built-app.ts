@@ -160,9 +160,14 @@ export class BuiltApp {
    * Starts the app built in `dist/` and waits for its window's page. `env`
    * is added to the suite's own environment. The user data folder is a new
    * one under the system's temporary folder, so nothing is read from or
-   * written to the person's own. The Claude Code config folder the daemon
-   * reads is `claude` under it, which does not stand, unless `env` names
-   * another in `CLAUDE_CONFIG_DIR`. The app starts in the background, with
+   * written to the person's own. The app is given a Claude Code config
+   * folder of its own, `claude` under it, which does not stand, unless `env`
+   * names another in `CLAUDE_CONFIG_DIR`. Under System default the daemon
+   * reads the folder the stand-in for the login shell answers the lookup
+   * with on its third line, which a case's stand-in prints from its own
+   * environment, and so this one; it reads this one too where the lookup has
+   * given no answer. A case that starts the app with the person's real login
+   * shell reads the folder that shell names. The app starts in the background, with
    * `OWLERY_BACKGROUND` set to `1`, so its window takes neither the system's
    * focus nor the person's keyboard, lets the person's pointer through and
    * draws nothing on the screen: the cases' pointer is the debugging port's
@@ -195,7 +200,7 @@ export class BuiltApp {
     }
     const port = await freePort();
     const mainPort = inspectMain ? await freePort() : undefined;
-    // The daemon reads the Claude Code config folder its environment names for the plugins a pane's Claude Code enables (src/daemon/claude-plugins.ts). It is given one of the app's own, which holds nothing unless the caller names another, so no case reads the person's settings.
+    // The Claude Code config folder of the app's own, which holds nothing unless the caller names another. The stand-in for the login shell prints it as the folder the shell names, and the daemon reads it for the plugins a pane's Claude Code enables under System default (src/daemon/claude-plugins.ts), so no case reads the person's settings.
     const appEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: join(userData, "claude"), ...env };
     // Without the variable the suite's binary starts as the app.
     delete appEnv.ELECTRON_RUN_AS_NODE;

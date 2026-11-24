@@ -21,9 +21,9 @@ function runDir(): string {
 const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null };
 /** What a repository holds of the fields a person sets, before any is set. */
-const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, groups: [] };
+const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, groups: [], accountId: null };
 /** The setup of a work item's worktree, as the daemon records one that ended. */
 const SETUP: WorktreeSetup = { copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 /** An entry of `work-items.json`, as a build before the repositories wrote it. */
@@ -245,7 +245,7 @@ describe("RepositoryStore", () => {
     expect(store.setRepository(1, { name: "The project" })).toBe(true);
     expect(store.setRepository(1, { name: "The project" })).toBe(false);
     expect(store.setRepository(1, { icon: "P", defaultBase: "develop", hidden: true })).toBe(true);
-    expect(store.repositories()).toEqual([{ id: 1, folder: "/r/project", name: "The project", icon: "P", defaultBase: "develop", hidden: true, paneChain: null, addedAt: 1, groups: [], workItems: [] }]);
+    expect(store.repositories()).toEqual([{ id: 1, folder: "/r/project", name: "The project", icon: "P", defaultBase: "develop", hidden: true, paneChain: null, addedAt: 1, groups: [], workItems: [], accountId: null }]);
     // A field that is not given is left, and null takes a name, an icon and a base away.
     expect(store.setRepository(1, { name: null, icon: null, defaultBase: null })).toBe(true);
     expect(store.setRepository(1, {})).toBe(false);
@@ -255,6 +255,36 @@ describe("RepositoryStore", () => {
     rmSync(join(dir, "repositories.json"));
     expect(store.setRepository(1, { hidden: true })).toBe(false);
     expect(existsSync(join(dir, "repositories.json"))).toBe(false);
+  });
+
+  it("keeps the account set on a repository and on a work item, null for none, writes each, says whether anything is another than it was, and reads a repository and a work item written before accounts were kept with none", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(store.setRepository(1, { accountId: 2 })).toBe(true);
+    expect(store.setRepository(1, { accountId: 2 })).toBe(false);
+    expect(store.setWorkItem(item.id, { accountId: 0 })).toBe(true);
+    expect(store.setWorkItem(item.id, { accountId: 0 })).toBe(false);
+    const read = new RepositoryStore(dir);
+    expect(read.repository(1)?.accountId).toBe(2);
+    expect(read.workItem(item.id)?.item.accountId).toBe(0);
+    // A field that is not given is left, and null clears the setting.
+    expect(store.setRepository(1, { name: "The project" })).toBe(true);
+    expect(store.setWorkItem(item.id, { pinned: true })).toBe(true);
+    expect(store.repository(1)?.accountId).toBe(2);
+    expect(store.workItem(item.id)?.item.accountId).toBe(0);
+    expect(store.setRepository(1, { accountId: null })).toBe(true);
+    expect(store.setWorkItem(item.id, { accountId: null })).toBe(true);
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ id: 1, folder: "/r/project", ...PLAIN, name: "The project", addedAt: 1, workItems: [{ id: 1, ...OWN, createdAt: 1, ...UNSET, pinned: true }] }]);
+    const { accountId: _repositoryAccount, ...repositoryBefore } = { id: 1, folder: "/r/project", ...PLAIN, addedAt: 1 };
+    const { accountId: _itemAccount, ...itemBefore } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repositoryBefore, workItems: [itemBefore] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ ...repositoryBefore, accountId: null, workItems: [{ ...itemBefore, accountId: null }] }]);
+    // A setting that is no id and not null is no store's.
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repositoryBefore, accountId: "2", workItems: [] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repositoryBefore, workItems: [{ ...itemBefore, accountId: "0" }] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
 
   it("keeps the chain a person chose for a repository's Claude Code panes, which outlives the daemon, takes it away at null, and reads a file an earlier build wrote, which holds none, as no answer", () => {
@@ -376,7 +406,7 @@ describe("RepositoryStore", () => {
   it("reads only the fields of the store, whatever else the file's entries carry", () => {
     const dir = runDir();
     const item = { id: 4, ...OWN, createdAt: 1, ...UNSET, pinned: true, muted: true, groupId: 2, archivedAt: 9, setup: SETUP };
-    const repository = { id: 3, folder: "/r/project", name: "The project", icon: "P", defaultBase: "origin/main", hidden: true, addedAt: 5, groups: [{ id: 2, name: "Later" }], workItems: [item] };
+    const repository = { id: 3, folder: "/r/project", name: "The project", icon: "P", defaultBase: "origin/main", hidden: true, addedAt: 5, groups: [{ id: 2, name: "Later" }], workItems: [item], accountId: null };
     const carried = { ...SETUP, extra: 1, failedCopies: [{ ...SETUP.failedCopies[0], code: "EACCES" }] };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify([{ ...repository, note: "x", groups: [{ id: 2, name: "Later", colour: "red" }], workItems: [{ ...item, repo: "/r/project", setup: carried }] }]));
     // A setup is read naming no pane, as every setup at a daemon's start is, and the file names no chain of the repository's panes, which is read as no answer.
