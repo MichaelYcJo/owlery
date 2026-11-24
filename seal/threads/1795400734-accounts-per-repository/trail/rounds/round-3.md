@@ -51,6 +51,11 @@ Either way, the fix pass shoots the view again in both appearances.
 #ask-account { flex: none; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
 ```
 
+```seal
+verdict: fixed b0bf997
+answer: Applied the record's first fix, the one the frame chose at `468bd81`: `#ask-form input` is `flex: 1; min-width: 0` and `#ask-account` is `flex: none` under its `max-width`, with the rule's comment saying the menu keeps its whole name. The app was built and the screenshot run ran alone after no other run was found: 1 case passed and 22 files were written. The two view shots were replaced in `a91b3d98e9a54f9aa4681701c85bfe6f03094a0c`. The crop at the record's offsets, in both appearances, shows the menu reading "The work item's (System default)" whole and the field at about 108 px; the pane bar's crop still shows the three tabs whole. The menu shots differ from `927f12d` only in the scene's commit hashes, which each run makes anew, so they were not replaced. No case pins the rule: it is a style the screenshot run draws, and no mutation was run over it.
+```
+
 ### 2. The pull request's body still shows the view and menu screenshots from before the pane bar was fixed
 
 ```seal
@@ -67,6 +72,11 @@ Why it matters: `pr.md` links each image as `../blob/<commit>/<path>?raw=true`. 
 ![Night watch light, view](../blob/927f12d7acc783046645aa608e683e0f5387d623/seal/threads/1795400734-accounts-per-repository/screenshots/night-watch-light-view.png?raw=true)
 ![Night watch dark, menu](../blob/927f12d7acc783046645aa608e683e0f5387d623/seal/threads/1795400734-accounts-per-repository/screenshots/night-watch-dark-menu.png?raw=true)
 ![Night watch light, menu](../blob/927f12d7acc783046645aa608e683e0f5387d623/seal/threads/1795400734-accounts-per-repository/screenshots/night-watch-light-menu.png?raw=true)
+```
+
+```seal
+verdict: fixed 7be065a
+answer: Lines 26 to 29 of `pr.md` now link the view shots at `a91b3d98e9a54f9aa4681701c85bfe6f03094a0c`, which retook them for finding 1, and the menu shots at `927f12d7acc783046645aa608e683e0f5387d623`, the record's commit, since this pass did not retake them. The other six lines still name `9202d1f`, whose images no later commit changed.
 ```
 
 ### 3. `gaps.md` says four built-app files start the app with no config folder of their own and could reach the person's, and the test harness gives every start one
@@ -89,6 +99,11 @@ The fix rewrites the row. These four files carry no risk to the person's folder,
 ```markdown
 <!-- seal/threads/1795400734-accounts-per-repository/gaps.md:25, the row's first cell in place of the sentence after "did not run:" -->
 ... Of the built-app files that press a button of `#pane-buttons`, `terminal-basics`, `notification-click`, `daemon-restart` and `memory` did not run. Each starts the app through `BuiltApp.start`, which gives it a config folder of its own (`apps/desktop/test/built-app.ts`), and a stand-in shell that answers no lookup, so this work's readers read nothing of the person's folder under them (round 3, finding 3) | the orchestrator, at the broad gate |
+```
+
+```seal
+verdict: fixed 07bd856
+answer: The row's first cell now carries the record's sentence after "did not run.": each of the four files starts the app through `BuiltApp.start`, which gives it a config folder of its own, and a stand-in shell that answers no lookup, so the work's readers read nothing of the person's folder under them. The orchestrator's cell is kept.
 ```
 
 ## Confirmations
