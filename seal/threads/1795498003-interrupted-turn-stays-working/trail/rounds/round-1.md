@@ -75,6 +75,12 @@ The row at `gaps.md:11` then reads:
 | closed That a watch whose log stands but cannot be watched says its failure once. Where the log stands when the watch starts, a refused `fs.watch` calls `SessionLogWatch#fail` once and no read follows. Where the log stood only after the watch began, the read that follows a refused watch can fail too, and the guard at the head of `SessionLogWatch#fail` keeps that second failure unsaid | read by round 1 (`trail/rounds/round-1.md`, finding 1), and pinned by the case in `apps/desktop/test/session-log.test.ts` that refuses `node:fs`'s `watch` and `openSync` |
 ```
 
+```seal
+verdict: fixed bc4f801
+location: `apps/desktop/test/session-log.test.ts`
+answer: At `190b9da` the comment at `session-log.ts:121` reads as the record gives it, and `session-log.test.ts` gains the record's `vi.mock` of `node:fs` and its case "fails once where a log that stood only after it began can be neither watched nor read", unchanged; at `bc4f801` the row at `gaps.md:11` reads as the record gives it. Executed: `tsc --noEmit -p .` in `apps/desktop` passed, and the four cases of `session-log.test.ts` passed through `scripts/test-in-electron.mjs`. Executed: `seal mutate` deleting `if (this.ended) return;` from `SessionLogWatch#fail` turned the case red at `session-log.test.ts:110`, with the failures gaining "EMFILE: too many open files, open". `trail/phases/phase-2.md:32` is left as history.
+```
+
 ### 2. `frame/design.md` *Scope* item 1 says an assistant's log line stands as written with its paths replaced, and the fixture also replaces its thinking block's signature
 
 ```seal
@@ -87,6 +93,11 @@ Why it matters: *Scope* item 1 states what the committed fixture holds. Scenario
 
 ```markdown
 A line whose `type` is `user` or `assistant` stands as written, with its paths replaced and each thinking block's signature replaced by `<signature>`.
+```
+
+```seal
+verdict: fixed ec9f3ed
+answer: The orchestrator folded the record's sentence word for word into `frame/design.md` *Scope* item 1 at `ec9f3ed`. Read: the diff of `ec9f3ed` replaces the sentence "A line whose `type` is `user` or `assistant` stands as written, with its paths replaced." with the record's, and changes nothing else.
 ```
 
 ## Confirmations
