@@ -28,9 +28,9 @@ Each phase ends with the narrow runs its *Verified by* cell names, run from `app
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | The screen's rule, its unit cases and its comments: `frame/design.md` *Scope* items 1, 2 and 3. Before any change, the crafter shows scenario 2 red at `f7bbcd7a`. The unit cases are written first and shown red against `screenTurns` as it stands | Scenario 1 by `node scripts/test-in-electron.mjs test/view.test.ts`. The red half of scenario 2 by its command at `f7bbcd7a` with the daemon's edit, which the crafter reverts before the phase's commit | |
-| 2 | The cases of the built app: `frame/design.md` *Scope* items 4, 5 and 6. Before item 6, the crafter shows scenario 3 red at the phase's start with the `throw` at line 1070 | The green half of scenario 2, scenario 3 and scenario 4, each by the command its row of `frame/design.md` names. Every uncommitted edit of a scenario is reverted before the phase's commit | |
-| 3 | The version and the changelog fragment: `frame/design.md` *Scope* items 7 and 8 | Scenario 5 by its `git grep` | |
+| 1 | The screen's rule, its unit cases and its comments: `frame/design.md` *Scope* items 1, 2 and 3. Before any change, the crafter shows scenario 2 red at `f7bbcd7a`. The unit cases are written first and shown red against `screenTurns` as it stands | Scenario 1 by `node scripts/test-in-electron.mjs test/view.test.ts`. The red half of scenario 2 by its command at `f7bbcd7a` with the daemon's edit, which the crafter reverts before the phase's commit | built `a54da97c`; `trail/phases/phase-1.md` |
+| 2 | The cases of the built app: `frame/design.md` *Scope* items 4, 5 and 6. Before item 6, the crafter shows scenario 3 red at the phase's start with the `throw` at line 1070 | The green half of scenario 2, scenario 3 and scenario 4, each by the command its row of `frame/design.md` names. Every uncommitted edit of a scenario is reverted before the phase's commit | built `757f1e36`; `trail/phases/phase-2.md` |
+| 3 | The version and the changelog fragment: `frame/design.md` *Scope* items 7 and 8 | Scenario 5 by its `git grep` | built `14fb3243`; `trail/phases/phase-3.md` |
 
 ## Overlap with the release
 
