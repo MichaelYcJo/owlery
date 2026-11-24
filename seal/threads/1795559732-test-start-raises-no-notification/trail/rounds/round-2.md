@@ -48,6 +48,11 @@ The fix rewrites the row and its quote in `pr.md:3` together, since the quote mu
 | 2026-11-25 | The pull request's title takes `feat:`, and the kind that came closest is `fix:`. | A start with `OWLERY_BACKGROUND=1`, an agent's as well as a test's (`frame/plan.md` *Alternatives considered*, the chosen row), raises no system notification after this change, and the preload gains `background`; both are met outside the repository's tests, so `test:` does not apply. `fix:` came closest, but no sentence of `docs/` at the base said a background start raises no notification, so the change states the rule rather than meets one. Issue #154 is retitled to match | the plugin's `skills/commit-pr-convention/SKILL.md` *Commit messages*, the table and the paragraphs on the highest row and on "before the change" |
 ```
 
+```seal
+verdict: fixed 19d0f08e
+answer: The orchestrator rewrote the row of `frame/plan.md` *Judgments of the run* in place: the title takes `feat:`, and `test:` came closest. The grounds now stand on the table of *Commit messages*: no sentence of `docs/` at the base says what a background start does with a notification, so `fix:` has no rule to stand on, and a change's own tests do not decide its prefix. `pr.md` quotes the new row. The branch is renamed to `feat/154-a-test-start-can-still-raise-a-macos-notification`, and `routing.md` names it; issue #154 is retitled `feat: a test start can still raise a macOS notification over the owner's screen`. The commit after `19d0f08e` corrects the row's coordinate for the quoted sentence to *Alternatives considered*.
+```
+
 ## Confirmations
 
 ```seal
@@ -84,8 +89,3 @@ The acceptance row at `frame/design.md:57` still names "The case of *Scope* item
 |---|---|
 | `OWLERY_BACKGROUND=1 node scripts/test-in-electron.mjs test/notification-click.test.ts -t "tells a page loaded again"`, in `apps/desktop/` of a scratch clone at `841c068e`, after the wait for other suites | 1 case passed and 4 skipped, exit 0. The new case passes alone |
 | The same command, with the clone's `src/main/main.ts` answering `Channel.background` with `background` at its first ask and `false` after it, then restored | 1 failed and 4 skipped, exit 1: `AssertionError: expected [ false, false, null ] to deeply equal [ true, true, +0 ]` at `test/notification-click.test.ts:237`, the red the close of round-1#1 names first. No pane had come to wait when it failed, and the counting stand-in stood in the new page, so nothing reached the screen. `git status` of the clone afterwards shows no change to a tracked file |
-
-```seal
-verdict: fixed 19d0f08e
-answer: The orchestrator rewrote the row of `frame/plan.md` *Judgments of the run* in place: the title takes `feat:`, and `test:` came closest. The grounds now stand on the table of *Commit messages*: no sentence of `docs/` at the base says what a background start does with a notification, so `fix:` has no rule to stand on, and a change's own tests do not decide its prefix. `pr.md` quotes the new row. The branch is renamed to `feat/154-a-test-start-can-still-raise-a-macos-notification`, and `routing.md` names it; issue #154 is retitled `feat: a test start can still raise a macOS notification over the owner's screen`. The commit after `19d0f08e` corrects the row's coordinate for the quoted sentence to *Alternatives considered*.
-```
