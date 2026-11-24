@@ -5,6 +5,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { BASE_RECORDED } from "../src/daemon/chain";
 import { BASE_OPTION, NO_DEFAULT, USAGE } from "../src/daemon/chain-command";
 import { routingAnswer } from "../src/daemon/decision-record";
 import { rulesText } from "../src/daemon/adapters/claude-roles";
@@ -185,6 +186,29 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(head(on.repo)).toBe(aside);
     // The base named anew starts the chain.
     expect(await on.said(["start", "--base", "main"])).toMatchObject({ declared: true });
+  });
+
+  it("refuses a branch that left the commit round 1's record names as its base, with the record's sentence, and commits nothing", async () => {
+    const on = commandOn(cleanups);
+    git(on.repo, "checkout", "--quiet", "-b", "release", on.main);
+    write(on.repo, "release.txt", "Release\n");
+    const cut = commitAll(on.repo, "feat: release");
+    git(on.repo, "checkout", "--quiet", BRANCH);
+    git(on.repo, "rebase", "--quiet", "release");
+    const env = { OWLERY_BASE: cut };
+    await on.said(["start"], env);
+    const first = await on.said(["owed"], env);
+    expect(first.target).toBe(`${head(on.repo)} against ${cut}`);
+    await on.said(["round", on.answer("round-1.md", clean(givenRound(read(first.prompt))))], env);
+    // The branch, its records with it, moved onto a line that does not hold the recorded commit.
+    git(on.repo, "checkout", "--quiet", "-b", "aside", on.main);
+    write(on.repo, "aside.txt", "Aside\n");
+    commitAll(on.repo, "feat: aside");
+    git(on.repo, "checkout", "--quiet", BRANCH);
+    git(on.repo, "rebase", "--quiet", "--onto", "aside", cut, BRANCH);
+    const moved = head(on.repo);
+    expect(await on.run(["owed"], env)).toEqual({ code: 1, out: "", err: `The branch no longer holds ${cut.slice(0, 7)}, the commit its chain reads it against, so a round has no base to read the branch against. ${BASE_RECORDED}\n` });
+    expect(head(on.repo)).toBe(moved);
   });
 
   it("refuses a start the daemon's chain refuses, each with the daemon's sentence and with no directory made: a records root that names no broad gate, a change no commit holds, and a branch with no commit after its base", async () => {

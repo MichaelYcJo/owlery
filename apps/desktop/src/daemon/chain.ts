@@ -276,13 +276,16 @@ export async function recordedBase(worktree: string, directory: string, head: st
  * caller holds, from the work item the daemon stores or from the chain
  * command's option. So a branch that was moved onto another base is read
  * against the base its first round read it against, whatever the work item
- * stores. A recorded base's commit is the commit the base and the head last
- * shared, and it is a branch where a base of that name stands
- * (`worktrees.ts#baseRef`).
+ * stores. A base recorded as a branch's name is read from the commit it and
+ * the head last shared, and a base recorded as a commit is that commit, so
+ * `whyNoBase` refuses a branch that no longer holds it. It is a branch where
+ * a base of that name stands (`worktrees.ts#baseRef`).
  */
 export async function baseOf(worktree: string, head: string, recorded: string | null, stated: ChainBase): Promise<ChainBase> {
-  if (recorded === null || (await commitNamed(worktree, recorded)) === null) return stated;
-  return { named: recorded, commit: await sharedCommit(worktree, recorded, head), reads: recorded, branch: (await baseRef(worktree, recorded)) === null ? stated.branch : recorded };
+  const commit = recorded === null ? null : await commitNamed(worktree, recorded);
+  if (recorded === null || commit === null) return stated;
+  const branch = (await baseRef(worktree, recorded)) === null ? null : recorded;
+  return { named: recorded, commit: branch === null ? commit : await sharedCommit(worktree, recorded, head), reads: recorded, branch: branch ?? stated.branch };
 }
 
 /**
