@@ -5,7 +5,8 @@
 // repository's menu, the form's choice to register a repository alone, and
 // a repository's settings, its icon and hiding it; then a work item's
 // archive, the screen of a repository's archived work items and a restore;
-// then a work item's delete; a repository's new group, and a work item's
+// then a work item's delete, and the delete of a work item whose commits
+// are more than its dialog's list shows at once; a repository's new group, and a work item's
 // move into it and out of it; and a removal that deletes a repository's work
 // items from disk, and one that is refused after its first delete; and last
 // a repository's removal that leaves everything on disk. Among the first
@@ -15,9 +16,9 @@
 // stands, or a "Copy" item, and none checks the choice that moves a
 // repository's folder to the Trash: each acts on the desktop, the clipboard
 // and the Trash of whoever runs the suite.
-import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { installedApps } from "../src/main/openers";
 import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
@@ -806,10 +807,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await order(INBOX)).toEqual([1, 2]);
   });
 
-  /** What a dialog names of a loss under an element: each heading with the lines under it. */
-  const lossIn = (id: string): Promise<[string, string[]][]> => value(`[...document.querySelectorAll("#${id} section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])`);
+  /** What a dialog names of a loss under an element: each heading with the rows under it, each row by its parts, a commit's hash and subject or a path. */
+  const lossIn = (id: string): Promise<[string, string[][]][]> => value(`[...document.querySelectorAll("#${id} section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => [...item.children].map((part) => part.textContent))])`);
+  /** What a token resolves to in the delete dialog, read off a part that takes it for a property, as the browser computes the property. */
+  const RESOLVED = `((property, token) => { const probe = document.createElement("span"); probe.style.setProperty(property, "var(" + token + ")"); document.getElementById("delete-dialog").append(probe); const got = getComputedStyle(probe).getPropertyValue(property); probe.remove(); return got; })`;
 
-  it("names in the delete dialog the branch, the folder, the commit no other branch holds, the untracked file and the ignored file, and the session the delete ends, with Delete off until Force delete is checked; shows a refusal there and reads the loss again; and after Delete the line is gone from the sidebar and from the inbox, and the clone holds no such branch and no such folder", async () => {
+  it("names in the delete dialog the branch, the folder, the commit no other branch holds by its hash and its subject apart, the untracked file and the ignored file, each under a heading that counts them, on rows of one height, and the session the delete ends, with its lead in the ink of what is read and Delete off until Force delete is checked; shows a refusal there and reads the loss again; and after Delete the line is gone from the sidebar and from the inbox, and the clone holds no such branch and no such folder", async () => {
     await create("Doomed");
     const worktree = join(clone.root, "project", "doomed");
     // Ignored by the clone's own list, so no commit of the branch holds the rule.
@@ -827,15 +830,35 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // The keyboard starts on the button that deletes nothing.
     expect(await value<string>(`document.activeElement.id`)).toBe("delete-cancel");
     await app.until(`document.querySelector("#delete-loss section")`, "the loss in the delete dialog");
-    const named: [string, string[]][] = [
-      ["Removed from disk", ["The branch owlery/doomed", `The folder ${worktree}`]],
-      ["Commits no other branch, no remote and no tag holds", [`${commit} add work.txt`]],
-      ["Untracked files", ["notes.txt"]],
-      ["Ignored files and folders, which go with the folder", [".env"]],
+    const named: [string, string[][]][] = [
+      ["The branch and the folder removed from disk", [["owlery/doomed"], [worktree]]],
+      ["1 commit no other branch, no remote and no tag holds", [[commit, "add work.txt"]]],
+      ["1 untracked file", [["notes.txt"]]],
+      ["1 ignored file or folder, which goes with the folder", [[".env"]]],
     ];
     expect(await lossIn("delete-loss")).toEqual(named);
+    // The hash in the fixed-width face and the muted ink, the subject on one line cut with an ellipsis, a path in the fixed-width face, and each row's tooltip with the whole text.
+    expect(
+      await value(`(() => {
+        const resolved = ${RESOLVED};
+        const commit = document.querySelector("#delete-loss li:has(.hash)");
+        const hash = getComputedStyle(commit.querySelector(".hash"));
+        const subject = getComputedStyle(commit.querySelector(".subject"));
+        const path = document.querySelector("#delete-loss li .path");
+        return {
+          hash: [hash.fontFamily === resolved("font-family", "--font-mono"), hash.color === resolved("color", "--ink-muted"), hash.fontSize === resolved("font-size", "--size-caption")],
+          subject: [subject.whiteSpace, subject.textOverflow, subject.overflow, subject.color === resolved("color", "--ink"), subject.fontSize === resolved("font-size", "--size-second")],
+          path: [getComputedStyle(path).fontFamily === resolved("font-family", "--font-mono"), getComputedStyle(path).whiteSpace, getComputedStyle(path).textOverflow, getComputedStyle(path).color === resolved("color", "--ink"), getComputedStyle(path).fontSize === resolved("font-size", "--size-caption")],
+          titles: [...document.querySelectorAll("#delete-loss li")].map((item) => item.title),
+        };
+      })()`),
+    ).toEqual({ hash: [true, true, true], subject: ["nowrap", "ellipsis", "hidden", true, true], path: [true, "nowrap", "ellipsis", true, true], titles: ["owlery/doomed", worktree, "add work.txt", "notes.txt", ".env"] });
+    // Every row of every list is one line of one height, whether its text is cut or not.
+    expect(await value<number[]>(`[...new Set([...document.querySelectorAll("#delete-loss li")].map((item) => item.offsetHeight))]`)).toEqual([Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`))]);
     expect(await value<string[]>(`[...document.querySelectorAll("#delete-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell"]);
     expect(await value<string[]>(`[document.getElementById("delete-says").textContent, document.getElementById("delete-remote").textContent]`)).toEqual(["A delete would lose the work named below. It runs only with Force delete checked.", "Nothing on a remote is removed."]);
+    // The first sentence is the dialog's lead, in the ink of what is read, and the sentence on the remote stays a muted note.
+    expect(await value<boolean[]>(`(() => { const resolved = ${RESOLVED}; const lead = getComputedStyle(document.getElementById("delete-says")); return [lead.color === resolved("color", "--ink"), lead.fontSize === resolved("font-size", "--size-text"), getComputedStyle(document.getElementById("delete-remote")).color === resolved("color", "--ink-muted")]; })()`)).toEqual([true, true, true]);
     const controls = (): Promise<boolean[]> => value(`[document.getElementById("delete-force-label").hidden, document.getElementById("delete-force").checked, document.getElementById("delete-submit").disabled]`);
     expect(await controls()).toEqual([false, false, true]);
     await app.click("#delete-force");
@@ -845,7 +868,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#delete-submit");
     await says("delete-error", "What the delete would remove has changed. Read it again.");
     await app.until(`[...document.querySelectorAll("#delete-loss li")].some((item) => item.textContent === "later.txt")`, "the loss read again, with the new file");
-    expect((await lossIn("delete-loss"))[2]).toEqual(["Untracked files", ["later.txt", "notes.txt"]]);
+    expect((await lossIn("delete-loss"))[2]).toEqual(["2 untracked files", [["later.txt"], ["notes.txt"]]]);
     expect(await controls()).toEqual([false, false, true]);
     expect([existsSync(join(worktree, "notes.txt")), git(clone.repo, "branch", "--list", "owlery/doomed").trim()]).toEqual([true, "+ owlery/doomed"]);
     await app.click("#delete-force");
@@ -858,6 +881,59 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await order(INBOX)).toEqual([1, 2]);
     expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
     expect([existsSync(worktree), git(clone.repo, "branch", "--list", "owlery/doomed"), existsSync(join(clone.repo, "README.md"))]).toEqual([false, "", true]);
+  });
+
+  it("shows in the delete dialog a list of more commits than ten rows as ten whole rows, counts every commit in its heading, keeps a row one line high where its subject or its path is longer than the dialog, and comes to rest on whole rows after a turn of the wheel", async () => {
+    await create("Long list");
+    const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((button) => button.querySelector(".title").textContent === "Long list").dataset.workItem)`);
+    const worktree = join(clone.root, "project", "long-list");
+    for (let n = 1; n <= 11; n += 1) commitFile(worktree, `file-${n}.txt`);
+    const long = "change a subject much longer than one row of the dialog holds, so that the row cuts it at its edge";
+    writeFileSync(join(worktree, "long.txt"), "long\n");
+    git(worktree, "add", "long.txt");
+    git(worktree, "commit", "--quiet", "-m", long);
+    const deep = join("a-folder-whose-name-is-long", "and-another-folder-under-it", "and-a-file-whose-name-is-longer-still.txt");
+    mkdirSync(join(worktree, dirname(deep)), { recursive: true });
+    writeFileSync(join(worktree, deep), "untracked\n");
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    const COMMITS = `[...document.querySelectorAll("#delete-loss section")].find((section) => section.querySelector("h3").textContent === "12 commits no other branch, no remote and no tag holds").querySelector("ul")`;
+    await app.until(`[...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === "12 commits no other branch, no remote and no tag holds")`, "the heading that counts the twelve commits");
+    const row = Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`));
+    // Ten rows of the twelve show, whole, and every row of every list is of one height.
+    expect(await value<number[]>(`(() => { const list = ${COMMITS}; return [list.children.length, list.clientHeight, list.scrollHeight]; })()`)).toEqual([12, 10 * row, 12 * row]);
+    expect(await value<number[]>(`[...new Set([...document.querySelectorAll("#delete-loss li")].map((item) => item.offsetHeight))]`)).toEqual([row]);
+    // Every subject starts at one place past the widest hash.
+    expect(await value<[number, boolean]>(`(() => { const list = ${COMMITS}; const starts = new Set([...list.querySelectorAll(".subject")].map((words) => words.getBoundingClientRect().left)); const widest = Math.max(...[...list.querySelectorAll(".hash")].map((hash) => hash.getBoundingClientRect().right)); return [starts.size, [...starts][0] > widest]; })()`)).toEqual([1, true]);
+    // The hashes stand in one column of the list: a hash longer than the others widens it for every row, so every subject still starts at one place past the widest hash. Git gives every hash of the case's clone seven characters, so the longer hash is written into the drawn row.
+    expect(await value<[number, boolean]>(`(() => { const list = ${COMMITS}; list.querySelector(".hash").textContent = "0123456789abcdef"; const starts = new Set([...list.querySelectorAll(".subject")].map((words) => words.getBoundingClientRect().left)); const widest = Math.max(...[...list.querySelectorAll(".hash")].map((hash) => hash.getBoundingClientRect().right)); return [starts.size, [...starts][0] > widest]; })()`)).toEqual([1, true]);
+    // The long subject and the long path are cut at the row's edge, and each row's tooltip holds the whole text.
+    const cut = (text: string, part: string): Promise<[boolean, string]> => value(`(() => { const item = [...document.querySelectorAll("#delete-loss li")].find((item) => item.title === ${JSON.stringify(text)}); const words = item.querySelector(${JSON.stringify(part)}); return [words.scrollWidth > words.clientWidth, words.textContent]; })()`);
+    expect(await cut(long, ".subject")).toEqual([true, long]);
+    expect(await cut(deep, ".path")).toEqual([true, deep]);
+    // A turn of the wheel, as a person scrolls, comes to rest with no row cut at the list's top or its foot.
+    await value(`void (() => { const list = ${COMMITS}; window.__rested = null; list.addEventListener("scrollend", () => { window.__rested = list.scrollTop; }); })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseWheel", ...(await middleOf(COMMITS)), deltaX: 0, deltaY: 37 });
+    await app.until(`window.__rested !== null`, "the commits' list at rest after the wheel");
+    const rested = await value<number>(`window.__rested`);
+    expect([rested > 0, rested % row]).toEqual([true, 0]);
+    await app.click("#delete-cancel");
+    await dialogClosed("delete-dialog");
+    // The work item leaves as the delete before left, so the cases after this one meet the lists they met before it.
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    await app.until(`!document.getElementById("delete-force-label").hidden`, "the choice to force the delete");
+    await app.click("#delete-force");
+    await app.click("#delete-submit");
+    await dialogClosed("delete-dialog");
+    await app.until(`!document.querySelector('${line(SIDEBAR, id)}')`, "the deleted work item's line gone from the sidebar");
+    expect(await order(SIDEBAR)).toEqual([1, 2]);
   });
 
   it("makes a group at New group on a repository's menu, in a dialog that shows the refusal of an empty name: the group's heading stands under the repository's ungrouped work items, Move to on a work item's menu puts its line under the heading, and Move out of puts it back, and the inbox shows no group", async () => {
@@ -933,7 +1009,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#remove-delete");
     await app.until(`document.querySelector("#remove-losses section")`, "the work item's loss in the removal's dialog");
     expect(await value<string[]>(`[...document.querySelectorAll("#remove-losses h3.work-item")].map((head) => head.textContent)`)).toEqual(["In third"]);
-    expect(await lossIn("remove-losses")).toEqual([["Removed from disk", ["The branch owlery/in-third", `The folder ${worktree}`]]]);
+    expect(await lossIn("remove-losses")).toEqual([["The branch and the folder removed from disk", [["owlery/in-third"], [worktree]]]]);
+    // The removal's dialog draws each loss in the delete dialog's form: paths on rows of one line, in a list of its own.
+    expect(await value<[string, string, string][]>(`[...document.querySelectorAll("#remove-losses li")].map((item) => [item.parentElement.className, item.title, getComputedStyle(item.firstElementChild).whiteSpace])`)).toEqual([
+      ["loss", "owlery/in-third", "nowrap"],
+      ["loss", worktree, "nowrap"],
+    ]);
     expect(await choices()).toEqual([false, true, false, false, true, false]);
     // A choice that is not offered is not drawn either.
     expect(await value<string[]>(`["remove-force-label", "remove-delete-label"].map((id) => getComputedStyle(document.getElementById(id)).display)`)).toEqual(["none", "flex"]);
