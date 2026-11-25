@@ -1016,6 +1016,33 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     ]);
   });
 
+  it("waits as a chain's first stage again where the chain is started anew after it stopped, behind a first stage that joined before it", async () => {
+    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), memoryOf: () => Promise.resolve(new Map()) };
+    const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter: roles(), machine });
+    const [a, b] = workItems as [(typeof workItems)[number], (typeof workItems)[number]];
+    expect(await c.asked({ type: "setCaps", requestId: 1, agents: 1 })).toMatchObject({ type: "done" });
+    // A Claude Code pane takes the one place, so every stage waits.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: a.id });
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    /** The newest queue every client was told, once it holds `length` sessions and none of `gone`. */
+    const queueOf = (length: number, gone: number[] = []) =>
+      c.until(() => {
+        const newest = c.messages.findLast((m) => m.type === "machine");
+        const queue = newest?.type === "machine" ? newest.machine.agents.queue : [];
+        return queue.length === length && !queue.some((id) => gone.includes(id)) ? queue : undefined;
+      });
+    expect(await c.startChain(a.id)).toBe("done");
+    const [round] = (await queueOf(1)) as [number];
+    // The person stops the waiting round, and the chain stops with it.
+    expect(await c.asked({ type: "stopHeadless", requestId: 3, id: round })).toMatchObject({ type: "done" });
+    await c.chain(a.id, "stopped");
+    expect(await c.startChain(b.id)).toBe("done");
+    const [second] = (await queueOf(1, [round])) as [number];
+    expect(await c.startChain(a.id)).toBe("done");
+    const queue = await queueOf(2);
+    expect(queue[0]).toBe(second);
+  });
+
   it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest in one hold, and a client that connects later is sent the chain in its ready", async () => {
     let idle = 0;
     const holds: string[] = [];

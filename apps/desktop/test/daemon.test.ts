@@ -6975,6 +6975,39 @@ describe("the caps on the machine", () => {
     expect((await c.message("error", (m) => m.requestId === 3)).message).toBe('"Work" is not removed while something runs under it: a session asked in "Pane work".');
   });
 
+  it("reads the memory of a working headless session's own process, as its adapter hands it over", async () => {
+    const asked: number[][] = [];
+    const fake = fakeAdapter({ delayMs: 400 });
+    const roleAdapter: RoleAdapter = { ...fake, start: async (options, listener) => ({ ...(await fake.start(options, listener)), pid: 4242 }) };
+    const machine: MachineReader = { read: () => READING, memoryOf: async (pids) => (asked.push([...pids]), new Map(pids.map((pid) => [pid, 700 * 1024]))) };
+    const { c } = await machined({ roleAdapter, machine, measureMs: 50 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    await c.message("asked", (m) => m.requestId === 1);
+    expect((await c.message("machine", (m) => m.machine.agents.measured === 1)).machine.agents.measured).toBe(1);
+    expect(asked[0]).toEqual([4242]);
+  });
+
+  it("starts a queued session where a measure raises the proposal above the agents that run", async () => {
+    // 2 GB of memory and 6 performance cores: 1,024 MB at 679 MB an agent proposes 1, and at 100 MB, once five are measured, 6.
+    const small: MachineReading = { ...READING, memoryBytes: 2 * 1024 ** 3 };
+    const machine: MachineReader = { read: () => small, memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 100 * 1024])) };
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    writeFileSync(join(runDir, "agent-memory.json"), JSON.stringify([100 * 1024, 100 * 1024, 100 * 1024, 100 * 1024]));
+    const { roleAdapter, starts } = noting();
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine, measureMs: 200, roleAdapter });
+    const c = await client(url);
+    expect((await c.message("ready")).machine?.agents.proposed).toBe(1);
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    expect(headless.state).toBe("queued");
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    expect(starts).toEqual(["Which file?"]);
+  });
+
   it("queues nothing where it is given no reader of the machine", async () => {
     const { roleAdapter, starts } = noting();
     const { c } = await daemonWithWorkItem({ roleAdapter }).then(async ({ url }) => ({ c: await client(url) }));

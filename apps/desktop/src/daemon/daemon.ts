@@ -422,7 +422,7 @@ export class Daemon {
   private draining = false;
   // The work items whose chain started a stage in its run, which a later stage of the run waits for the machine as.
   private readonly chainStaged = new Set<number>();
-  // What the daemon measured of the agents' memory, where it was given a reader, and the timer of the next reading while an agent lives.
+  // What the daemon measured of the agents' memory, where it was given a reader, and the timer of its readings.
   private readonly memory: AgentMemoryStore | undefined;
   private measureTimer: NodeJS.Timeout | undefined;
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
@@ -497,6 +497,8 @@ export class Daemon {
     this.keepAwake = new KeepAwakeStore(options.runDir);
     this.limits = new LimitsStore(options.runDir);
     this.memory = options.machine ? new AgentMemoryStore(options.runDir) : undefined;
+    // The timer reads nothing while no agent lives (`measureAgents`), and holds no process open by itself.
+    if (this.memory) this.measureTimer = setInterval(() => void this.measureAgents(), options.measureMs ?? MEASURE_MS).unref();
     this.readMachineNow();
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
@@ -3624,7 +3626,7 @@ export class Daemon {
    * Reads the resident memory of each agent's own process, with one call of
    * the reader for all of them: a live pane of a kind that reports its
    * state, by its process, and a working headless session whose adapter
-   * handed over its process. The store keeps each agent's highest. Where
+   * handed over its process. Where no agent lives it reads nothing. The store keeps each agent's highest. Where
    * the measures changed, every client is told the machine, and a proposal
    * that rose starts the sessions that waited for it.
    */
@@ -3662,17 +3664,6 @@ export class Daemon {
     this.agentsCounted();
   }
 
-  /** Reads the agents' memory every `measureMs` while one lives, and stops reading once none does. */
-  private settleMeasure(): void {
-    if (!this.memory || this.closed) return;
-    const lives = this.agentsRunning() > 0;
-    if (lives && this.measureTimer === undefined) this.measureTimer = setInterval(() => void this.measureAgents(), this.options.measureMs ?? MEASURE_MS);
-    if (!lives && this.measureTimer !== undefined) {
-      clearInterval(this.measureTimer);
-      this.measureTimer = undefined;
-    }
-  }
-
   /**
    * The machine as the daemon last read it, with each cap's proposal and the
    * value a person set, or nothing where the daemon was given no reader. A
@@ -3701,14 +3692,12 @@ export class Daemon {
 
   /**
    * After the agents that run or wait may have changed: starts the sessions
-   * the cap now has a place for, reads the agents' memory while one lives,
-   * and tells every client the machine where the count of the agents that
+   * the cap now has a place for, and tells every client the machine where the count of the agents that
    * run, or the queue, is not the one they were last told.
    */
   private agentsCounted(): void {
     if (this.reading === undefined) return;
     this.drainQueue();
-    this.settleMeasure();
     if (agentsKey(this.agentsRunning(), this.queueNow()) !== this.agentsTold) this.broadcastMachine();
   }
 
