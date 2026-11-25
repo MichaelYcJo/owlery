@@ -20,6 +20,7 @@ import {
   type ChainBase,
   CHAIN_STAGES_KEPT,
   ChainStop,
+  GATE_AGAIN_SAYS,
   GATE_STOPPED_BEFORE_START,
   GATE_WAITS_SAYS,
   OPEN_PULL_REQUEST,
@@ -42,6 +43,8 @@ import {
   convergenceDecided,
   convergenceOf,
   convergencePrompt,
+  earlierRunSays,
+  endedWith,
   gateBefore,
   gateNotRunSays,
   inFolder,
@@ -64,6 +67,7 @@ import {
   standingOf,
   stepOwed,
   stoppedSays,
+  twiceFailedWhy,
   undecidedAsk,
   undecidedParked,
   whyNoBase,
@@ -75,8 +79,9 @@ import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecor
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
-import { BROAD_GATE_NAME, MachineTurns, NO_READING_LIMIT, type Turn } from "./machine-turns";
-import type { TurnGiver } from "./turn-socket";
+import { addHeavyRun, watchMemory } from "./heavy-runs";
+import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
+import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -252,6 +257,14 @@ export interface DaemonOptions {
   roleAdapter: RoleAdapter;
   /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all seven are in memory alone. */
   runDir?: string;
+  /** The load average of the last minute, read at each call, or null where none is read. A daemon given none reads no load, and reads no broad gate's run as over the machine's load by its load. */
+  load?: () => number | null;
+  /** The machine's cores, which a load is compared with. A daemon given none reads no run as over the machine's load by its load, and a second run waits for no load. */
+  cores?: number;
+  /** How long a second run of a broad gate waits, at most, for the load to come to the cores or under, and how often it reads the load meanwhile; `CALM_WAIT_MS` and `LOAD_EVERY_MS` of `machine-turns.ts` when absent. */
+  calm?: { waitMs: number; pollMs: number };
+  /** How often the daemon reads the load while a heavy command holds a turn; `LOAD_EVERY_MS` when absent. */
+  loadEveryMs?: number;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
   /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at, and which a verdict block names as the version of the rules. A daemon given none plans and sets up no records place, and writes no verdict. */
@@ -451,6 +464,8 @@ export class Daemon {
   private readonly gates = new Map<number, RunningGate>();
   // The turns on the machine, which every broad gate asks for before its command starts. The queue lives in memory alone.
   private readonly turns: MachineTurns;
+  private readonly giver: TurnGiver;
+  private loadReads: NodeJS.Timeout | undefined;
   // The `PATH` of the person's interactive login shell, asked of that shell once in the daemon's life, at the first broad gate: null where the shell printed none.
   private gatePath: Promise<string | null> | undefined;
   // What each work item's newest broad gate printed, by the work item's id, where the daemon was given no run folder to keep it in.
@@ -484,8 +499,14 @@ export class Daemon {
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
     // A change of the queue changes what a work item's `machineWait` says.
-    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now });
+    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, load: options.load });
     this.turns.watch(() => !this.closed && this.broadcastInbox());
+    this.giver = turnGiver(this.turns, { cores: options.cores ?? null, load: options.load ?? (() => null), calm: options.calm, now: options.now, folderOf: (folder) => this.worktreeNamed(folder), kept: (run) => this.keepHeavyRun(run) });
+    // The highest load of each turn is read while it is held, from a reading the daemon is given.
+    if (options.load !== undefined) {
+      this.loadReads = setInterval(() => this.turns.sample(), options.loadEveryMs ?? LOAD_EVERY_MS);
+      this.loadReads.unref();
+    }
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
     for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
     this.flushTimes();
@@ -712,6 +733,7 @@ export class Daemon {
   async close(): Promise<void> {
     this.closed = true;
     this.closing();
+    clearInterval(this.loadReads);
     clearTimeout(this.commitTimer);
     clearTimeout(this.watchTimer);
     clearTimeout(this.idleTimer);
@@ -2536,17 +2558,21 @@ export class Daemon {
 
   /**
    * What gives turns to the commands that ask on the turn socket
-   * (`turn-socket.ts`): the keeper, asked with the folder named as the work
-   * item whose worktree it is names it. git names a worktree's top by its
-   * real path, and the daemon names a work item's worktree as it was given,
+   * (`turn-socket.ts`), and to the daemon's own broad gate: the keeper's
+   * giver, which asks the keeper with the folder named as the work item
+   * whose worktree it is names it. git names a worktree's top by its real
+   * path, and the daemon names a work item's worktree as it was given,
    * which may run through a link, so the work item finds the wait of its
    * worktree (`workItemOf`) whichever name the command asked with.
    */
   turnGiver(): TurnGiver {
-    return {
-      ask: (ask) => this.turns.ask({ ...ask, folder: this.worktreeNamed(ask.folder) }),
-      watch: (watcher) => this.turns.watch(watcher),
-    };
+    return this.giver;
+  }
+
+  /** Keeps a run's line in the runs' file of the run folder, with the repository and the work item whose worktree the folder is. */
+  private keepHeavyRun(run: HeavyRunTaken): void {
+    const held = this.store.workItems().find(({ item }) => item.worktree === run.folder);
+    addHeavyRun(this.options.runDir, { repo: held?.repository.folder ?? null, workItemId: held?.item.id ?? null, ...run });
   }
 
   /** The folder as the work item whose worktree it is names it, or as given where it is no work item's worktree. Two names are one folder where their real paths are one. */
@@ -3201,7 +3227,21 @@ export class Daemon {
    * as above again, so the command still runs on the commit the order was
    * read at. A stop that arrives before the command starts ends the ask,
    * starts no command and enters no run in the ledger, and the stage fails.
-   * The turn ends once the command's process has exited.
+   * The turn ends once the command's process has exited, and the run's line
+   * is kept in the runs' file (`heavy-runs.ts`), with the peak memory of
+   * the command's process and its descendants.
+   *
+   * A run whose command exited with a code other than 0, or was ended by a
+   * signal the daemon did not send, while the machine was over its load
+   * (`machine-turns.ts#overLoad`: another heavy command held a turn during
+   * any part of it, or the load the daemon read at its start was above the
+   * cores) runs once more, as a stage of its own. That second run asks to
+   * run alone, so it waits until no other heavy command runs and, for
+   * `CALM_WAIT_MS` at most, until the load is at the cores or under, and the
+   * chain's sentence says so while it waits. Where it passes, its record
+   * carries the sentence of the earlier run above its run block
+   * (`chain.ts#earlierRunSays`); where it fails, whatever the load, the
+   * chain's sentence names both runs (`chain.ts#twiceFailedWhy`).
    *
    * Only the exit of the daemon's own process counts. Where the command
    * exits with 0, and the head and the tree then stand as they stood, the
@@ -3220,6 +3260,23 @@ export class Daemon {
    * chain, so the stage stays stored as working with no output.
    */
   private async runGate(held: Held, directory: string, standing: Standing, round: number, base: ChainBase): Promise<void> {
+    const first = await this.gateRun(held, directory, standing, round, base, null);
+    if (first === null) return;
+    if (first.again === null) throw new StageStopped(stoppedSays("gate", round, first.failure));
+    const second = await this.gateRun(held, directory, standing, round, base, first.again);
+    if (second !== null) throw new StageStopped(stoppedSays("gate", round, twiceFailedWhy(first.failure, second.failure)));
+  }
+
+  /**
+   * One run of the broad gate, as `runGate` states it, listed as a stage of
+   * its own with an entry of its own in the ledger and a line of its own in
+   * the runs' file. It gives null where the run passed and was recorded, and
+   * otherwise why it failed, with the sentence of the earlier run where it is
+   * a first run whose command ended with a code or a signal while the machine
+   * was over its load, so it runs once more. A second run, given that
+   * sentence, asks to run alone, and its record carries the sentence.
+   */
+  private async gateRun(held: Held, directory: string, standing: Standing, round: number, base: ChainBase, earlier: string | null): Promise<{ failure: string; again: string | null } | null> {
     const { item, repository } = held;
     const { worktree } = item;
     const now = this.options.now ?? Date.now;
@@ -3240,11 +3297,11 @@ export class Daemon {
     // The gate is held from its ask on, so a stop that arrives while it waits for its turn finds it and ends the ask.
     const gate: RunningGate = { process: undefined, asking: new AbortController(), limit: undefined, stopped: null };
     this.gates.set(item.id, gate);
-    let turn: Turn | null = null;
+    let turn: GivenTurn | null = null;
     try {
-      const asked = this.turns.ask({ folder: worktree, name: BROAD_GATE_NAME, place: "gate", gone: gate.asking.signal });
+      const asked = this.giver.ask({ folder: worktree, name: BROAD_GATE_NAME, place: "gate", alone: earlier !== null, gone: gate.asking.signal });
       const listed: ChainStage | undefined = asked.waits ? { kind: "gate", round, state: "working", failure: null, startedAt: now(), endedAt: null, headlessId: null, refusals: 0, gate: { command: cutText(owed.command), exitCode: null, output: false, waits: true } } : undefined;
-      if (listed !== undefined) this.chainSet(item.id, { ...before, says: GATE_WAITS_SAYS, stages: [...before.stages, listed].slice(-CHAIN_STAGES_KEPT) });
+      if (listed !== undefined) this.chainSet(item.id, { ...before, says: earlier === null ? GATE_WAITS_SAYS : GATE_AGAIN_SAYS, stages: [...before.stages, listed].slice(-CHAIN_STAGES_KEPT) });
       /** Fails the stage that waited, which no command ran for, with why. */
       const unstarted = (failure: string): void => {
         const chain = this.store.workItem(item.id)?.item.chain;
@@ -3274,6 +3331,7 @@ export class Daemon {
       this.dropGateOutput(item.id);
       const startedAt = now();
       const started = startGate({ command, cwd: worktree, env, outputChars: this.options.gateOutputChars });
+      const memory = watchMemory(started.pid);
       gate.process = started;
       gate.limit = setTimeout(() => void this.stopGate(item.id, "limit", "the command reached its time limit and was stopped"), this.options.gateLimitMs ?? GATE_LIMIT_MS);
       const run: GateRun = { command: cutText(command), exitCode: null, output: false };
@@ -3282,7 +3340,7 @@ export class Daemon {
       this.chainSet(item.id, { ...listing, says: runningSays("gate", round), stages: listed === undefined ? [...listing.stages, working].slice(-CHAIN_STAGES_KEPT) : listing.stages.map((stage) => (stage === listed ? working : stage)) });
       // The command's process has exited before anything else of the chain happens in the worktree.
       const end = await started.ended;
-      turn.end();
+      const ran = this.giver.ran(asked, turn, { exitCode: end.exitCode, peakMemory: memory.stop() });
       clearTimeout(gate.limit);
       this.gates.delete(item.id);
       const endedAt = now();
@@ -3293,6 +3351,9 @@ export class Daemon {
       }
       const output = this.keepGateOutput(item.id, end.output);
       let failure: string | null = null;
+      // A first run that ended with a code or a signal while the machine was over its load runs once more, named by this sentence.
+      const ended = earlier === null && ran.over ? endedWith(end, gate.stopped !== null) : null;
+      const again = ended === null ? null : earlierRunSays({ commit: owed.head, ended, load: turn.load, cores: this.options.cores ?? null, beside: ran.beside });
       // A command that was stopped did not pass, whatever it exited with: one that takes the signal can exit with 0.
       if (gate.stopped !== null) failure = gate.stopped.why;
       else if (end.error !== null) failure = `the command did not start: ${end.error}`;
@@ -3300,17 +3361,17 @@ export class Daemon {
       else if (end.exitCode !== 0) failure = `the command exited with code ${String(end.exitCode)}`;
       else {
         try {
-          await recordGate(place, { head: owed.head, base: owed.base }, this.turnOf(item));
+          await recordGate(place, { head: owed.head, base: owed.base, earlier }, this.turnOf(item));
         } catch (error) {
           if (this.closed) throw error;
           failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
         }
       }
-      const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt, gate: { ...run, exitCode: end.exitCode, output } };
-      enter(ended.state === "finished" ? "finished" : "failed", gate.stopped?.by ?? null);
+      const done: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt, gate: { ...run, exitCode: end.exitCode, output } };
+      enter(done.state === "finished" ? "finished" : "failed", gate.stopped?.by ?? null);
       const chain = this.store.workItem(item.id)?.item.chain;
-      if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
-      if (failure !== null) throw new StageStopped(stoppedSays("gate", round, failure));
+      if (chain) this.chainSet(item.id, { ...chain, stages: chain.stages.map((stage) => (stage === working ? done : stage)) });
+      return failure === null ? null : { failure, again };
     } finally {
       turn?.end();
       if (this.gates.get(item.id) === gate) this.gates.delete(item.id);

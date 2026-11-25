@@ -9,8 +9,9 @@ import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { routingText } from "../src/daemon/chain";
 import { type CommandEnd, RUN_REFUSED, USAGE, chainCommand, daemonEndedSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
+import { type HeavyRun, readHeavyRuns } from "../src/daemon/heavy-runs";
 import { MARKER } from "../src/daemon/records-place";
-import { TURN_SOCKET, TurnServer } from "../src/daemon/turn-socket";
+import { TURN_SOCKET, TurnServer, takeTurn } from "../src/daemon/turn-socket";
 import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
 import { BUNDLE, commandOn } from "./chain-command-run";
 import { temporaryRepository } from "./repositories";
@@ -106,6 +107,51 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     (await held.turn)?.end();
     for (const run of [...asked, later]) expect((await run.end).code).toBe(0);
     expect(readFileSync(join(out, "order"), "utf8")).toBe(`${[reviewed.worktree, built.worktree, loose.repo, loose.repo].map((folder) => basename(folder)).join("\n")}\n`);
+  });
+
+  it("keeps one line for the run in the run folder's file: its repository, work item and name, when it asked, started and ended, its exit code and the peak memory of the command and what it started, read after the command's first moment (scenario I)", async () => {
+    const stood = await standing(cleanups, ["Measured work"], { now: Date.now });
+    const [item] = stood.workItems as [(typeof stood.workItems)[number]];
+    const out = stood.made.base;
+    // The shell starts a child that holds 64 MiB for longer than one reading of the memory, which comes 5 seconds after the first.
+    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(6.5)"; exit 4` });
+    const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
+    cleanups.push(() => server.close());
+    const asked = Date.now();
+    expect(await runner(item.worktree, stood.runDir, out, ["hold"]).end).toEqual({ code: 4, out: "", err: "" });
+    const runs = await until(() => {
+      const kept = readHeavyRuns(stood.runDir);
+      return kept.length > 0 ? kept : undefined;
+    });
+    expect(runs).toEqual([
+      {
+        repo: stood.made.repo,
+        workItemId: item.id,
+        folder: item.worktree,
+        name: "hold",
+        askedAt: expect.any(Number),
+        startedAt: expect.any(Number),
+        endedAt: expect.any(Number),
+        exitCode: 4,
+        peakMemory: expect.any(Number),
+        load: null,
+        highestLoad: null,
+        beside: false,
+        alone: false,
+      },
+    ]);
+    const [run] = runs as [HeavyRun];
+    expect(run.askedAt).toBeGreaterThanOrEqual(asked);
+    expect(run.startedAt).toBeGreaterThanOrEqual(run.askedAt);
+    expect(run.endedAt - run.startedAt).toBeGreaterThanOrEqual(6_000);
+    expect(run.peakMemory).toBeGreaterThan(64 * 1024 * 1024);
+
+    // A command whose connection closes while it holds its turn, before it says how it ended, is kept with no exit code and no peak memory.
+    const taken = await takeTurn(join(stood.runDir, TURN_SOCKET), { folder: item.worktree, name: "gone", place: "build", alone: false }, () => {});
+    expect(taken.held).toBe(true);
+    if (taken.held) expect(await taken.end()).toBeNull();
+    const gone = await until(() => readHeavyRuns(stood.runDir)[1]);
+    expect(gone).toMatchObject({ workItemId: item.id, name: "gone", exitCode: null, peakMemory: null });
   });
 
   it("runs a named command at once where no daemon answers, and says so in one sentence (scenario D)", async () => {

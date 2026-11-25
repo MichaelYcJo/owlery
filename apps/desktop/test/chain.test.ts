@@ -14,6 +14,7 @@ import {
   BASE_NAMED_IN_A_PANE,
   CHAIN_STAGES_KEPT,
   ChainStop,
+  GATE_AGAIN_SAYS,
   PROMPT_DIFF_CHARS,
   ROUNDS_CEILING,
   type RoundStanding,
@@ -23,6 +24,7 @@ import {
   chainRead,
   convergenceOf,
   convergencePrompt,
+  earlierRunSays,
   fixPassPrompt,
   fixPassRecord,
   gateBefore,
@@ -30,6 +32,7 @@ import {
   passedBefore,
   promptText,
   pullRequestCarriesSays,
+  twiceFailedWhy,
   pullRequestOpenSays,
   refusalsText,
   roundPrompt,
@@ -50,6 +53,8 @@ import {
 import type { DaemonOptions } from "../src/daemon/daemon";
 import { declaredBranch, readDecisionRecord, routingAnswer, withDecision, withQuestion } from "../src/daemon/decision-record";
 import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
+import { readHeavyRuns } from "../src/daemon/heavy-runs";
+import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Verdict } from "../src/daemon/seal-records";
 import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
@@ -2383,6 +2388,69 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
         expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
         expect(await gateEntries(c, item.id, item.id + 10)).toMatchObject([{ state: "finished", stopped: null }]);
       }
+    });
+
+    /** A command that fails on its first run in a worktree, once `go` stands in `$OUT`, and passes on every later one. */
+    const FAILS_ONCE = 'if [ -e "$OUT/$(basename "$PWD").failed" ]; then exit 0; fi; touch "$OUT/$(basename "$PWD").failed"; while [ ! -e "$OUT/go" ]; do sleep 0.05; done; exit 3';
+
+    it("runs a broad gate that failed while the machine was over its load once more, alone, once the command that took the turn meanwhile has ended and the load is at or under the cores, and records the pass with a sentence that names the earlier run above its run block, each run a stage and an entry of the ledger of its own (scenario F)", async () => {
+      const out = outside();
+      const load = { now: 9 };
+      const stood = await standing(cleanups, ["Sealed work"], { gate: FAILS_ONCE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 20_000, pollMs: 20 } });
+      const { c } = stood;
+      const [item] = stood.workItems as [(typeof stood.workItems)[number]];
+      expect(await c.startChain(item.id)).toBe("done");
+      await c.until(() => (existsSync(join(out, `${basename(item.worktree)}.failed`)) ? true : undefined));
+      // A command that asks while the first run runs takes the turn after it, and the second run waits for it to end and then for the load.
+      const other = stood.d.turnGiver().ask({ folder: out, name: "test", place: "build", alone: false });
+      writeFileSync(join(out, "go"), "");
+      const waiting = await c.until(() => {
+        const stages = c.workItem(item.id)?.chain?.stages ?? [];
+        return stages.filter((stage) => stage.kind === "gate").length === 2 ? stages : undefined;
+      });
+      expect(waiting.at(-2)).toEqual(gateStage({ state: "failed", failure: "the command exited with code 3", gate: { command: FAILS_ONCE, exitCode: 3, output: false } }));
+      expect(waiting.at(-1)).toMatchObject({ kind: "gate", state: "working", gate: { exitCode: null, waits: true } });
+      expect(c.workItem(item.id)?.chain?.says).toBe(GATE_AGAIN_SAYS);
+      const held = await other.turn;
+      // The second run holds no turn while the other command does, whatever the load.
+      load.now = 3;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(kinds(c.workItem(item.id)?.chain as Chain).at(-1)).toEqual(["gate", "working"]);
+      expect(existsSync(join(item.worktree, GATE_PATH))).toBe(false);
+      held?.end();
+      expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      const record = readFileSync(join(item.worktree, GATE_PATH), "utf8");
+      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`seal\nrun: `);
+      expect(await gateEntries(c, item.id, 11)).toMatchObject([{ state: "failed" }, { state: "finished" }]);
+      // Each run has its line in the runs' file: the first over the load it started at, with the memory read while it waited for `go`, and the second alone, which ends too soon for a reading to be sure.
+      expect(readHeavyRuns(stood.runDir).filter((run) => run.name === BROAD_GATE_NAME)).toMatchObject([
+        { workItemId: item.id, exitCode: 3, load: 9, beside: false, alone: false, peakMemory: expect.any(Number) },
+        { workItemId: item.id, exitCode: 0, load: 3, beside: false, alone: true },
+      ]);
+    });
+
+    it("stops the chain as before where the gate failed with the machine calm, and names both runs where the second run, alone, failed too (scenarios G and H)", async () => {
+      const out = outside();
+      const load = { now: 1 };
+      const stood = await standing(cleanups, ["Calm work", "Loaded work"], { apart: true, gate: "exit 3", gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 200, pollMs: 20 } });
+      const { c } = stood;
+      const [calm, loaded] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+      expect(await c.startChain(calm.id)).toBe("done");
+      const once = await c.chain(calm.id, "stopped");
+      expect(once.says).toBe("The broad gate failed: the command exited with code 3.");
+      expect(kinds(once)).toEqual([["round", "finished"], ["gate", "failed"]]);
+      expect(await gateEntries(c, calm.id, 11)).toHaveLength(1);
+
+      // A load that stays above the cores holds the second run for the calm wait, and the run then fails whatever the load.
+      load.now = 9;
+      expect(await c.startChain(loaded.id)).toBe("done");
+      const twice = await c.chain(loaded.id, "stopped");
+      expect(twice.says).toBe(stoppedSays("gate", 1, twiceFailedWhy("the command exited with code 3", "the command exited with code 3")));
+      expect(twice.says).toBe("The broad gate failed: the command exited with code 3 on its first run, while the machine was over its load, and the command exited with code 3 on its second, which ran alone.");
+      expect(kinds(twice)).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
+      expect(await gateEntries(c, loaded.id, 12)).toMatchObject([{ state: "failed" }, { state: "failed" }]);
+      // No gate record was written in either worktree.
+      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "seal/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
     });
 
     it("ends the ask of a gate that waits and starts no command, where a stopGate arrives or the worktree's head moves during the wait: neither command runs once the turn frees, no record or ledger entry is written, and each chain stops with what ended its wait", async () => {

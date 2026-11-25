@@ -76,6 +76,8 @@ export interface GateEnd {
 
 /** A command that was started. */
 export interface GateProcess {
+  /** The id of the shell's process, which leads the command's group, or undefined where none started. */
+  pid: number | undefined;
   /** Settled once the command's process has exited and its streams have closed, or the wait for them is over. It never rejects. */
   ended: Promise<GateEnd>;
   /** Signals the command's process group to end, kills the group where the command has not exited `killAfterMs` later, and settles once `ended` has. A stop of a command that has ended does nothing. */
@@ -146,5 +148,5 @@ export function startGate(options: { command: string; cwd: string; env: Record<s
       await ended;
       clearTimeout(kill);
     })());
-  return { ended, stop };
+  return { pid: child.pid, ended, stop };
 }

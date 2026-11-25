@@ -28,17 +28,36 @@ export const BROAD_GATE_NAME = "Broad gate";
 /** The limit of a daemon given no reading of the machine. */
 export const NO_READING_LIMIT = 1;
 
-/** One command that asks for a turn: the folder it runs in, the worktree's top, its name, and its place. `gone` aborts once the asker is gone, which ends the ask or the turn. */
+/** How long a second run of a broad gate waits, at most, for the load average to come to the cores or under. */
+export const CALM_WAIT_MS = 10 * 60_000;
+
+/** How often that wait reads the load, and how often the daemon reads it during each turn. */
+export const LOAD_EVERY_MS = 5_000;
+
+/**
+ * One command that asks for a turn: the folder it runs in, the worktree's
+ * top, its name, its place, and whether it must run alone, as the second
+ * run of a broad gate that failed while the machine was over its load does.
+ * `gone` aborts once the asker is gone, which ends the ask or the turn.
+ */
 export interface TurnAsk {
   folder: string;
   name: string;
   place: TurnPlace;
+  alone?: boolean;
   gone?: AbortSignal;
 }
 
-/** A turn that was given: the load the keeper read as it was given, and what ends it, once however often it is called. */
+/**
+ * A turn that was given: the load the keeper read as it was given, the
+ * highest load it read while the turn was held, how many other commands
+ * held a turn during any part of it, and what ends it, once however often
+ * it is called. The two counts stop at the turn's end.
+ */
 export interface Turn {
   load: number | null;
+  highest(): number | null;
+  beside(): number;
   end(): void;
 }
 
@@ -70,6 +89,9 @@ export interface Asked {
 interface Entry {
   ask: TurnAsk;
   since: number;
+  /** The other asks that held a turn during any part of this one's. */
+  beside: Set<Entry>;
+  highest: number | null;
   /** Gives the asker the turn, or null where the ask ended before its turn came. */
   settle: (turn: Turn | null) => void;
   /** Stops listening for the asker's going. */
@@ -80,8 +102,10 @@ interface Entry {
  * Gives turns: at most as many asks hold one at once as the limit says. An
  * ask that comes while the limit is full waits, and the turn that frees goes
  * to the first of those that wait by place (`TURN_PLACES`) and, inside a
- * place, to the one that asked first. A turn is never taken back for an ask
- * that waits. A turn ends at its `end` and where its asker is gone; a lower
+ * place, to the one that asked first. An ask that must run alone is given
+ * its turn once no other holds one, and while it waits first or holds its
+ * turn no other is given one, whatever the limit. A turn is never taken
+ * back for an ask that waits. A turn ends at its `end` and where its asker is gone; a lower
  * limit stops nothing and holds for the next turn, and a higher one gives
  * the next turns at once. Each ask and each grant is one synchronous step,
  * so the daemon's one thread needs no lock.
@@ -109,7 +133,7 @@ export class MachineTurns {
     const turn = new Promise<Turn | null>((resolve) => {
       settle = resolve;
     });
-    const entry: Entry = { ask, since: (this.options.now ?? Date.now)(), settle, forget: () => {} };
+    const entry: Entry = { ask, since: (this.options.now ?? Date.now)(), beside: new Set(), highest: null, settle, forget: () => {} };
     const leave = (): void => this.leave(entry);
     ask.gone?.addEventListener("abort", leave, { once: true });
     entry.forget = () => ask.gone?.removeEventListener("abort", leave);
@@ -131,6 +155,13 @@ export class MachineTurns {
     const own = (): void => watcher();
     this.watchers.add(own);
     return () => this.watchers.delete(own);
+  }
+
+  /** Reads the load once and keeps it as the highest of each turn held where it is higher than the one kept. */
+  sample(): void {
+    const load = this.options.load?.() ?? null;
+    if (load === null) return;
+    for (const entry of this.running) entry.highest = Math.max(entry.highest ?? load, load);
   }
 
   /** Sets the limit: a lower one stops no command that runs, and a higher one gives the next turns at once. */
@@ -159,14 +190,20 @@ export class MachineTurns {
     return [...this.waiting].sort((a, b) => rank(a) - rank(b));
   }
 
-  /** Gives turns while fewer hold one than the limit and an ask waits. */
+  /** Gives turns to those that wait first while fewer hold one than the limit, none of them alone, and the first that waits must not run alone or finds none holding one. */
   private give(): void {
-    while (this.running.length < this.limit) {
+    while (this.running.length < this.limit && !this.running.some((entry) => entry.ask.alone === true)) {
       const [next] = this.ordered();
-      if (next === undefined) return;
+      if (next === undefined || (next.ask.alone === true && this.running.length > 0)) return;
       this.waiting.splice(this.waiting.indexOf(next), 1);
+      for (const other of this.running) {
+        other.beside.add(next);
+        next.beside.add(other);
+      }
       this.running.push(next);
-      next.settle({ load: this.options.load?.() ?? null, end: () => this.leave(next) });
+      const load = this.options.load?.() ?? null;
+      next.highest = load;
+      next.settle({ load, highest: () => next.highest, beside: () => next.beside.size, end: () => this.leave(next) });
     }
   }
 
@@ -187,4 +224,33 @@ export class MachineTurns {
   private tell(): void {
     for (const watcher of [...this.watchers]) watcher();
   }
+}
+
+/** Whether the machine was over its load during a turn: another command held a turn during any part of it, or the load read as it was given was above the cores. */
+export function overLoad(turn: Pick<Turn, "load" | "beside">, cores: number | null): boolean {
+  return turn.beside() > 0 || (turn.load !== null && cores !== null && turn.load > cores);
+}
+
+/**
+ * Settles once the load is at the cores or under, read every `pollMs`, and
+ * at the latest `waitMs` after the call, whatever the load: at once where
+ * there is no reading of the load or of the cores, and once `gone` aborts.
+ */
+export function untilCalm(load: () => number | null, cores: number | null, calm: { waitMs: number; pollMs: number }, gone?: AbortSignal): Promise<void> {
+  const calmNow = (): boolean => {
+    const read = load();
+    return read === null || cores === null || read <= cores;
+  };
+  if (calmNow() || gone?.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearInterval(poll);
+      clearTimeout(limit);
+      gone?.removeEventListener("abort", done);
+      resolve();
+    };
+    const poll = setInterval(() => calmNow() && done(), calm.pollMs);
+    const limit = setTimeout(done, calm.waitMs);
+    gone?.addEventListener("abort", done, { once: true });
+  });
 }

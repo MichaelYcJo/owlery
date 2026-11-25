@@ -3,11 +3,14 @@
 // keeper its limit, its clock and its reading of the load, and starts no
 // process.
 import { describe, expect, it } from "vitest";
-import { type Asked, MachineTurns, type TurnPlace } from "../src/daemon/machine-turns";
+import { type Asked, MachineTurns, type TurnPlace, overLoad, untilCalm } from "../src/daemon/machine-turns";
 
 const AT = 1_795_388_700_000;
 
-/** A keeper of the limit given, on a clock the case moves and with a load the case sets, which keeps what the queue was at each change it told of. */
+/** The cores of the machine the cases read. */
+const CORES = 4;
+
+/** A keeper of the limit given, on a clock the case moves and with a load the case sets, which keeps what the queue was at each change it told of. A load of null is no reading. */
 function keeper(limit: number) {
   let at = AT;
   let load: number | null = 2.5;
@@ -30,8 +33,13 @@ function keeper(limit: number) {
 const shown = (turns: MachineTurns): string[] => turns.queue().map(({ state, name }) => `${state} ${name}`);
 
 /** Asks in a folder of the name's own for a command of that name and place. */
-function ask(turns: MachineTurns, name: string, place: TurnPlace, gone?: AbortSignal): Asked {
-  return turns.ask({ folder: `/work/${name}`, name, place, gone });
+function ask(turns: MachineTurns, name: string, place: TurnPlace, gone?: AbortSignal, alone = false): Asked {
+  return turns.ask({ folder: `/work/${name}`, name, place, gone, alone });
+}
+
+/** Whether the promise settled within the time given. */
+async function within(settles: Promise<unknown>, ms: number): Promise<boolean> {
+  return Promise.race([settles.then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), ms))]);
 }
 
 describe("the turns on the machine", () => {
@@ -130,6 +138,69 @@ describe("the turns on the machine", () => {
     turns.setLimit(2);
     expect(shown(turns)).toEqual(["running one", "running gate", "waiting two"]);
     expect(await gate.turn).not.toBeNull();
+  });
+
+  it("starts an ask that must run alone only once no other command runs, and starts no other while it waits or runs, though the limit has room", async () => {
+    const { turns } = keeper(2);
+    const running = ask(turns, "running", "build");
+    const alone = ask(turns, "alone", "gate", undefined, true);
+    const reviewed = ask(turns, "reviewed", "review");
+    expect(shown(turns)).toEqual(["running running", "waiting alone", "waiting reviewed"]);
+    (await running.turn)?.end();
+    const turn = await alone.turn;
+    expect(shown(turns)).toEqual(["running alone", "waiting reviewed"]);
+    const late = ask(turns, "late", "gate");
+    expect(late.waits).toBe(true);
+    turn?.end();
+    expect(shown(turns)).toEqual(["running late", "running reviewed"]);
+  });
+
+  it("counts each command that held a turn during any part of a turn, keeps the highest load read while it was held, and reads a turn as over the machine's load where one did or where the load as it was given was above the cores", async () => {
+    const { turns, setLoad } = keeper(2);
+    const first = await ask(turns, "first", "build").turn;
+    const second = await ask(turns, "second", "build").turn;
+    setLoad(7);
+    turns.sample();
+    setLoad(5);
+    turns.sample();
+    first?.end();
+    // A reading after a turn ended is not that turn's.
+    setLoad(8);
+    turns.sample();
+    expect([first?.beside(), second?.beside(), first?.highest(), second?.highest()]).toEqual([1, 1, 7, 8]);
+    expect([overLoad(first!, CORES), overLoad(second!, CORES)]).toEqual([true, true]);
+    second?.end();
+    setLoad(2.5);
+    const calm = await ask(turns, "calm", "build").turn;
+    expect([calm?.load, calm?.highest(), calm?.beside(), overLoad(calm!, CORES)]).toEqual([2.5, 2.5, 0, false]);
+    calm?.end();
+    setLoad(CORES + 0.5);
+    const loaded = await ask(turns, "loaded", "build").turn;
+    expect([loaded?.beside(), overLoad(loaded!, CORES), overLoad(loaded!, null)]).toEqual([0, true, false]);
+    loaded?.end();
+    setLoad(null);
+    const unread = await ask(turns, "unread", "build").turn;
+    turns.sample();
+    expect([unread?.load, unread?.highest(), overLoad(unread!, CORES)]).toEqual([null, null, false]);
+  });
+
+  it("waits until the load is at or under the cores, for the calm wait at most, and not where the load or the cores are not read or the asker is gone", async () => {
+    let load: number | null = CORES * 2;
+    const calm = { waitMs: 300, pollMs: 10 };
+    const calmed = untilCalm(() => load, CORES, calm);
+    expect(await within(calmed, 100)).toBe(false);
+    load = CORES;
+    expect(await within(calmed, 100)).toBe(true);
+    load = CORES * 2;
+    const late = untilCalm(() => load, CORES, calm);
+    expect(await within(late, 150)).toBe(false);
+    expect(await within(late, 400)).toBe(true);
+    expect(await within(untilCalm(() => load, null, calm), 5)).toBe(true);
+    expect(await within(untilCalm(() => null, CORES, calm), 5)).toBe(true);
+    const going = new AbortController();
+    const left = untilCalm(() => load, CORES, calm, going.signal);
+    going.abort();
+    expect(await within(left, 50)).toBe(true);
   });
 
   it("gives each turn the load read when it was given, and tells each watcher of every change once the queue shows it, until the watcher stops watching", async () => {
