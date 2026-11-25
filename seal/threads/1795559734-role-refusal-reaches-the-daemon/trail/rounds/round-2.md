@@ -25,6 +25,11 @@ Why it matters: `7005b5a6` rewrote *Scope* item 11. It now reads that the stand-
 11. **The stand-in model answers what a run showed the CLI asks, and refuses the rest by name.** It holds no answer for `POST /v1/messages/count_tokens`: no run of 2.1.331 sent it (`trail/phases/phase-1.md`). It holds none for a `POST /v1/messages` that is not streamed: the probe's two requests each held `stream: true` (*The probe*, above), and the six runs at `bd3bebc1`, made with the 404 for such a request in place, passed with none of their twelve requests refused (`trail/rounds/round-1.md`, finding 2's close). Such a request takes the 404 row of *Data & interfaces*, which stays, because the server owes every request an answer and the case prints each request it received.
 ```
 
+```seal
+verdict: fixed 587e6006
+answer: The framer's commit `587e6006` rewrites the second sentence of `frame/design.md` *Scope* item 11 with the round's replacement: `count_tokens` keeps `trail/phases/phase-1.md` as its ground, and the non-streamed `POST /v1/messages` now cites the frame's *The probe*, where both requests carried `stream: true`, and the close of finding 2 in `trail/rounds/round-1.md`, the six runs at `bd3bebc1` where all twelve requests passed and none was refused. The bold sentence `pr.md` quotes is unchanged. No code changed, so no run was made.
+```
+
 ## Confirmations
 
 ```seal
