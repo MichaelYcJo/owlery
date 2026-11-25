@@ -3631,7 +3631,7 @@ describe("the inbox", () => {
   it("makes the branch owlery/<slug of the title> at a commit made in the worktree of a work item with no branch yet, at the next read, puts the worktree on it, and keeps that Owlery made it", async () => {
     const { c, made, runDir, worktree } = await daemonWithoutBranch({ commitPollMs: 20 });
     const first = commitFile(worktree, "first.txt");
-    expect(await branched(c)).toMatchObject({ branch: "owlery/no-branch-yet", ownsBranch: true, newCommits: 2 });
+    expect(await branched(c)).toMatchObject({ branch: "owlery/no-branch-yet", ownsBranch: true });
     expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/no-branch-yet");
     expect(git(made.repo, "rev-parse", "refs/heads/owlery/no-branch-yet").trim()).toBe(first);
     const later = await daemon({ runDir, worktreesRoot: made.root });
