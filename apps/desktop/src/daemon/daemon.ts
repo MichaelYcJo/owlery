@@ -263,7 +263,7 @@ export interface DaemonOptions {
   cores?: number;
   /** How long a second run of a broad gate waits, at most, for the load to come to the cores or under, and how often it reads the load meanwhile; `CALM_WAIT_MS` and `LOAD_EVERY_MS` of `machine-turns.ts` when absent. */
   calm?: { waitMs: number; pollMs: number };
-  /** How often the daemon reads the load while a heavy command holds a turn; `LOAD_EVERY_MS` when absent. */
+  /** How often the daemon reads the load while a heavy command holds or waits for a turn; `LOAD_EVERY_MS` when absent. */
   loadEveryMs?: number;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
@@ -504,13 +504,12 @@ export class Daemon {
     this.ledger = new Ledger(options.runDir);
     // A change of the queue changes what a work item's `machineWait` says.
     this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, load: options.load });
-    this.turns.watch(() => !this.closed && this.broadcastInbox());
+    this.turns.watch(() => {
+      if (this.closed) return;
+      this.readLoadWhileAsked();
+      this.broadcastInbox();
+    });
     this.giver = turnGiver(this.turns, { cores: options.cores ?? null, load: options.load ?? (() => null), calm: options.calm, now: options.now, folderOf: (folder) => this.worktreeNamed(folder), kept: (run) => this.keepHeavyRun(run), started: () => this.keepAwake.get() !== "never" && this.options.wakeDisplay?.() });
-    // The highest load of each turn is read while it is held, from a reading the daemon is given.
-    if (options.load !== undefined) {
-      this.loadReads = setInterval(() => this.turns.sample(), options.loadEveryMs ?? LOAD_EVERY_MS);
-      this.loadReads.unref();
-    }
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
     for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
     this.flushTimes();
@@ -2571,6 +2570,23 @@ export class Daemon {
    */
   turnGiver(): TurnGiver {
     return this.giver;
+  }
+
+  /**
+   * Reads the load every `loadEveryMs` while a heavy command holds or waits
+   * for a turn, so the highest load of each turn is kept, and stops at the
+   * end of the last: a daemon reads the load only while one runs or waits.
+   * A daemon given no reading of the load reads nothing.
+   */
+  private readLoadWhileAsked(): void {
+    const asked = this.turns.queue().length > 0;
+    if (asked && this.loadReads === undefined && this.options.load !== undefined) {
+      this.loadReads = setInterval(() => this.turns.sample(), this.options.loadEveryMs ?? LOAD_EVERY_MS);
+      this.loadReads.unref();
+    } else if (!asked && this.loadReads !== undefined) {
+      clearInterval(this.loadReads);
+      this.loadReads = undefined;
+    }
   }
 
   /** Keeps a run's line in the runs' file of the run folder, with the repository and the work item whose worktree the folder is. */

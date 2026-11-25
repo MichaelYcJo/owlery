@@ -155,6 +155,20 @@ describe("the turns on the machine", () => {
     expect(shown(turns)).toEqual(["running late", "running reviewed"]);
   });
 
+  it("reads the load for a sample only while a command holds a turn", async () => {
+    let reads = 0;
+    const turns = new MachineTurns({ limit: 1, load: () => (reads++, 3) });
+    turns.sample();
+    expect(reads).toBe(0);
+    const turn = await ask(turns, "held", "build").turn;
+    expect(reads).toBe(1);
+    turns.sample();
+    expect([reads, turn?.highest()]).toEqual([2, 3]);
+    turn?.end();
+    turns.sample();
+    expect(reads).toBe(2);
+  });
+
   it("counts each command that held a turn during any part of a turn, keeps the highest load read while it was held, and reads a turn as over the machine's load where one did or where the load as it was given was above the cores", async () => {
     const { turns, setLoad } = keeper(2);
     const first = await ask(turns, "first", "build").turn;

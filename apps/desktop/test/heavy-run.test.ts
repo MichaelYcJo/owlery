@@ -154,6 +154,24 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     expect(gone).toMatchObject({ workItemId: item.id, name: "gone", exitCode: null, peakMemory: null });
   });
 
+  it("reads the load the daemon is given only while a heavy command holds or waits for a turn, every reading time apart, and starts no reading while none does", async () => {
+    let reads = 0;
+    const stood = await standing(cleanups, ["Idle work"], { load: () => (reads++, 1), cores: 4, loadEveryMs: 20 });
+    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    await pause(200);
+    expect(reads).toBe(0);
+    const giver = stood.d.turnGiver();
+    const held = await giver.ask({ folder: "/elsewhere/held", name: "held", place: "build", alone: false }).turn;
+    const waiting = giver.ask({ folder: "/elsewhere/waiting", name: "waiting", place: "build", alone: false });
+    await pause(200);
+    expect(reads).toBeGreaterThan(4);
+    held?.end();
+    (await waiting.turn)?.end();
+    const after = reads;
+    await pause(200);
+    expect(reads).toBe(after);
+  });
+
   it("runs a named command at once where no daemon answers, and says so in one sentence (scenario D)", async () => {
     const on = commandOn(cleanups);
     naming(on.repo, { test: `sh -c 'printf "%s|" "$@" > "$OUT/test.args"; exit 5' test` });

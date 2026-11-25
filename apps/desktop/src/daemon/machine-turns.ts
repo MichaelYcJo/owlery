@@ -157,8 +157,9 @@ export class MachineTurns {
     return () => this.watchers.delete(own);
   }
 
-  /** Reads the load once and keeps it as the highest of each turn held where it is higher than the one kept. */
+  /** Reads the load once and keeps it as the highest of each turn held where it is higher than the one kept; it reads nothing while no turn is held. */
   sample(): void {
+    if (this.running.length === 0) return;
     const load = this.options.load?.() ?? null;
     if (load === null) return;
     for (const entry of this.running) entry.highest = Math.max(entry.highest ?? load, load);
