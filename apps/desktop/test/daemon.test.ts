@@ -7435,8 +7435,8 @@ describe("the watch of an open pull request", () => {
     const gh = ghStandIn(cleanups, made.base);
     const seen = { held: 0 };
     const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
-    /** What gh pr view answers for this pull request, with its checks and anything else given. */
-    const answer = (rollup: unknown[], more: Record<string, unknown> = {}) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }) });
+    /** What gh pr view answers for this pull request, with its checks and anything else given, after `seconds` where given. */
+    const answer = (rollup: unknown[], more: Record<string, unknown> = {}, seconds?: number) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }), seconds });
     return { d, url, gh, seen, at, stored, answer };
   }
 
@@ -7563,7 +7563,8 @@ describe("the watch of an open pull request", () => {
     const c = await client(w.url);
     await c.until(() => (pullRequestIn(c)?.checks === "passed" ? true : undefined));
     expect(w.gh.calls()).toHaveLength(1);
-    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")]);
+    // The call ends after git has been read, so the answer holds what it gave only where it waited for it.
+    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")], {}, 1);
     c.send({ type: "readLists", requestId: 1 });
     await c.message("done", (m) => m.requestId === 1);
     expect(w.gh.calls()).toEqual([VIEW, VIEW]);
