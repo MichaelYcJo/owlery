@@ -28,7 +28,7 @@ Failure scenario of the chosen approach, in six months: a run whose findings sta
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1, 2 and 3, with the pins of item 6 on their sentences | `pnpm --filter @owlery/desktop run test test/role-bundle.test.ts -t "the role bundle"` through the repository's runner, each new pin seen red with its sentence deleted; `git grep -n -e 'A crafter$' -e 'A crafter then' -- apps/desktop/role-bundle ':!seal/threads/1795610868-236-a-shrinking-reopen-does-not-stop-the-chain'` prints nothing | `dab6e30d` |
+| 1 | `frame/design.md` *Scope* items 1, 2 and 3, with the pins of item 6 on their sentences | `pnpm --filter @owlery/desktop run test test/role-bundle.test.ts -t "the role bundle"` through the repository's runner, each new pin seen red with its sentence deleted; `git grep -n -e 'A crafter$' -e 'A crafter then' -- apps/desktop/role-bundle ':!seal/threads/1795610868-236-a-shrinking-reopen-does-not-stop-the-chain'` prints nothing | `02b11fda` |
 | 2 | `frame/design.md` *Scope* items 4, 5 and 7, with the pins of item 6 on their sentences | The same `role-bundle.test.ts` command, each new pin seen red; `pnpm --filter @owlery/desktop run test test/chain.test.ts -t "stops the chain at the orchestrator's no"` green and unchanged; `git grep -n -e 'costs one stop' -e 'no work\.' -- . ':!seal/threads/1795610868-236-a-shrinking-reopen-does-not-stop-the-chain'` prints nothing; the built-app cases of `role-bundle.test.ts` in the end-of-phase batch | |
 
 ## Overlap with the release
