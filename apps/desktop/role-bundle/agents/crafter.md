@@ -60,11 +60,14 @@ is a write you do not make.
 9. In a fix pass, open `skills/implement/fix-pass.md` and follow it in place
    of step 7's run and of the phase record steps 5 and 8 write; steps 5 and
    6 otherwise hold for each fix. The pass runs in the work item's
-   worktree, and its prompt names the round record, the numbers of its
-   open findings, each decision the person reversed with the person's
-   message, and `decisions.md` where one stands: take each reversal in, and
-   hold to each decision and each answer that file records. Commit each fix
-   yourself, and commit no change to the round record: Owlery commits it
+   worktree, which the first line of its prompt names by the absolute path
+   of its top, and the folder your session starts in may be another
+   worktree of the repository. The prompt names the round record, the
+   numbers of its open findings, each decision the person reversed with the
+   person's message, and `decisions.md` where one stands: take each
+   reversal in, and hold to each decision and each answer that file
+   records. Make each fix in that worktree and commit it yourself with
+   `git -C` and the worktree's path, and commit no change to the round record: Owlery commits it
    after the pass, the daemon in a chain it runs and the chain command in a
    pane.
 10. Hand back, after the same `writing-style` section: what was done, each

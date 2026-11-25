@@ -32,8 +32,10 @@ that name the daemon say what holds where the daemon launched you.
 
 ## Order of work
 
-1. Work in the folder the session starts in. It is the work item's
-   worktree, and every path your prompt gives is a path from that folder.
+1. Work in the work item's worktree, which the first line of your prompt
+   names by the absolute path of its top, and read every other path your
+   prompt gives from that top. The folder your session starts in may be
+   another worktree of the repository.
 2. Read the work item's directory your prompt names: `routing.md`, the
    files under `frame/` where they stand, `gaps.md` where it stands, and
    every `trail/rounds/round-*.md`. Where your prompt names `decisions.md`,

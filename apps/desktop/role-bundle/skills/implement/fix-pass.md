@@ -5,7 +5,7 @@ record, and nothing else opens it. The crafter opens it at step 9 of
 `agents/crafter.md`, and a session that fixes review feedback opens it from
 `skills/implement/SKILL.md` *5. Incorporate review — read the round records
 first*. The pass runs in the work item's worktree, and its prompt holds
-the round record's path, the numbers of its open findings and each decision
+the worktree's absolute path, the round record's path, the numbers of its open findings and each decision
 the person reversed. Owlery commits the round record after the pass: the
 daemon in a chain it runs, and the chain command in a pane.
 

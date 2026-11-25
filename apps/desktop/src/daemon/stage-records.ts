@@ -158,7 +158,7 @@ export async function declaredDirectory(worktree: string, branch: string, now: n
  */
 export async function roundStage(place: Place, standing: Standing, step: Extract<Step, { is: "round" }>, base: ChainBase): Promise<StagePrompt> {
   const { paths, text } = await diffBetween(place.worktree, step.from ?? base.reads, standing.head, step.from === null);
-  return roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(place.directory, RECORD_FILE)), paths, diff: text });
+  return roundPrompt({ round: step.round, worktree: place.worktree, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(place.directory, RECORD_FILE)), paths, diff: text });
 }
 
 /**
@@ -191,7 +191,7 @@ export async function recordRound(place: Place, standing: Standing, step: Extrac
 export async function fixPassStage(place: Place, standing: Standing, step: Extract<Step, { is: "fix-pass" }>): Promise<{ prompt: StagePrompt; committed: string }> {
   const file = join(place.directory, ROUNDS_FOLDER, roundFile(step.round));
   const committed = (await fileAt(place.worktree, standing.head, relative(place.worktree, file))) ?? "";
-  return { prompt: fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals }), committed };
+  return { prompt: fixPassPrompt({ round: step.round, worktree: place.worktree, directory: standing.directory, open: step.open, reversals: step.reversals }), committed };
 }
 
 /**
@@ -305,7 +305,7 @@ export async function sealStage(place: Place, standing: Standing, step: Extract<
   const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
   const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base.reads, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
   const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-  const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
+  const prompt = sealPrompt({ run: step.run, worktree, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
   return { prompt, target };
 }
 

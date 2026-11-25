@@ -96,7 +96,7 @@ describe("the role bundle", () => {
     }
   });
 
-  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, and every text names the chain the owl chain", () => {
+  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, each role works in the worktree its prompt names and not in the folder its session starts in, and every text names the chain the owl chain", () => {
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const skill = read("skills/seal/SKILL.md");
     expect(frontmatterOf(skill)).toContain("name: seal\n");
@@ -146,6 +146,12 @@ describe("the role bundle", () => {
       ["agents/orchestrator.md", "In a pane that carries the owl chain, Owlery spawns no agent for these judgments: the pane's session makes them itself"],
       ["README.md", "A Claude Code pane of a repository on the owl chain loads the same folder"],
     ] as const) expect(flat(file), `${file}: ${named}`).toContain(named);
+
+    // A pane's subagent starts in its session's folder, which may be another worktree: each role works in the worktree its prompt names, and no definition takes the folder it starts in for that worktree.
+    for (const file of ["agents/proofer.md", "agents/sealer.md", "agents/crafter.md", "agents/orchestrator.md"]) {
+      for (const named of ["prompt names by the absolute path of its top", "may be another worktree of the repository"]) expect(flat(file), `${file}: ${named}`).toContain(named);
+      expect(flat(file), file).not.toContain("the folder the session starts in");
+    }
 
     // The chain's name, in every document.
     for (const file of filesOf(BUNDLE).filter((name) => name.endsWith(".md"))) {

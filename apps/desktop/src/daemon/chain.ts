@@ -611,18 +611,30 @@ export function roundHeading(round: number, workItem: string): string {
 }
 
 /**
- * A round's prompt: the round's number, the work item's directory, the
- * heading and the `target:` line its record carries, the paths of the
- * earlier round records, the path of the record of decisions where one
- * stands, the paths the reviewed commits changed, and their diff, cut at
- * `PROMPT_DIFF_CHARS` characters with a line that says so. Every path is
- * from the worktree's top, which is the session's folder.
+ * The first line of a stage's prompt: the stage, then the work item's
+ * worktree by `worktree`, the absolute path of its top, and that every path
+ * below is from that top. A pane's subagent starts in its session's folder,
+ * which may be another worktree of the repository, so the prompt names the
+ * tree the stage reads and no folder is taken for it.
  */
-export function roundPrompt(given: { round: number; directory: string; target: string; earlier: readonly number[]; decisions: boolean; paths: readonly string[]; diff: string }): StagePrompt {
+function openingLine(stage: string, worktree: string): string {
+  return `${stage}, in its worktree \`${worktree}\`. Every path below is from that worktree's top.`;
+}
+
+/**
+ * A round's prompt: the round's number, the work item's worktree, the work
+ * item's directory, the heading and the `target:` line its record carries,
+ * the paths of the earlier round records, the path of the record of
+ * decisions where one stands, the paths the reviewed commits changed, and
+ * their diff, cut at `PROMPT_DIFF_CHARS` characters with a line that says
+ * so. Every path but the worktree's is from the top of the worktree the
+ * prompt names (`openingLine`).
+ */
+export function roundPrompt(given: { round: number; worktree: string; directory: string; target: string; earlier: readonly number[]; decisions: boolean; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const rounds = `${given.directory}/trail/rounds`;
   const shown = [
-    `Review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    openingLine(`Review round ${String(given.round)} of the work item \`${workItem}\``, given.worktree),
     "",
     `- The work item's directory: \`${given.directory}\``,
     `- Your record's heading: \`${roundHeading(given.round, workItem)}\``,
@@ -630,7 +642,7 @@ export function roundPrompt(given: { round: number; directory: string; target: s
     given.earlier.length === 0 ? "- Earlier round records: none, this is the first round" : `- Earlier round records: ${given.earlier.map((round) => `\`${rounds}/${roundFile(round)}\``).join(", ")}`,
     ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
     "",
-    `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${rounds}/${roundFile(given.round)}\` and commits it. Write no file and run no command: read the files of this folder.`,
+    `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${rounds}/${roundFile(given.round)}\` and commits it. Write no file and run no command: read the files of that worktree.`,
     "",
     given.paths.length === 0 ? "The reviewed commits changed no path." : "The reviewed commits changed these paths:",
     ...given.paths.map((path) => `- \`${path}\``),
@@ -640,21 +652,23 @@ export function roundPrompt(given: { round: number; directory: string; target: s
 }
 
 /**
- * A fix pass's prompt: the path of the round record, the numbers of its open
- * findings, the decisions the person reversed with the person's message for
- * each, and the path of the record of decisions.
+ * A fix pass's prompt: the work item's worktree, the path of the round
+ * record, the numbers of its open findings, the decisions the person
+ * reversed with the person's message for each, the path of the record of
+ * decisions, and that each fix is made and committed in that worktree, with
+ * `git -C` and its path.
  */
-export function fixPassPrompt(given: { round: number; directory: string; open: readonly number[]; reversals: readonly Reversal[] }): StagePrompt {
+export function fixPassPrompt(given: { round: number; worktree: string; directory: string; open: readonly number[]; reversals: readonly Reversal[] }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const shown = [
-    `The fix pass of review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    openingLine(`The fix pass of review round ${String(given.round)} of the work item \`${workItem}\``, given.worktree),
     "",
     `- The round record: \`${given.directory}/trail/rounds/${roundFile(given.round)}\``,
     `- Its open findings: ${given.open.length === 0 ? "none" : listed(given.open)}`,
     ...(given.reversals.length === 0 ? [] : ["- The decisions the person reversed, each to take in:", ...given.reversals.map((reversal) => `  - decision ${String(reversal.id)}, ${JSON.stringify(reversal.decided)}: the person says ${JSON.stringify(reversal.message)}`)]),
     `- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``,
     "",
-    "Commit each fix yourself. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.",
+    `Make each fix in that worktree, and commit it yourself there with \`git -C ${given.worktree}\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
     "",
   ].join("\n");
   return { shown, diff: "" };
@@ -664,14 +678,15 @@ export function fixPassPrompt(given: { round: number; directory: string; open: r
 export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
 
 /**
- * The seal's prompt: the sealer's run, the work item's directory, the
- * heading its section opens with and the `target:` line its verdict
- * carries, the paths of the routing, of every round record and of the
- * gate's record, the paths of the record of decisions, of the frame, of the
- * phase records and of the changelog fragment where each stands, that the
- * work item names no issue, the paths the branch changed, and their diff,
- * cut at `PROMPT_DIFF_CHARS` characters with a line that says so. Every
- * path is from the worktree's top, which is the session's folder.
+ * The seal's prompt: the sealer's run, the work item's worktree, the work
+ * item's directory, the heading its section opens with and the `target:`
+ * line its verdict carries, the paths of the routing, of every round record
+ * and of the gate's record, the paths of the record of decisions, of the
+ * frame, of the phase records and of the changelog fragment where each
+ * stands, that the work item names no issue, the paths the branch changed,
+ * and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line that
+ * says so. Every path but the worktree's and the form's, which the bundle
+ * holds, is from the top of the worktree the prompt names (`openingLine`).
  *
  * `earlier` is the seal a later commit broke, where the run follows one: its
  * run and its sealed commit, which the prompt names. The paths and the diff
@@ -679,11 +694,11 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * left its base. The target line is the caller's either way, so the verdict
  * still names the gate's commit against the base.
  */
-export function sealPrompt(given: { run: number; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
+export function sealPrompt(given: { run: number; worktree: string; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const since = given.earlier === null ? "since it left its base" : `since the commit run ${String(given.earlier.run)} sealed`;
   const shown = [
-    `Run ${String(given.run)} of the sealer on the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    openingLine(`Run ${String(given.run)} of the sealer on the work item \`${workItem}\``, given.worktree),
     "",
     `- The work item's directory: \`${given.directory}\``,
     `- Your section's heading: \`${runHeading(given.run)}\``,
@@ -698,7 +713,7 @@ export function sealPrompt(given: { run: number; directory: string; target: stri
     "- The issue: the work item names none, so no issue's text is among what you read",
     ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
     "",
-    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of this folder.`,
+    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the bundle's \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of that worktree.`,
     "",
     given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),
@@ -712,13 +727,14 @@ export const ORCHESTRATOR: RoleStage = { role: "orchestrator", stage: "judgment"
 
 /**
  * The prompt of the judgment of convergence after a round: the round, the
- * work item's directory, the path of every round record, the path of the
- * record of decisions where one stands, and the form of the answer.
+ * work item's worktree, the work item's directory, the path of every round
+ * record, the path of the record of decisions where one stands, and the
+ * form of the answer.
  */
-export function convergencePrompt(given: { round: number; directory: string; rounds: readonly number[]; decisions: boolean }): StagePrompt {
+export function convergencePrompt(given: { round: number; worktree: string; directory: string; rounds: readonly number[]; decisions: boolean }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const shown = [
-    `The judgment after review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    openingLine(`The judgment after review round ${String(given.round)} of the work item \`${workItem}\``, given.worktree),
     "",
     `- The work item's directory: \`${given.directory}\``,
     `- The round records, the oldest first: ${given.rounds.map((round) => `\`${given.directory}/trail/rounds/${roundFile(round)}\``).join(", ")}`,
@@ -731,7 +747,7 @@ export function convergencePrompt(given: { round: number; directory: string; rou
     "grounds: <why, on one line>",
     "```",
     "",
-    "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of this folder.",
+    "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of that worktree.",
     "",
   ].join("\n");
   return { shown, diff: "" };
@@ -739,15 +755,16 @@ export function convergencePrompt(given: { round: number; directory: string; rou
 
 /**
  * The prompt of the judgment on the questions a stage asked: the round, the
- * work item's directory, the path of the record of decisions where one
- * stands, who asks and in which stage, each question under its number with
- * its grounds, its options and its default, and the form of the answer.
+ * work item's worktree, the work item's directory, the path of the record of
+ * decisions where one stands, who asks and in which stage, each question
+ * under its number with its grounds, its options and its default, and the
+ * form of the answer.
  */
-export function rulingPrompt(given: { round: number; directory: string; by: string; asked: ChainStageKind; asks: readonly Ask[]; decisions: boolean }): StagePrompt {
+export function rulingPrompt(given: { round: number; worktree: string; directory: string; by: string; asked: ChainStageKind; asks: readonly Ask[]; decisions: boolean }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
   const stage = stageName(given.asked, given.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase());
   const shown = [
-    `The judgment after review round ${String(given.round)} of the work item \`${workItem}\`, in this folder, which is the work item's worktree.`,
+    openingLine(`The judgment after review round ${String(given.round)} of the work item \`${workItem}\``, given.worktree),
     "",
     `- The work item's directory: \`${given.directory}\``,
     ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
@@ -770,7 +787,7 @@ export function rulingPrompt(given: { round: number; directory: string; by: stri
     "grounds: <why, on one line>",
     "```",
     "",
-    "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of this folder.",
+    "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of that worktree.",
     "",
   ].join("\n");
   return { shown, diff: "" };
