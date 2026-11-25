@@ -282,7 +282,7 @@ export interface DaemonOptions {
   undecidedCeiling?: number;
   /** How long a broad gate's command may run, from its start, before the daemon ends it; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
-  /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands, with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
+  /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands and without the variables of the pane the daemon was started from (`hooks.ts#PANE_VARIABLES`), with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
   gateEnv?: Record<string, string>;
   /** How many of the last characters a broad gate's command printed the daemon keeps; `GATE_OUTPUT_CHARS` of `gate.ts` when absent. */
   gateOutputChars?: number;
