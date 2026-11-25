@@ -41,7 +41,7 @@ Paths are under `apps/desktop/` unless they start at the top of the repository. 
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 6, in one commit with the work item's `changelog.md` | Scenarios 1 to 7 of `frame/design.md` *User scenarios & acceptance*, each by the command its row gives, run by the crafter and labelled `executed` with its output. Scenario 4's case is run alone, with each of its red runs reported. Scenario 8 is review's reading. The crafter looks at `app-icon.png` and at `app-icon-small.svg` drawn at 32 pixels, and says what each shows. The suite is `unverified` at the hand-over, and the orchestrator's broad gate answers it | |
+| 1 | `frame/design.md` *Scope* items 1 to 6, in one commit with the work item's `changelog.md` | Scenarios 1 to 7 of `frame/design.md` *User scenarios & acceptance*, each by the command its row gives, run by the crafter and labelled `executed` with its output. Scenario 4's case is run alone, with each of its red runs reported. Scenario 8 is review's reading. The crafter looks at `app-icon.png` and at `app-icon-small.svg` drawn at 32 pixels, and says what each shows. The suite is `unverified` at the hand-over, and the orchestrator's broad gate answers it | built `4d5fdd5a`; `trail/phases/phase-1.md` |
 
 One phase holds the work, because the case of item 6 reads the archive of item 4 and the PNG of item 3 together, and `TRADEMARKS.md` is wrong at any commit that holds only some of items 1 to 4.
 
