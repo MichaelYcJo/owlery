@@ -358,17 +358,15 @@ describe("the size of a worktree, measured", () => {
 });
 
 describe("the queue of the agents", () => {
-  it("starts a session a person asked for first, then a stage of a chain that already ran a stage, then a chain's first stage, and within each the one that waited longest (scenario 6)", () => {
+  it("starts a stage of a chain that already ran a stage first, then a chain's first stage, and within each the one that waited longest (scenario 6)", () => {
     expect(
       queueOrder([
         { id: 1, rank: "first-stage", joined: 1 },
         { id: 2, rank: "running-chain", joined: 2 },
-        { id: 3, rank: "asked", joined: 3 },
         { id: 4, rank: "running-chain", joined: 4 },
-        { id: 5, rank: "asked", joined: 5 },
         { id: 6, rank: "first-stage", joined: 0 },
       ]),
-    ).toEqual([3, 5, 2, 4, 6, 1]);
+    ).toEqual([2, 4, 6, 1]);
   });
 
   it("frees as many places as the cap leaves above the agents that run, and none at or over it", () => {

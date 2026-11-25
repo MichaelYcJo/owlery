@@ -257,7 +257,7 @@ export function stateIcon(state: AgentState | null, changed = false): HTMLElemen
   return iconOf(stateClass(state), changed ? `${stateHeading(state)}, changed since you were last here` : stateHeading(state));
 }
 
-/** The icon of a headless session's line, `mark` being its state or `waiting` while it waits for the person, named by `words`, the line's words for it. */
+/** The icon of a headless session's line, `mark` being its state, or `no-agent` while it waits for the machine, named by `words`, the line's words for it. */
 export function headlessIcon(mark: HeadlessMark, words: string): HTMLElement {
   return iconOf(mark, words);
 }

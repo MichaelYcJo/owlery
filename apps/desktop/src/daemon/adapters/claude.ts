@@ -71,13 +71,13 @@ function firstOf(text: string): string {
  * reaches it, and adds the role bundle as a plugin of this session alone,
  * the role's agent of it, the file of rules appended to the system prompt,
  * and the bundle's folder among the folders the session works in, so it
- * reads the bundle's other documents. A launch with no role keeps Claude
- * Code's default tools, less the three the CLI adds where a host answers its
- * prompts, which ask a person something no stream of this session carries.
- * A refresh of an account's usage, which has no role, holds no tool at all,
- * takes one turn and writes no transcript.
+ * reads the bundle's other documents. A refresh of an account's usage, which
+ * has no role, holds no tool at all, takes one turn and writes no
+ * transcript. No other launch is made: a session with neither a role nor a
+ * refresh would keep Claude Code's default tools, with no grant to answer
+ * its calls.
  */
-export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] }, refresh = false): string[] {
+export function claudeArgs(cwd: string, launch: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] } | "refresh"): string[] {
   return [
     "-p",
     "--input-format",
@@ -95,11 +95,11 @@ export function claudeArgs(cwd: string, role?: { bundleDir: string; agent: strin
     "default",
     "--permission-prompt-tool",
     "stdio",
-    ...(role ? ["--tools", role.tools.join(","), "--plugin-dir", role.bundleDir, "--agent", role.agent, "--append-system-prompt-file", role.rulesFile] : refresh ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--disallowedTools", "AskUserQuestion,EnterPlanMode,ExitPlanMode"]),
+    ...(launch === "refresh" ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--tools", launch.tools.join(","), "--plugin-dir", launch.bundleDir, "--agent", launch.agent, "--append-system-prompt-file", launch.rulesFile]),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
-    ...(role ? [role.bundleDir] : []),
+    ...(launch === "refresh" ? [] : [launch.bundleDir]),
   ];
 }
 
@@ -354,8 +354,8 @@ function limitsOf(record: Record<string, unknown>): RoleEvent[] {
  * tool, and the withdrawal of one. Every other line is dropped, a
  * control line of another kind among them, and so is a line that is not
  * JSON. The `init` line gives no event here: a run reports its `session`
- * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a launch
- * that named none: a request for a tool outside them is reported as a call
+ * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a refresh,
+ * which names none: a request for a tool outside them is reported as a call
  * of another kind, with no path. `keyed` is whether the session's login
  * names a key (`keyedLogin`), and false where nothing said so.
  */
@@ -421,7 +421,7 @@ export function roleCheck(line: string, agent: string): { seen: boolean; failure
  * environment: it names the login shell, and gives the session its home, user
  * and locale. `bundleDir` is the role bundle's folder and `rulesDir` the
  * folder the adapter writes each role's rules file into; an adapter given
- * neither launches sessions with no role alone.
+ * neither launches no role, and so only the refresh of an account's usage.
  */
 export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs?: number; bundleDir?: string; rulesDir?: string } = {}): RoleAdapter {
   type Lookup = NonNullable<ReturnType<typeof parseLookup>>;
@@ -476,12 +476,14 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     name: "claude",
     features: ["role-tools", "permission-requests", "accounts", "limit-refresh"],
     async start({ prompt, cwd, role, accountDir, refresh }, listener) {
-      const launch = role && launchOf(role);
+      // The daemon launches a role's session or a refresh, and gives no session that is neither the default tools with nothing to answer its calls.
+      if (!role && refresh !== true) throw new Error("the Claude adapter launches a role or a refresh of an account's usage, and was given neither");
+      const launch = role ? launchOf(role) : "refresh";
       const { cli, path, configDir } = await located();
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
       // signal to the group also reaches what the CLI started in it, such as a tool's shell. The account's folder, and
       // under System default the folder the login shell names, as a pane of the work item would run under it.
-      const child = spawn(cli, claudeArgs(cwd, launch, refresh === true && launch === undefined), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
+      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);
@@ -553,7 +555,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       // A role launch is not the role's until its first line says the session holds the agent. `unchecked` is that
       // agent until the line that settles it, and `refused` is set where it failed the launch: the listener then
       // hears the reason as the run's result, the CLI is stopped, and nothing more of its output is reported.
-      let unchecked = launch?.agent;
+      let unchecked = launch === "refresh" ? undefined : launch.agent;
       let refused = false;
       // Whether the session's login names a key, as the first `init` line says, and nothing until that line: a result
       // that comes before any is marked as converted, and a later `init` line changes nothing.
@@ -583,7 +585,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
         if (control?.subtype === "can_use_tool") waiting.set(control.id, control.request.input);
         // The CLI waits for an answer to every request it makes, so one the adapter does not take is answered as an error.
         else if (control) respond({ subtype: "error", request_id: control.id, error: `Owlery answers no control request of the subtype ${String(control.subtype)}` });
-        for (const event of eventsForLine(line, launch?.tools, keyed === true)) {
+        for (const event of eventsForLine(line, launch === "refresh" ? undefined : launch.tools, keyed === true)) {
           if (event.type === "permission-withdrawn") waiting.delete(event.id);
           // The turn is over, and the end of the input ends the session. An answer given after it is written nowhere: the ended stream takes none.
           if (event.type === "result") child.stdin.end();

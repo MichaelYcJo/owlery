@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -361,6 +361,8 @@ const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-
 
 interface HeadlessSession {
   info: HeadlessInfo;
+  /** The role the session was launched as, which `info.role` carries to the clients, and whose grant answers each request of the session. */
+  role: RoleStage;
   /** What the session's agent is given: `info.prompt`, and for a stage of a chain the diff after it. */
   prompt: string;
   /** The adapter's run, once it has started. */
@@ -377,12 +379,10 @@ interface HeadlessSession {
   named: { id: string; model: string | null } | null;
   /** The wait for the session's time limit. Its end and the daemon's close each cancel it. */
   limit: NodeJS.Timeout | undefined;
-  /** The requests the session waits for the person to answer, by the ids its adapter gave them. They live in memory alone, as the session does, and end with it. */
-  asks: Map<string, PermissionAsk>;
-  /** The top-level folder of the repository's main checkout and the work item's branch, as the store held them when the session was asked, which the session's entry of the ledger names. */
+  /** The top-level folder of the repository's main checkout and the work item's branch, as the store held them when the session began, which the session's entry of the ledger names. */
   repo: string;
   branch: string;
-  /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started, which its entry of the ledger names. */
+  /** The kind and the round of the chain's stage the session was started for, or null for a session no chain started (`startRoleSession`), which its entry of the ledger names. */
   chain: LedgerEntry["chain"];
   /** The account the session was launched under, by its id and its name as they stood at its start, which its entry of the ledger names, or null for a session launched under none, through an adapter that declares no accounts. */
   account: { id: number; name: string } | null;
@@ -431,8 +431,6 @@ export class Daemon {
   private readonly refreshes = new Map<number, AccountRefresh>();
   private readonly refreshStops = new Map<number, () => Promise<void>>();
   private nextHeadlessId = 1;
-  // The ids of the permission requests that wait for the person, counted across every session since the daemon started.
-  private nextPermissionId = 1;
   // The ids of the headless sessions that ended, in the order they ended. The first leaves the list where more ended than the daemon keeps.
   private readonly endedHeadless = new Set<number>();
   private idleTimer: NodeJS.Timeout | undefined;
@@ -1495,41 +1493,6 @@ export class Daemon {
         this.checkIdle();
         return;
       }
-      case "ask": {
-        // A headless session runs in a work item's worktree and nowhere else: in the
-        // daemon's own folder it would read whatever instructions that folder holds.
-        if (typeof message.workItemId !== "number" || typeof message.prompt !== "string" || message.prompt.trim() === "") {
-          this.send(socket, { type: "error", requestId: message.requestId, message: "asking needs a work item and a prompt" });
-          return;
-        }
-        // The pair as the protocol lists it, so a session carries the role and the stage and nothing else a client sent with them.
-        const role = message.role === undefined ? null : roleStageOf(message.role);
-        if (role === undefined) {
-          const named = (typeof message.role === "object" && message.role !== null ? message.role : {}) as { role?: unknown; stage?: unknown };
-          this.send(socket, { type: "error", requestId: message.requestId, message: `no role ${String(named.role)} at the stage ${String(named.stage)}` });
-          return;
-        }
-        // A role session's tools and its answers are its adapter's to keep, so an adapter that declares less launches none.
-        const lacks = role === null ? [] : ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
-        if (lacks.length > 0) {
-          this.send(socket, { type: "error", requestId: message.requestId, message: `the ${this.options.roleAdapter.name} adapter cannot launch a role: it does not declare ${lacks.join(" and ")}` });
-          return;
-        }
-        let own: number | null;
-        try {
-          // The session's own account, where it names one, System default among them.
-          own = this.accountSetting(message.accountId) ?? null;
-        } catch (error) {
-          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-          return;
-        }
-        const worktree = this.worktreeFor(socket, message.requestId, message.workItemId);
-        const held = this.store.workItem(message.workItemId);
-        if (worktree === undefined || held === undefined) return;
-        // The answer first, so the client that asked knows the session as its own when every client is told of it.
-        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, own, "asked", (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
-        return;
-      }
       case "stopHeadless": {
         const session = this.headless.get(message.id);
         if (!session) {
@@ -1594,27 +1557,6 @@ export class Daemon {
           }
         };
         void answer();
-        return;
-      }
-      case "answerPermission": {
-        if (typeof message.allow !== "boolean") {
-          this.send(socket, { type: "error", requestId: message.requestId, message: "an answer to a permission request says whether it allows the call" });
-          return;
-        }
-        for (const session of this.headless.values()) {
-          if (session.info.workItemId !== message.workItemId) continue;
-          for (const [adapterId, ask] of session.asks) {
-            if (ask.id !== message.id) continue;
-            session.asks.delete(adapterId);
-            // The answer first, so the client that asked knows its request was carried out when the inbox carries the work item without the request.
-            this.send(socket, { type: "done", requestId: message.requestId });
-            // An allowance is the one call's, and nothing of it is kept: the same call asks again.
-            session.run?.answer(adapterId, message.allow ? { allow: true } : { allow: false, reason: "The person refused this call." });
-            this.broadcastInbox();
-            return;
-          }
-        }
-        this.send(socket, { type: "error", requestId: message.requestId, message: `no permission request ${String(message.id)} waits in this work item` });
         return;
       }
       case "looked": {
@@ -1753,13 +1695,13 @@ export class Daemon {
     return this.accounts.setLogin(account.id, status);
   }
 
-  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a headless session that works or waits for the machine, and a refresh of its usage. */
+  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a headless session that works or waits for the machine, by its role, and a refresh of its usage. */
   private runningUnder(id: number): string[] {
     const titleOf = (workItemId: number | null): string => (workItemId === null ? "" : (this.store.workItem(workItemId)?.item.title ?? ""));
     const panes = [...this.sessions.values()]
       .filter(({ info }) => info.alive && info.accountId === id)
       .map(({ info }) => (info.signsIn === id ? "its sign-in pane" : `the ${this.options.paneKinds.find((offered) => offered.kind === info.kind)?.label ?? info.kind} pane in "${titleOf(info.workItemId)}"`));
-    const headless = [...this.headless.values()].filter(({ info }) => (info.state === "working" || info.state === "queued") && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
+    const headless = [...this.headless.values()].filter(({ info }) => (info.state === "working" || info.state === "queued") && info.accountId === id).map(({ info, role }) => `the ${role.role}'s session in "${titleOf(info.workItemId)}"`);
     return [...panes, ...headless, ...(this.refreshes.get(id)?.state === "running" ? ["a refresh of its usage"] : [])];
   }
 
@@ -1850,7 +1792,7 @@ export class Daemon {
     try {
       const { id, accountId, headless } = message as { id: unknown; accountId: unknown; headless?: unknown };
       if (typeof id !== "number" || typeof accountId !== "number") throw new Error("A change of account names the pane and the account.");
-      if (headless === true) throw new Error("A session asked in a work item keeps the account it started under. Ask again under the other account.");
+      if (headless === true) throw new Error("A headless session keeps the account it started under.");
       const session = this.sessions.get(id);
       if (!session) throw new Error(`No pane ${String(id)} is open.`);
       const { info } = session;
@@ -2211,22 +2153,16 @@ export class Daemon {
       }
       if (event.type === "permission") {
         // The adapter reports no event before its run is held (`RoleAdapter.start`), so the answer has a run to go to.
-        const verdict = verdictOn(info.role, event, cwd);
+        const verdict = verdictOn(session.role, event, cwd);
         if (verdict.answer === "allow") session.run?.answer(event.id, { allow: true });
-        else if (verdict.answer === "refuse") {
+        else {
           session.refusals.push({ tool: event.tool, action: event.action, rule: verdict.rule });
           session.run?.answer(event.id, { allow: false, reason: verdict.reason });
-        } else {
-          // The person's to answer: the call is held, and the request goes out with its work item. The session's limit runs on meanwhile.
-          session.asks.set(event.id, { id: this.nextPermissionId++, headlessId: info.id, tool: event.tool, action: event.action, text: event.text, at: (this.options.now ?? Date.now)() });
-          this.broadcastInbox();
         }
         return;
       }
-      if (event.type === "permission-withdrawn") {
-        if (session.asks.delete(event.id)) this.broadcastInbox();
-        return;
-      }
+      // Each request was answered by the grant as it arrived, so its withdrawal leaves nothing to take back.
+      if (event.type === "permission-withdrawn") return;
       if (event.type === "text") {
         info.answer += event.text;
         this.headlessChanged(session);
@@ -2241,7 +2177,7 @@ export class Daemon {
       info.answer = event.text;
       this.headlessChanged(session);
     };
-    session.started = this.options.roleAdapter.start({ prompt: session.prompt, cwd, ...(info.role ? { role: info.role } : {}), ...(accountDir === undefined ? {} : { accountDir }) }, onEvent).then(
+    session.started = this.options.roleAdapter.start({ prompt: session.prompt, cwd, role: session.role, ...(accountDir === undefined ? {} : { accountDir }) }, onEvent).then(
       (run) => {
         // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
         if (this.closed || info.state !== "working") void run.stop();
@@ -2265,19 +2201,18 @@ export class Daemon {
   /**
    * Begins a headless session in a work item's worktree: lists it, starts
    * its time limit, tells every client of it and starts its run through the
-   * adapter. An `ask` and a stage of a chain both begin here, so the limit,
-   * the stop, the bound of the ended sessions and the answers by the role's
-   * grant are one for both. `prompt.given` is what the agent is given and
-   * `prompt.shown` what the session lists as its prompt. `first` is called
-   * with the session before any client is told of it, for the answer to the
-   * client that asked. Where the daemon keeps a cap on agents and the
-   * agents that run are at it or over it, the session is listed `queued`
-   * as `rank`, with no limit and no run, and `started` is called with it
-   * once a place frees and it starts (`drainQueue`): its limit and its
-   * `startedAt` count from there. The session keeps the repository's folder and the
-   * branch as the store holds them now, and `chain`, the kind and the round
-   * of the chain's stage it begins for or null for an `ask`, which its entry
-   * of the ledger names. It runs under the account `accountFor` gives now
+   * adapter. A stage of a chain and `startRoleSession` both begin here, so
+   * the limit, the stop, the bound of the ended sessions and the answers by
+   * the role's grant are one for both. `prompt.given` is what the agent is
+   * given and `prompt.shown` what the session lists as its prompt. Where the
+   * daemon keeps a cap on agents and the agents that run are at it or over
+   * it, the session is listed `queued` as `rank`, with no limit and no run,
+   * and `started` is called with it once a place frees and it starts
+   * (`drainQueue`): its limit and its `startedAt` count from there. The
+   * session keeps the repository's folder and the branch as the store holds
+   * them now, and `chain`, the kind and the round of the chain's stage it
+   * begins for or null for one no chain begins, which its entry of the
+   * ledger names. It runs under the account `accountFor` gives now
    * from `own`, the session's own account or null where it names none, the
    * work item's, the repository's and the default, and the adapter is given
    * that account's folder where it has one. Through an adapter that does not
@@ -2285,7 +2220,7 @@ export class Daemon {
    * account and names none in its entry, and its limit values are kept as
    * System default's.
    */
-  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, own: number | null, rank: QueueRank, first?: (info: HeadlessInfo) => void, started?: (info: HeadlessInfo) => void): HeadlessSession {
+  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage, chain: LedgerEntry["chain"], worktree: string, own: number | null, rank: QueueRank, started?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
@@ -2298,6 +2233,7 @@ export class Daemon {
     this.furnish(accountId);
     const session: HeadlessSession = {
       info: { id: this.nextHeadlessId++, workItemId: item.id, prompt: prompt.shown, state: "working", answer: "", error: null, usage: null, startedAt: (this.options.now ?? Date.now)(), errorOutput: "", stopped: null, role, accountId },
+      role,
       prompt: prompt.given,
       run: undefined,
       started: Promise.resolve(undefined),
@@ -2306,7 +2242,6 @@ export class Daemon {
       refusals: [],
       named: null,
       limit: undefined,
-      asks: new Map(),
       repo: repository.folder,
       branch: item.branch,
       chain,
@@ -2335,11 +2270,9 @@ export class Daemon {
           started?.(session.info);
         },
       });
-      first?.(session.info);
       this.headlessChanged(session);
       return session;
     }
-    first?.(session.info);
     this.headlessChanged(session);
     start();
     return session;
@@ -2349,20 +2282,15 @@ export class Daemon {
    * Sends every client one headless session whole, after it changed. A
    * session that has just ended no longer waits for its limit and gets its
    * entry in the ledger, and where more sessions have ended than the daemon
-   * keeps, the one that ended first leaves the list and every client is told. A session that ended
-   * waits for no answer, so the requests it held end unanswered, and every
-   * client is sent the lists without them. A session that waits for the
-   * machine has not ended. The count and the queue are told after it.
+   * keeps, the one that ended first leaves the list and every client is
+   * told. A session that waits for the machine has not ended. The count and
+   * the queue are told after it.
    */
   private headlessChanged(session: HeadlessSession): void {
     this.broadcast({ type: "headless", headless: session.info });
     // A session that works or waits for the machine has not ended.
     const { state } = session.info;
     const ended = state === "finished" || state === "failed";
-    if (ended && session.asks.size > 0) {
-      session.asks.clear();
-      this.broadcastInbox();
-    }
     if (ended && !this.endedHeadless.has(session.info.id)) {
       this.queued.delete(session.info.id);
       clearTimeout(session.limit);
@@ -2797,7 +2725,6 @@ export class Daemon {
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
       ...(read === undefined ? {} : { seal: read.seal }),
-      permissions: [...this.headless.values()].flatMap((session) => (session.info.workItemId === item.id ? [...session.asks.values()] : [])).sort((a, b) => a.id - b.id),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
       machineWait: this.turns.waitOf(item.worktree),
     };
@@ -2928,6 +2855,35 @@ export class Daemon {
       ),
     );
     return done;
+  }
+
+  /**
+   * Starts a headless session of `role` that answers `prompt` in a work
+   * item's worktree, outside any chain, and resolves with a copy of the
+   * session as every client is first told of it. No client message starts a session: a stage
+   * of a chain starts its own (`runStage`), and the cases hold the daemon
+   * and call this, as they call `startChain`. It rejects with a sentence,
+   * and starts nothing, for a work item nothing runs in (`whyNoRun`), an
+   * empty prompt, an account the daemon keeps none under, and an adapter
+   * that cannot launch a role. `accountId` is the session's own account, as
+   * `accountSetting` reads it; without it the session takes the account
+   * `accountFor` gives. Where the cap on agents is reached the session waits
+   * at the queue's last rank, behind every stage of a chain that runs.
+   */
+  async startRoleSession(workItemId: number, prompt: string, role: RoleStage, accountId?: number | null): Promise<HeadlessInfo> {
+    // The sentences the `ask` message was refused with, before release 0.0.5, in the order it read them.
+    if (prompt.trim() === "") throw new Error("asking needs a work item and a prompt");
+    // A role session's tools and its answers are its adapter's to keep, so an adapter that declares less launches none.
+    const lacks = ROLE_FEATURES.filter((feature) => !this.options.roleAdapter.features.includes(feature));
+    if (lacks.length > 0) throw new Error(`the ${this.options.roleAdapter.name} adapter cannot launch a role: it does not declare ${lacks.join(" and ")}`);
+    // The session's own account, where it names one, System default among them.
+    const own = this.accountSetting(accountId) ?? null;
+    // A headless session runs in a work item's worktree and nowhere else: in the daemon's own folder it would read whatever instructions that folder holds.
+    const gone = this.whyNoRun(workItemId);
+    if (gone !== null) throw new Error(gone);
+    const held = this.store.workItem(workItemId);
+    if (!held) throw new Error(`no work item ${String(workItemId)}`);
+    return { ...this.beginHeadless(held, { shown: prompt, given: prompt }, role, null, held.item.worktree, own, "first-stage").info };
   }
 
   /**
@@ -3217,7 +3173,7 @@ export class Daemon {
     this.chainStaged.add(workItemId);
     // The stage as the chain lists it. Where the session waited for the machine, its start replaces the stage with one whose `startedAt` is the start's.
     let working!: ChainStage;
-    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null, rank, undefined, (info) => {
+    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null, rank, (info) => {
       const chain = this.store.workItem(workItemId)?.item.chain;
       const was = working;
       working = { ...was, startedAt: info.startedAt };

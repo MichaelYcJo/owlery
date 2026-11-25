@@ -3,9 +3,9 @@
 // its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
-// above the list of the daemon's chain, where the calls its headless
-// sessions ask the person to allow are answered, and the seal's place with the sentence of
-// the work item's chain, with the work item's pull request under it. The
+// above the list of the daemon's chain and the seal's place with the
+// sentence of the work item's chain, with the work item's pull request
+// under it. The
 // pool of terminal screens the window holds lives here, and so
 // do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
@@ -729,17 +729,6 @@ export function showPaneButtons(): void {
   );
 }
 
-/** One of the two buttons of a call a session asks the person to allow, which sends the person's answer to the request `id` of the work item. `data-answer` names the request and the answer, so a redraw finds the same button again. */
-function answerButton(workItemId: number, id: number, allow: boolean): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.className = "quiet";
-  button.textContent = allow ? "Allow" : "Refuse";
-  button.title = allow ? "Allow this one call" : "Refuse this call: the agent is told the person refused it";
-  button.dataset.answer = `${id}:${allow ? "allow" : "refuse"}`;
-  button.addEventListener("click", () => send({ type: "answerPermission", requestId: request(), workItemId, id, allow }));
-  return button;
-}
-
 /** The broad gate's line of the list of the daemon's chain, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
 function gateItem(workItemId: number, line: GateLine): HTMLLIElement {
   const item = document.createElement("li");
@@ -797,16 +786,12 @@ export function takeGateOutput(requestId: number, output: { text: string; cut: b
  * gate, first, and the work item's headless sessions, or no list where it
  * holds no line. The line of a working session offers
  * "Stop", which asks the daemon to stop it; the daemon answers
- * `done`, and the `headless` that follows carries the session as failed. A
- * session that waits for the person to allow a call says "Needs you" with
- * the waiting mark, and shows each call it waits on as a card with "Allow"
- * and "Refuse"; the daemon answers `done`, and the `inbox` that follows
- * carries the work item without the request. The lines are drawn again only
- * where the list's key is another (./view, `headlessKey`), so every
- * `inbox` that changes nothing they show leaves them, and the keyboard, as
- * they are. Where they are drawn again while the keyboard is on a request's
- * button or on a button of the gate's line, the same button takes it back,
- * where it is still drawn.
+ * `done`, and the `headless` that follows carries the session as failed.
+ * The lines are drawn again only where the list's key is another (./view,
+ * `headlessKey`), so every `inbox` that changes nothing they show leaves
+ * them, and the keyboard, as they are. Where they are drawn again while the
+ * keyboard is on a button of the gate's line, the same button takes it
+ * back, where it is still drawn.
  */
 function showChainList(): void {
   const workItem = viewed();
@@ -832,17 +817,6 @@ function showChainList(): void {
         head.append(stop);
       }
       item.append(head);
-      for (const ask of line.asks) {
-        const card = document.createElement("section");
-        card.className = "permission";
-        const asks = document.createElement("h3");
-        asks.textContent = ask.head;
-        const answers = part("answers", "");
-        answers.append(answerButton(workItem.id, ask.id, true), answerButton(workItem.id, ask.id, false));
-        // The call's text is plain text, never markup, whole, with its line breaks kept by the style.
-        card.append(asks, part("call", ask.text), answers);
-        item.append(card);
-      }
       // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
       item.append(part("answer", line.text));
       if (line.errorOutput) item.append(part("error-output", line.errorOutput));

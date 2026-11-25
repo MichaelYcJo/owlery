@@ -969,7 +969,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(c.messages.flatMap((m) => (m.type === "headless" ? [m.headless.id] : [])).every((id) => id <= 4)).toBe(true);
   });
 
-  it("starts the sessions that wait for the machine in their order, a person's asked session, then a stage of a chain that already ran one, then a chain's first stage, and counts a stage's start and its entry in the ledger from its session's start (scenarios 6 and 7)", async () => {
+  it("starts the sessions that wait for the machine in their order, a stage of a chain that already ran one, then a chain's first stage and a session no chain started, each rank in the order they joined, and counts a stage's start and its entry in the ledger from its session's start (scenarios 6 and 7)", async () => {
     let clock = 1_000;
     // The first two runs are held at their start, so each counts as an agent that runs until the case lets it go.
     const holds = [0, 1].map(() => {
@@ -981,16 +981,16 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     let starts = 0;
     const roleAdapter: RoleAdapter = { ...adapter, start: async (options, listener) => (await holds[starts++]?.promise, adapter.start(options, listener)) };
     const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), sizeOf: () => Promise.resolve(null), memoryOf: () => Promise.resolve(new Map()) };
-    const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter, machine, now: () => clock });
+    const { c, d, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter, machine, now: () => clock });
     // A case that fails lets its runs go before the daemon closes, which waits for its chains.
     cleanups.push(() => holds.forEach(({ resolve }) => resolve()));
     const [a, b] = workItems as [(typeof workItems)[number], (typeof workItems)[number]];
     expect(await c.asked({ type: "setCaps", requestId: 1, agents: 1 })).toMatchObject({ type: "done" });
-    /** The sessions of a queue, each by its role, or `asked` for none, and its work item's title. */
+    /** The sessions of a queue, each by its role and its work item's title. */
     const named = (queue: number[]): string[] =>
       queue.map((id) => {
         const info = c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === id ? [m.headless] : [])).at(-1);
-        return `${info?.role?.role ?? "asked"} ${info?.workItemId === a.id ? "First" : "Second"}`;
+        return `${info?.role?.role ?? "none"} ${info?.workItemId === a.id ? "First" : "Second"}`;
       });
     const queued = (expected: string[]) => c.until(() => c.messages.find((m) => m.type === "machine" && JSON.stringify(named(m.machine.agents.queue)) === JSON.stringify(expected)));
 
@@ -998,27 +998,23 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     await c.message("machine", (m) => m.machine.agents.running === 1);
     expect(await c.startChain(b.id)).toBe("done");
     await queued(["proofer Second"]);
-    const asked = await c.asked({ type: "ask", requestId: 2, workItemId: b.id, prompt: "Which file?" });
-    expect(asked.type === "asked" ? asked.headless.state : asked).toBe("queued");
-    // The asked session joined last and goes first.
-    await queued(["asked Second", "proofer Second"]);
+    // A session no chain started waits at the last rank, behind the first stage that joined before it.
+    expect((await d.startRoleSession(b.id, "Which file?", { role: "sealer", stage: "seal" })).state).toBe("queued");
+    await queued(["proofer Second", "sealer Second"]);
     clock = 5_000;
     holds[0]?.resolve();
-    // Round 1 of the first chain ended and freed its place, which the asked session took, so the fix pass waits, before the second chain's first stage that joined before it.
-    await queued(["crafter First", "proofer Second"]);
+    // Round 1 of the first chain ended and freed its place, which the second chain's first stage took, so the fix pass waits, before the session that joined before it.
+    await queued(["crafter First", "sealer Second"]);
     holds[1]?.resolve();
     await c.chain(a.id, "rested");
     const second = await c.chain(b.id, "rested");
-    expect(started.slice(0, 3).map(({ role, prompt }) => role?.role ?? prompt)).toEqual(["proofer", "Which file?", "crafter"]);
+    expect(started.slice(0, 3).map(({ role }) => role?.role)).toEqual(["proofer", "proofer", "crafter"]);
     // The second chain's round waited from 1,000 and started at 5,000: the stage and its entry count from the start.
     expect(second.stages[0]).toMatchObject({ kind: "round", round: 1, startedAt: 5_000 });
     const round = c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === second.stages[0]?.headlessId ? [m.headless] : [])).at(-1);
     expect(round).toMatchObject({ queuedAt: 1_000, startedAt: 5_000 });
     const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: b.id });
-    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, startedAt }) => [stage?.stage ?? "asked", startedAt]).slice(0, 2) : ledger).toEqual([
-      ["asked", 5_000],
-      ["round", 5_000],
-    ]);
+    expect(ledger.type === "ledger" ? ledger.entries.find(({ chain }) => chain?.kind === "round")?.startedAt : ledger).toBe(5_000);
   });
 
   it("waits as a chain's first stage again where the chain is started anew after it stopped, behind a first stage that joined before it", async () => {
@@ -1467,8 +1463,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe(`The chain of work item ${String(a.id)} is already running.`);
 
       const before = stands(b.worktree);
-      c.send({ type: "ask", requestId: 3, workItemId: b.id, prompt: "Still there?" });
-      await c.message("asked");
+      await d.startRoleSession(b.id, "Still there?", { role: "proofer", stage: "round" });
       const working = `A session of work item ${String(b.id)} is working, and a round reads a tree nothing is changing. Its chain can start once the session has finished.`;
       await refusedWith(stood, b.id, working, before);
       await c.message("headless", (m) => m.headless.workItemId === b.id && m.headless.state === "finished");
@@ -1477,7 +1472,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       d.agentEvent(session.id, "UserPromptSubmit", {});
       await c.until(() => (c.messages.some((m) => m.type === "inbox" && m.sessions.some((each) => each.id === session.id && each.state === "working")) ? true : undefined));
       await refusedWith(stood, b.id, working, before);
-      // Only the ask's session and the first chain's stages ever started.
+      // Only the session the case started and the first chain's stages ever started.
       expect(new Set(c.messages.flatMap((m) => (m.type === "headless" && m.headless.workItemId === b.id ? [m.headless.id] : []))).size).toBe(1);
       expect(c.workItem(b.id)?.chain).toBeNull();
     });
