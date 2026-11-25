@@ -48,13 +48,14 @@ export interface RoleAdapter {
    * its events to `listener`, none of them before the promise resolves. With
    * `role`, the session is launched as that role at that stage, with whatever
    * the adapter's agent takes a role through; without it the session has no
-   * role, which the daemon asks only for a refresh. With `accountDir`, which the daemon gives only an adapter that
-   * declares `accounts`, the session runs under the login that config folder
-   * holds. With `refresh`, which the daemon gives only an adapter that
-   * declares `limit-refresh` and never with a role, the session holds no
-   * tool, takes one turn and writes no transcript, and is started only for
-   * the `limit` events its stream hands over. The promise rejects, with a
-   * message a person can read, where no session started.
+   * role, which the daemon asks only for a refresh. With `accountDir`, which
+   * the daemon gives only an adapter that declares `accounts`, the session
+   * runs under the login that config folder holds. With `refresh`, which the
+   * daemon gives only an adapter that declares `limit-refresh` and never with
+   * a role, the session holds no tool, takes one turn and writes no
+   * transcript, and is started only for the `limit` events its stream hands
+   * over. The promise rejects, with a message a person can read, where no
+   * session started.
    */
   start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string; refresh?: true }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
   /**

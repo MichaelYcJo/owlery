@@ -234,8 +234,8 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * One line of the inbox: the work item, its state, and its new commits. A
  * work item parked with questions for the person waits, whatever its panes
  * say, and so does one whose chain stopped, so each stands with the work
- * items that wait for the person. Otherwise the state is that of its most recent
- * live pane of a kind that reports state. An exited pane keeps its last
+ * items that wait for the person. Otherwise the state is that of its most
+ * recent live pane of a kind that reports state. An exited pane keeps its last
  * state and is passed over, because nothing will change that state again.
  * A work item whose chain is running is at work whatever that pane says,
  * but where the pane waits for the person: the pane of the session that
@@ -261,9 +261,10 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * Since when a line's state has lasted, which its age is counted from: for
  * a work item parked with questions and one whose chain stopped, the
  * earliest of the times the daemon first read one of its open questions at
- * and the time the chain stopped at, all of them the daemon's clock. Otherwise, where the work item's chain runs a stage
- * and the pane the line reads, `session`, does not wait for the person, the
- * time that stage started at. Otherwise the time of that pane's state. Null
+ * and the time the chain stopped at, all of them the daemon's clock.
+ * Otherwise, where the work item's chain runs a stage and the pane the line
+ * reads, `session`, does not wait for the person, the time that stage
+ * started at. Otherwise the time of that pane's state. Null
  * where none gives one, for a work item whose chain is between two stages
  * and alone says that it works, and for one whose pull request or seal
  * gives the line its state (`branchLine`): its pane's time is that of
@@ -1051,9 +1052,9 @@ export function daemonEnding(chosen: DaemonEnd): { head: string; says: string; b
  * works or waits for the machine. A session of a work item the window lists, archived or not,
  * reads as a repository's removal names it (`removalOf`). A live pane of no
  * listed work item reads as its kind's label alone, after the others, and a
- * headless session of none that works or waits by its role alone
- * (`sessionName`). The daemon's end
- * carries no list: it ends what runs at that moment.
+ * headless session of none that works or waits by its name alone
+ * (`sessionName`). The daemon's end carries no list: it ends what runs at
+ * that moment.
  */
 export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): string[] {
   const listed = [...workItems, ...archived];
@@ -1473,8 +1474,8 @@ function waitsOnAnAnswer(workItem: WorkItem, session: SessionInfo | undefined): 
  * The summary screen's controls. Where a changed work item waits, the main
  * one opens a line and the inbox stands beside it: the first line, in the
  * order given, whose work item waits on an open question or a pane that
- * waits, as "Answer the first question", and where none
- * does, the first that waits for another reason, as a broken seal, a stopped
+ * waits, as "Answer the first question", and where none does, the first
+ * that waits for another reason, as a broken seal, a stopped
  * chain or a failed check, as "Open the first that needs you". The hint
  * names the line Enter opens, which may stand after a line that waits for
  * another reason. Otherwise the inbox is the main control and the only one.
@@ -1724,8 +1725,8 @@ export function choiceNote(question: AskedQuestion): string {
 /**
  * The text of a line's second row, and which kind of text it is: for a work
  * item parked with questions the first question, followed by how many more
- * it waits on, as in " (and 2 more questions)"; otherwise, where the work item's chain
- * stopped, the chain's sentence, which says the stage and why, as the
+ * it waits on, as in " (and 2 more questions)"; otherwise, where the work
+ * item's chain stopped, the chain's sentence, which says the stage and why, as the
  * daemon wrote it; otherwise, where `ahead` says a headless session or a
  * heavy command of the work item waits for the machine (`machineAhead`),
  * "Waiting for the machine" and how many go before it, as in "Waiting for

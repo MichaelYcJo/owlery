@@ -5,9 +5,8 @@
 // answers there, and the decisions made for it without asking among it,
 // above the list of the daemon's chain and the seal's place with the
 // sentence of the work item's chain, with the work item's pull request
-// under it. The
-// pool of terminal screens the window holds lives here, and so
-// do the card of the link under the pointer and the menu of a pane.
+// under it. The pool of terminal screens the window holds lives here, and
+// so do the card of the link under the pointer and the menu of a pane.
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";

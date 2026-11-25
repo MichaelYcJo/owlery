@@ -354,9 +354,9 @@ function limitsOf(record: Record<string, unknown>): RoleEvent[] {
  * tool, and the withdrawal of one. Every other line is dropped, a
  * control line of another kind among them, and so is a line that is not
  * JSON. The `init` line gives no event here: a run reports its `session`
- * from `sessionOf`, once. `held` is the tools a role launch named, and nothing for a refresh,
- * which names none: a request for a tool outside them is reported as a call
- * of another kind, with no path. `keyed` is whether the session's login
+ * from `sessionOf`, once. `held` is the tools a role launch named, and
+ * nothing for a refresh, which names none: a request for a tool outside
+ * them is reported as a call of another kind, with no path. `keyed` is whether the session's login
  * names a key (`keyedLogin`), and false where nothing said so.
  */
 export function eventsForLine(line: string, held?: readonly string[], keyed = false): RoleEvent[] {
@@ -476,7 +476,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     name: "claude",
     features: ["role-tools", "permission-requests", "accounts", "limit-refresh"],
     async start({ prompt, cwd, role, accountDir, refresh }, listener) {
-      // The daemon launches a role's session or a refresh, and gives no session that is neither the default tools with nothing to answer its calls.
+      // The daemon launches a role's session or a refresh. A session that is neither would hold Claude Code's default tools with no grant to answer its calls, so none is launched.
       if (!role && refresh !== true) throw new Error("the Claude adapter launches a role or a refresh of an account's usage, and was given neither");
       const launch = role ? launchOf(role) : "refresh";
       const { cli, path, configDir } = await located();

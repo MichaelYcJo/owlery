@@ -2860,9 +2860,9 @@ export class Daemon {
   /**
    * Starts a headless session of `role` that answers `prompt` in a work
    * item's worktree, outside any chain, and resolves with a copy of the
-   * session as every client is first told of it. No client message starts a session: a stage
-   * of a chain starts its own (`runStage`), and the cases hold the daemon
-   * and call this, as they call `startChain`. It rejects with a sentence,
+   * session as every client is first told of it. No client message starts
+   * a session: a stage of a chain starts its own (`runStage`), and the cases
+   * hold the daemon and call this, as they call `startChain`. It rejects with a sentence,
    * and starts nothing, for a work item nothing runs in (`whyNoRun`), an
    * empty prompt, an account the daemon keeps none under, and an adapter
    * that cannot launch a role. `accountId` is the session's own account, as
