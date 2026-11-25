@@ -15,7 +15,7 @@ The tree as read at `ec7816a`.
 **Constraints.**
 
 - Every start is in the background, and the measurement opens no pane, so it draws nothing on the owner's screen and takes no pseudo-terminal.
-- The measuring run and the batch run each start once no other run of the suite is under way on the machine. A run beside another measures the other's load. Work of other worktrees that is no run of the suite is not waited for: the crafter reads the 1-minute load average before and after each of the two runs, and the published file names the readings (`frame/design.md` *Scope* item 4). Phase 1's run read 3.29 and 16.92, and is not made again.
+- The measuring run and the batch run each start once no other run of the suite is under way on the machine. Nothing else on the machine is waited for: the crafter reads the 1-minute load average before and after each of the two runs, and the published file names the readings (`frame/design.md` *Scope* item 4). Phase 1's run read 3.29 and 16.92, and is not made again, on the bound `frame/design.md` *Grounding* states in the paragraph that opens "The measuring run did not have a quiet machine".
 - The crafter runs no `claude`, and no start reads the person's Claude Code config folder: `BuiltApp.start` gives the app a config folder of its own (`built-app.ts:204`), and `SHELL` is `/usr/bin/true`.
 - The suite and the repository-wide typecheck are the orchestrator's broad gate, and no phase runs them.
 
