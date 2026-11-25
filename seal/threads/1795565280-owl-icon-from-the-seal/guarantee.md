@@ -48,3 +48,37 @@ The audit took one step outside the spawn prompt's wait rule. The prompt's loop 
 target: 221e2eb6 against 4a005ebf
 Verdict: sealed
 ```
+
+## Audit at 8f6e6ed1, after the merge of the release branch
+
+The tree is `8f6e6ed1` against `release/v0.0.4`, which now resolves to `7acd9755` through `origin/release/v0.0.4`. Three commits came after the target above: `e6c5bbbe` commits this file, `b00d925c` merges `7acd9755` into the branch, and `8f6e6ed1` records the broad gate. The base brought #209, #204, #203, #205 and #208. Under *The guarantee covers HEAD, and a re-run audits what came after*, this audit re-runs the claims whose coordinates those commits touched: the gate record, the body, scenarios 6 and 7, whose paths include `apps/desktop/src`, `apps/desktop/test` and `docs`, and the case, which reads every file of `dist/`. The other claims above stand on files whose bytes these commits left unchanged, as the second row shows.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only the work item's records follow | `trail/gate.md`, `run: b00d925c against 7acd9755` | `git merge-base --is-ancestor b00d925c HEAD`; `git log --no-merges --name-only b00d925c..HEAD ^7acd9755` | holds (executed): `b00d925c` is an ancestor of HEAD, and the one commit after it, `8f6e6ed1`, touches only `trail/gate.md` |
+| The merge leaves the work item's files as they were at `221e2eb6` | the orchestrator's account of `b00d925c` | `git diff --name-only 4a005ebf...221e2eb6` (19 paths), then `git diff --stat 221e2eb6 HEAD` over those paths | holds (executed): only `trail/gate.md` differs, by its new run block. `guarantee.md` is unchanged since `e6c5bbbe` |
+| HEAD is the new base plus the work item's files and nothing else | the same account | `git diff --name-only 7acd9755 HEAD`, with the 19 paths taken out | holds (executed): only `guarantee.md` is left, so no file outside the work item differs from `7acd9755` |
+| The base's changes do not touch the icon work | the orchestrator's question 2 | `git diff --name-only 4a005ebf 7acd9755` (83 paths), compared with the 19 paths and then read for the icon's files | holds (executed and read): the two lists share no path. The base changes no `build.mjs`, nothing under `assets/`, and no `TRADEMARKS.md`, README, `docs/name.md`, `docs/design.md`, `vitest.config.ts` or `test/built-app.ts`. Its `main.ts` change (#205) adds a `background` channel, which moves the Dock lines without changing them. `package.json` moves to `0.0.4` and adds `test:app` over the `app` project, which takes in `emblem.test.ts`. A search of the base's diff of `src` and `test` for `app-icon`, `assets/`, `setIcon`, `dock`, `emblem` and `build.mjs` finds no line about the icon |
+| The pull request body is `pr.md` above `## From the records` and the records' text below it | the body file `seal pr-body` wrote again | `seal pr-body seal/threads/1795565280-owl-icon-from-the-seal --body <file> --check` | holds (executed): exit 0, "matches" |
+| Scenario 6: nothing the app runs names the archive | `frame/design.md` row 6 | the row's `git grep`, and its control search | holds (executed): exit 1; the control finds `TRADEMARKS.md:33` and `emblem.test.ts:12` and `:43` |
+| Scenario 7: no seal drawing, source, build script, README or policy document changed | `frame/design.md` row 7 | the row's `git diff --quiet`, with `7acd9755` in place of `4a005eb`, since the base itself now changes `apps/desktop/src` and `docs`; then the same with `TRADEMARKS.md` | holds (executed): exit 0, then exit 1 |
+| The case passes at HEAD, with the base's sources in the build | `apps/desktop/test/emblem.test.ts` | the case, run alone in a fresh clone at `8f6e6ed1` (`at-base-2/`), with `OWLERY_BACKGROUND=1`, after no Owlery `vitest` and no `broad_gate.py` ran | holds (executed): 1 file and 1 test passed |
+| The macOS Dock shows owl L when a person starts the app | `gaps.md`; `frame/questions.md` Q2 | none | unverified; the owner answers it, at the next start of the app by hand |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | as in the first audit | the tree at HEAD, whose work item files are those of `221e2eb6` | none. Its coordinates into `main.ts` (`:68-69`, `:210-215`) are the lines at `71e7d23`. At HEAD the same lines stand at `:70-71` and `:216-222`. *Grounding* dates its reading to that commit, and `pr.md` quotes none of those numbers |
+| the build | as in the first audit; the merge adds no change to the work item's files | the diff against `7acd9755` | none |
+| the last round | round 2, unchanged | the work item's diff, which is unchanged since that round | none. No round read `b00d925c`: the rounds arm leaves out the commits the base brought, and the merge changes none of the work item's files |
+| the changelog | unchanged | the tree. "releases 0.0.1 through 0.0.3" still holds after the base's move to 0.0.4, since 0.0.4 has not shipped | none |
+| the orchestrator's part of the pull request body | unchanged `pr.md` | the records it quotes: `seal pr-body --check` exited 0 | none |
+| the orchestrator's account of the merge | `b00d925c` merged `7acd9755` without conflicts, `pnpm-lock.yaml` is unchanged, the broad gate passed at `b00d925c`, and the work item's diff is unchanged | the merge's two parents and the path comparisons above. `pnpm-lock.yaml` is not among the 83 paths the base changed | none. The gate's pass is the orchestrator's record, read and not re-run (rule 2) |
+
+```seal
+target: 8f6e6ed1 against 7acd9755
+Verdict: sealed
+```
