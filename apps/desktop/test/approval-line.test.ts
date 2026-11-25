@@ -12,8 +12,9 @@
 // One more work item stands in the run folder before the app starts, with a
 // chain a daemon stored as stopped, so the view's foot has a chain's sentence
 // to say.
-// The page's `Notification` is replaced by a recorder, so nothing reaches
-// the system's notifications.
+// In the background the page raises nothing of the system's and keeps each
+// notification in `window.__notifications` (src/renderer/notifier.ts), which
+// the cases read.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -119,15 +120,6 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const stored = { id: 1, title: "Stored", branch: "owlery/stored", worktree: storedWorktree, createdAt: Date.now() - 60 * 60_000, baseCommit: null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null, chain: { state: "stopped", says: STORED_SAYS, stages: [], since: Date.now() - 60_000 } };
     const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60 * 60_000, groups: [], workItems: [stored] };
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root }, { writeRun: (runDir) => writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] })) });
-    await app.evaluate(`(() => {
-      window.__notifications = [];
-      window.Notification = class {
-        static permission = "granted";
-        constructor(title, options) {
-          window.__notifications.push({ title, body: options?.body });
-        }
-      };
-    })()`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
 
     // A second client of the daemon makes the work item.

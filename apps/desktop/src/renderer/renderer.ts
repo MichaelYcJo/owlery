@@ -12,7 +12,8 @@
 // the daemon ends, for a restart or for a complete quit, at a choice of the
 // application menu. How a menu is drawn is ./menu. The theme, the appearance
 // and their two controls are ./theme, and the choice of when the Mac is kept awake
-// with its control is ./keep-awake. The sidebar, the list with its preview, a
+// with its control is ./keep-awake. Who raises a notification, the system or,
+// in an app started in the background, the page itself, is ./notifier. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
@@ -21,6 +22,7 @@ import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, Ser
 import { listScreen, type ListScreen } from "./list";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { menuOpen, openMenu } from "./menu";
+import { chooseNotifier, type Kept } from "./notifier";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
@@ -101,8 +103,14 @@ import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initVie
 declare global {
   interface Window {
     owlery: OwleryApi;
+    /** The notifications the page kept in place of the system's, where the app started in the background, which the cases read. Absent in any other start. */
+    __notifications?: Kept[];
   }
 }
+
+// Who raises the page's notifications: the system, or in an app started in the background the page itself, which keeps them (./notifier). Every notification the page raises goes through `notifier.raise`, and this is the page's one construction of the system's.
+const notifier = chooseNotifier(window.owlery.background, (title, body) => new Notification(title, { body }));
+if (window.owlery.background) window.__notifications = notifier.kept;
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -1528,12 +1536,12 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     const inFront = onStage(session.id) && document.hasFocus();
     const notification = notificationFor(before.get(session.id) ?? null, session, inFront, held.workItems, held.paneKinds, held.archived);
     if (!notification) continue;
-    new Notification(notification.title, { body: notification.body }).onclick = () => onNotificationClick(session);
+    notifier.raise(notification.title, notification.body).onclick = () => onNotificationClick(session);
   }
   // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a request's, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions and its requests are answered and its chain is started again, where the lists still hold it.
   const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
   for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
-    new Notification(told.title, { body: told.body }).onclick = () => {
+    notifier.raise(told.title, told.body).onclick = () => {
       void window.owlery.comeForward();
       if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
     };

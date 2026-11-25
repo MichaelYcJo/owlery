@@ -8,8 +8,9 @@
  * the environment. The app then takes neither the system's focus nor, on
  * macOS, a place in the Dock, and its window opens without the keyboard,
  * lets the system's pointer through and draws nothing on the screen
- * (`showInBackground`). Absent, empty or any other value, the app starts as
- * it ships.
+ * (`showInBackground`). Its page raises no notification of the system's, and
+ * keeps each one it would have raised (src/renderer/notifier.ts). Absent,
+ * empty or any other value, the app starts as it ships.
  */
 export function startsInBackground(env: NodeJS.ProcessEnv): boolean {
   return env.OWLERY_BACKGROUND === "1";
