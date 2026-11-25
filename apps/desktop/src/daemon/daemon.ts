@@ -3684,7 +3684,8 @@ export class Daemon {
    * Reads the resident memory of each agent's own process, with one call of
    * the reader for all of them: a live pane of a kind that reports its
    * state, by its process, and a working headless session whose adapter
-   * handed over its process. Where no agent lives it reads nothing. The store keeps each agent's highest. Where
+   * handed over its process. The store forgets every agent that no longer
+   * lives. Where no agent lives it reads nothing. The store keeps each agent's highest. Where
    * the measures changed, every client is told the machine, and a proposal
    * that rose starts the sessions that waited for it.
    */
@@ -3696,6 +3697,8 @@ export class Daemon {
     const agents = new Map<number, string>();
     for (const { info, terminal } of this.sessions.values()) if (info.alive && reports(info.kind)) agents.set(terminal.pid, `pane-${String(info.id)}`);
     for (const { info, run } of this.headless.values()) if (info.state === "working" && run?.pid !== undefined) agents.set(run.pid, `headless-${String(info.id)}`);
+    // The agents that no longer live are forgotten before the early return, so the last one is forgotten once none lives.
+    memory.keepLiving(new Set(agents.values()));
     if (agents.size === 0) return;
     let read: Map<number, number>;
     try {

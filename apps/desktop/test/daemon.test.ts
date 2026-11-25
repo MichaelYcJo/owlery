@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
 import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
@@ -12,7 +12,7 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
-import type { MachineReader } from "../src/daemon/machine";
+import { AgentMemoryStore, type MachineReader } from "../src/daemon/machine";
 import { hookSettings, paneCommands, writeHookSettings } from "../src/daemon/hooks";
 import { readPlugins } from "../src/daemon/claude-plugins";
 import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
@@ -7097,6 +7097,21 @@ describe("the caps on the machine", () => {
     expect(asked.length).toBe(after);
     expect(JSON.parse(readFileSync(join(runDir, "agent-memory.json"), "utf8"))).toEqual([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024, 700 * 1024]);
     expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
+  });
+
+  it("tells the store at each reading which agents live, so it forgets an agent that ended, the last one once none lives", async () => {
+    const living = vi.spyOn(AgentMemoryStore.prototype, "keepLiving");
+    cleanups.push(() => living.mockRestore());
+    const machine: MachineReader = { read: () => READING, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 700 * 1024])) };
+    const { c } = await machined({ machine, measureMs: 50 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 1)).session;
+    await c.until(() => living.mock.calls.some(([names]) => names.has(`pane-${String(pane.id)}`)) || undefined);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    await c.message("machine", (m) => m.machine.agents.running === 0);
+    const after = living.mock.calls.length;
+    await c.until(() => living.mock.calls.length > after || undefined);
+    expect([...(living.mock.calls.at(-1)?.[0] ?? ["none read"])]).toEqual([]);
   });
 
   /** The size of a worktree a daemon of the case stored: 440 MB, at 1,024 bytes a kilobyte. */

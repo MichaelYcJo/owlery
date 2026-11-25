@@ -219,8 +219,9 @@ export class LimitsStore {
  * list, readable by the user alone, and are read at start, so they outlive
  * the daemon. A value of the file that is no whole number above 0 is left
  * out. Given no run directory, they are kept in memory alone. The agents
- * that live are known by a name the daemon gives them; one it forgets, as
- * it ends, is a new agent where its name comes again.
+ * that live are known by a name the daemon gives them. At each reading the
+ * daemon tells the store which agents live, and the store forgets the
+ * others: one it forgot is a new agent where its name comes again.
  */
 export class AgentMemoryStore {
   private kept: { kilobytes: number }[] = [];
@@ -260,8 +261,8 @@ export class AgentMemoryStore {
     return true;
   }
 
-  /** Forgets an agent that ended: its measure stays kept, and a reading under its name is a new agent's. */
-  forget(agent: string): void {
-    this.living.delete(agent);
+  /** Forgets every agent not among `names`, the agents that live now: their measures stay kept, and a reading under one of their names is a new agent's. */
+  keepLiving(names: ReadonlySet<string>): void {
+    for (const agent of [...this.living.keys()]) if (!names.has(agent)) this.living.delete(agent);
   }
 }

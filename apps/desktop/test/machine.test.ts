@@ -247,8 +247,9 @@ describe("the memory of the agents, measured", () => {
     expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
     for (let agent = 2; agent <= 21; agent += 1) store.note(`pane-${String(agent)}`, agent);
     expect(store.kilobytes()).toEqual(Array.from({ length: 20 }, (_, index) => index + 2));
-    // An agent the store forgot is a new agent where its name comes again, as a pane's id does after a restart.
-    store.forget("pane-21");
+    // An agent no longer among the living is forgotten: where its name comes again it is a new agent. One still living keeps its highest.
+    store.keepLiving(new Set(["pane-20"]));
+    expect(store.note("pane-20", 1)).toBe(false);
     expect(store.note("pane-21", 1)).toBe(true);
     expect(new AgentMemoryStore(runDir).kilobytes()).toEqual([...Array.from({ length: 19 }, (_, index) => index + 3), 1]);
   });
