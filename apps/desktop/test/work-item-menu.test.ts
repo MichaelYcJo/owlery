@@ -1130,7 +1130,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     const asideId = await value<number>(`Number(document.querySelector('${SIDEBAR} button.fold[data-repo=${JSON.stringify(aside.repo)}]').closest("section").dataset.repository)`);
     await fromMenu(asideId, "Hide from sidebar");
     await app.until(`!document.querySelector('${repository(asideId)}') && document.getElementById("hidden-repositories")`, "the third repository hidden, and the button that says so");
-    const rows =(): Promise<number> => value(`document.querySelectorAll('${SIDEBAR} section.repository').length`);
+    const rows = (): Promise<number> => value(`document.querySelectorAll('${SIDEBAR} section.repository').length`);
     // The rows the sidebar lists before anything narrows it, which the sentence counts. Earlier cases remove repositories, and the case may run alone, so it counts them.
     const listed = await rows();
     expect(listed).toBeGreaterThan(1);
