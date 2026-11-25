@@ -1094,7 +1094,6 @@ export interface LossSection {
  */
 export function lossSections(loss: WorkItemLoss): LossSection[] {
   const section = (caption: string, rows: LossRow[], count: number): LossSection[] => (rows.length === 0 ? [] : [{ caption, rows, more: count > rows.length ? `and ${count - rows.length} more` : "" }]);
-  const counted = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
   const paths = (listed: readonly string[]): LossRow[] => listed.map((path) => ({ path }));
   const removed = paths([...(loss.branch === null ? [] : [loss.branch]), ...(loss.worktree === null ? [] : [loss.worktree])]);
   const removedHead = loss.branch === null ? "The folder removed from disk" : loss.worktree === null ? "The branch removed from disk" : "The branch and the folder removed from disk";
