@@ -33,6 +33,11 @@ Issue #225. A pane under the owl chain holds four variables of its own: its id, 
 - `spawnPane` (`apps/desktop/src/daemon/daemon.ts`) starts a pane in `{ ...process.env, ...env }`, and a sign-in pane in its command's `env` alone, and `TerminalSession.spawn` (`apps/desktop/src/daemon/pty.ts`) filters that environment through `terminalEnv`. A daemon whose own environment holds the four variables therefore hands `OWLERY_CHAIN` and `OWLERY_BASE` to every pane other than a sign-in pane whose command sets none, and a daemon started in an Owlery pane holds them.
 ```
 
+```seal
+verdict: fixed ca92695b
+answer: The finding holds: `startSession` starts a sign-in pane with `inherit` false, so it never took the daemon's environment. The changelog's line 3 and *Grounding*'s line 8 now read as the two paste-ready texts give them, and the frame's other lines and the changelog's line 5 are unchanged.
+```
+
 ## Confirmations
 
 ```seal
