@@ -30,11 +30,13 @@ import { WINDOW_SIZE } from "./window-size";
 // Finder or in an editor or a terminal for the items of a menu, reads and
 // writes the clipboard, moves a removed repository's folder to the Trash
 // where the person chose it, brings the window forward when the window asks,
-// and on macOS hides the window at its close, so its page keeps raising the
+// tells the window whether the app started in the background, so that its
+// page raises no notification of the system's in such a start, and on macOS
+// hides the window at its close, so its page keeps raising the
 // notifications.
 const userData = app.getPath("userData");
 const runDir = join(userData, "run");
-// A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard, and its window lets the person's pointer through and draws nothing on the screen.
+// A start a test or an agent makes: the app takes neither the system's focus nor the person's keyboard, its window lets the person's pointer through and draws nothing on the screen, and its page raises no notification of the system's.
 // The variable leaves the environment here, so the daemon and the panes' processes start without it.
 const background = takeBackground(process.env);
 // The program `OWLERY_OPENER` names, which acts in place of the system's browser and of Finder. The variable leaves the environment here too.
@@ -191,6 +193,10 @@ app.whenReady().then(() => {
     event.returnValue = readAppearance(userData);
   });
   ipcMain.handle(Channel.saveAppearance, (_event, choice: unknown): void => writeAppearance(userData, lookChoice(choice)));
+  // Answered at every load, so a window that reloads in the background still raises no notification of the system's (src/renderer/notifier.ts).
+  ipcMain.on(Channel.background, (event) => {
+    event.returnValue = background;
+  });
   // The window is told each app's name and kind, and never where its bundle stands.
   ipcMain.handle(Channel.installedApps, (): InstalledApp[] => installedApps(openers.exists, openers.home).map(({ name, kind }) => ({ name, kind })));
   ipcMain.handle(Channel.openFolder, (_event, folder: unknown, name: unknown): Promise<string | null> => openFolder(folder, name, openers));
