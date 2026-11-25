@@ -7,6 +7,8 @@ The judgments the issue left open that the tree answered, each with its grounds 
 - Which rule replaces "one of them is enough for `no`": `plan.md` *Alternatives considered*, rows A and B.
 - Whether the chain stops at all where a `no` would only restart the same fix pass: `plan.md` *Alternatives considered*, rows B, C and D.
 - Whether a records-only `regression:` line stays a signal: `plan.md` *Alternatives considered*, row H.
+- How the third signal counts a records-only finding (round-1#1): `plan.md` *Alternatives considered*, row B1.
+- Whether a crafter's fix pass writes the frame lines that state the fact it corrects (round-1#2): `plan.md` *Alternatives considered*, rows J, K and L.
 - Whether AgenticSeal needs a matching issue: `frame/design.md` *Grounding*, the two AgenticSeal 0.39.0 rows, and *The paired AgenticSeal issue*.
 - Whether the policy root changes: `frame/design.md` `## Rule changes`.
 
