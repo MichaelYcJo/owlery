@@ -8,7 +8,7 @@ Read at `d4a63f35`.
 - `spawnPane` (`apps/desktop/src/daemon/daemon.ts`) starts a pane in `{ ...process.env, ...env }`, and `TerminalSession.spawn` (`apps/desktop/src/daemon/pty.ts`) filters that merged environment through `terminalEnv`. A daemon whose own environment holds the four variables therefore hands `OWLERY_CHAIN` and `OWLERY_BASE` to every pane whose command sets none, and a daemon started in an Owlery pane holds them.
 - `gateEnvironment` (`apps/desktop/src/daemon/gate.ts`) gives the broad gate's command the pane's environment through `terminalEnv`, without `TERM` and `COLORTERM`. The chain command's `gate` runs in a pane, so the suite and every daemon a case starts inherit the four variables.
 - `OWLERY_RUN_DIR` is not a pane's: the app sets it for the daemon it starts (`apps/desktop/src/main/daemon-client.ts`), each pane inherits it, and the chain command reads it (`apps/desktop/src/daemon/chain-command.ts`).
-- Executed in the pane of `balmy-bison` (issue #176) at `e098fc7a`: `test/daemon.test.ts`'s group "a Claude Code pane and the owl chain" failed 6 of 17 cases under the pane's environment, and passed 17 with the four variables unset, `OWLERY_RUN_DIR` kept.
+- Executed in the pane of `balmy-bison` (issue #176), at `e098fc7a`: `test/daemon.test.ts`'s group "a Claude Code pane and the owl chain" failed 6 of 17 cases under the pane's environment, and passed 17 with the four variables and `OWLERY_RUN_DIR` unset. Executed in the same pane, in this work item's worktree at `5cb81763`: the group passed 17 with the four variables unset and `OWLERY_RUN_DIR` kept.
 
 ## Scope
 
@@ -24,7 +24,7 @@ Out: `OWLERY_RUN_DIR`, `OWLERY_BACKGROUND` and every other variable of Owlery's 
 |---|---|---|
 | 1 | A daemon started in an Owlery pane launches a Claude Code pane on the owl chain and a shell. The first carries its own chain, base, id and socket. The shell carries no chain and no base, its own id and socket, and both keep the daemon's run folder. | check: apps/desktop/test/daemon.test.ts |
 | 2 | The broad gate's environment, built from a pane's, holds none of the four variables, and keeps `OWLERY_RUN_DIR` and `OWLERY_BACKGROUND`. | check: apps/desktop/test/gate.test.ts |
-| 3 | `test/daemon.test.ts`'s group "a Claude Code pane and the owl chain" passes when the suite runs in a pane that holds the four variables. | The session's run in the pane of `balmy-bison`, and the broad gate this work item's chain runs from that pane |
+| 3 | `test/daemon.test.ts`'s group "a Claude Code pane and the owl chain" passes when the suite runs in a pane that holds the four variables. | The session's run of the group in the pane of `balmy-bison`, which holds the four variables (`gaps.md` *Not verified*). The broad gate cannot hold this row: `gateEnvironment` takes the four variables out before the suite starts (`apps/desktop/src/daemon/gate.ts`), so under the gate the group runs without them. What the gate runs of this condition is scenario 1's case, which sets the four variables in the suite's own process. |
 
 ## Rule changes
 
