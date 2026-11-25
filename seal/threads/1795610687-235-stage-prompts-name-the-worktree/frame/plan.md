@@ -30,7 +30,7 @@ The failure scenario of the chosen approach, six months on: a new stage prompt i
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 7 of `design.md`. | The new case of `apps/desktop/test/chain-command.test.ts` (*Scope* item 5), shown red against the grounding commit's `chain.ts` before it is committed, and green after. The changed cases of `apps/desktop/test/chain.test.ts`, run narrow. Then `git grep -n -e 'this folder' -e "the session's folder" -- apps/desktop/src/daemon/chain.ts apps/desktop/test/chain.test.ts` prints nothing. No built-app case: the work changes no window and no pane. The full suite is the orchestrator's broad gate. | |
+| 1 | *Scope* items 1 to 7 of `design.md`. | The new case of `apps/desktop/test/chain-command.test.ts` (*Scope* item 5), shown red against the grounding commit's `chain.ts` before it is committed, and green after. The changed cases of `apps/desktop/test/chain.test.ts`, run narrow. Then `git grep -n -e 'this folder' -e "the session's folder" -- apps/desktop/src/daemon/chain.ts apps/desktop/test/chain.test.ts` prints nothing. No built-app case: the work changes no window and no pane. The full suite is the orchestrator's broad gate. | 05af4fb1 |
 
 ## Overlap with the release
 
