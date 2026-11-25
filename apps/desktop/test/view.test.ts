@@ -31,6 +31,7 @@ import {
   cardStaysAt,
   chainNotifications,
   chainSays,
+  stageAhead,
   machineQueue,
   queuedAhead,
   changedSet,
@@ -1757,10 +1758,18 @@ describe("a work item's chain", () => {
     expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
 
-  it("says at the view's foot that a running chain waits for the machine while its stage's session is queued, with how many go before it (scenario 4)", () => {
-    expect(chainSays(RUNNING, 2)).toBe("Waiting for the machine (2 ahead)");
-    expect(chainSays(RUNNING, 0)).toBe("Waiting for the machine");
-    expect(chainSays(RUNNING, null)).toBe("Review round 1 is running.");
+  it("says at the view's foot that a running chain waits for the machine while the session of the stage it begins is queued, with how many go before it, and keeps the stage's sentence while only a session a person asked waits (scenario 4)", () => {
+    const queue = (ids: number[]): Machine => ({ ...MACHINE, agents: { ...MACHINE.agents, queue: ids } });
+    // The running chain's stage is session 3.
+    expect(stageAhead(RUNNING, queue([9, 3]))).toBe(1);
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9, 3])))).toBe("Waiting for the machine (1 ahead)");
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([3])))).toBe("Waiting for the machine");
+    // The stage works, and a question a person asked in the work item waits: the foot keeps the stage's sentence.
+    expect(stageAhead(RUNNING, queue([9]))).toBeNull();
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9])))).toBe("Review round 1 is running.");
+    expect(stageAhead(RUNNING, null)).toBeNull();
+    // A chain that does not run waits for nothing, whatever its last stage's session is.
+    expect(stageAhead(PARKED, queue([3]))).toBeNull();
     // A chain that stopped says why, whatever of the work item still waits.
     expect(chainSays(STOPPED, 1)).toBe(STOPPED_SAYS);
   });

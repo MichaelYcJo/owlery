@@ -1523,6 +1523,14 @@ export function queuedAhead(workItemId: number, headless: readonly HeadlessInfo[
   return at < 0 ? null : at;
 }
 
+/** How many sessions go before the session of the stage a work item's running chain begins, in the daemon's queue, or null where that session does not wait for the machine, where the chain does not run, and against a daemon that keeps no cap. A session a person asked in the work item is not the chain's, and counts for nothing here. */
+export function stageAhead(workItem: WorkItem, machine: Machine | null): number | null {
+  const chain = chainOf(workItem);
+  const id = chain?.state === "running" ? chain.stages.at(-1)?.headlessId : undefined;
+  const at = id === undefined || id === null ? -1 : (machine?.agents.queue.indexOf(id) ?? -1);
+  return at < 0 ? null : at;
+}
+
 /** The sessions that wait for the machine, as the Machine dialog lists them under the agent row in the order they start: each by its work item's title and what it waits to run, a chain's stage by the stage's name and a person's question by its prompt. A session the window holds no line of is listed by its number. */
 export function machineQueue(machine: Machine | null, headless: readonly HeadlessInfo[], workItems: readonly WorkItem[]): { title: string; waits: string }[] {
   return (machine?.agents.queue ?? []).map((id) => {
@@ -3187,8 +3195,10 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
  * the seal's words: where the chain of the daemon stands. It is empty where
  * no chain ran for the work item, and for a daemon of an earlier build,
  * which sends no chain. Nothing in the window starts a chain, so the foot
- * holds nothing to press. While a running chain's stage waits for the
- * machine, `ahead` counts the sessions before it, and the foot says so.
+ * holds nothing to press. While the session of the stage a running chain
+ * begins waits for the machine, `ahead` counts the sessions before it
+ * (`stageAhead`), and the foot says so; a session a person asked that waits
+ * leaves the stage's sentence.
  */
 export function chainSays(workItem: WorkItem, ahead: number | null = null): string {
   const chain = chainOf(workItem);
