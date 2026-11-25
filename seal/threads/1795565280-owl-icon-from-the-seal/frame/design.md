@@ -35,7 +35,7 @@ What the tree and the probe answered:
 | No case reads the icon's files or the Dock's icon | `executed`: `git grep -n -i -e 'setIcon' -e 'cream' -e 'app-icon' -- apps/desktop/test` printed nothing. `apps/desktop/test/approval-line.test.ts:280` names `owl.svg`, so a search of that folder finds a drawing's name where one stands |
 | A test file that imports `buildApp` from `./built-app` runs in the suite's `app` project, one file at a time, after every other file (`apps/desktop/vitest.config.ts:13-17`, `:27`). A case there reads `dist/` with no other build beside it. `apps/desktop/test/role-bundle.test.ts:279-288` already reads what a build copied, by bytes | `read` |
 | The blobs of the icon's files at `71e7d23`: `app-icon.svg` is `869ae1cca97fee82ccb24759716a27f130a364e2`, `app-icon-small.svg` is `5f972c9e2bc721aa1c87ffa68e91f109c5ae5132`, and `app-icon.png` is `db0e194740a834b94abe5a22e76caa7a62b78202`. The icon dates from `7f85f414` of 2026-11-19, and the tags `v0.0.1`, `v0.0.2` and `v0.0.3` hold that commit | `executed`: `git rev-parse 71e7d23:<path>`, `git log --follow`, `git tag --contains 7f85f414` |
-| The archive's name is free, and the searches of scenarios 6 and 7 below run as written | `executed` at `71e7d23`: `git grep -n -e 'earlier-2026-11-19' 71e7d23 -- . ':!seal/threads'` printed nothing and exited 1; scenario 6's search printed nothing and exited 1; scenario 7's `git diff --quiet` exited 0. None of them can fail before the build, and each scenario's cell says where it can after it |
+| The archive's name is free, and the searches of scenarios 6 and 7 below run at the top of the repository | `executed` at `71e7d23`, at the top of the repository: `git grep -n -e 'earlier-2026-11-19' 71e7d23 -- . ':!seal/threads'` printed nothing and exited 1; scenario 6's search printed nothing and exited 1; scenario 7's `git diff --quiet` exited 0. None of them can fail before the build, and each scenario's cell says where it can after it |
 
 ## Scope
 
@@ -61,7 +61,7 @@ Out:
 
 ## User scenarios & acceptance *(mandatory)*
 
-Commands run in `apps/desktop`. A SHA-256 below is the one librsvg 2.58.4 gives.
+The commands of scenarios 1 to 4 run in `apps/desktop`. The commands of scenarios 5 to 8 run at the top of the repository, because their paths start there and git reads a pathspec from the directory it runs in: run in `apps/desktop`, the searches of scenarios 6 to 8 match no path and cannot fail. A SHA-256 below is the one librsvg 2.58.4 gives.
 
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
@@ -85,7 +85,7 @@ Commands run in `apps/desktop`. A SHA-256 below is the one librsvg 2.58.4 gives.
 - The 51 kept elements are the body, the eight circles of the two eyes, the beak, the 24 paths of the five chest rows (data holding ` q 11 16 22 0`), the two wing lines with three ticks under each, the branch, its two leaves with a vein in each, and the two feet with their lines.
 - Each `stroke-width` is the group's multiplied by 1.8 and written to one decimal: 3 becomes 5.4, 3.2 becomes 5.8, 4 becomes 7.2, 4.5 becomes 8.1, 5 becomes 9.0, 9 becomes 16.2 and 18 becomes 32.4.
 
-The file is written by hand as source: one element to a line, the parts in the order above, and a comment that names each part. Layout and comments are free. The elements, their order and their numbers are not, because scenario 1 holds the picture to the candidate's.
+The file is source that the tree holds with no script that writes it: one element to a line, the parts in the order above, and a comment that names each part. Whether a hand or a throwaway script outside the tree writes it is free. Layout and comments are free. The elements, their order and their numbers are not, because scenario 1 holds the picture to the candidate's.
 
 **`assets/icon/app-icon-small.svg`.** The same file with two differences. The chest paths and the wing ticks are left out, which leaves 21 elements in the mask. Each `stroke-width` is the group's multiplied by 3.0: 3 becomes 9.0, 4 becomes 12.0, 4.5 becomes 13.5, 5 becomes 15.0, 9 becomes 27.0 and 18 becomes 54.0.
 
@@ -100,7 +100,7 @@ The file is written by hand as source: one element to a line, the parts in the o
 - A new entry names the folder `apps/desktop/assets/icon/earlier-2026-11-19/` and each file in it. It says that they are the emblem as releases 0.0.1 through 0.0.3 showed it, the owl of `owl-icon-cream.svg` taken out of its wax; that the build copies none of them; and that copying them over the files of the same names in `apps/desktop/assets/icon/` puts the earlier emblem back.
 - The closing paragraph keeps its first sentence, on the two seal drawings. Its second sentence, "The emblem's owl is the seal's little owl taken out of its wax.", becomes two: the emblem's owl is drawn from `owl.svg` and is a drawing of its own, and a later change to `owl.svg` changes the emblem only where somebody draws the emblem again.
 
-**`test/emblem.test.ts`.** One `describe`, one case, in the form of `test/role-bundle.test.ts:279-288`. It imports `buildApp` from `./built-app`, so the suite runs it in the `app` project. It starts no app.
+**`test/emblem.test.ts`.** One `describe`, one case, in the form of `test/role-bundle.test.ts:279-288`. Before the case searches `dist/` for the archive's bytes, it asserts that the archive holds the files *Scope* item 4 names, so an archive that was emptied or moved fails the case and does not pass it. It imports `buildApp` from `./built-app`, so the suite runs it in the `app` project. It starts no app.
 
 ## Rule changes
 
