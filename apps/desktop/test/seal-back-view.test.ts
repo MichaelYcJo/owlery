@@ -112,6 +112,22 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
         else resolve(created);
       });
     })) as [WorkItem, WorkItem, WorkItem];
+    // A rename gives each work item its branch, on which the records below are committed, as a person gives a work item with no branch yet its branch.
+    const branched = (item: WorkItem, requestId: number): Promise<WorkItem> =>
+      new Promise((resolve) => {
+        const listen = (event: MessageEvent): void => {
+          const message = JSON.parse(String(event.data)) as ServerMessage;
+          const found = message.type === "inbox" ? message.workItems.find((each) => each.id === item.id && each.branch !== null) : undefined;
+          if (found === undefined) return;
+          opened.removeEventListener("message", listen);
+          resolve(found);
+        };
+        opened.addEventListener("message", listen);
+        opened.send(JSON.stringify({ type: "renameWorkItem", requestId, id: item.id, title: item.title, branch: true }));
+      });
+    sealed = await branched(sealed, 11);
+    broken = await branched(broken, 12);
+    plain = await branched(plain, 13);
 
     const base = git(made.repo, "rev-parse", "HEAD").trim();
     fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: branchOf(sealed), base, symptom: SYMPTOM });

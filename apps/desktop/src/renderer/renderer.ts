@@ -1728,7 +1728,7 @@ function createWorkItem(): void {
   const requestId = request();
   formRequest = requestId;
   formError.textContent = "";
-  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon cuts the work item after that fetch, and the status line says what a failed one gave.
+  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon makes the work item after that fetch, and the status line says what a failed one gave.
   createdBase = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.

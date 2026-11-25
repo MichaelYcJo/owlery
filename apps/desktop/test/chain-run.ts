@@ -20,7 +20,7 @@ import { MARKER } from "../src/daemon/records-place";
 import { gateText, guaranteeText } from "../src/daemon/seal-records";
 import { createWorktree } from "../src/daemon/worktrees";
 import type { Chain, ClientMessage, LedgerEntry, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
-import { git, temporaryRepository, unbranched, writeStore } from "./repositories";
+import { branchedWorktree, git, temporaryRepository, writeStore } from "./repositories";
 
 /** The token the cases' daemons take. */
 export const TOKEN = "t".repeat(64);
@@ -291,11 +291,12 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * given each worktree by a link beside its repository's folder, as a person
  * may give a folder, while git names it by its real path. With
  * `branchless: true` each work item has no branch yet: its worktree's `HEAD`
- * is detached at its commit, the branch its creation cut is removed, a tag
- * `held-<id>` holds the commit, so no read takes it for a commit made in the
- * worktree and makes the work item's branch, and the store the daemon reads
- * holds no branch for it, though `workItems` still names the removed
- * branch.
+ * is detached at its commit, as a creation with no branch picked leaves it, a
+ * tag `held-<id>` holds the commit, so no read takes it for a commit made in
+ * the worktree and makes the work item's branch, and the store the daemon
+ * reads holds no branch for it. Without it each work item's branch is the one
+ * Owlery makes at a first commit or a rename (`branchedWorktree`), made
+ * before the commit.
  */
 export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean; branchless?: boolean } = {}) {
   const { root = true, gate = "true", apart = false, linked = false, branchless = false, ...daemonOptions } = options;
@@ -315,20 +316,17 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
   const workItems = [];
   for (const [index, title] of titles.entries()) {
     const own = apart && index > 0 ? repository() : made;
-    const place = await createWorktree({ folder: own.repo, title, root: own.root });
+    const place = branchless ? await createWorktree({ folder: own.repo, title, root: own.root }) : await branchedWorktree({ folder: own.repo, title, root: own.root });
     write(place.worktree, "feature.txt", "A greeting\n");
     commitAll(place.worktree, "feat: greet");
     const link = join(own.base, `linked-${String(index + 1)}`);
     if (linked) symlinkSync(place.worktree, link);
-    // A work item with no branch yet stands on the commit its creation's branch held, which is then removed. The tag keeps a read from making its branch there.
-    if (branchless) {
-      unbranched(own.repo, place);
-      git(place.worktree, "tag", `held-${String(index + 1)}`);
-    }
+    // The tag keeps a read from making the branch of a work item with no branch yet at its commit.
+    if (branchless) git(place.worktree, "tag", `held-${String(index + 1)}`);
     workItems.push({ id: index + 1, title, createdAt: 1, ...place, worktree: linked ? link : place.worktree });
     if (own !== made) bareRemote(own.base, own.repo);
   }
-  if (branchless) writeStore(runDir, made.repo, workItems.map((item) => ({ ...item, branch: null, ownsBranch: false })));
+  if (branchless) writeStore(runDir, made.repo, workItems);
   else writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
   const remote = bareRemote(made.base, made.repo);
   const gh = ghStandIn(cleanups, made.base);

@@ -485,7 +485,7 @@ export class Daemon {
   private holdsDisplay = false;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
   private readonly fetches: BaseFetches;
-  // What takes or gives up a branch runs one after another: a creation, a rename that renames or makes a branch, the branch a read gives a work item with no branch yet (`branchUp`), and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, a rename and a read never both make a work item's branch, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
+  // What takes or gives up a folder or a branch runs one after another: a creation, which takes a folder and checks out the branch a person picked, or makes the local branch of a remote's branch they picked, a rename that renames or makes a branch, the branch a read gives a work item with no branch yet (`branchUp`), and a delete. So two creations of one title never pick the same folder, two creations never check out one branch, a rename never takes the name of the branch a creation makes, a rename and a read never both make a work item's branch, and a creation never checks out a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
   private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
@@ -931,12 +931,13 @@ export class Daemon {
             checkNaming(message);
             // A base that is no string never reaches git, and one that is reaches it only as a ref the repository holds.
             if (message.base !== undefined && typeof message.base !== "string") throw new Error(`a work item starts from a branch's name, and ${JSON.stringify(message.base)} is none`);
-            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
+            // So does a branch to check out.
+            if (message.branch !== undefined && typeof message.branch !== "string") throw new Error(`a work item checks out a branch by its name, and ${JSON.stringify(message.branch)} is none`);
+            const place = await createWorktree({ folder: message.repo, title: message.title, name: message.name, base: message.base, branch: message.branch, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase, fetches: this.fetches });
             // The included paths are copied before the work item is listed, so no pane of it starts before they stand. The command runs only as the form showed it.
             const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
-            // A work item nobody named is called what its branch and its folder are, the number they got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
-            // The creation cut the branch, so it is Owlery's.
-            const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place, ownsBranch: true });
+            // A work item nobody named is called what its folder is, the number it got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
+            const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
             // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
             this.times.drop([stored.item.id]);
             this.flushTimes();
@@ -944,10 +945,15 @@ export class Daemon {
             this.dropGateOutput(stored.item.id);
             // A creation is also how a repository is added, so the inbox below says what it holds of the records place.
             this.readRecords(stored.repository);
-            // The branch was cut at its base commit a moment ago, so it holds nothing new and git is not asked.
-            this.commitCounts.set(stored.item.id, 0);
-            if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
-            this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
+            if (place.branch === null) {
+              // The worktree was checked out at its base commit a moment ago, so it holds nothing new and git is not asked.
+              this.commitCounts.set(stored.item.id, 0);
+              if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
+              this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
+            } else {
+              // A branch the person picked holds whatever commits it holds, so git is asked, for its seal too.
+              await this.readBranch(stored);
+            }
             // The setup pane starts first, and the answer carries the pane the creation named. A worktree whose setup runs no pane is measured now, and one whose setup runs at that pane's exit.
             if (this.startSetup(socket, message, stored.item.id, place.worktree, setup)?.state !== "running") this.measureWorktree(stored.item.id);
             const workItem = this.workItemOf(stored);
@@ -2431,7 +2437,7 @@ export class Daemon {
    * The base a pane's environment names for the chain command: what round
    * 1's target would name for the work item (`chain.ts#roundBase`), which is
    * its base branch where the target line takes the name, and otherwise the
-   * commit it was cut at. Null where the work item records neither: a launch
+   * commit its work starts from (`baseCommit`). Null where the work item records neither: a launch
    * reads no head, and the chain command then asks for `--base`.
    */
   private paneBase(workItemId: number): string | null {
@@ -3222,8 +3228,8 @@ export class Daemon {
    * (`chain.ts#baseOf`): the one round 1's record names, where the head
    * holds that record in the work item's directory, and otherwise the one
    * the work item stores, which git reads as the base branch where that
-   * names a commit and as the commit the branch was cut at where it does
-   * not. `directory` is null for a work item with no directory yet.
+   * names a commit and as the commit the work starts from (`baseCommit`)
+   * where it does not. `directory` is null for a work item with no directory yet.
    */
   private async chainBase(item: Held["item"], directory: string | null, head: string): Promise<ChainBase> {
     const { worktree, baseBranch, baseCommit } = item;

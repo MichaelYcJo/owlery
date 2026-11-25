@@ -56,6 +56,15 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   let workItem: WorkItem;
   /** The second client of the daemon: a work item of a title as the daemon last listed it, and a message it sends. */
   let second: { item(title: string): WorkItem | undefined; send(message: ClientMessage): void; close(): void };
+  /** Gives a work item a creation made its branch by a rename to its own name, through the second client, as a person gives a work item with no branch yet its branch, and gives the work item once the lists carry the branch. */
+  const branched = async (item: WorkItem, requestId: number): Promise<WorkItem> => {
+    second.send({ type: "renameWorkItem", requestId, id: item.id, title: item.title, branch: true });
+    for (const deadline = Date.now() + 15_000; Date.now() < deadline; await new Promise((resolve) => setTimeout(resolve, 50))) {
+      const now = second.item(item.title);
+      if (now?.branch) return now;
+    }
+    throw new Error(`the work item ${item.title} was given no branch`);
+  };
 
   function script(name: string, body: string): string {
     const path = join(made.base, name);
@@ -132,7 +141,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
       send: (message) => socket.send(JSON.stringify(message)),
       close: () => socket.close(),
     };
-    workItem = await new Promise<WorkItem>((resolve) => {
+    const created = await new Promise<WorkItem>((resolve) => {
       socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(String(event.data)) as ServerMessage;
@@ -141,6 +150,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         if (message.type === "workItemCreated") resolve(message.workItem);
       });
     });
+    workItem = await branched(created, 11);
 
     // One commit after the base, and the records a stage writes: the routing that names the branch, and two rounds.
     commitFile(workItem.worktree, "login.ts");
@@ -225,7 +235,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, with no sentence of a chain and nothing to press at the foot, and marks the sealer's place finished", async () => {
     second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
-    gamma = second.item("Gamma")!;
+    gamma = await branched(second.item("Gamma")!, 12);
     sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
     for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });

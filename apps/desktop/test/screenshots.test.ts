@@ -107,11 +107,10 @@ import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
 import { PARKED_SAYS, pullRequestOpenSays, routingText } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
-import { createWorktree } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
+import { branchedWorktree, branchOf, commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, roundRecord, TODAY, write } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
@@ -580,13 +579,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
     writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
     writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
-    // The two work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
+    // The two work items the run stores before the app starts, each in a worktree made from `main`, on the branch Owlery makes at a first commit (`branchedWorktree`). The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
     const stored = Date.now();
-    const parkedAt = await createWorktree({ folder: made.repo, title: PARKED, root: made.root });
+    const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
     commitSeal(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
     writeFileSync(join(parkedAt.worktree, "seal", "threads", PARKED_RECORDS, RECORD_FILE), ASKED_OF_PARKED.reduce(withQuestion, ""));
-    const finishedAt = await createWorktree({ folder: made.repo, title: FINISHED, root: made.root });
+    const finishedAt = await branchedWorktree({ folder: made.repo, title: FINISHED, root: made.root });
     const unsealed = commitFile(finishedAt.worktree, "export.ts");
     commitSealedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
     const sealedAt = git(finishedAt.worktree, "rev-parse", "HEAD").trim();
@@ -647,6 +646,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.until(`!document.getElementById("work-item-dialog").open && !document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
       // The events follow the pane's start at once: a Claude Code pane that says nothing for ten seconds is listed as waiting.
       for (const event of events) feed(createdPane(await listed(), title).id, event);
+      // A rename to its own name gives the work item its branch, as a person gives one with no branch yet its branch, so its line and its view show a branch as a work item that has commits does.
+      const created = (await listed()).workItems.find((item) => item.title === title);
+      if (!created) throw new Error(`the daemon lists no work item ${title}`);
+      await listed({ type: "renameWorkItem", requestId: 900 + created.id, id: created.id, title, branch: true });
+      for (const deadline = Date.now() + 15_000; !(await listed()).workItems.find((item) => item.id === created.id)?.branch; await new Promise((resolve) => setTimeout(resolve, 100))) {
+        if (Date.now() >= deadline) throw new Error(`the rename gave ${title} no branch`);
+      }
       if (setup === null) continue;
       const begun = await setupOf(title);
       if (begun?.state !== "running" || begun.paneId === null) throw new Error(`the setup of ${title} is not running in a pane: ${JSON.stringify(begun)}`);

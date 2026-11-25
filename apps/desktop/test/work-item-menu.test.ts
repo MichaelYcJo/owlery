@@ -24,6 +24,7 @@ import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
+import { slugFor } from "../src/daemon/worktrees";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 describe("the menus in the built app", { timeout: 30_000 }, () => {
@@ -186,7 +187,13 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuGone();
   }
 
-  /** Creates a work item through the form, with a pane of the shell kind, and waits for its view. */
+  /**
+   * Creates a work item through the form, with a pane of the shell kind,
+   * waits for its view, and gives it its branch `owlery/<slug of the name>`
+   * by a rename to its own name with the dialog's choice taken, as a person
+   * gives a work item with no branch yet its branch. The cases read the
+   * branch of each work item, its menu's "Copy branch name" among it.
+   */
   async function create(name: string, repo?: string): Promise<void> {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -203,6 +210,14 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
+    const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((each) => each.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.dataset.workItem)`);
+    const branch = `owlery/${slugFor(name)}`;
+    await renameTo(id, name);
+    await says("rename-plan", `The branch becomes ${branch}.`);
+    await app.click("#rename-branch");
+    await app.click("#rename-submit");
+    await app.until(`!document.getElementById("rename-dialog").open`, "the rename dialog closed");
+    await app.until(`document.getElementById("view-branch").textContent === ${JSON.stringify(branch)}`, `the branch ${branch} in the view`);
   }
 
   /** Opens the rename dialog of a work item from its menu in the sidebar, and types a name over the one it holds. */

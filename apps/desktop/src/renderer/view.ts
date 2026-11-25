@@ -1825,7 +1825,7 @@ export function lineBadge(workItem: WorkItem, look: Look | null): string {
  * fact in a view, "main · 6 ahead · 2 behind". Ahead counts the commits the
  * base branch does not hold, and behind the commits the base holds that the
  * branch does not. Where no base branch is recorded it is left out with
- * behind, and the count is of the commits since the branch was cut. A count
+ * behind, and the count is of the commits since its base commit. A count
  * is left out where the daemon read none, and behind is left out where a
  * daemon of an earlier build sent no such field.
  */

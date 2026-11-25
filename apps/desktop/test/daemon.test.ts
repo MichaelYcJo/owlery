@@ -24,14 +24,14 @@ import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
-import { branchOf, commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin, unbranched, writeStore } from "./repositories";
+import { branchedWorktree, branchOf, commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin, writeStore } from "./repositories";
 import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
 import { VIEW_FIELDS } from "../src/daemon/github";
 
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
-/** What a branch just cut holds since its base. */
+/** What a work item just made holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
 const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
@@ -170,11 +170,12 @@ function clone(branch?: string) {
   return made;
 }
 
-/** A run folder that lists one work item, made before the daemon that reads it, whose branch holds one new commit. */
+/** A run folder that lists one work item, made before the daemon that reads it, whose branch, the one Owlery makes at a first commit (`branchedWorktree`), holds one new commit. */
 async function runFolderWithWorkItem(made: { repo: string; root: string; base: string }, title: string) {
   const runDir = join(made.base, "run");
   mkdirSync(runDir);
-  const place = await createWorktree({ folder: made.repo, title, root: made.root });
+  // An entry of `work-items.json` says nothing of whether Owlery made its branch, as no build that wrote one did.
+  const { ownsBranch: _owns, ...place } = await branchedWorktree({ folder: made.repo, title, root: made.root });
   git(place.worktree, "commit", "--quiet", "--allow-empty", "-m", "one");
   const workItem = { id: 1, title, createdAt: 1, ...place };
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
@@ -184,11 +185,11 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
 /**
  * A daemon whose store lists one work item with no branch yet, number 1,
  * named `title`, written before the daemon that reads it: the worktree a
- * creation made, its `HEAD` detached at a commit of its own that no branch
- * holds, and the branch the creation cut removed. The tag `lone` holds that
- * commit, so no read takes it for a commit made in the worktree and makes the
- * work item's branch: a case makes one with a commit of its own. `branches`
- * gives the repository's local branches as git names them.
+ * creation made with no branch picked, its `HEAD` detached at a commit of
+ * its own that no branch holds. The tag `lone` holds that commit, so no read
+ * takes it for a commit made in the worktree and makes the work item's
+ * branch: a case makes one with a commit of its own. `branches` gives the
+ * repository's local branches as git names them.
  */
 async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}, title = "No branch yet") {
   const made = temporaryRepository();
@@ -196,14 +197,29 @@ async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}, title =
   const runDir = join(made.base, "run");
   mkdirSync(runDir);
   const { repo: _repo, ...place } = await createWorktree({ folder: made.repo, title, root: made.root });
-  unbranched(made.repo, place);
   const lone = commitFile(place.worktree, "lone.txt");
   git(made.repo, "tag", "lone", lone);
-  writeStore(runDir, made.repo, [{ id: 1, title, createdAt: 1, ...place, branch: null, ownsBranch: false }]);
+  writeStore(runDir, made.repo, [{ id: 1, title, createdAt: 1, ...place }]);
   const { url } = await daemon({ runDir, worktreesRoot: made.root, ...options });
   const c = await client(url);
   await c.message("ready");
   return { made, runDir, c, worktree: place.worktree, lone, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
+}
+
+type Client = Awaited<ReturnType<typeof client>>;
+
+/**
+ * Gives a work item a creation made, with no branch picked, its branch as a
+ * rename gives it: a `renameWorkItem` of its own name with `branch: true`,
+ * which makes `owlery/<slug of the name>` at its worktree's `HEAD`. A case
+ * whose work item needs a branch after its creation takes it this way. The
+ * work item comes back as the lists carry it once it has the branch.
+ */
+async function branchedByRename(c: Client, workItem: WorkItem, requestId: number): Promise<WorkItem> {
+  c.send({ type: "renameWorkItem", requestId, id: workItem.id, title: workItem.title, branch: true });
+  await c.message("done", (m) => m.requestId === requestId);
+  const inbox = await c.message("inbox", (m) => m.workItems.some((w) => w.id === workItem.id && w.branch !== null));
+  return inbox.workItems.find((w) => w.id === workItem.id)!;
 }
 
 /** A daemon whose run folder lists one work item, number 1, in which a pane starts. */
@@ -473,20 +489,22 @@ describe("work items", () => {
     return made;
   }
 
-  it("creates a work item and opens a pane whose process runs in its worktree", async () => {
+  it("creates a work item and opens a pane whose process runs in its worktree, which stands detached at the base, and the repository gains no branch", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ commandFor: printsItsFolder, worktreesRoot: root, now: () => 1234 });
     const c = await client(url);
     expect((await c.message("ready")).workItems).toEqual([]);
+    const branches = () => git(repo, "for-each-ref", "refs/heads");
+    const before = branches();
     c.send({ type: "createWorkItem", requestId: 3, repo, title: "Fix the login bug", kind: "claude", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated", (m) => m.requestId === 3);
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
-    // The repository's HEAD is on `main`, and its folder is named `project`. The creation cut the branch, so Owlery made it.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", ownsBranch: true, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    // The repository's HEAD is on `main`, and its folder is named `project`. No branch was picked, so the creation made none.
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
-    expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
-    expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
+    expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\nHEAD ${baseCommit}\ndetached\n`);
+    expect([branches(), git(worktree, "branch", "--show-current").trim()]).toEqual([before, ""]);
     // The creating client receives the pane's output, as with a pane it started.
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === created.session.id && m.data.includes(`cwd=${worktree}\r`)) ? true : undefined));
     const later = await client(url);
@@ -502,8 +520,9 @@ describe("work items", () => {
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Keys", kind: "shell", cols: 80, rows: 24 });
     const created = await c.message("workItemCreated");
+    // The reversal is committed on the work item's branch, which a rename gives it.
+    const directory = withDirectory(await branchedByRename(c, created.workItem, 9));
     // Two decisions, one of them reversed, a park with a question that names options, and a block the reader refuses, so that the lists carry a decision, a question, an option and an unread line.
-    const directory = withDirectory(created.workItem);
     d.decided(created.workItem.id, { kind: "default", says: "Start from main.", grounds: "The repository's default base." });
     d.decided(created.workItem.id, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file." });
     c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
@@ -555,7 +574,7 @@ describe("work items", () => {
     }
   });
 
-  it("gives a second work item of the same title a branch and a folder ending in -2, though both are asked at once", async () => {
+  it("gives a second work item of the same title a folder ending in -2, though both are asked at once, and neither a branch", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root });
     const c = await client(url);
@@ -564,11 +583,11 @@ describe("work items", () => {
     c.send({ type: "createWorkItem", requestId: 2, repo, title: "Fix the login bug", kind: "shell", cols: 80, rows: 24 });
     const first = await c.message("workItemCreated", (m) => m.requestId === 1);
     const second = await c.message("workItemCreated", (m) => m.requestId === 2);
-    expect(first.workItem).toMatchObject({ id: 1, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug") });
-    expect(second.workItem).toMatchObject({ id: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2") });
+    expect(first.workItem).toMatchObject({ id: 1, branch: null, worktree: join(root, "project", "fix-the-login-bug") });
+    expect(second.workItem).toMatchObject({ id: 2, branch: null, worktree: join(root, "project", "fix-the-login-bug-2") });
   });
 
-  it("names a work item nobody named with one generated name, as its title, its branch and its folder, and stores a typed title without the white space at its ends", async () => {
+  it("names a work item nobody named with one generated name, as its title and its folder, and stores a typed title without the white space at its ends", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, random: () => 0.5 });
     const name = generateName(() => 0.5);
@@ -578,19 +597,19 @@ describe("work items", () => {
       c.send({ type: "createWorkItem", requestId, repo, kind: "shell", cols: 80, rows: 24, ...fields });
       return (await c.message("workItemCreated", (m) => m.requestId === requestId)).workItem;
     };
-    expect(await create(1, { title: "" })).toMatchObject({ title: name, branch: `owlery/${name}`, worktree: join(root, "project", name) });
-    expect(git(repo, "for-each-ref", "--format=%(refname)", "refs/heads/owlery").trim()).toBe(`refs/heads/owlery/${name}`);
+    expect(await create(1, { title: "" })).toMatchObject({ title: name, branch: null, worktree: join(root, "project", name) });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${join(root, "project", name)}\n`);
-    // The same draw again: the title carries the number the branch and the folder got.
-    expect(await create(2, { title: " \t" })).toMatchObject({ title: `${name}-2`, branch: `owlery/${name}-2`, worktree: join(root, "project", `${name}-2`) });
-    // A title that leaves no slug is the work item's title as typed, and the name sent names its branch.
-    expect(await create(3, { title: " 로그인 버그 ", name: "amber-heron" })).toMatchObject({ title: "로그인 버그", branch: "owlery/amber-heron" });
-    expect(await create(4, { title: " Fix the login bug ", name: "amber-heron" })).toMatchObject({ title: "Fix the login bug", branch: "owlery/fix-the-login-bug" });
+    // The same draw again: the title carries the number the folder got.
+    expect(await create(2, { title: " \t" })).toMatchObject({ title: `${name}-2`, worktree: join(root, "project", `${name}-2`) });
+    // A title that leaves no slug is the work item's title as typed, and the name sent names its folder.
+    expect(await create(3, { title: " 로그인 버그 ", name: "amber-heron" })).toMatchObject({ title: "로그인 버그", worktree: join(root, "project", "amber-heron") });
+    expect(await create(4, { title: " Fix the login bug ", name: "amber-heron" })).toMatchObject({ title: "Fix the login bug", worktree: join(root, "project", "fix-the-login-bug") });
     // An empty title with a name sent is called by that name.
-    expect(await create(5, { title: "", name: "quiet-otter" })).toMatchObject({ title: "quiet-otter", branch: "owlery/quiet-otter" });
+    expect(await create(5, { title: "", name: "quiet-otter" })).toMatchObject({ title: "quiet-otter", worktree: join(root, "project", "quiet-otter") });
+    expect(git(repo, "for-each-ref", "refs/heads/owlery")).toBe("");
   });
 
-  it("cuts a work item at the base its creation names: a local branch, a remote's branch no local branch bears, and the local branch where both bear the name, each without an upstream", async () => {
+  it("starts a work item at the base its creation names, detached at it: a local branch, a remote's branch no local branch bears, and the local branch where both bear the name", async () => {
     const { repo, origin, root } = clone();
     git(origin, "branch", "--quiet", "shadow");
     git(origin, "checkout", "--quiet", "-b", "remote-only");
@@ -601,7 +620,6 @@ describe("work items", () => {
     // A local branch that bears the name of the remote's `shadow`, at another commit than it.
     git(repo, "branch", "--quiet", "origin/shadow");
     git(repo, "checkout", "--quiet", "main");
-    git(repo, "config", "branch.autoSetupMerge", "always");
     const first = git(repo, "rev-parse", "refs/remotes/origin/shadow").trim();
     expect(new Set([first, feature, remoteOnly]).size).toBe(3);
     const { url } = await daemon({ worktreesRoot: root });
@@ -610,8 +628,7 @@ describe("work items", () => {
     const create = async (requestId: number, base: string) => {
       c.send({ type: "createWorkItem", requestId, repo, title: `From ${requestId}`, base, kind: "shell", cols: 80, rows: 24 });
       const { workItem } = await c.message("workItemCreated", (m) => m.requestId === requestId);
-      expect(git(repo, "for-each-ref", "--format=%(upstream)", `refs/heads/${workItem.branch}`).trim()).toBe("");
-      expect(git(repo, "rev-parse", `refs/heads/${workItem.branch}`).trim()).toBe(workItem.baseCommit);
+      expect([workItem.branch, git(workItem.worktree, "rev-parse", "HEAD").trim()]).toEqual([null, workItem.baseCommit]);
       return [workItem.baseBranch, workItem.baseCommit, workItem.aheadOfBase, workItem.behindBase];
     };
     expect(await create(1, "feature")).toEqual(["feature", feature, 0, 0]);
@@ -647,6 +664,55 @@ describe("work items", () => {
     expect(c.messages.some((m) => m.type === "workItemCreated")).toBe(false);
   });
 
+  it("checks out a local branch a creation names as it stands, adds no branch, keeps it as one Owlery did not make and reads what it holds since the commit it shares with the base; and checks out a remote's branch as a local branch of its name that tracks it, which is Owlery's", async () => {
+    const { repo, origin, root } = clone();
+    const fork = git(repo, "rev-parse", "HEAD").trim();
+    git(repo, "checkout", "--quiet", "-b", "feat/login");
+    commitFile(repo, "login.txt");
+    git(repo, "checkout", "--quiet", "main");
+    git(origin, "checkout", "--quiet", "-b", "remote-only");
+    const remoteOnly = commitFile(origin, "remote.txt");
+    git(origin, "checkout", "--quiet", "main");
+    git(repo, "fetch", "--quiet", "origin");
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    const branches = () => git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").trim().split("\n");
+    expect(branches()).toEqual(["feat/login", "main"]);
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "On the feature", branch: "feat/login", kind: "shell", cols: 80, rows: 24 });
+    const local = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    expect(local).toMatchObject({ branch: "feat/login", ownsBranch: false, baseCommit: fork, baseBranch: "origin/main", newCommits: 1, aheadOfBase: 1, behindBase: 0 });
+    expect([local.commits?.map(({ subject }) => subject), branches(), git(local.worktree, "branch", "--show-current").trim()]).toEqual([["add login.txt"], ["feat/login", "main"], "feat/login"]);
+    c.send({ type: "createWorkItem", requestId: 2, repo, title: "From the remote", branch: "origin/remote-only", kind: "shell", cols: 80, rows: 24 });
+    const tracking = (await c.message("workItemCreated", (m) => m.requestId === 2)).workItem;
+    expect(tracking).toMatchObject({ branch: "remote-only", ownsBranch: true, baseCommit: fork, newCommits: 1 });
+    expect([branches(), git(repo, "for-each-ref", "--format=%(upstream:short)", "refs/heads/remote-only").trim(), git(repo, "rev-parse", "refs/heads/remote-only").trim()]).toEqual([["feat/login", "main", "remote-only"], "origin/remote-only", remoteOnly]);
+  });
+
+  it("names in a plan each branch a worktree has checked out with that worktree's folder, and refuses a creation that names one, or none of the repository's, saying so, and creates nothing", async () => {
+    const { repo, root } = repository();
+    git(repo, "branch", "--quiet", "feat/login");
+    const { url } = await daemon({ worktreesRoot: root });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo, title: "First", branch: "feat/login", kind: "shell", cols: 80, rows: 24 });
+    const first = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
+    c.send({ type: "planWorkItem", requestId: 2, repo, title: "Second" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 2)).held).toEqual([{ branch: "main", folder: repo }, { branch: "feat/login", folder: first.worktree }]);
+    const held = () => [git(repo, "for-each-ref"), git(repo, "worktree", "list", "--porcelain"), readdirSync(join(root, "project"))];
+    const before = held();
+    const refused = async (requestId: number, branch: unknown) => {
+      c.send({ type: "createWorkItem", requestId, repo, title: "Second", branch, kind: "shell", cols: 80, rows: 24 });
+      return (await c.message("error", (m) => m.requestId === requestId)).message;
+    };
+    expect(await refused(3, "feat/login")).toBe(`The branch feat/login is checked out in ${first.worktree}, so a new work item cannot check it out.`);
+    expect(await refused(4, "main")).toBe(`The branch main is checked out in ${repo}, so a new work item cannot check it out.`);
+    expect(await refused(5, "nope")).toBe(`${repo} has no branch nope to check out`);
+    expect(await refused(6, 7)).toBe("a work item checks out a branch by its name, and 7 is none");
+    expect(held()).toEqual(before);
+    expect((await (await client(url)).message("ready")).workItems.map(({ id }) => id)).toEqual([first.id]);
+  });
+
   it("answers a plan with the branch and the folder a creation would get, and creates nothing", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, random: () => 0.5 });
@@ -660,10 +726,10 @@ describe("work items", () => {
       c.send({ type: "planWorkItem", requestId, repo, ...fields });
       return await c.message("workItemPlan", (m) => m.requestId === requestId);
     };
-    // A work item's own branch is a local branch, and a base as any other.
+    // The work item made first has no branch yet, so the branch a making of this title gives is free, and the folder is taken.
     const planned = await plan(2, { title: "Fix the login bug" });
-    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug-2", worktree: join(root, "project", "fix-the-login-bug-2"), localBases: ["main", "owlery/fix-the-login-bug"], remoteBases: [], defaultBase: "main", setupCommand: null, includes: false });
-    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "includes", "localBases", "remoteBases", "requestId", "setupCommand", "type", "worktree"]);
+    expect(planned).toEqual({ type: "workItemPlan", requestId: 2, branch: "owlery/fix-the-login-bug", worktree: join(root, "project", "fix-the-login-bug-2"), held: [{ branch: "main", folder: repo }], localBases: ["main"], remoteBases: [], defaultBase: "main", setupCommand: null, includes: false });
+    expect(Object.keys(planned).sort()).toEqual(["branch", "defaultBase", "held", "includes", "localBases", "remoteBases", "requestId", "setupCommand", "type", "worktree"]);
     // The name sent names the branch where the title leaves no slug, and a generated name where neither does.
     expect(await plan(3, { title: "로그인 버그", name: "amber-heron" })).toMatchObject({ branch: "owlery/amber-heron", worktree: join(root, "project", "amber-heron") });
     const name = generateName(() => 0.5);
@@ -698,6 +764,7 @@ describe("work items", () => {
       requestId: 1,
       branch: "owlery/listed",
       worktree: join(root, "project", "listed"),
+      held: [{ branch: "feature", folder: repo }],
       localBases: ["feature", "main", "recent", "origin/shadow"],
       remoteBases: ["origin/main", "origin/remote-only", "origin/older"],
       defaultBase: "origin/main",
@@ -1789,10 +1856,13 @@ describe("repositories", () => {
     const { url } = await daemon({ runDir, worktreesRoot: root, commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
+    // Each work item is given its branch by a rename, so the removal has a branch to delete.
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Nothing to lose", kind: "shell", cols: 80, rows: 24 });
-    const clean = await c.message("workItemCreated", (m) => m.requestId === 1);
+    const createdClean = await c.message("workItemCreated", (m) => m.requestId === 1);
+    const clean = { ...createdClean, workItem: await branchedByRename(c, createdClean.workItem, 21) };
     c.send({ type: "createWorkItem", requestId: 2, repo, title: "Holds a file", kind: "shell", cols: 80, rows: 24 });
-    const held = await c.message("workItemCreated", (m) => m.requestId === 2);
+    const createdHeld = await c.message("workItemCreated", (m) => m.requestId === 2);
+    const held = { ...createdHeld, workItem: await branchedByRename(c, createdHeld.workItem, 22) };
     writeFileSync(join(held.workItem.worktree, "untracked.txt"), "kept\n");
     const stamps = { [clean.workItem.id]: (await readLoss(repo, clean.workItem.branch, clean.workItem.worktree)).stamp, [held.workItem.id]: (await readLoss(repo, held.workItem.branch, held.workItem.worktree)).stamp };
     const told = { workItems: [clean.workItem.id, held.workItem.id], running: { panes: [clean.session.id, held.session.id], headless: [] } };
@@ -1973,7 +2043,7 @@ describe("what a person sets on a work item", () => {
   // A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
   const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
 
-  /** A daemon on a run folder of the repository's temporary folder, a client of it, and a work item the client created. */
+  /** A daemon on a run folder of the repository's temporary folder, a client of it, and a work item the client created, given its branch `owlery/first-name` by a rename (`branchedByRename`). */
   async function withWorkItem(made: { repo: string; root: string; base: string }, options: Partial<DaemonOptions> = {}) {
     const title = "First name";
     const runDir = join(made.base, "run");
@@ -1982,8 +2052,8 @@ describe("what a person sets on a work item", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
-    const { workItem, session } = await c.message("workItemCreated", (m) => m.requestId === 100);
-    await c.message("inbox", (m) => m.workItems.length === 1);
+    const { workItem: created, session } = await c.message("workItemCreated", (m) => m.requestId === 100);
+    const workItem = await branchedByRename(c, created, 101);
     c.messages.length = 0;
     return { c, url, runDir, workItem, session };
   }
@@ -2265,7 +2335,8 @@ describe("what a person sets on a work item", () => {
     held.release();
     await c.message("workItemCreated", (m) => m.requestId === 1);
     await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(branches()).toBe("main\nowlery/beside-it\n");
+    // The creation picked no branch, so it made none either.
+    expect(branches()).toBe("main\n");
     expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("HEAD");
     expect((await c.message("inbox", (m) => m.archived.length > 0)).archived).toMatchObject([{ id: 1, branch: null }]);
   });
@@ -2274,20 +2345,21 @@ describe("what a person sets on a work item", () => {
     const made = repository();
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
-    const { repo: _repo, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root });
-    writeStore(runDir, made.repo, [{ id: 1, title: "Picked", createdAt: 1, ...picked, ownsBranch: false }]);
+    git(made.repo, "branch", "--quiet", "picked");
+    const { repo: _repo, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root, branch: "picked" });
+    writeStore(runDir, made.repo, [{ id: 1, title: "Picked", createdAt: 1, ...picked }]);
     const { url } = await daemon({ runDir, worktreesRoot: made.root });
     const c = await client(url);
     await c.message("ready");
-    const kept = "The branch owlery/picked is not one Owlery made, so it keeps its name.";
+    const kept = "The branch picked is not one Owlery made, so it keeps its name.";
     c.send({ type: "planRename", requestId: 1, id: 1, title: "Second name" });
     expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: "owlery/second-name", blocked: kept });
     c.send({ type: "renameWorkItem", requestId: 2, id: 1, title: "Second name", branch: true });
     expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(kept);
     c.send({ type: "renameWorkItem", requestId: 3, id: 1, title: "Second name", branch: false });
     await c.message("done", (m) => m.requestId === 3);
-    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Second name")).workItems[0]).toMatchObject({ branch: "owlery/picked", ownsBranch: false });
-    expect(git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").trim().split("\n")).toEqual(["main", "owlery/picked"]);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Second name")).workItems[0]).toMatchObject({ branch: "picked", ownsBranch: false });
+    expect(git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").trim().split("\n")).toEqual(["main", "picked"]);
   });
 
   it("sends no list read from a branch's old name while the branch is being renamed", async () => {
@@ -2331,12 +2403,16 @@ describe("what a person sets on a work item", () => {
   });
 
   it("runs a rename of a branch after a creation that is under way, so the two never take one branch", async () => {
-    const made = repository();
+    const made = temporaryClone();
+    cleanups.push(made.remove);
+    git(made.origin, "branch", "--quiet", "owlery/taken-name");
+    git(made.repo, "fetch", "--quiet", "origin");
     const { c, workItem } = await withWorkItem(made);
     const held = heldGit(made.base);
-    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Taken name", kind: "shell", cols: 80, rows: 24 });
+    // The creation checks out the remote's branch as a local branch of its name, the one the rename's name gives.
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Picked", branch: "origin/owlery/taken-name", kind: "shell", cols: 80, rows: 24 });
     c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Taken name", branch: true });
-    // The creation chose its branch and waits in `git worktree add`. A plan is a read, and does not wait behind it.
+    // The creation made its branch and waits in `git worktree add`. A plan is a read, and does not wait behind it.
     c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "Meanwhile" });
     await c.message("renamePlan", (m) => m.requestId === 3);
     expect(c.messages.map((m) => m.type)).toEqual(["renamePlan"]);
@@ -2345,6 +2421,7 @@ describe("what a person sets on a work item", () => {
     await c.message("done", (m) => m.requestId === 2);
     expect((await c.message("inbox", (m) => m.workItems.some((w) => w.id === workItem.id && w.title === "Taken name"))).workItems.map((w) => w.branch).sort()).toEqual(["owlery/taken-name", "owlery/taken-name-2"]);
     expect(git(made.repo, "branch", "--list", "owlery/*").trim().split("\n").map((line) => line.trim())).toEqual(["+ owlery/taken-name", "+ owlery/taken-name-2"]);
+    expect(git(made.repo, "for-each-ref", "--format=%(upstream:short)", "refs/heads/owlery/taken-name").trim()).toBe("origin/owlery/taken-name");
   });
 
   const ARCHIVED = "work item 1 is archived, restore it first";
@@ -2565,12 +2642,12 @@ describe("what a person sets on a work item", () => {
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
     const { repo: _none, ...none } = await createWorktree({ folder: made.repo, title: "No branch yet", root: made.root });
-    unbranched(made.repo, none);
-    const { repo: _picked, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root });
+    git(made.repo, "branch", "--quiet", "picked");
+    const { repo: _picked, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root, branch: "picked" });
     commitFile(picked.worktree, "picked.txt");
     writeStore(runDir, made.repo, [
-      { id: 1, title: "No branch yet", createdAt: 1, ...none, branch: null, ownsBranch: false },
-      { id: 2, title: "Picked", createdAt: 1, ...picked, ownsBranch: false },
+      { id: 1, title: "No branch yet", createdAt: 1, ...none },
+      { id: 2, title: "Picked", createdAt: 1, ...picked },
     ]);
     // The `ready` waits for the first read, and the next is a minute away.
     const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, readyWaitMs: 60_000 });
@@ -2837,7 +2914,7 @@ describe("what a person sets on a work item", () => {
     expect(pathsIn(left.workItem.worktree)).toEqual(["README.md", "untracked.txt"]);
   });
 
-  it("runs a delete after a creation that is under way, so the two never take and give up one branch at once", async () => {
+  it("runs a delete after a creation that is under way", async () => {
     const made = repository();
     const { c, workItem, session } = await withWorkItem(made);
     const loss = await lossOf(c, workItem.id);
@@ -2852,7 +2929,8 @@ describe("what a person sets on a work item", () => {
     held.release();
     await c.message("workItemCreated", (m) => m.requestId === 1);
     await c.message("done", (m) => m.requestId === 2);
-    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("+ owlery/under-way");
+    // The delete removed the branch a rename gave the first, and the creation, which picked none, made none.
+    expect(git(made.repo, "branch", "--list", "owlery/*").trim()).toBe("");
   });
 });
 
@@ -3479,7 +3557,7 @@ describe("the inbox", () => {
     expect((await (await client(url)).message("ready")).sessions).toEqual([]);
   });
 
-  it("shows a commit made in a work item's worktree as one new commit, with its hash, its subject, its time, its lines and the file it changed, and no agent state for its shell pane", async () => {
+  it("shows a commit made in a work item's worktree as one new commit, with its hash, its subject, its time, its lines and the file it changed, on the branch the read makes at it, and no agent state for its shell pane", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root, commitPollMs: 40 });
     const c = await client(url);
@@ -3491,8 +3569,9 @@ describe("the inbox", () => {
     const newest = (subject: string) => ({ hash: git(workItem.worktree, "rev-parse", "--short", "HEAD").trim(), subject, at: Number(git(workItem.worktree, "log", "-1", "--format=%ct").trim()) * 1000, added: 1, removed: 0 });
     commit(workItem.worktree, "one.txt");
     const one = newest("add one.txt");
-    const inbox = await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
-    expect(inbox.workItems).toEqual([{ ...workItem, aheadOfBase: 1, newCommits: 1, commits: [one], changes: { files: 1, added: 1, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }] } }]);
+    // The work item has no branch until a read finds the commit, and the read makes it there. The branch's making and the read's counts each send an inbox, in either order.
+    const inbox = await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1 && m.workItems[0].aheadOfBase === 1 && m.workItems[0].branch !== null);
+    expect(inbox.workItems).toEqual([{ ...workItem, branch: "owlery/committed-to", ownsBranch: true, aheadOfBase: 1, newCommits: 1, commits: [one], changes: { files: 1, added: 1, removed: 0, list: [{ path: "one.txt", added: 1, removed: 0 }] } }]);
     expect(inbox.sessions).toEqual([{ ...session, state: null }]);
     commit(workItem.worktree, "two.txt");
     const two = newest("add two.txt");
@@ -3508,14 +3587,15 @@ describe("the inbox", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Amended", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
+    // A rename gives the work item its branch, so each read is of the branch.
+    const workItem = await branchedByRename(c, (await c.message("workItemCreated")).workItem, 2);
     const watched = watchedGit(base);
-    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the cut, and for the commits ahead of the base branch and behind it. */
+    /** Waits until the daemon has read the counts three more times. A read runs `rev-list` twice: for the commits since the base commit, and for the commits ahead of the base branch and behind it. */
     const threeReads = async (): Promise<void> => {
       const reads = watched.calls("rev-list");
       await c.until(() => (watched.calls("rev-list") >= reads + 6 ? true : undefined));
     };
-    // The branch was just cut, and its head is where the creation left it.
+    // The branch was just made, and its head is where the creation left the worktree.
     await threeReads();
     expect([watched.calls("log"), watched.calls("diff")]).toEqual([0, 0]);
     commit(workItem.worktree, "one.txt");
@@ -3527,8 +3607,8 @@ describe("the inbox", () => {
     expect(amended.workItems[0]).toMatchObject({ newCommits: 1, commits: [{ subject: "add one, said better", added: 1, removed: 0 }] });
     await threeReads();
     expect([watched.calls("log"), watched.calls("diff")]).toEqual([2, 2]);
-    // One for the creation, one for the commit and one for the amended one.
-    expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, "add one.txt", "add one, said better"]);
+    // One for the creation, one for the rename, one for the commit and one for the amended one.
+    expect(inboxes(c).map((m) => m.workItems[0]?.commits?.[0]?.subject)).toEqual([undefined, undefined, "add one.txt", "add one, said better"]);
   });
 
   it("tells every client how far a work item's branch is ahead of its base branch and how far behind it: behind by a commit the base gained while the branch's head stayed, not ahead by the commits the base gained and the branch merged in, and by none either way once the base holds the branch", async () => {
@@ -3537,19 +3617,20 @@ describe("the inbox", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
+    // A rename gives the work item its branch, which the base later merges.
+    const workItem = await branchedByRename(c, (await c.message("workItemCreated")).workItem, 2);
     expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["main", 0, 0]);
     const counts = (m: Inbox) => [m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits];
     commit(workItem.worktree, "own.txt");
     await c.message("inbox", (m) => counts(m).join() === "1,0,1");
     const head = git(workItem.worktree, "rev-parse", "HEAD").trim();
     commit(repo, "on-main.txt");
-    // The branch's head and its counts since the cut stay, and the inbox is for the base that moved.
+    // The branch's head and its counts since the base commit stay, and the inbox is for the base that moved.
     const behind = await c.message("inbox", (m) => counts(m).join() === "1,1,1");
     expect(git(workItem.worktree, "rev-parse", "HEAD").trim()).toBe(head);
     expect(behind.workItems[0]?.commits?.map((each) => each.subject)).toEqual(["add own.txt"]);
     git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
-    // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
+    // Three commits since the base commit: the branch's own, the base's and the merge. The base holds its own.
     await c.message("inbox", (m) => counts(m).join() === "2,0,3");
     git(repo, "merge", "--quiet", "--ff-only", branchOf(workItem));
     // The branch's head and its count stay, and the inbox is for the base that moved.
@@ -3562,7 +3643,8 @@ describe("the inbox", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Ahead of the remote", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
+    // A rename gives the work item its branch, which the remote later pulls.
+    const workItem = await branchedByRename(c, (await c.message("workItemCreated")).workItem, 2);
     expect([workItem.baseBranch, workItem.aheadOfBase, workItem.behindBase]).toEqual(["origin/main", 0, 0]);
     const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits].join();
     commit(workItem.worktree, "own.txt");
@@ -3614,7 +3696,8 @@ describe("the inbox", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Removed", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
+    // A rename gives the work item its branch, which the case then removes.
+    const workItem = await branchedByRename(c, (await c.message("workItemCreated")).workItem, 2);
     commit(workItem.worktree, "one.txt");
     await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
     git(repo, "worktree", "remove", "--force", workItem.worktree);
@@ -3698,12 +3781,14 @@ describe("the inbox", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo, title: "Quiet", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await c.message("workItemCreated");
+    // A rename gives the work item its branch, so the commit's read makes none and sends no inbox for one.
+    const workItem = await branchedByRename(c, (await c.message("workItemCreated")).workItem, 2);
+    c.messages.length = 0;
     await pause(200);
     commit(workItem.worktree, "one.txt");
     await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
-    // One for the creation and one for the commit, over ten intervals and more.
-    expect(inboxes(c).map((m) => m.workItems[0]?.newCommits)).toEqual([0, 1]);
+    // One for the commit alone, over ten intervals and more.
+    expect(inboxes(c).map((m) => m.workItems[0]?.newCommits)).toEqual([1]);
   });
 
   it("reads no count while no client is connected, and reads them at the next hello, so its `ready` carries the commits made meanwhile", async () => {
@@ -3732,11 +3817,13 @@ describe("the inbox", () => {
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Read once", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await first.message("workItemCreated");
+    // A rename gives the work item its branch, so a read of the commit makes none.
+    const workItem = await branchedByRename(first, (await first.message("workItemCreated")).workItem, 2);
+    first.messages.length = 0;
     commit(workItem.worktree, "one.txt");
     await pause(300);
-    // The creation's inbox alone: the interval is not over, so nothing read the commit.
-    expect(inboxes(first).map((m) => m.workItems[0]?.newCommits)).toEqual([0]);
+    // No inbox: the interval is not over, so nothing read the commit.
+    expect(inboxes(first)).toEqual([]);
     const second = await client(url);
     expect((await second.message("ready")).workItems[0]?.newCommits).toBe(1);
     await first.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
@@ -3780,8 +3867,8 @@ describe("the inbox", () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
-    const before = await createWorktree({ folder: repo, title: "Before", root });
-    const after = await createWorktree({ folder: repo, title: "After", root });
+    const before = await branchedWorktree({ folder: repo, title: "Before", root });
+    const after = await branchedWorktree({ folder: repo, title: "After", root });
     commit(before.worktree, "before.txt");
     commit(after.worktree, "after.txt");
     const { baseCommit: _none, ...old } = before;
@@ -3801,7 +3888,7 @@ describe("the inbox", () => {
 // A pane that prints nothing, so a client's messages are the daemon's answers and its lists alone.
 const silent = () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} });
 
-/** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened. */
+/** A daemon on a run folder of a temporary repository, a client of it, and a work item the client created under each title, each with the shell pane its creation opened and given its branch by a rename (`branchedByRename`). */
 async function withWorkItems(titles: readonly string[], options: Partial<DaemonOptions> = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
@@ -3813,9 +3900,9 @@ async function withWorkItems(titles: readonly string[], options: Partial<DaemonO
   const created = [];
   for (const [index, title] of titles.entries()) {
     c.send({ type: "createWorkItem", requestId: 100 + index, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
-    created.push(await c.message("workItemCreated", (m) => m.requestId === 100 + index));
+    const answer = await c.message("workItemCreated", (m) => m.requestId === 100 + index);
+    created.push({ workItem: await branchedByRename(c, answer.workItem, 200 + index), session: answer.session });
   }
-  await c.message("inbox", (m) => m.workItems.length === titles.length);
   c.messages.length = 0;
   return { d, url, c, made, runDir, workItems: created.map((m) => m.workItem), sessions: created.map((m) => m.session) };
 }
@@ -4156,8 +4243,8 @@ describe("the decisions made without asking", () => {
     c.send({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "Made anew", kind: "shell", cols: 80, rows: 24 });
     const next = (await c.message("workItemCreated", (m) => m.requestId === 1)).workItem;
     expect(next).toMatchObject({ id: 1, ...NO_RECORD });
-    // A record whose first block has the id and the state of the stray entry: its time is this daemon's, not the entry's.
-    const directory = withDirectory(next);
+    // A record whose first block has the id and the state of the stray entry: its time is this daemon's, not the entry's. Its routing names the branch a rename gives the work item.
+    const directory = withDirectory(await branchedByRename(c, next, 2));
     writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: "Start from main.", grounds: "The default base." }));
     const inbox = await c.message("inbox", (m) => itemOf(m, 1)?.decisions.length === 1);
     expect(itemOf(inbox, 1)?.decisions[0]?.since).toBe(11);
@@ -4502,7 +4589,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
   async function sealed() {
     const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 50 });
     const a = workItems[0]!;
-    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     // The case sends nothing from here on: what the lists carry, the daemon read by itself.
     const seal = await c.until(() => (c.workItem(a.id)?.seal?.state === "sealed" ? c.workItem(a.id)?.seal : undefined));
     expect(seal).toEqual({ state: "sealed", commit: gate, why: null });
@@ -4547,7 +4634,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
   it("sends a work item with no `seal` until it has read the branch, so a `ready` that goes out before git answered carries none, and the lists that follow the read carry the seal, or null where the head holds none", async () => {
     const stood = await standing(cleanups, ["Sealed work", "Unsealed work"], { commitPollMs: 60_000 });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
-    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     await stood.d.close();
     // Each git call waits a fifth of a second, four times the wait of the daemon that starts now, so its `ready` goes out before it has read either branch.
     watchedGit(stood.made.base, 0.2);
@@ -4565,7 +4652,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: sealed\\n'; sleep 30"], env: {} }) });
     const a = stood.workItems[0]!;
     // The records of a chain that has a gate's run and no guarantee, and a stored chain that rests, which the store's file is given.
-    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit, seal: false });
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
     expect((await stood.c.asked({ type: "setWorkItem", requestId: 9, id: a.id, pinned: true })).type).toBe("done");
     await stood.d.close();
     const file = join(stood.runDir, "repositories.json");
@@ -4594,7 +4681,7 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
   it("answers a `readSealRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
     const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
     const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
-    const gate = commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    const gate = commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     const sealed = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
     expect(sealed).toMatchObject({ type: "sealRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, brokenBy: null, refusals: [], unreadRefusals: 0 } });
     expect(sealed.type === "sealRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
@@ -4606,7 +4693,7 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     });
     expect(await c.asked({ type: "readSealRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
     git(made.repo, "update-ref", "-d", `refs/heads/${gone.branch}`);
-    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
+    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(branchOf(gone)) });
   });
 
   it("answers a `readSealRecords` of a work item with no branch yet with the empty value, read at its worktree's HEAD", async () => {
@@ -4618,7 +4705,7 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
   it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
     const a = workItems[0]!;
-    commitSeal(a.worktree, { workItem: NAME, branch: a.branch, base: a.baseCommit });
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const broke = headOf(a.worktree);
@@ -7436,7 +7523,7 @@ describe("the caps on the machine", () => {
   /** The size of a worktree a daemon of the case stored: 440 MB, at 1,024 bytes a kilobyte. */
   const MEASURED_KB = 429_688;
   /** The stored work item of a place a case made, measured at `kilobytes` or not at all. */
-  const storedAt = (id: number, title: string, place: Awaited<ReturnType<typeof createWorktree>>, kilobytes: number | null) => ({ id, title, branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null, worktreeSize: kilobytes === null ? null : { kilobytes, measuredAt: 1 } });
+  const storedAt = (id: number, title: string, place: Awaited<ReturnType<typeof branchedWorktree>>, kilobytes: number | null) => ({ id, title, branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null, worktreeSize: kilobytes === null ? null : { kilobytes, measuredAt: 1 } });
   /** The stored repository of a folder a case made, holding the work items given. */
   const storedIn = (id: number, folder: string, workItems: unknown[]) => ({ id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems });
 
@@ -7486,9 +7573,9 @@ describe("the caps on the machine", () => {
     cleanups.push(made.remove);
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
-    const first = await createWorktree({ folder: made.repo, title: "First", root: made.root });
-    const second = await createWorktree({ folder: made.repo, title: "Second", root: made.root });
-    const kept = await createWorktree({ folder: made.repo, title: "Kept", root: made.root });
+    const first = await branchedWorktree({ folder: made.repo, title: "First", root: made.root });
+    const second = await branchedWorktree({ folder: made.repo, title: "Second", root: made.root });
+    const kept = await branchedWorktree({ folder: made.repo, title: "Kept", root: made.root });
     writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 2, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "First", first, null), storedAt(2, "Second", second, null), storedAt(3, "Kept", kept, 100)])] }));
     const asked: { folder: string; answer: (kilobytes: number | null) => void }[] = [];
     const machine: MachineReader = { ...reader().machine, sizeOf: (folder) => new Promise((answer) => asked.push({ folder, answer })) };
@@ -7522,9 +7609,9 @@ describe("the caps on the machine", () => {
     cleanups.push(made.remove, other.remove, unmeasured.remove);
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
-    const one = await createWorktree({ folder: made.repo, title: "One", root: made.root });
-    const two = await createWorktree({ folder: made.repo, title: "Two", root: made.root });
-    const elsewhere = await createWorktree({ folder: other.repo, title: "Elsewhere", root: other.root });
+    const one = await branchedWorktree({ folder: made.repo, title: "One", root: made.root });
+    const two = await branchedWorktree({ folder: made.repo, title: "Two", root: made.root });
+    const elsewhere = await branchedWorktree({ folder: other.repo, title: "Elsewhere", root: other.root });
     writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 3, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "One", one, 300_000), storedAt(2, "Two", two, MEASURED_KB)]), storedIn(2, other.repo, [storedAt(3, "Elsewhere", elsewhere, 2_000_000)])] }));
     const { machine, reads } = reader();
     const low = { ...READING, disk: { freeBytes: 10_200_000_000, totalBytes: 494_384_795_648 } };
@@ -7561,14 +7648,14 @@ describe("the watch of an open pull request", () => {
     cleanups.push(made.remove);
     const runDir = join(made.base, "run");
     mkdirSync(runDir);
-    const place = await createWorktree({ folder: made.repo, title: "Watched", root: made.root });
+    const place = await branchedWorktree({ folder: made.repo, title: "Watched", root: made.root });
     const at = git(place.worktree, "rev-parse", "HEAD").trim();
     const stored: PullRequest = { number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: 1, failure: null };
     const plain = { id: 1, title: "Watched", branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch ?? null, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: stored };
     const workItems: Record<string, unknown>[] = [{ ...plain, ...item }];
     if (other !== null) {
       // A second work item, whose pull request is number 2.
-      const second = await createWorktree({ folder: made.repo, title: "Watched too", root: made.root });
+      const second = await branchedWorktree({ folder: made.repo, title: "Watched too", root: made.root });
       workItems.push({ ...plain, id: 2, title: "Watched too", branch: second.branch, worktree: second.worktree, baseCommit: second.baseCommit, baseBranch: second.baseBranch ?? null, pullRequest: { ...stored, number: 2, url: SECOND_URL }, ...other });
     }
     writeFileSync(join(runDir, "repositories.json"), JSON.stringify([{ id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems }]));

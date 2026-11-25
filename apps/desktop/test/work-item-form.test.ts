@@ -34,14 +34,16 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
   /** Waits until the paragraph under "Starts from" reads `sentence`. */
   const says = (sentence: string, ms?: number): Promise<void> => app.until(`document.getElementById("work-item-base-state").textContent === ${JSON.stringify(sentence)}`, `"${sentence}" under "Starts from"`, ms);
   const remoteMain = (): string => git(clone.repo, "rev-parse", "refs/remotes/origin/main").trim();
-  /** Opens the form and gives the name it generated and the branch that name gets, which carries a number where the name is taken. */
-  const openForm = async (): Promise<{ name: string; branch: string }> => {
+  /** Opens the form once its plan shows the branch the name it generated would get, which carries a number where the name's folder is taken, and gives that name and the folder the work item gets. */
+  const openForm = async (): Promise<{ name: string; worktree: string }> => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     const name = await app.evaluate<string>(`document.getElementById("work-item-title").placeholder`);
     await app.until(`[${JSON.stringify(`owlery/${name}`)}, ${JSON.stringify(`owlery/${name}-2`)}].includes(document.getElementById("work-item-branch").textContent)`, "the branch of the new opening's name");
-    return { name, branch: await text("work-item-branch") };
+    return { name, worktree: await text("work-item-worktree") };
   };
+  /** The commit a worktree's HEAD stands at. A creation with no branch picked leaves it detached at the base. */
+  const headOf = (worktree: string): string => git(worktree, "rev-parse", "HEAD").trim();
   /** Presses Create with a shell as the pane, and waits for the view of the work item `name`. */
   const create = async (name: string, ms?: number): Promise<void> => {
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
@@ -143,7 +145,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(await text("work-item-base-state")).toBe("");
     await create(generated);
     await app.until(`document.querySelectorAll(".xterm-helper-textarea").length === 1`, "the work item's view with one terminal");
-    expect(git(clone.repo, "rev-parse", `refs/heads/owlery/${generated}`).trim()).toBe(featureCommit);
+    expect(headOf(join(clone.root, "project", generated))).toBe(featureCommit);
     expect(featureCommit).not.toBe(remoteMain());
   });
 
@@ -208,25 +210,25 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
 
   it("says that a branch could not be fetched and since when the clone holds its commit, and still creates the work item there", async () => {
     renameSync(clone.origin, `${clone.origin}-moved-away`);
-    const { name, branch } = await openForm();
+    const { name, worktree } = await openForm();
     await app.until(`document.getElementById("work-item-base-state").textContent.startsWith("origin/main could not be fetched (")`, "that origin/main could not be fetched");
     // The clone's branch moved at the fetch of the opening before, moments ago.
     expect(await text("work-item-base-state")).toContain(`). It starts as last fetched, at ${laterCommit.slice(0, 7)}, which the clone has held for less than a minute.`);
     await create(name);
-    expect(git(clone.repo, "rev-parse", `refs/heads/${branch}`).trim()).toBe(laterCommit);
+    expect(headOf(worktree)).toBe(laterCommit);
     // The form said it before the creation, so the status line has nothing to add.
     expect(await app.evaluate<boolean>(`document.getElementById("status").classList.contains("notice")`)).toBe(false);
   });
 
   it("creates while the fetch is under way, and says in the status line that the branch could not be fetched", async () => {
     unanswering = unansweringOrigin(clone);
-    const { name, branch } = await openForm();
+    const { name, worktree } = await openForm();
     await says("Fetching origin/main…");
     // The button does not wait for the fetch.
     expect(await app.evaluate<boolean>(`document.getElementById("work-item-create").disabled`)).toBe(false);
     // The daemon gives the remote ten seconds, and the creation joins that fetch.
     await create(name, 20_000);
-    expect(git(clone.repo, "rev-parse", `refs/heads/${branch}`).trim()).toBe(laterCommit);
+    expect(headOf(worktree)).toBe(laterCommit);
     const status = await text("status");
     expect(status.startsWith(`origin/main could not be fetched (origin did not answer in 10 seconds). It starts as last fetched, at ${laterCommit.slice(0, 7)}, which the clone has held for `)).toBe(true);
     expect(await app.evaluate<boolean>(`document.getElementById("status").classList.contains("notice")`)).toBe(true);

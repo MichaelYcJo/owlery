@@ -15,7 +15,7 @@ import { MARKER } from "../src/daemon/records-place";
 import { TURN_SOCKET, TurnServer, takeTurn } from "../src/daemon/turn-socket";
 import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
 import { BUNDLE, commandOn } from "./chain-command-run";
-import { temporaryRepository } from "./repositories";
+import { branchOf, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
 afterEach(async () => {
@@ -75,7 +75,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
     for (const [index, item] of [reviewed, built].entries()) {
       const directory = `seal/threads/${String(index + 1)}-work`;
-      write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, item.branch, "2026-11-25"));
+      write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, branchOf(item), "2026-11-25"));
       if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
       naming(item.worktree, { mark: appends });
     }

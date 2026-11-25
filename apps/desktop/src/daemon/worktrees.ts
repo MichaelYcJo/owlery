@@ -60,24 +60,36 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
 export interface Worktree {
   /** The top-level folder of the repository's main checkout. */
   repo: string;
-  branch: string;
+  /** The local branch the worktree has checked out, or null where it stands detached at its base and has no branch yet. */
+  branch: string | null;
+  /** True where the creation made the branch, the local branch that tracks a remote's branch the person picked, and false where it made none. */
+  ownsBranch: boolean;
   /** The worktree's folder, `<root>/<repo name>/<slug>`. */
   worktree: string;
-  /** The commit the branch was cut at. */
+  /** The commit the work starts from: the base's commit where the worktree stands detached at it, and for a picked branch the commit it shares with the base, or the branch's tip where it shares none or there is no base. */
   baseCommit: string;
-  /** The base the branch was cut at, a local branch or a remote's, by its name, or null where the repository had no default base and the branch was cut at the checkout's commit. */
+  /** The base the work item starts from, a local branch or a remote's, by its name, or null where the repository had no default base and the worktree starts at the checkout's commit. */
   baseBranch: string | null;
+}
+
+/** A local branch a worktree of the repository has checked out, the main checkout among them, and that worktree's folder. */
+export interface HeldBranch {
+  branch: string;
+  folder: string;
 }
 
 /** What a creation in a repository would give, and the bases a person can choose among. */
 export interface WorktreePlan {
+  /** The branch Owlery would make for the work item if its first commit or a rename made it now (`branchName`). The creation itself makes none. */
   branch: string;
   worktree: string;
+  /** The local branches a creation cannot check out, since a worktree has each checked out. */
+  held: HeldBranch[];
   /** The local branches by name: the one the checkout stands on first, then the others, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. */
   localBases: string[];
   /** The remotes' branches, named `<remote>/<branch>`, the newest commit first, without a remote's `HEAD` entry and without a name a local branch bears. */
   remoteBases: string[];
-  /** The base a creation without one is cut at, a name of one of the two lists, or null where the repository has none. */
+  /** The base a creation without one starts from, a name of one of the two lists, or null where the repository has none. */
   defaultBase: string | null;
 }
 
@@ -200,20 +212,17 @@ export function repositoryOfSync(folder: string): string | null {
 }
 
 /**
- * The branch and the folder a work item gets: `owlery/<name>` and
- * `<root>/<repository's folder name>/<name>`. The name is the first of these
- * that is not empty: the slug of the title, the slug of the name sent, a
- * generated name. Where the branch or the folder exists, -2, -3 and so on are
- * appended to both until neither does.
+ * The folder a work item gets: `<root>/<repository's folder name>/<name>`.
+ * The name is the first of these that is not empty: the slug of the title,
+ * the slug of the name sent, a generated name. Where the folder exists, -2,
+ * -3 and so on are appended until it does not.
  */
-async function placeFor(repo: string, root: string, naming: Naming): Promise<{ branch: string; worktree: string }> {
+function folderFor(repo: string, root: string, naming: Naming): string {
   const name = slugFor(naming.title) || slugFor(naming.name ?? "") || generateName(naming.random);
   const parent = join(root, basename(repo));
   for (let n = 1; ; n++) {
-    const numbered = n === 1 ? name : `${name}-${n}`;
-    const branch = `owlery/${numbered}`;
-    const worktree = join(parent, numbered);
-    if (!existsSync(worktree) && !(await branchExists(repo, branch))) return { branch, worktree };
+    const worktree = join(parent, n === 1 ? name : `${name}-${n}`);
+    if (!existsSync(worktree)) return worktree;
   }
 }
 
@@ -363,7 +372,7 @@ const noBase = (repo: string, base: string): Error => new Error(`${repo} has no 
 /** The fetch of a base that `baseRef` read as `ref`, as `fetchBase` states it. */
 async function fetchRef(repo: string, base: string, ref: string, options: { waitMs?: number; ended?: AbortSignal }): Promise<BaseFetch> {
   const commit = async (): Promise<string> => (await git(repo, ["rev-parse", "--verify", ref])).trim();
-  // A local branch is cut where it stands, and no command that asks a remote runs for it.
+  // A local branch is read where it stands, and no command that asks a remote runs for it.
   if (ref === `refs/heads/${base}`) return { base, commit: await commit(), fetch: "none", failure: null, since: null };
   const from = await remoteOf(repo, base);
   const failure = from === null ? `the clone has no remote for ${base}` : await askRemote(repo, from.remote, from.branch, options.waitMs ?? BASE_FETCH_MS, options.ended);
@@ -497,42 +506,104 @@ async function basesOf(repo: string, chosenBase?: ChosenBase): Promise<Pick<Work
  */
 export async function planWorktree(options: Naming & { folder: string; root: string; chosenBase?: ChosenBase }): Promise<WorktreePlan> {
   const repo = await repositoryOf(options.folder);
-  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo, options.chosenBase)]);
-  return { ...place, ...bases };
+  const worktree = folderFor(repo, options.root, options);
+  const [branch, bases, listed] = await Promise.all([branchName(repo, options.title, worktree), basesOf(repo, options.chosenBase), git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES)]);
+  return { branch, worktree, held: heldBranches(listed), ...bases };
+}
+
+/** Each local branch a worktree has checked out, among what `git worktree list --porcelain` printed, with that worktree's folder. */
+function heldBranches(listed: string): HeldBranch[] {
+  return listedWorktrees(listed).flatMap(({ branch, folder }) => (branch === null ? [] : [{ branch, folder }]));
+}
+
+/** The fetch of a base, or of a remote's branch a person picked, through the daemon's keeper where one is given, and by one fetch of its own otherwise. */
+async function fetchFor(repo: string, name: string, ref: string, fetches?: BaseFetches): Promise<void> {
+  await (fetches?.fetch(repo, name, { reuse: true }) ?? fetchRef(repo, name, ref, {}));
 }
 
 /**
- * Cuts the branch `placeFor` names at a base and checks it out in a new
- * worktree under `root`. The base is the one `base` names, read as `baseRef`
- * reads it, or the repository's default base where none is sent, which is
- * the base a person chose for the repository where it still lists it. Where the
- * repository has no default base, the branch is cut at the checkout's commit.
- * A remote's branch is fetched before the cut, so the branch starts at the
- * commit the remote holds: through `fetches` where the daemon's keeper is
- * given, which joins a fetch under way and reuses a fresh result, and by one
- * fetch of its own otherwise. Where the fetch fails, the branch is cut at the
- * commit the clone holds, and the creation is not refused. A local branch
- * asks no remote.
- * The new branch has no upstream, whatever its base and the person's
- * `branch.autoSetupMerge`. A folder that names no repository, as
- * `repositoryOf` reads it, and a `base` that is none of the repository's, is
- * refused before anything is created.
+ * The local branch a creation checks out for the branch a person picked,
+ * named as a base is (`baseRef`), and the remote's branch it is made to
+ * track, or null where it stands already. A local branch is checked out as
+ * it stands. A remote's branch is fetched first, as a base is, and is
+ * checked out as git's `git worktree add <folder> <name>` checks it out:
+ * the local branch of its name where one stands, and otherwise a local
+ * branch of that name made to track it. A name that is no branch of the
+ * repository is refused, and so is a local branch a worktree has checked
+ * out, naming that worktree's folder. Nothing is made.
  */
-export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase; fetches?: BaseFetches }): Promise<Worktree> {
+async function pickedBranch(repo: string, name: string, fetches?: BaseFetches): Promise<{ local: string; tracks: string | null }> {
+  const ref = await baseRef(repo, name);
+  if (ref === null) throw new Error(`${repo} has no branch ${name} to check out`);
+  let local = name;
+  let tracks: string | null = null;
+  if (ref !== `refs/heads/${name}`) {
+    await fetchFor(repo, name, ref, fetches);
+    const from = await remoteOf(repo, name);
+    if (from === null) throw new Error(`${repo} has no remote for ${name}`);
+    local = from.branch;
+    if (!(await branchExists(repo, local))) tracks = ref;
+  }
+  const holder = heldBranches(await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES)).find(({ branch }) => branch === local);
+  if (holder !== undefined) throw new Error(`The branch ${local} is checked out in ${holder.folder}, so a new work item cannot check it out.`);
+  return { local, tracks };
+}
+
+/**
+ * Makes a new worktree under `root`, in the folder `folderFor` names, for
+ * a work item that starts from a base. The base is the one `base` names,
+ * read as `baseRef` reads it, or the repository's default base where none
+ * is sent, which is the base a person chose for the repository where it
+ * still lists it. Where the repository has no default base, the work starts
+ * at the checkout's commit. A remote's branch is fetched first, so the work
+ * starts at the commit the remote holds: through `fetches` where the
+ * daemon's keeper is given, which joins a fetch under way and reuses a fresh
+ * result, and by one fetch of its own otherwise. Where the fetch fails, the
+ * work starts at the commit the clone holds, and the creation is not
+ * refused. A local branch asks no remote.
+ *
+ * Where no `branch` is sent, the worktree stands detached at the base, and
+ * the repository gains no branch: the work item's branch is made later, at
+ * its first commit or a rename (`makeBranch`). Where `branch` names one of
+ * the repository's branches, the worktree has it checked out, as
+ * `pickedBranch` states, and only a local branch made to track a remote's
+ * is Owlery's.
+ *
+ * A folder that names no repository, as `repositoryOf` reads it, a `base`
+ * that is none of the repository's, and a `branch` that `pickedBranch`
+ * refuses, are refused before anything is created.
+ */
+export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; branch?: string; chosenBase?: ChosenBase; fetches?: BaseFetches }): Promise<Worktree> {
   const repo = await repositoryOf(options.folder);
   const baseBranch = options.base ?? (await basesOf(repo, options.chosenBase)).defaultBase;
   let start = "HEAD";
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);
     if (ref === null) throw noBase(repo, baseBranch);
-    await (options.fetches?.fetch(repo, baseBranch, { reuse: true }) ?? fetchRef(repo, baseBranch, ref, {}));
+    await fetchFor(repo, baseBranch, ref, options.fetches);
     start = ref;
   }
-  const { branch, worktree } = await placeFor(repo, options.root, options);
+  const picked = options.branch === undefined ? null : await pickedBranch(repo, options.branch, options.fetches);
+  const worktree = folderFor(repo, options.root, options);
   mkdirSync(dirname(worktree), { recursive: true });
-  await git(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, start]);
-  const baseCommit = (await git(repo, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
-  return { repo, branch, worktree, baseCommit, baseBranch };
+  if (picked === null) {
+    await git(repo, ["worktree", "add", "--quiet", "--detach", worktree, start]);
+    const baseCommit = (await git(worktree, ["rev-parse", "--verify", "HEAD"])).trim();
+    return { repo, branch: null, ownsBranch: false, worktree, baseCommit, baseBranch };
+  }
+  const { local, tracks } = picked;
+  if (tracks !== null) await git(repo, ["branch", "--quiet", "--track", local, tracks]);
+  try {
+    // A name a local branch bears is checked out as that branch, never read as another ref.
+    await git(repo, ["worktree", "add", "--quiet", worktree, local]);
+  } catch (error) {
+    // The branch made for this creation goes with it.
+    if (tracks !== null) await git(repo, ["branch", "--quiet", "-D", local]).catch(() => "");
+    throw error;
+  }
+  const tip = (await git(repo, ["rev-parse", "--verify", `refs/heads/${local}`])).trim();
+  const shared = baseBranch === null ? "" : await git(repo, ["merge-base", start, tip]).then((printed) => printed.trim(), () => "");
+  return { repo, branch: local, ownsBranch: tracks !== null, worktree, baseCommit: shared || tip, baseBranch };
 }
 
 /** What a rename of a work item's branch would give: the branch, or null where the name names none, and why the rename cannot run, or null where it can. */
@@ -684,7 +755,7 @@ export async function planBranchMaking(repo: string, worktree: string, title: st
 
 /**
  * How many commits the branch holds after `baseCommit`, read in the
- * repository: every commit since the branch was cut, the base's own among
+ * repository: every commit since its base commit, the base's own among
  * them once the base was merged in. Null where git gives no count: the repository, the branch or the
  * commit is gone.
  */

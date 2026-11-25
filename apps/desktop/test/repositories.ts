@@ -3,13 +3,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StoredWorkItem } from "../src/daemon/repositories";
+import { branchName, createWorktree, makeBranch, type Worktree } from "../src/daemon/worktrees";
 
 /** Runs git in a temporary repository, never in Owlery's own. */
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
 }
 
-/** The branch of a work item a case made through a creation, which cuts one. It throws for a work item with no branch, so a case never hands git a name that is none. */
+/** The branch of a work item a case gave one, by a rename, by a commit and a read, or through `branchedWorktree`. It throws for a work item with no branch, so a case never hands git a name that is none. */
 export function branchOf(workItem: { branch: string | null }): string {
   if (workItem.branch === null) throw new Error("the work item has no branch");
   return workItem.branch;
@@ -30,10 +31,18 @@ export function writeStore(runDir: string, repo: string, workItems: readonly Sto
   writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: Math.max(0, ...workItems.map(({ id }) => id)) + 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }), { mode: 0o600 });
 }
 
-/** Takes the worktree a creation made off the branch it cut: its `HEAD` is detached where it stood, and the branch is removed, so no branch of the repository is the work item's. */
-export function unbranched(repo: string, place: { worktree: string; branch: string | null }): void {
-  git(place.worktree, "checkout", "--quiet", "--detach");
-  git(repo, "branch", "--quiet", "-D", branchOf(place));
+/**
+ * A worktree a creation makes, with no branch picked, then given the branch
+ * Owlery makes for it at its first commit or a rename: the name
+ * `worktrees.ts#branchName` gives, made by `worktrees.ts#makeBranch`, the
+ * function both call, at the base commit. A case whose work item needs a
+ * branch from the start, and builds it outside a daemon, makes it this way.
+ */
+export async function branchedWorktree(options: Parameters<typeof createWorktree>[0]): Promise<Worktree & { branch: string }> {
+  const place = await createWorktree(options);
+  const branch = await branchName(place.repo, options.title, place.worktree);
+  await makeBranch(place.worktree, branch);
+  return { ...place, branch, ownsBranch: true };
 }
 
 /** Gives the repository the name its commits are made under, and no signing. */
