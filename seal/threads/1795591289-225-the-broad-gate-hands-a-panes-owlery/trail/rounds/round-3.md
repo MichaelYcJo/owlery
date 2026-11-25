@@ -40,6 +40,11 @@ The fix rewrites both sentences. The rest of `changelog.md:5`, and every other l
 - `OWLERY_RUN_DIR` is not a pane's: the app sets it for the daemon it starts (`apps/desktop/src/main/daemon-client.ts`), each pane other than a sign-in pane inherits it, and the chain command reads it (`apps/desktop/src/daemon/chain-command.ts`).
 ```
 
+```seal
+verdict: fixed bf1b6bf6
+answer: The finding holds: a sign-in pane runs in `claudeEnv` alone and gets no `OWLERY_RUN_DIR`. The changelog's line 5 and *Grounding*'s line 10 now read as the two paste-ready texts give them. Before this pass the session judged the rounds not converging, by the `reopens:` lines of rounds 2 and 3, and told the owner, who chose to go on. The session then read every sentence of `changelog.md`, `frame/design.md`, `gaps.md`, the comments this work added to `hooks.ts`, `gate.ts` and `daemon.ts`, the two new cases' titles and the `## Rule changes` texts that says which panes take what of the daemon's environment, and found no other that leaves the sign-in pane out wrongly.
+```
+
 ## Confirmations
 
 What matched: the two lines `ca92695b` rewrites. `changelog.md:3` and `frame/design.md:8` now read word for word as round 2's paste-ready texts. Line 3's list of the panes that named the outer chain is whole. The round built it from every place a pane starts. `startSession` has four callers. Two start a pane of the kind the client asks for (`daemon.ts:860`, `:891`), and the kinds are a shell and a Claude Code pane (`pane-kinds.ts:11-12`). The third is a sign-in pane (`:1763`), and the fourth is a worktree setup pane (`:2480`). `spawnPane`'s one other caller restarts a work item's pane under another account (`:1841`), so it is the same shell or Claude Code pane. A Claude Code pane on the chain sets its own `OWLERY_CHAIN` (`hooks.ts:200`). A setup pane sets its id alone (`hooks.ts:213`). Line 8 holds at `d4a63f35`, where `spawnPane` already gave a sign-in pane its command's `env` alone. The close of round-2#1 holds for these two lines, and finding 1 reopens it for the two sentences of the class that the fix left standing (read).
