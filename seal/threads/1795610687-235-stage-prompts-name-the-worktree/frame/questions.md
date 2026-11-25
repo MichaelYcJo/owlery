@@ -6,6 +6,7 @@ The tree answered these judgments the ticket left open. Each points at where its
 - What "a pane's environment naming another" worktree means for the case, given that no pane variable names a worktree: `design.md` *Grounding*, the row "What a pane's environment names".
 - Whether the paths a prompt lists become absolute too: `plan.md` *Alternatives considered*, row D.
 - Whether the two prompts that only the daemon uses change as well: `plan.md` *Alternatives considered*, row E.
+- Whether the bundle's role definitions that state the old premise change with the prompts: `plan.md` *Alternatives considered*, row F.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
