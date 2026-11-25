@@ -60,15 +60,19 @@ export function drawHold(schedule: Schedule): DrawHold {
 
 /**
  * A hold wired to the window: a `pointerdown` of the main button begins it,
- * and a `pointerup` of that button, a `pointercancel` and the window's `blur`
- * end it. The pointer's events are read in the capture phase, before any
- * element of the page can stop them.
+ * and the main button's release ends it, as do a `pointercancel` and the
+ * window's `blur`. Chromium sends that release as the one `pointerup`, once no
+ * button is down, which can name another button, or as a `pointermove` whose
+ * `buttons` no longer holds the main one, where another button is still down.
+ * The pointer's events are read in the capture phase, before any element of
+ * the page can stop them. A release where no press is held changes nothing,
+ * so a `pointermove` with no press costs one test of a flag.
  */
 export function holdDraws(target: Pick<EventTarget, "addEventListener">, schedule: Schedule = (run) => setTimeout(run)): DrawHold {
   const hold = drawHold(schedule);
-  const main = (event: Event): boolean => (event as PointerEvent).button === 0;
-  target.addEventListener("pointerdown", (event) => main(event) && hold.press(), true);
-  target.addEventListener("pointerup", (event) => main(event) && hold.release(), true);
+  target.addEventListener("pointerdown", (event) => (event as PointerEvent).button === 0 && hold.press(), true);
+  target.addEventListener("pointerup", () => hold.release(), true);
+  target.addEventListener("pointermove", (event) => ((event as PointerEvent).buttons & 1) === 0 && hold.release(), true);
   target.addEventListener("pointercancel", () => hold.release(), true);
   target.addEventListener("blur", () => hold.release());
   return hold;

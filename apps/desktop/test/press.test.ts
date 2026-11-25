@@ -13,8 +13,8 @@ function tasks(): { schedule: (run: () => void) => void; run: () => void; count:
   };
 }
 
-/** A stand-in for the window: an event target that records which types were listened to in the capture phase, and fires an event with the button it names. */
-function windowLike(): { target: Pick<EventTarget, "addEventListener">; fire: (type: string, button?: number) => void; captured: Set<string> } {
+/** A stand-in for the window: an event target that records which types were listened to in the capture phase, and fires an event with the button and the buttons it names. */
+function windowLike(): { target: Pick<EventTarget, "addEventListener">; fire: (type: string, button?: number, buttons?: number) => void; captured: Set<string> } {
   const target = new EventTarget();
   const captured = new Set<string>();
   return {
@@ -24,7 +24,7 @@ function windowLike(): { target: Pick<EventTarget, "addEventListener">; fire: (t
         target.addEventListener(type, listener, options);
       },
     },
-    fire: (type, button) => target.dispatchEvent(Object.assign(new Event(type), button === undefined ? {} : { button })),
+    fire: (type, button, buttons) => target.dispatchEvent(Object.assign(new Event(type), button === undefined ? {} : { button }, buttons === undefined ? {} : { buttons })),
     captured,
   };
 }
@@ -105,10 +105,10 @@ describe("drawHold", () => {
 });
 
 describe("holdDraws", () => {
-  it("listens for the pointer's press, release and cancel in the capture phase, so an element that stops the event does not hide it", () => {
+  it("listens for the pointer's press, release, move and cancel in the capture phase, so an element that stops the event does not hide it", () => {
     const page = windowLike();
     holdDraws(page.target, tasks().schedule);
-    expect([...page.captured].sort()).toEqual(["pointercancel", "pointerdown", "pointerup"]);
+    expect([...page.captured].sort()).toEqual(["pointercancel", "pointerdown", "pointermove", "pointerup"]);
   });
 
   it("holds the draws from a press of the main button to its release, and draws in a later task", () => {
@@ -124,19 +124,34 @@ describe("holdDraws", () => {
     expect(drawn).toEqual(["lists"]);
   });
 
-  it("holds nothing at a press of another button, and ends no hold at the release of another button", () => {
+  it("holds nothing at a press of another button", () => {
     const page = windowLike();
     const later = tasks();
     const hold = holdDraws(page.target, later.schedule);
     const drawn: string[] = [];
-    page.fire("pointerdown", 2);
+    page.fire("pointerdown", 2, 2);
     hold.draw(() => drawn.push("at once"));
     expect(drawn).toEqual(["at once"]);
-    page.fire("pointerdown", 0);
+  });
+
+  it("keeps the hold while a second button goes down and up during the press, and ends it where the main button is released first, which Chromium sends as a pointermove", () => {
+    const page = windowLike();
+    const later = tasks();
+    const hold = holdDraws(page.target, later.schedule);
+    const drawn: string[] = [];
+    page.fire("pointerdown", 0, 1);
     hold.draw(() => drawn.push("kept"));
-    page.fire("pointerup", 2);
+    page.fire("pointermove", 2, 3);
+    page.fire("pointermove", 2, 1);
     later.run();
-    expect(drawn).toEqual(["at once"]);
+    expect(drawn).toEqual([]);
+    page.fire("pointermove", 2, 3);
+    page.fire("pointermove", 0, 2);
+    later.run();
+    expect(drawn).toEqual(["kept"]);
+    page.fire("pointerup", 2, 0);
+    hold.draw(() => drawn.push("at once"));
+    expect(drawn).toEqual(["kept", "at once"]);
   });
 
   it.each(["pointercancel", "blur"])("ends the hold at a %s, as at a release, and draws at once after it", (ending) => {

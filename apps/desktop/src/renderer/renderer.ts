@@ -1557,6 +1557,16 @@ function drawLists(): void {
   if (recordsPlaceDialog.open) showRecords();
 }
 
+/** Draws the Accounts dialog where it is open, at an `accounts` message, through the hold: its draw replaces each account's row with its buttons. One function, so the hold keeps it once per press. The answer to the person's own request draws it at once (`takeAccountsAnswer`). */
+function drawAccountsDialog(): void {
+  if (accountsDialog.open) showAccounts();
+}
+
+/** Draws the Machine dialog where it is open, at a `machine` message, through the hold: its draw replaces the rows of its lists. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
+function drawMachineDialog(): void {
+  if (MACHINE.dialog.open) showMachine();
+}
+
 /** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
@@ -1819,8 +1829,8 @@ function onMessage(message: ServerMessage): void {
       // An account was added, renamed or made the default, here or in another client: every name drawn of one is drawn again.
       held.accounts = heldAccounts(message);
       showAccountsEntry();
-      // What a person typed in the dialog stays: a change another client made closes no field of this one.
-      if (accountsDialog.open) showAccounts();
+      // What a person typed in the dialog stays: a change another client made closes no field of this one. The dialog's rows are drawn through the hold, as the lists are.
+      draws.draw(drawAccountsDialog);
       // The lists stand as they were: each screen draws the names again.
       draws.draw(drawLists);
       return;
@@ -1839,7 +1849,7 @@ function onMessage(message: ServerMessage): void {
       // A cap changed, here or in another client, the count of agents or the queue of heavy commands changed, or the daemon read the machine again for this window.
       held.machine = message.machine;
       showMachineEntry();
-      if (MACHINE.dialog.open) showMachine();
+      draws.draw(drawMachineDialog);
       // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
       draws.draw(drawLists);
       return;
