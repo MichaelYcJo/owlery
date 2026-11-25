@@ -19,21 +19,21 @@
 // settings' shot sets the answer to the owl chain, and the choice's shot
 // takes the answer away, presses "+ Claude Code" in the view and cancels the
 // dialog, so neither launches a pane. No agent runs: a pane's process is a fixture, a state is what
-// the daemon's hook socket is fed, the agent of the work item that needs the
-// person waits on a question with two choices, fed as its question tool's
-// call, and the view's work item is asked two prompts, which a stand-in for
-// the CLI answers. It fails the first at once,
-// and holds the second, whose session asks the person to allow a command and
-// gets no answer, so the work item's line says the request and the view's
-// "Ask" section shows its card. The run waits until the section shows that
-// request before its first shot. That work item carries no decision made
-// without asking and no setup's words on its line, so the line's second row
-// gives its whole width to the request. The run then sets the cap on agents
-// to the agents that run, as a person sets it in the Machine dialog, and
-// asks a prompt in one more work item, whose session waits for the machine
-// and never starts: that work item's line says "Waiting for the machine",
-// the status line counts the agents against the cap and the session that
-// waits, and the Machine dialog lists the session under its cap on agents.
+// the daemon's hook socket is fed, and the agent of the work item that needs
+// the person waits on a question with two choices, fed as its question
+// tool's call. The view's work item is stored with a chain that stopped
+// where its broad gate failed, so the gate's line at the view's foot shows
+// the mark and the words of a failure, the sealer's place says "Gate
+// failed", and the run presses "Show output" there, so the view shows what
+// the gate printed. That work item carries no decision made without asking
+// and no setup's words on its line, so the line's second row gives its whole
+// width to the chain's sentence. The run then sets the cap on agents to the
+// agents that run, as a person sets it in the Machine dialog, and answers
+// the question one more work item is stored parked on, so the daemon
+// resumes that chain and its first stage waits for the machine and never
+// starts: that work item's line says "Waiting for the machine", the status
+// line counts the agents against the cap and the stage that waits, and the
+// Machine dialog lists the stage under its cap on agents.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -41,13 +41,14 @@
 // commands, and no line says a wait of theirs. The run writes the daemon's
 // runs' file before the start, so the dialog says what ran.
 // The daemon reads the machine `BuiltApp` gives every start, so the dialog
-// says the same numbers on any Mac. No chain runs and the run starts
-// none: it commits with git, in a work item's worktree, the records a
-// chain's stages write there, and it stores two chains in the daemon's run
-// folder before the app starts, as a daemon that ran them stored them. The
-// view's work item holds its
-// routing and one round's record, so its approval line shows two finished
-// places and two not started. The parked work item is stored before the
+// says the same numbers on any Mac. The run starts no chain itself, and no
+// stage of one starts: it commits with git, in a work item's worktree, the records a
+// chain's stages write there, and it stores the chains of the parked work
+// item, of the finished one, of the view's work item and of the work item
+// whose stage waits for the machine in the daemon's run folder before the
+// app starts, as a daemon that ran them stored them. The view's work item
+// holds its routing and one round's record, and its stored chain ran round
+// 1 and the broad gate, which failed. The parked work item is stored before the
 // start with a parked chain whose broad gate passed: it holds its routing, a
 // round that left no finding and the broad gate's run, and its record of
 // questions holds two the run writes there, asked by the sealer, so the
@@ -72,8 +73,8 @@
 // which names that commit and says that its stages ran outside the daemon,
 // and its view's foot shows the broken seal and the seal's sentence. No shot
 // shows a stage at work: a chain stored as running is read as stopped at the
-// daemon's start (`chain.ts#chainRead`), and nothing in the app starts one
-// until issue #55. Once the seven
+// daemon's start (`chain.ts#chainRead`), and the stage of the chain the
+// daemon resumes waits for the machine. Once the seven
 // work items stand, and before any seal is given, a
 // second client of the daemon sends `looked`, so the daemon's look holds
 // each work item with no seal. From then on the page's own `looked` is held
@@ -81,12 +82,11 @@
 // page loads again. Its `ready` carries the look taken before the seals, so
 // the window opens on the summary, which leads with the finished work
 // item's seal, given since the look, and the broken one's, broken since.
-// The repository
-// names a setup once four work items
-// stand, so the one at work shows its setup running, the one in
-// the view has a setup that succeeded, with the paths it copied, and the
-// form names the setup's command; no setup's command runs, and the run
-// types the code a setup pane ends with. The inbox's shot previews the work
+// The view's work item is stored with a setup that copied the ignored
+// files and whose command succeeded, with the paths it copied. The
+// repository names a setup when the last work item is made, so that one
+// shows its setup running and the form names the setup's command; no
+// setup's command runs. The inbox's shot previews the work
 // item that needs the person, with its agent's question and its approval
 // line. The view's shot scrolls its side column until the approval line is
 // the last thing in it, and the parked view's shot opens at the top of the
@@ -104,15 +104,16 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileS
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
-import { PARKED_SAYS, pullRequestOpenSays, routingText } from "../src/daemon/chain";
+import { PARKED_SAYS, pullRequestOpenSays, routingText, stoppedSays } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
 import { createWorktree } from "../src/daemon/worktrees";
+import { copyIncluded } from "../src/daemon/worktree-setup";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitFile, git, temporaryRepository } from "./repositories";
-import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, roundRecord, TODAY, write } from "./chain-run";
+import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, parkedOnAQuestion, roundRecord, TODAY, write } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
 /** The run, started by `pnpm run screenshots`. Without it the file is the cases. */
@@ -127,19 +128,18 @@ const SAMPLE_PANE = join(__dirname, "fixtures", "sample-pane.sh");
  * The work items of the run, which are invented examples, each with the kind
  * of its pane, the events its pane's hook is fed, as the hook's own input,
  * and the state its setup shows, or null where its repository names no
- * setup when it is made. A shell's work item has no agent. The first two
+ * setup when it is made. A shell's work item has no agent. The first four
  * are the ones the run stores in the daemon's run folder before the app
- * starts (`STORED`), and every other is made through the form. The last one
- * made is the one whose view and menu are captured, and it is the one that
- * needs the person.
+ * starts (`STORED`), and every other is made through the form. The fourth
+ * is the one whose view and menu are captured, and it is the one that needs
+ * the person; the run stores its setup as succeeded. The last one made
+ * names a setup, so the form the run opens afterwards names the setup's
+ * command.
  */
 const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<string, unknown>[]; setup: "running" | "succeeded" | null }[] = [
   { title: "Choose the base of the hotfix", kind: "shell", events: [], setup: null },
   { title: "Add an export of the history", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "Stop", last_assistant_message: "The history exports as a CSV file from the menu of the history screen, and four cases hold the columns." }], setup: null },
   { title: "Rename the settings file", kind: "shell", events: [], setup: null },
-  { title: "Sort the history by date", kind: "shell", events: [], setup: null },
-  { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
-  { title: "Cache the user avatars", kind: "shell", events: [], setup: null },
   {
     title: "Fix the login redirect",
     kind: "claude",
@@ -165,6 +165,9 @@ const WORK_ITEMS: { title: string; kind: "shell" | "claude"; events: Record<stri
     ],
     setup: "succeeded",
   },
+  { title: "Sort the history by date", kind: "shell", events: [], setup: null },
+  { title: "Cache the user avatars", kind: "shell", events: [], setup: null },
+  { title: "Run the built-app files one at a time", kind: "claude", events: [{ hook_event_name: "UserPromptSubmit" }, { hook_event_name: "PreToolUse", tool_name: "Bash" }], setup: "running" },
 ];
 /**
  * The ignored files of the repository's main checkout, each with what it
@@ -178,24 +181,30 @@ const IGNORED: Record<string, string> = {
 };
 /** What the main checkout's `.worktreeinclude` and `.worktreesetup` hold where a work item is made with a setup. No pane of the run runs the command. */
 const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*.pem\n", ".worktreesetup": "pnpm install\n" };
-/** The code the setup pane of a work item whose setup succeeds ends with, as the run types it into the pane. */
+/** The code the command of a setup that succeeds ends with: the stored setup of the view's work item records it, and the run types it into the setup pane of a work item it makes with a setup that succeeds. */
 const SETUP_ENDS_WITH = 0;
-/** The last work item made. */
-const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
+/** The work item whose view and menu are captured, which the run stores with its setup succeeded and a chain that stopped where its broad gate failed. */
+const SHOWN = "Fix the login redirect";
 /** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED`. Its view is the view "parked". */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
 /** The account the run hands over by its folder, and the id the daemon keeps it under. */
 const HANDED = "Work";
 const HANDED_ID = 1;
 const PARKED_RECORDS = "1795396351-choose-the-base-of-the-hotfix";
-/** The repository's broad gate command, as its `config.json` names it, the script it runs, which the repository holds, and what a run of it prints, which the run stores as the output of the parked chain's gate. No chain runs, so nothing runs the command. */
+/** The repository's broad gate command, as its `config.json` names it, the script it runs, which the repository holds, and what a run of it prints, which the run stores as the output of the parked chain's gate. No chain runs a gate, so nothing runs the command. */
 const GATE = "sh scripts/check.sh";
 const GATE_PRINTED = " Test Files  2 passed\n      Tests  12 passed\n";
 const GATE_SCRIPT = "#!/bin/sh\nprintf ' Test Files  2 passed\\n      Tests  12 passed\\n'\n";
+/** Why the shown work item's broad gate failed, as the daemon writes it, and what that run printed, which the run stores as the output of the shown chain's gate. */
+const GATE_FAILURE = "the command exited with code 1";
+const GATE_FAILED_PRINTED = " FAIL  redirect.test.ts > keeps the query string\n AssertionError: expected '/login' to be '/login?next=%2Fhistory'\n Test Files  1 failed | 1 passed\n      Tests  1 failed | 11 passed\n";
 /** The finished work item, which the run stores with a rested chain and a pull request whose checks passed: the run commits the records of a chain that sealed it after one fix in its worktree, in the folder of the records this name gives, and appends that chain's stages to the daemon's ledger. Its view is the view "finished". */
 const FINISHED = "Add an export of the history";
-/** The work items the run stores in the daemon's run folder before the app starts, which are the first two of `WORK_ITEMS`, so their ids are 1 and 2. */
-const STORED = [PARKED, FINISHED];
+/** The work item whose chain's stage waits for the machine: the run stores it parked on one question, sets the cap on agents to the agents that run and answers the question, so the daemon resumes the chain and its first stage, round 1, waits for the machine and never starts. */
+const QUEUED = "Rename the settings file";
+const QUEUED_RECORDS = "1795396353-rename-the-settings-file";
+/** The work items the run stores in the daemon's run folder before the app starts, which are the first four of `WORK_ITEMS`, so their ids are 1 to 4. */
+const STORED = [PARKED, FINISHED, QUEUED, SHOWN];
 /** The stored pull request: its number, its address and its checks, as the stand-in for `gh` answers a read of it (fixtures/sample-gh/gh), and its number as the window says it. */
 const PULL_REQUEST_NUMBER = 12;
 const PULL_REQUEST_ADDRESS = "https://github.com/owner/project/pull/12";
@@ -223,13 +232,6 @@ const PLUGIN_KEY = "agentic@agenticseal";
 /** The answers of the chain choice, as the menu of the repository's settings holds them: none, which asks at the next Claude Code pane, and the owl chain. */
 const NO_ANSWER = "";
 const OWL_CHAIN = "owlery";
-/** The prompt the run asks first in the shown work item's view. The stand-in for the CLI fails it at once. */
-const ASKED = "Which file holds the redirect?";
-/** The prompt the run asks second there. The stand-in holds it, and its session asks the person to allow a command (fixtures/sample-cli.sh). */
-const ASKED_TO_ALLOW = "Run the tests of the redirect.";
-/** The work item whose asked session waits for the machine, and the prompt it waits to run. The run sets the cap on agents to the agents that run before it asks, so the session waits and never starts. */
-const QUEUED = "Rename the settings file";
-const ASKED_TO_WAIT = "Which keys does the settings file hold?";
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -325,13 +327,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
 
-  const SIDEBAR_LINE = `#repositories button[data-work-item="${WORK_ITEMS.length}"]`;
+  const SHOWN_ID = WORK_ITEMS.findIndex(({ title }) => title === SHOWN) + 1;
+  const SIDEBAR_LINE = `#repositories button[data-work-item="${SHOWN_ID}"]`;
   const PARKED_LINE = `#repositories button[data-work-item="1"]`;
   /** The folder of the account the run hands over, once the run's temporary folders stand. */
   let handedFolder = "";
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
   const QUEUED_ID = WORK_ITEMS.findIndex(({ title }) => title === QUEUED) + 1;
+  /** The id of the question the queued work item is stored parked on, once the run has written it. */
+  let queuedQuestion = 0;
   /** The connections of the two commands that ask for their turn on the machine, held until the run ends. */
   const asking: Socket[] = [];
   /** The commit the broken work item's seal names, and the commit after it that broke it, once the run has committed them. */
@@ -452,11 +457,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine" && document.querySelector('#inbox-lines button[data-work-item="${SHOWN_ID}"] .says')?.textContent === ${JSON.stringify(stoppedSays("gate", 1, GATE_FAILURE))}`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED}, the failed gate's sentence on the line of ${SHOWN} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup") && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("crafter")} .state-icon.finished')`, "the work item's view with its terminal, its setup and its approval line");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup") && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("crafter")} .state-icon.finished') && document.querySelector('${place("sealer")} .note')?.textContent === "Gate failed" && document.querySelector("#headless li.gate .state.failed") && document.querySelector("#headless li.gate .answer")?.textContent === "The command exited with code 1."`, "the work item's view with its terminal, its setup, its approval line, whose sealer's place says that the gate failed, and the line of its broad gate, which failed");
+      // What the failed gate printed, as a press of "Show output" draws it under the gate's line.
+      await app.click(`#headless li.gate button[data-answer="gate:output"]`);
+      await app.until(`document.querySelector("#headless li.gate .error-output")?.textContent === ${JSON.stringify(GATE_FAILED_PRINTED)}`, "what the failed gate printed, under its line");
       // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
@@ -511,7 +519,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     machine: async () => {
       await show.inbox();
       await app.click("#machine-button");
-      await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
+      await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Proofer, round 1`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the stage of ${QUEUED}'s chain that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
     },
   };
 
@@ -580,7 +588,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
     writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
     writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
-    // The two work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
+    // The four work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at. The queued one holds its routing and one open question, and its chain is parked on it. The shown one had its setup copy the ignored files and run its command, which succeeded, and its chain stopped where its broad gate failed after round 1; the run commits its records once the app has started.
     const stored = Date.now();
     const parkedAt = await createWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
@@ -597,13 +605,22 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const parkedChain: Chain = { state: "parked", says: PARKED_SAYS, since: stored - 50 * 60_000, stages: [ran("round", 1, 0), ran("gate", 1, 1)] };
     const finishedChain: Chain = { state: "rested", says: pullRequestOpenSays(PULL_REQUEST_NUMBER), since: stored - 30 * 60_000, stages: [...FINISHED_STAGES.map(([kind, round], place) => ran(kind, round, place)), ran("pull-request", 2, FINISHED_STAGES.length)] };
     const pullRequest: PullRequest = { number: PULL_REQUEST_NUMBER, url: PULL_REQUEST_ADDRESS, state: "open", head: sealedAt, pushed: sealedAt, checks: "passed", list: CHECKS.map((name) => ({ name, state: "passed", link: null })), listCount: CHECKS.length, readAt: stored, failure: null };
+    const queued = await parkedOnAQuestion({ repo: made.repo, root: made.root, id: QUEUED_ID, title: QUEUED, workItem: QUEUED_RECORDS, asks: "Which keys does the settings file hold?", at: stored - 2 * 60 * 60_000 });
+    queuedQuestion = queued.questionId;
+    nameSetup("succeeded");
+    const shownAt = await createWorktree({ folder: made.repo, title: SHOWN, root: made.root });
+    const copy = await copyIncluded(made.repo, shownAt.worktree);
+    if (copy.failure !== null || copy.failed.length > 0) throw new Error(`the setup of ${SHOWN} did not copy every ignored path: ${JSON.stringify(copy)}`);
+    const shownSetup: WorktreeSetup = { copied: copy.copied, copiedCount: copy.copiedCount, failedCopies: [], command: SETUP_FILES[".worktreesetup"], paneId: null, state: "succeeded", exitCode: SETUP_ENDS_WITH, failure: null, startedAt: stored - 110 * 60_000, endedAt: stored - 109 * 60_000 };
+    const failedGate: ChainStage = { ...ran("gate", 1, 1), state: "failed", failure: GATE_FAILURE, gate: { command: GATE, exitCode: 1, output: true } };
+    const shownChain: Chain = { state: "stopped", says: stoppedSays("gate", 1, GATE_FAILURE), since: failedGate.endedAt ?? stored, stages: [ran("round", 1, 0), failedGate] };
     // The repository is stored with the answer "the AgenticSeal plugin", so no pane of the scene is asked about and none carries the bundle. The parked work item is set to the account the run hands over, which its repository does not give, so its line names it.
-    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: "plugin", addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain, accountId: HANDED_ID }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }] };
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: "plugin", addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain, accountId: HANDED_ID }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }, queued.stored, { ...item(SHOWN_ID, SHOWN, shownAt), setup: shownSetup, chain: shownChain }] };
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {
         writeRun: (runDir) => {
-          writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
+          writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: STORED.length + 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
           // One account handed over by its folder, an empty one of the run's own. The parked work item's shell pane runs under it, so its row offers no refresh, and no refresh starts. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them.
           const limits = [
             { status: "ok", used: 0.42, resetsAt: stored + 3 * 60 * 60_000, window: "five_hour", at: stored - 20 * 60_000 },
@@ -619,9 +636,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
             { ...run, repo: null, workItemId: null, folder: join(made.root, "scratch"), name: "test", endedAt: 40_000, peakMemory: null, highestLoad: 5.1 },
           ];
           writeFileSync(join(runDir, "heavy-runs.jsonl"), ran.map((line) => `${JSON.stringify(line)}\n`).join(""), { mode: 0o600 });
-          // What the parked chain's gate printed, which its line's "Show output" draws.
+          // What the parked chain's gate and the shown chain's gate printed, which each line's "Show output" draws.
           mkdirSync(join(runDir, GATE_OUTPUT_FOLDER), { mode: 0o700 });
           writeFileSync(join(runDir, GATE_OUTPUT_FOLDER, "1.txt"), GATE_PRINTED, { mode: 0o600 });
+          writeFileSync(join(runDir, GATE_OUTPUT_FOLDER, `${String(SHOWN_ID)}.txt`), GATE_FAILED_PRINTED, { mode: 0o600 });
         },
       },
     );
@@ -659,9 +677,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     }
     await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
 
-    // Two commits in the shown work item's worktree, for the commits and the changed files of the preview and the view.
+    // Two commits in the shown work item's worktree, for the commits and the changed files of the preview and the view, which is brought to the front as a person brings it.
     const shown = (await listed()).workItems.find((item) => item.title === SHOWN);
     if (!shown) throw new Error(`the daemon lists no work item ${SHOWN}`);
+    await app.click(SIDEBAR_LINE);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)}`, `the view of ${SHOWN}`);
     commitFile(shown.worktree, "redirect.ts");
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
@@ -712,27 +732,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitAll(shown.worktree, "chore: record review round 1");
     await app.until(`document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelectorAll("#view-detail .commit").length === 4`, "the shown work item's round as recorded, and the two commits of its records", 20_000);
 
-    // A prompt asked in the view, which the stand-in for the CLI fails.
-    await app.click("#ask-prompt");
-    await app.cdp("Input.insertText", { text: ASKED });
-    await app.click("#ask-submit");
-    await app.until(`document.querySelector("#headless li .state.failed") && document.querySelector("#headless li .error-output")`, "the asked prompt as failed", 15_000);
-    // A second prompt, whose session waits for the person to allow a command.
-    await app.click("#ask-prompt");
-    await app.cdp("Input.insertText", { text: ASKED_TO_ALLOW });
-    await app.click("#ask-submit");
-    await app.until(`document.querySelector("#headless li .permission .call")?.textContent === "pnpm test -- redirect.test.ts"`, "the second prompt's request in the view", 15_000);
-
-    // The cap on agents, set as a person sets it to the agents that run, and a prompt asked in one more work item, whose session then waits for the machine.
+    // The cap on agents, set as a person sets it to the agents that run, and the answer to the queued work item's question, after which the daemon resumes its chain, whose first stage then waits for the machine.
     const running = (await listed()).machine?.agents.running;
     if (running === undefined) throw new Error("the daemon sends no machine");
     await listed({ type: "setCaps", requestId: 1, agents: running });
     for (const deadline = Date.now() + 10_000; (await listed()).machine?.agents.set !== running; await new Promise((resolve) => setTimeout(resolve, 100))) {
       if (Date.now() >= deadline) throw new Error(`the daemon never kept the cap on agents at ${String(running)}`);
     }
-    await listed({ type: "ask", requestId: 2, workItemId: QUEUED_ID, prompt: ASKED_TO_WAIT });
-    for (const deadline = Date.now() + 10_000; (await listed()).machine?.agents.queue.length !== 1; await new Promise((resolve) => setTimeout(resolve, 100))) {
-      if (Date.now() >= deadline) throw new Error(`the session asked in ${QUEUED} never waited for the machine: ${JSON.stringify((await listed()).machine?.agents)}`);
+    await listed({ type: "answerQuestions", requestId: 2, workItemId: QUEUED_ID, answers: [{ questionId: queuedQuestion, answer: "The window's size and its theme." }] });
+    for (const deadline = Date.now() + 20_000; (await listed()).machine?.agents.queue.length !== 1; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the chain of ${QUEUED} never had a stage wait for the machine: ${JSON.stringify({ agents: (await listed()).machine?.agents, chain: (await listed()).workItems.find((item) => item.id === QUEUED_ID)?.chain })}`);
     }
 
     // A command of the work item at review takes the one turn on the machine, and one in a folder no work item names waits behind it.
@@ -782,7 +791,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     expect(written.map(pngSize)).toEqual(wanted.map(() => ({ width: WINDOW_SIZE.width, height: WINDOW_SIZE.height })));
     // A view that was not drawn, or a theme the page did not take, writes the bytes of the file before it.
     expect(new Set(written.map((bytes) => createHash("sha256").update(bytes).digest("hex"))).size).toBe(wanted.length);
-    // Every call of `gh` came to the stand-in, which notes each, and each was a read of the stored pull request: the run started no chain, so nothing opened or edited one, and no call reached GitHub.
+    // Every call of `gh` came to the stand-in, which notes each, and each was a read of the stored pull request: the one chain the daemon resumed waits for the machine at its first stage, so nothing opened or edited one, and no call reached GitHub.
     const calls = readFileSync(join(app.userData, "run", "sample-gh.calls"), "utf8").split("\n").filter((line) => line !== "");
     expect(calls.length).toBeGreaterThan(0);
     expect(calls.filter((call) => !call.startsWith(`pr view ${PULL_REQUEST_ADDRESS} `))).toEqual([]);
