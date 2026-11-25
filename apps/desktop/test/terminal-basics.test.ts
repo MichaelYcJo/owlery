@@ -155,14 +155,14 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     return held;
   }
 
-  // A case that fails stops at its failing line, and leaves the panes it opened and "Side by side" as they were there. The cases after it start from one tab, the first pane's, with "Side by side" off. A case that passes leaves what the case after it reads: it closes its panes itself, or hands its pane on, as the case "makes a path a pane printed a link…" hands its pane to the case after it. So this acts after a case that failed alone.
+  // A case that fails stops at its failing line, and leaves the panes it opened and "Side by side" as they were there. The cases after it start from one tab, the first pane's, with "Side by side" off. A case that passes leaves what the case after it reads: it closes its panes itself, or hands its pane on, as the case "makes a path a pane printed a link…" hands its pane to the case after it. So this acts after a case that failed alone. It is bounded as a case is, since its wait for one tab is the 15 seconds of `BuiltApp.until`, past Vitest's 10-second bound for a hook.
   afterEach(async ({ task }) => {
     if (task.result?.state !== "fail") return;
     const left = await closeFromElsewhere(...openedPanes);
     if (left.length > 0) await app.until(`${TABS}.length === 1`, "one tab, once the panes the failed case left are closed");
     // The button is pressed from the page, since a case that failed may have left another screen in front of the view that holds it.
     await app.evaluate(`void (document.getElementById("side-by-side").getAttribute("aria-pressed") === "true" && document.getElementById("side-by-side").click())`);
-  });
+  }, 30_000);
 
   /** Puts the one work item's view in front from another screen, by its line in the sidebar. */
   async function openView(): Promise<void> {
