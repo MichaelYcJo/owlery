@@ -77,4 +77,4 @@ Of the release's other work items, #154 and #32 have a frame committed at this r
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The pull request's title takes `feat:`, and the kind that came closest is `fix:`. | The work adds what was not there: turns for heavy commands across work items, the runner, the gate's second run alone, the runs' file and the Machine dialog's rows. The timed cases that failed under load are the cost it removes, not a defect in code it repairs, and no line of the shipped code was wrong before it | `skills/commit-pr-convention/SKILL.md` *Commit messages*, of the AgenticSeal plugin |
