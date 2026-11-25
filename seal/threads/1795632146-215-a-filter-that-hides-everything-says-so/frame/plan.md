@@ -40,7 +40,7 @@ Constraints the tree sets:
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | `design.md` *Scope* items 1 to 8. | `pnpm --filter @owlery/desktop run test test/view.test.ts test/themes.test.ts`, with each new case shown red first (contract rule 15). Then, once, as the phase's built-app batch: `pnpm --filter @owlery/desktop run test test/work-item-menu.test.ts`. `git grep -n -F -e 'toggle("on", held.filter' -e 'Showing: ${' -- apps/desktop/src/renderer/sidebar.ts` prints nothing. | e8617a31 |
-| 2 | `design.md` *Scope* item 9, the view `narrowed` in both editions' list of views among it, and the screenshots the pull request carries. | `pnpm --filter @owlery/desktop run test test/screenshots.test.ts`, whose unit cases name one file for each view. Then, once, as the phase's built-app batch: `OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots`. Its `narrowed` shots show the edge on the filter and the one-repository sentence naming "Decided without asking", in every theme and both appearances, and are committed under this work item's `screenshots/`. | 7f3f35aa |
+| 2 | `design.md` *Scope* item 9, the view `narrowed` in both editions' list of views among it, and the screenshots the pull request carries. | `pnpm --filter @owlery/desktop run test test/screenshots.test.ts`, whose unit cases name one file for each view. Then, once, as the phase's built-app batch: `OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots`. Its `narrowed` shots show the edge on the filter and the one-repository sentence naming "Decided without asking", in every theme and both appearances, and are committed under this work item's `screenshots/`. | 284fb771 |
 
 ## Overlap with the release
 
