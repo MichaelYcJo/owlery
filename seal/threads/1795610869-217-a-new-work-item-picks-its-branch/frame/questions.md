@@ -4,7 +4,7 @@ The judgments the issue left open that the tree answered, each where its grounds
 
 - How Owlery sees the first commit: a read of the worktree's `HEAD` at the next read of the work item, not a git hook. `frame/plan.md` *Alternatives considered*, the rows of the `post-commit` hook and of the read.
 - Whether the form takes a new branch name typed in it: it does not. `frame/plan.md` *Alternatives considered*, the row of the typed branch name.
-- What counts as a first commit: a commit no local branch, no remote's branch and no tag holds. `frame/plan.md` *Alternatives considered*, the last row.
+- What counts as a first commit: a commit no local branch, no remote's branch and no tag holds, other than the commit the worktree was checked out at. `frame/design.md` *Scope* item 6, and `frame/plan.md` *Alternatives considered*, the rows of `HEAD` other than `baseCommit` and of probe 2's test alone.
 - That the branch's prefix is `owlery/`, where the issue wrote `<repository>/`. `frame/design.md` *Grounding*, the first bullet under the table.
 - That a branch the worktree's `HEAD` took up by itself becomes the work item's and is never renamed by Owlery. `frame/design.md` *Scope* item 6, and `frame/plan.md` *Alternatives considered*, the row that replaces the stored branch with a read of `HEAD`.
 - That a rename of a work item with no branch always makes its branch. `frame/design.md` *Scope* item 7.
