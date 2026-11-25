@@ -40,6 +40,11 @@ let deleteLossDrawn: WorkItemLoss | null | undefined;
 
 The removal dialog owes the same fix, and the snippet does not reach it. `showRemove` also redraws for its own two checkboxes (`renderer.ts:2202-2203`), and each work item's heading and sentence are drawn with that work item's lists. The fix pass either skips the rebuild of `#remove-losses` where `deletes`, the work items and their `removeLosses` entries are all unchanged, or reads each `ul.loss` `scrollTop` by work item id and section before the rebuild and writes it back after. A case belongs in `apps/desktop/test/work-item-menu.test.ts`, beside the long list's case. With the list at rest past its top, it makes the daemon send its lists, for example by starting or ending a session, and then reads that the list's `scrollTop` is unchanged. The fix pass shows that case red against `ce23ace0` (contract rule 15).
 
+```seal
+verdict: deferred #251
+answer: No code was changed. The defect predates the branch: the old `.named` box was rebuilt on every redraw in the same way. Its fix redraws each dialog's lists only where their loss changed, which is a unit the frame does not name (`skills/implement/fix-pass.md` *A fix that needs a unit the frame does not name waits for the fold*). The orchestrator filed it as issue #251 with this round's paste-ready fix and its case, as the 2026-11-25 row of `frame/plan.md` *Judgments of the run* records at `9ddfa5fe`.
+```
+
 ### 2. Four facts the frame states of the new form have no case that fails without them
 
 ```seal
@@ -74,6 +79,11 @@ The comparison is a sample under contract rule 12 only where a fact is worded ou
 
 The longer hash is written into the drawn list. A row of its own would need a clone whose short hashes differ in length, and git gives a small repository seven characters for every hash. With a grid per row, the patched row's subject starts further right than the others, so the set holds two values. The fix pass owes the statements of these facts as well. `gaps.md` rows 2 and 6 (lines 8 and 12) are marked `closed` where the cases now hold what they say is not verified. The sentence "waits until the head of its commits counts 39" names the wait the fix widens: it stands in the header comment of `screenshots.test.ts:41-43`, in both *Rule changes* `to:` texts of `frame/design.md:128` and `:133`, and in `gaps.md:12`. The fix pass extends each to the two new heads or leaves each as a true part of the wait, and says which it chose. Each new assertion is shown red with its one declaration removed (contract rule 15).
 
+```seal
+verdict: fixed bd4dd780
+answer: The four cases are built. In the delete case, the subject's assertion now also reads `font-size` against `--size-second`, and the path's against `--size-caption`. In the long list's case, a second assertion writes a sixteen-character hash into the first drawn row and reads one start for every subject past the widest hash. The comment of the first assertion no longer claims the shared column, and the new one carries that claim. The `delete` view of `screenshots.test.ts` now waits for three heads: the commits' head, "1 untracked file" and "1 ignored file or folder, which goes with the folder". These stand in a new constant, `QUEUED_HEADS`, which replaces `QUEUED_COMMITS_HEAD`, so the wait is written in the fix pass's own words rather than the paste-ready line. Each was seen red by `seal mutate` with only its guard removed, and the failing line was read each time (`executed`): Without `font-size: var(--size-second)` on `dialog .loss .subject`, the delete case failed at line 855 on the subject's fifth element only. With `font-size: inherit` added to `dialog .loss .path`, it failed there on the path's fifth element only. The path takes `--size-caption` from the rule it shares with `.hash` (`index.html:204`). Removing that declaration would also break the hash's assertion, so the mutant overrides the size for the path alone. A grid per row, `grid-template-columns: auto minmax(0, 1fr)` in place of `subgrid`, was first caught by the older assertion at line 910 with `[1, false]`, because the row then lost the list's gap. With the gap kept as well (`column-gap: var(--space-4)`), line 910 passed and the new assertion at line 912 failed with `[2, true]`. Three screenshot runs each failed at the `delete` view's wait, "the window never showed the delete dialog of Rename the settings file, …": one with 38 commits, one without the untracked file and one without `.env`. Green afterwards (`executed`): `test/work-item-menu.test.ts` passed 30 cases; one screenshot run in the default theme wrote 26 files; `test/screenshots.test.ts` and `test/themes.test.ts` passed 23 cases. The committed PNG files are unchanged, since no drawn part changed. `gaps.md` rows 2 and 6 are closed by these cases in `95093abd`. In the same commit, rows 3, 4 and 5 are closed by citing this round's *Confirmations*. On the sentence "waits until the head of its commits counts 39": the header comment of `screenshots.test.ts` is extended to the two new heads. In the two *Rule changes* `to:` texts it is left as it stands, since it is still a true part of the wait. The `gaps.md:12` text that held it is closed. The evidence search, rerun at HEAD, prints `fontSize` at lines 849 (hash), 850 (subject), 851 (path) and 861 (lead).
+```
+
 ### 3. `gaps.md` *Not done* says the frame overstates the shot with a phrase the frame no longer holds
 
 ```seal
@@ -86,6 +96,11 @@ Why it matters: the last sentence of `gaps.md:18` reads "The frame's phrase "eve
 
 ```markdown
 The screenshot run's scene writes no file with uncommitted changes in the worktree of "Rename the settings file", so the delete dialog's shot shows no list of "files with changes that are not committed". One modified tracked file would add it. It was not taken because `frame/design.md` *Scope* item 9 and the two *Rule changes* operations name the untracked file and `.env` alone, and the settle writes that scene paragraph as the framer worded it. That list draws its paths in the same row form as the untracked files' list, which the shot shows.
+```
+
+```seal
+verdict: fixed c99670ea
+answer: The last sentence of `gaps.md:18` is removed, and the paragraph now reads as the paste-ready text. The evidence search, rerun at HEAD over `seal/`, prints `trail/phases/phase-2.md:5`, which is dated to `5aede9b3` and stays as written. It also prints this round record's own quotations of the phrase. It prints no line of `gaps.md` and none of the frame.
 ```
 
 ### 4. The acceptance table of `frame/design.md` points at test lines that hold other code at the target
@@ -112,6 +127,11 @@ The `git grep` also printed `frame/design.md:33` (`:932-966`), which stands unde
 
 The `...` stands for the row's first two cells, which stay as they are.
 
+```seal
+verdict: fixed 9ddfa5fe
+answer: The orchestrator folded this finding into `frame/design.md` as the round wrote it, as the 2026-11-25 row of `frame/plan.md` *Judgments of the run* records. The three *Verifiable how* cells now name the cases by title. Read at HEAD, each title stands at its case: `work-item-menu.test.ts:815` for the delete case, `view.test.ts:742` for "counts in each heading what the loss counts, …", and `work-item-menu.test.ts:999` and `:1032` for the two removal cases. The fix pass changed no line of the frame.
+```
+
 ### 5. `## Rule changes` of `frame/design.md` ends with a prose paragraph, so the settle cannot read the section's operations
 
 ```seal
@@ -130,6 +150,11 @@ The paragraph says that the row "The delete dialog" and the view list sentence a
 -The row "The delete dialog" of *Components and their states* and the view list sentence of *A pull request that changes the window carries its screenshots* are not operations here. Principle 8 of `docs/design.md`, and that section's own sentence on the view list, have this pull request write both in place in both editions.
  
  ## Removes
+```
+
+```seal
+verdict: fixed 9ddfa5fe
+answer: The orchestrator folded this finding into `frame/design.md` as the round wrote it, as the 2026-11-25 row of `frame/plan.md` *Judgments of the run* records. Read at HEAD, `## Rule changes` ends with the second operation's `check:` line, and the prose paragraph is gone. The fix pass changed no line of the frame.
 ```
 
 ## Confirmations
