@@ -65,7 +65,7 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
   bell.addEventListener("click", () => actions.filter("waiting"));
   refreshButton.addEventListener("click", () => actions.refresh());
   showRefresh(false);
-  // The one button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
+  // The "+" button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
   byId("new-work-item").title = NEW_WORK_ITEM_SAYS;
   byId("new-work-item").addEventListener("click", () => actions.openForm());
   showStatus();
