@@ -179,7 +179,7 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
     made?.remove();
   });
 
-  it("warns under the plan that the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and that the worktrees are at the cap the same disk proposes, and keeps Create enabled (scenarios 11 and 12)", async () => {
+  it("warns under the plan that the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and that the worktrees are at the cap the same disk proposes, in the theme's ink, and keeps Create enabled (scenarios 11 and 12)", async () => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     await app.click("#work-item-repo");
@@ -193,6 +193,12 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
     }
     expect(await app.evaluate<boolean>(`document.getElementById("work-item-create").disabled`)).toBe(false);
     expect(await app.evaluate<boolean>(`getComputedStyle(document.getElementById("work-item-warning")).display !== "none"`)).toBe(true);
+    // In the theme's ink, not in the signal of a work item that waits for the person (docs/design.md, principle 3).
+    const inks = await app.evaluate<{ warning: string; ink: string; signal: string }>(
+      `(() => { const probe = (colour) => { const span = document.createElement("span"); span.style.color = colour; document.body.append(span); const read = getComputedStyle(span).color; span.remove(); return read; }; return { warning: getComputedStyle(document.getElementById("work-item-warning")).color, ink: probe("var(--ink)"), signal: probe("var(--state-waiting)") }; })()`,
+    );
+    expect(inks.warning).toBe(inks.ink);
+    expect(inks.warning).not.toBe(inks.signal);
     await app.click("#work-item-cancel");
     await app.until(`!document.getElementById("work-item-dialog").open`, 'the "New work item" form closed');
   });
