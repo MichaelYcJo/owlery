@@ -67,9 +67,9 @@ is a write you do not make.
    person's message, and `decisions.md` where one stands: take each
    reversal in, and hold to each decision and each answer that file
    records. Make each fix in that worktree and commit it yourself with
-   `git -C` and the worktree's path, and commit no change to the round record: Owlery commits it
-   after the pass, the daemon in a chain it runs and the chain command in a
-   pane.
+   `git -C` and the worktree's path, and commit no change to the round
+   record: Owlery commits it after the pass, the daemon in a chain it runs
+   and the chain command in a pane.
 10. Hand back, after the same `writing-style` section: what was done, each
     claim labelled as rule 4 asks and the suite as rule 2 asks, each
     instruction you declined as rule 3 asks, the account the rule *Before

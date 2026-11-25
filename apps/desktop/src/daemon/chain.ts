@@ -685,8 +685,10 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * frame, of the phase records and of the changelog fragment where each
  * stands, that the work item names no issue, the paths the branch changed,
  * and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line that
- * says so. Every path but the worktree's and the form's, which the bundle
- * holds, is from the top of the worktree the prompt names (`openingLine`).
+ * says so. Every path but the worktree's is from the top of the worktree
+ * the prompt names (`openingLine`). The form of the answer is named by the
+ * sealer's definition, whose paths are the bundle's, so the prompt gives
+ * no path of the bundle.
  *
  * `earlier` is the seal a later commit broke, where the run follows one: its
  * run and its sealed commit, which the prompt names. The paths and the diff
@@ -713,7 +715,7 @@ export function sealPrompt(given: { run: number; worktree: string; directory: st
     "- The issue: the work item names none, so no issue's text is among what you read",
     ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
     "",
-    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the bundle's \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of that worktree.`,
+    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of that worktree.`,
     "",
     given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),

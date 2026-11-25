@@ -35,8 +35,8 @@ You work in the work item's worktree, which the first line of your prompt
 names by the absolute path of its top, and you read every other path your
 prompt gives from that top. The folder your session starts in may be
 another worktree of the repository. In that worktree, the commit you audit
-is the one your prompt's target line names: the commit the broad gate passed on. Your prompt gives you the run's
-number, the heading and the target line your section carries, the paths of
+is the one your prompt's target line names: the commit the broad gate
+passed on. Your prompt gives you the run's number, the heading and the target line your section carries, the paths of
 the records to read, the paths the branch changed, and their diff. Where
 your prompt names the seal this run follows, they are what changed since
 that seal's commit, and otherwise what changed since the branch left its
