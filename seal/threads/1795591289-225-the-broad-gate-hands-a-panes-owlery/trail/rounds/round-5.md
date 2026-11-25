@@ -50,6 +50,11 @@ A pane and the broad gate's command take none of the four variables of the pane 
 Issue #225. A pane under the owl chain holds four variables for its chain and its hooks: its id, the hook socket it reports to, the chain command and the work item's base. A daemon or a broad gate started in such a pane inherited them. Every shell, Claude Code pane on no chain and worktree setup pane that daemon opened then named the outer pane's chain command, and the broad gate of this repository failed six cases when the owner sealed a branch from a pane.
 ```
 
+```seal
+verdict: fixed fd0af506
+answer: The finding holds: since the merge a pane's command sets `OWLERY_RUN` as well, and three sentences listed four variables. On the owner's word the fix differs from the paste-ready snippets, which kept the runner off the list: the runner joins it. `7d3f9d5a` makes `hooks.ts#PANE_VARIABLES` one constant that names the five variables, and `paneCommands`, `setupPaneCommand`, `runnerEnv` and `withoutPaneVariables` read their names from it. Its comment names the five and says why `CLAUDE_CONFIG_DIR` stays. A new case in `test/gate.test.ts` reads every key the pane commands return and finds none in the gate's environment, and the daemon case gives the outer pane a runner and finds none in either pane. Both were seen red with the constant as it stood. `fd0af506` rewrites `gaps.md`'s *Scope confirmation*, the changelog's lines 3, 5 and 6, and the frame's *Scope*, *Out*, scenario 2, a *Grounding* line on the merge and the two `## Rule changes` texts to match, with a `Reframed` line under the frame's mark.
+```
+
 ### 2. The new `## Not done` item says a daemon that writes a runner gives each pane its own, and a sign-in pane gets none
 
 ```seal
@@ -67,6 +72,11 @@ The item's other claims hold at the target, and *Confirmations* says how. The sn
 
 ```markdown
 - `OWLERY_RUN`, the runner of heavy commands, is not in `hooks.ts#PANE_VARIABLES`. It reached this branch with issue #226, in the merge of `release/v0.0.4` after round 4, and the frame was written before it existed. `paneCommands` and `setupPaneCommand` set it in the command of each shell, Claude Code pane and worktree setup pane where the daemon wrote a runner, so a daemon that writes one gives each of those panes its own. A sign-in pane runs in its command's environment alone and holds no runner. Where a daemon writes none, as a daemon a case starts may not, a shell, a Claude Code pane or a worktree setup pane started under it still names the outer pane's runner, and the broad gate's command holds that runner too. The broad gate's command and the repository's `Heavy commands` do not read it, and the chain command finds the same run folder through `OWLERY_RUN_DIR`, which this work keeps on purpose. Whether the runner belongs on the list is a question for a work item that frames it, and the owner decides whether to open one.
+```
+
+```seal
+verdict: fixed fd0af506
+answer: The finding holds: the item described every pane where only a shell, a Claude Code pane and a worktree setup pane get the runner. On the owner's word the item is gone rather than rewritten, because the runner it said was left out is now cut (`7d3f9d5a`), and `## Not done` reads `nothing`.
 ```
 
 ## Confirmations
