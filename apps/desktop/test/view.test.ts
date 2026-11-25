@@ -3517,6 +3517,15 @@ describe("machineDialog", () => {
     expect(rows?.[0]?.says).toMatch(/^The default is 6: /);
   });
 
+  it("does not follow the default where a person set a cap to the value of its proposal, so \"Use the default\" is offered (scenario 3)", () => {
+    const rows = machineDialog({ ...MACHINE, agents: { ...MACHINE.agents, set: 6 }, panes: { ...MACHINE.panes, set: 8 } })?.rows;
+    expect(rows?.map(({ cap, value, isDefault }) => ({ cap, value, isDefault }))).toEqual([
+      { cap: "agents", value: 6, isDefault: false },
+      { cap: "worktrees", value: null, isDefault: true },
+      { cap: "panes", value: 8, isDefault: false },
+    ]);
+  });
+
   it("shows nothing against a daemon that sent no `machine`: one of an earlier build, or one given no reader, and the Machine button is then hidden (scenario 10)", () => {
     expect(machineDialog(null)).toBeNull();
   });
