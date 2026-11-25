@@ -49,6 +49,12 @@ const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ -
 
 Precondition: `$OUT` is a folder the case's cleanup removes whole. In both cases it is `stood.made.base`, which `temporaryRepository`'s `remove` deletes (`repositories.ts:32`). A test process that dies before its cleanup runs removes nothing, and the snippet does not cover that. The fix is to be seen red with the round's probe: with the `[ -d "$OUT" ]` guard removed, `pgrep -fl 'hold\.go'` lists the shell after the run. With the guard in place, it lists nothing.
 
+```seal
+verdict: fixed f650e671
+location: `apps/desktop/test/heavy-run.test.ts:26`, `apps/desktop/test/heavy-run.test.ts:118`, `apps/desktop/test/chain-command.test.ts:212`
+answer: Both loops of `heavy-run.test.ts`, and the in-process gate command of `chain-command.test.ts:212`, which no daemon stops, now also end once `$OUT` or `$HOME` is gone; with each case forced to fail before its release, three looping shells were left without the guard and none with it. The daemon's gate commands at `chain.test.ts:2430` and `:2474` need no guard, since the daemon's close at cleanup stops their process group, and the same forced failure left none of them.
+```
+
 ## Confirmations
 
 ```seal
