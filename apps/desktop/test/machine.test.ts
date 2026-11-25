@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync, rmSync, statfsSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { LimitsStore, type MachineProbes, readMachine } from "../src/daemon/machine";
+import { placesFree, queueOrder } from "../src/daemon/agent-queue";
+import { AgentMemoryStore, LimitsStore, type MachineProbes, readMachine } from "../src/daemon/machine";
 import { agentsProposal, agentsSays, capRefusal, GIB, MIB, panesProposal, panesSays, readingSays, worktreesProposal, worktreesSays } from "../src/shared/machine";
 import type { MachineReading } from "../src/shared/protocol";
 
@@ -30,6 +31,8 @@ function probes(sysctl: (key: string) => string, more: Partial<MachineProbes> = 
     load: () => (calls.load++, 1.5),
     sysctl: (key) => (calls.sysctl.push(key), sysctl(key)),
     statfs: (at) => (calls.statfs.push(at), { freeBytes: 1, totalBytes: 2 }),
+    // No process stands for a case that gives no `ps`.
+    ps: () => Promise.resolve(""),
     ...more,
   };
   return { given, calls };
@@ -225,5 +228,82 @@ describe("the caps a person set", () => {
     const store = new LimitsStore(undefined);
     store.set({ worktrees: 4 });
     expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null });
+  });
+});
+
+describe("the memory of the agents, measured", () => {
+  it("keeps each agent's highest reading, for the last twenty agents read, in `agent-memory.json` of the run folder, readable by the user alone, where a store started later reads them (scenario 2, the store)", () => {
+    const runDir = folder();
+    const store = new AgentMemoryStore(runDir);
+    expect(store.kilobytes()).toEqual([]);
+    expect(store.note("pane-1", 600)).toBe(true);
+    expect(store.note("pane-1", 700)).toBe(true);
+    // A lower reading of the same agent keeps its highest, and changes nothing.
+    expect(store.note("pane-1", 650)).toBe(false);
+    expect(store.note("headless-1", 400)).toBe(true);
+    expect(store.kilobytes()).toEqual([700, 400]);
+    expect(readFileSync(join(runDir, "agent-memory.json"), "utf8")).toBe("[700,400]");
+    expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
+    for (let agent = 2; agent <= 21; agent += 1) store.note(`pane-${String(agent)}`, agent);
+    expect(store.kilobytes()).toEqual(Array.from({ length: 20 }, (_, index) => index + 2));
+    // An agent the store forgot is a new agent where its name comes again, as a pane's id does after a restart.
+    store.forget("pane-21");
+    expect(store.note("pane-21", 1)).toBe(true);
+    expect(new AgentMemoryStore(runDir).kilobytes()).toEqual([...Array.from({ length: 19 }, (_, index) => index + 3), 1]);
+  });
+
+  it.each([
+    ["text that is no JSON", "700"],
+    ["JSON that is no list", '{"kilobytes":[700]}'],
+    ["values that are no whole numbers above 0", "[700,0,-1,2.5,\"800\"]"],
+  ])("reads a file that holds %s as the values in it that are kilobytes, and none else", (_, text) => {
+    const runDir = folder();
+    writeFileSync(join(runDir, "agent-memory.json"), text);
+    expect(new AgentMemoryStore(runDir).kilobytes()).toEqual(text.startsWith("[") ? [700] : []);
+  });
+
+  it("keeps the measures in memory alone where it is given no run folder", () => {
+    const store = new AgentMemoryStore(undefined);
+    store.note("pane-1", 700);
+    expect(store.kilobytes()).toEqual([700]);
+  });
+
+  it("reads the resident memory of the processes named with one `ps` call, in kilobytes, and none of a process that is gone", async () => {
+    const asked: number[][] = [];
+    const { given } = probes(() => "4", {
+      ps: (pids) => {
+        asked.push([...pids]);
+        // `ps` prints a line for each process that stands, and exits 1 where one is gone.
+        return Promise.resolve("  101 614400\n  103   2048\n");
+      },
+    });
+    const reader = readMachine({}, given);
+    expect(await reader.memoryOf([])).toEqual(new Map());
+    expect(asked).toEqual([]);
+    expect(await reader.memoryOf([101, 102, 103])).toEqual(new Map([[101, 614400], [103, 2048]]));
+    expect(asked).toEqual([[101, 102, 103]]);
+    // `OWLERY_MACHINE` holds the machine's reading, so no process of it is read either.
+    const held = readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0 }) }, given);
+    expect(await held.memoryOf([101])).toEqual(new Map());
+    expect(asked).toHaveLength(1);
+  });
+});
+
+describe("the queue of the agents", () => {
+  it("starts a session a person asked for first, then a stage of a chain that already ran a stage, then a chain's first stage, and within each the one that waited longest (scenario 6)", () => {
+    expect(
+      queueOrder([
+        { id: 1, rank: "first-stage", joined: 1 },
+        { id: 2, rank: "running-chain", joined: 2 },
+        { id: 3, rank: "asked", joined: 3 },
+        { id: 4, rank: "running-chain", joined: 4 },
+        { id: 5, rank: "asked", joined: 5 },
+        { id: 6, rank: "first-stage", joined: 0 },
+      ]),
+    ).toEqual([3, 5, 2, 4, 6, 1]);
+  });
+
+  it("frees as many places as the cap leaves above the agents that run, and none at or over it", () => {
+    expect([placesFree(4, 6), placesFree(6, 6), placesFree(7, 6), placesFree(0, 1)]).toEqual([2, 0, 0, 1]);
   });
 });

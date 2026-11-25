@@ -6,7 +6,7 @@
 // opens it is hidden.
 import type { Cap } from "../shared/protocol";
 import { byId, held, send } from "./shared";
-import { capChanges, type CapRow, machineDialog } from "./view";
+import { capChanges, type CapRow, machineDialog, machineQueue } from "./view";
 
 const button = byId<HTMLButtonElement>("machine-button");
 const dialog = byId<HTMLDialogElement>("machine-dialog");
@@ -77,6 +77,9 @@ function capPart(cap: Cap): HTMLElement {
  * field from under them. A field the person typed in keeps what they typed,
  * and one they returned to the default shows the proposal. "Use the default"
  * is offered where the field would not follow the default after a Save.
+ * Under the agent row stand the sessions that wait for the machine, in the
+ * order they start, each by its work item's title and what it waits to
+ * run, and nothing where none waits.
  */
 export function showMachine(): void {
   const shown = machineDialog(held.machine);
@@ -97,6 +100,21 @@ export function showMachine(): void {
     const says = part.querySelector(".cap-says");
     if (says) says.textContent = row.says;
   }
+  const agents = capsPlace.querySelector<HTMLElement>('[data-cap="agents"]');
+  const queue = agents?.querySelector<HTMLUListElement>(".cap-queue") ?? agents?.appendChild(Object.assign(document.createElement("ul"), { className: "cap-queue named" }));
+  queue?.replaceChildren(
+    ...machineQueue(held.machine, held.headless, held.workItems).map(({ title, waits }) => {
+      const entry = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = title;
+      const what = document.createElement("span");
+      what.className = "detail";
+      what.textContent = waits;
+      entry.append(name, what);
+      return entry;
+    }),
+  );
 }
 
 /** Draws the dialog the caller just opened on what the daemon last said, with no field touched, and has the daemon read the load and the free disk again. */

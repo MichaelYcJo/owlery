@@ -31,6 +31,8 @@ import {
   cardStaysAt,
   chainNotifications,
   chainSays,
+  machineQueue,
+  queuedAhead,
   changedSet,
   changedSetAfter,
   changesOf,
@@ -799,6 +801,11 @@ describe("archivalOf", () => {
     });
   });
 
+  it("names a headless session that waits for the machine among what the archive ends, and gives its id (scenario 9)", () => {
+    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: ["Asked: Which file holds the login form?"], running: { panes: [], headless: [1] } });
+    expect(removalOf(PROJECT, [LOGIN], [], [], [headless(1, { state: "queued" })], KINDS).running).toEqual({ panes: [], headless: [1] });
+  });
+
   it("names the pane the work item's setup names Setup, as its tab does", () => {
     const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
     expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
@@ -851,6 +858,10 @@ describe("runningSessions", () => {
       "Asked in Shelved: Where is the index built?",
       "Asked: Who asked?",
     ]);
+  });
+
+  it("names a headless session that waits for the machine as one that runs, of a listed work item and of none (scenario 9)", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued" })], KINDS)).toEqual(["Asked in Fix the login bug: Which file holds the login form?", "Asked: Who asked?"]);
   });
 
   it("names none where no session runs", () => {
@@ -1741,6 +1752,26 @@ describe("a work item's chain", () => {
     expect(chainSays(RESTED)).toBe("The sealer sealed 1a2b3c4, after round 1.");
     expect(chainSays(PARKED)).toBe("The work item waits for the answers to its questions.");
     expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
+  });
+
+  it("says at the view's foot that a running chain waits for the machine while its stage's session is queued, with how many go before it (scenario 4)", () => {
+    expect(chainSays(RUNNING, 2)).toBe("Waiting for the machine (2 ahead)");
+    expect(chainSays(RUNNING, 0)).toBe("Waiting for the machine");
+    expect(chainSays(RUNNING, null)).toBe("Review round 1 is running.");
+    // A chain that stopped says why, whatever of the work item still waits.
+    expect(chainSays(STOPPED, 1)).toBe(STOPPED_SAYS);
+  });
+
+  it("says in the line's second row that a session of the work item waits for the machine, with how many go before it, after a question, a call to allow and a stopped chain's sentence and before the stage and every other text, and the branch while a search is typed (scenario 4)", () => {
+    expect(lineText(RUNNING, finished, false, 2)).toEqual({ says: "machine", text: "Waiting for the machine (2 ahead)" });
+    expect(lineText(LOGIN, waiting, false, 0)).toEqual({ says: "machine", text: "Waiting for the machine" });
+    expect(lineText(LOGIN, undefined, false, 1)).toEqual({ says: "machine", text: "Waiting for the machine (1 ahead)" });
+    expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false, 2)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false, 2)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(STOPPED, finished, false, 2)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(RUNNING, finished, true, 2)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    // The line's state is the one it had: the chain runs, so the line works.
+    expect(inboxLine(RUNNING, [finished], KINDS).state).toBe("working");
   });
 
   it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line and at its view\'s foot', () => {
@@ -2938,6 +2969,10 @@ describe("headlessLines", () => {
     ]);
   });
 
+  it("says Queued on the line of a session that waits for the machine, and offers Stop on it (scenario 4)", () => {
+    expect(headlessLines([headless(1, { state: "queued", queuedAt: 1234 })], LOGIN)).toEqual([{ id: 1, prompt: "Which file holds the login form?", state: "queued", mark: "queued", words: "Queued", text: "", errorOutput: "", stop: true, asks: [] }]);
+  });
+
   it("offers Stop on the line of a session that is working, and on no line of one that ended", () => {
     const sessions = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" })];
     expect(headlessLines(sessions, LOGIN).map(({ id, stop }) => ({ id, stop }))).toEqual([
@@ -3454,6 +3489,14 @@ describe("summaryCount", () => {
   });
 });
 
+/** What a daemon that keeps the caps sends of a Mac with 36 GB of memory, 6 performance cores and 25.1 GB free, where no cap is set and nothing runs. */
+const MACHINE: Machine = {
+  reading: { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } },
+  agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
+  worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
+  panes: { proposed: 8, set: null },
+};
+
 describe("daemonStatus", () => {
   it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
     const sessions = [session(1), session(2, { state: "working" }), session(3, { kind: "shell" }), session(4, { alive: false, state: "finished" })];
@@ -3472,6 +3515,15 @@ describe("daemonStatus", () => {
     expect(daemonStatus(sessions, KINDS, false)).toBe("Daemon running, 2 agents");
     expect(daemonStatus([], KINDS, true)).toBe("Daemon running, no agent, keeping the Mac awake");
   });
+
+  it("counts against the cap, where the daemon keeps one, the agents it counts, its working headless sessions among them, and the sessions that wait (scenarios 4 and 8)", () => {
+    const agents = (running: number, queue: number[], set: number | null = null): Machine => ({ ...MACHINE, agents: { ...MACHINE.agents, running, queue, set } });
+    expect(daemonStatus([], KINDS, false, agents(6, [7, 8]))).toBe("Daemon running, 6 agents of 6, 2 waiting");
+    expect(daemonStatus([session(1)], KINDS, false, agents(1, [7], 1))).toBe("Daemon running, 1 agent of 1, 1 waiting");
+    expect(daemonStatus([session(1), session(2)], KINDS, true, agents(2, [], 1))).toBe("Daemon running, 2 agents of 1, keeping the Mac awake");
+    // Where nothing runs and nothing waits, the line says so as a daemon without a cap does.
+    expect(daemonStatus([], KINDS, false, agents(0, []))).toBe("Daemon running, no agent");
+  });
 });
 
 describe("keepAwakeControl", () => {
@@ -3488,13 +3540,6 @@ describe("keepAwakeControl", () => {
 
 describe("machineDialog", () => {
   /** The owner's Mac as the framer's probe read it, with one work item standing and nothing measured. */
-  const MACHINE: Machine = {
-    reading: { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } },
-    agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
-    worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
-    panes: { proposed: 8, set: null },
-  };
-
   it("states the reading in one line, and gives each cap a row with its value, its default's sentence and whether it follows the default (scenario 1)", () => {
     expect(machineDialog(MACHINE)).toEqual({
       reading: "36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.",
@@ -3528,6 +3573,32 @@ describe("machineDialog", () => {
 
   it("shows nothing against a daemon that sent no `machine`: one of an earlier build, or one given no reader, and the Machine button is then hidden (scenario 10)", () => {
     expect(machineDialog(null)).toBeNull();
+  });
+});
+
+describe("the queue of the agents", () => {
+  const ROUND: ChainStage = { kind: "round", round: 2, state: "working", failure: null, startedAt: 1, endedAt: null, headlessId: 8, refusals: 0, gate: null };
+  const CHAINED: WorkItem = { ...SEARCH, chain: { state: "running", says: "Review round 2 is running.", since: 1, stages: [ROUND] } };
+  const HEADLESS = [headless(7, { state: "queued", prompt: "Which file?" }), headless(8, { workItemId: 2, state: "queued", role: { role: "proofer", stage: "round" } }), headless(9, { state: "queued", prompt: "And the tests?" }), headless(3)];
+  const QUEUED: Machine = { ...MACHINE, agents: { ...MACHINE.agents, running: 6, queue: [8, 7, 9] } };
+
+  it("lists under the agent row each session that waits, in the order they start, by its work item's title and what it waits to run: a chain's stage by its name, a person's question by its prompt (scenario 4)", () => {
+    expect(machineQueue(QUEUED, HEADLESS, [LOGIN, CHAINED])).toEqual([
+      { title: "Speed up search", waits: "Proofer, round 2" },
+      { title: "Fix the login bug", waits: "Asked: Which file?" },
+      { title: "Fix the login bug", waits: "Asked: And the tests?" },
+    ]);
+    // A session the window holds no line of yet is listed as the daemon gave it, by its number.
+    expect(machineQueue({ ...QUEUED, agents: { ...QUEUED.agents, queue: [11] } }, HEADLESS, [LOGIN])).toEqual([{ title: "", waits: "Session 11" }]);
+    expect(machineQueue(MACHINE, HEADLESS, [LOGIN, CHAINED])).toEqual([]);
+    expect(machineQueue(null, HEADLESS, [LOGIN, CHAINED])).toEqual([]);
+  });
+
+  it("counts how many go before a work item's first session that waits, and gives null for a work item none of whose sessions waits and against a daemon that keeps no cap", () => {
+    expect(queuedAhead(1, HEADLESS, QUEUED)).toBe(1);
+    expect(queuedAhead(2, HEADLESS, QUEUED)).toBe(0);
+    expect(queuedAhead(3, HEADLESS, QUEUED)).toBeNull();
+    expect(queuedAhead(1, HEADLESS, null)).toBeNull();
   });
 });
 
@@ -4286,6 +4357,8 @@ describe("accounts in the window", () => {
     expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, workItemId: 2 })], [], HELD)).toBe("");
     expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2 })], HELD)).toBe("Home");
     expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "finished" })], HELD)).toBe("");
+    // A session that waits for the machine runs under its account once it starts.
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "queued" })], HELD)).toBe("Home");
     // A repository set to none gives the default.
     expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], HELD)).toBe("");
     expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], { ...HELD, defaultId: 1 })).toBe("System default");
@@ -4321,6 +4394,8 @@ describe("accounts in the window", () => {
     expect(offers({ ...held, refreshesUsage: false })).toEqual([false, false, false]);
     expect(offers(held, [session(3, { accountId: 1 }), session(4, { accountId: 2, alive: false })])).toEqual([true, false, true]);
     expect(offers(held, [], [headless(5, { accountId: 2 }), headless(6, { accountId: 0, state: "finished" })])).toEqual([true, true, false]);
+    // A session that waits for the machine will hand over its values once it starts, as the daemon reads it.
+    expect(offers(held, [], [headless(5, { accountId: 1, state: "queued" })])).toEqual([true, false, true]);
     expect(offers({ ...held, accounts: [SYSTEM, { ...WORK, refresh: { state: "running", startedAt: NOW } }, HOME] })).toEqual([true, false, true]);
     expect(REFRESH_SAYS).toBe("A refresh starts one short Claude Code session under the account, and uses a little of its limit.");
   });

@@ -698,8 +698,8 @@ export interface SealRecords {
   unreadRefusals: number;
 }
 
-/** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
-export type HeadlessState = "working" | "finished" | "failed";
+/** What a headless session is doing: `queued` while it waits for a place under the cap on agents, with no process, then `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error, or was stopped. A session the daemon begins under the cap never is `queued`. */
+export type HeadlessState = "queued" | "working" | "finished" | "failed";
 
 /**
  * One headless session: an agent asked one prompt in a work item's worktree,
@@ -717,7 +717,10 @@ export interface HeadlessInfo {
   error: string | null;
   /** What the turn used, as the result reported it: null until the result, and where the result carried none. */
   usage: Usage | null;
+  /** When the session started its run, by the daemon's clock. While it is `queued` it is the time it joined the queue, and its start sets it again. */
   startedAt: number;
+  /** When the session joined the queue of the agents, or null for one that never waited. A daemon of an earlier build sends no such field. */
+  queuedAt?: number | null;
   /** The last of what the agent's process printed on its error stream, once the process has exited; empty until then and where it printed nothing there. */
   errorOutput: string;
   /** What stopped a `failed` session before it ended by itself: its time limit, or a request, a client's `stopHeadless` or an archive, a delete or a removal that ended it. Null where the session ended by itself or still works. */

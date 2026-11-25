@@ -2,7 +2,7 @@
 // there. Nothing here knows the `Daemon` class, which is given the reader as
 // an option, as it is given the holder of keep-awake, so that its cases read
 // a machine of their own.
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { readFileSync, statfsSync } from "node:fs";
 import { availableParallelism, loadavg, totalmem } from "node:os";
 import { dirname, join } from "node:path";
@@ -21,6 +21,14 @@ const SYSCTL = "/usr/sbin/sysctl";
 /** The key under which macOS gives the cores of its first performance level, its performance cores. */
 const PERFORMANCE_CORES = "hw.perflevel0.physicalcpu";
 
+/** The program that gives a process's resident memory. It ships with macOS. */
+const PS = "/bin/ps";
+
+const MEMORY_FILE = "agent-memory.json";
+
+/** How many agents' measures the daemon keeps, the last it read. */
+export const AGENTS_KEPT = 20;
+
 /** The calls a reading is made of. Each case of the reader gives its own. */
 export interface MachineProbes {
   memoryBytes(): number;
@@ -30,6 +38,8 @@ export interface MachineProbes {
   sysctl(key: string): string;
   /** The free and total bytes of the volume that holds a folder. It throws where the folder does not stand. */
   statfs(folder: string): { freeBytes: number; totalBytes: number };
+  /** What `ps -o pid=,rss= -p <pids>` prints: a line for each process that stands, its id and its resident memory in kilobytes. A process that is gone has no line. */
+  ps(pids: readonly number[]): Promise<string>;
 }
 
 const SYSTEM: MachineProbes = {
@@ -41,28 +51,32 @@ const SYSTEM: MachineProbes = {
     const read = statfsSync(folder);
     return { freeBytes: read.bavail * read.bsize, totalBytes: read.blocks * read.bsize };
   },
+  // `ps` exits 1 where one of the processes is gone, and prints the others all the same.
+  ps: (pids) => new Promise((resolve) => execFile(PS, ["-o", "pid=,rss=", "-p", pids.join(",")], { encoding: "utf8", timeout: 5000 }, (_, stdout) => resolve(stdout ?? ""))),
 };
 
-/** How the daemon reads the machine: the reading, with the load and the disk of `folder`, the worktrees' folder, read at this call. */
+/** How the daemon reads the machine: the reading, with the load and the disk of `folder`, the worktrees' folder, read at this call, and the resident memory in kilobytes of each of the processes named that stands. */
 export interface MachineReader {
   read(folder: string): MachineReading;
+  memoryOf(pids: readonly number[]): Promise<Map<number, number>>;
 }
 
 /**
  * The reader of the machine the daemon runs on. Where `OWLERY_MACHINE` is set
  * it holds the reading, the text of a JSON object with `memoryBytes`, `cores`,
  * `performanceCores`, `freeBytes` and `totalBytes`, and `load` where it is
- * given, 0 where not; the reader then asks the machine nothing, so a case
- * reads the same proposals on every machine. A value that is no such object
+ * given, 0 where not; the reader then asks the machine nothing, and reads
+ * no process's memory, so a case reads the same proposals on every machine. A value that is no such object
  * throws the sentence that says so. Otherwise the memory, the cores and the
- * performance cores are read here, once, and the load and the disk at each
- * read.
+ * performance cores are read here, once, the load and the disk at each
+ * read, and the memory of the processes named with one `ps` at each
+ * `memoryOf`.
  */
 export function readMachine(env: NodeJS.ProcessEnv, given: Partial<MachineProbes> = {}): MachineReader {
   const text = env.OWLERY_MACHINE;
   if (text !== undefined && text !== "") {
     const reading = givenReading(text);
-    return { read: () => reading };
+    return { read: () => reading, memoryOf: () => Promise.resolve(new Map()) };
   }
   const probes: MachineProbes = {
     memoryBytes: given.memoryBytes ?? SYSTEM.memoryBytes,
@@ -70,11 +84,15 @@ export function readMachine(env: NodeJS.ProcessEnv, given: Partial<MachineProbes
     load: given.load ?? SYSTEM.load,
     sysctl: given.sysctl ?? SYSTEM.sysctl,
     statfs: given.statfs ?? SYSTEM.statfs,
+    ps: given.ps ?? SYSTEM.ps,
   };
   const memoryBytes = probes.memoryBytes();
   const cores = probes.cores();
   const performanceCores = performanceCoresOf(probes.sysctl, cores);
-  return { read: (folder) => ({ memoryBytes, cores, performanceCores, load: probes.load(), disk: diskOf(folder, probes.statfs) }) };
+  return {
+    read: (folder) => ({ memoryBytes, cores, performanceCores, load: probes.load(), disk: diskOf(folder, probes.statfs) }),
+    memoryOf: async (pids) => (pids.length === 0 ? new Map() : residentOf(await probes.ps(pids))),
+  };
 }
 
 /** The performance cores `sysctl` gives, or all the cores where it gives no whole number above 0, exits with an error or cannot start, as on an Intel Mac and off macOS. */
@@ -87,6 +105,16 @@ function performanceCoresOf(sysctl: MachineProbes["sysctl"], cores: number): num
   }
   const count = /^\d+$/.test(printed) ? Number(printed) : 0;
   return count > 0 ? count : cores;
+}
+
+/** The resident memory in kilobytes of each process a `ps -o pid=,rss=` printed a line for. */
+function residentOf(printed: string): Map<number, number> {
+  const read = new Map<number, number>();
+  for (const line of printed.split("\n")) {
+    const [, pid, kilobytes] = /^\s*(\d+)\s+(\d+)\s*$/u.exec(line) ?? [];
+    if (pid !== undefined && kilobytes !== undefined) read.set(Number(pid), Number(kilobytes));
+  }
+  return read;
 }
 
 /** The disk of the folder, or of the nearest folder above it that stands, or null where none answers. */
@@ -164,5 +192,60 @@ export class LimitsStore {
     for (const cap of CAPS) if (changes[cap] !== undefined) this.caps[cap] = changes[cap];
     if (this.file === undefined) return;
     writeWholeFile(this.file, JSON.stringify(Object.fromEntries(CAPS.flatMap((cap) => (this.caps[cap] === null ? [] : [[cap, this.caps[cap]]])))));
+  }
+}
+
+/**
+ * What the daemon measured of its agents: for each of the last
+ * `AGENTS_KEPT` agents it read at least once, the highest resident memory
+ * it read of the agent's own process, in kilobytes, in the order it first
+ * read them. They live in `agent-memory.json` in the run directory, as a
+ * list, readable by the user alone, and are read at start, so they outlive
+ * the daemon. A value of the file that is no whole number above 0 is left
+ * out. Given no run directory, they are kept in memory alone. The agents
+ * that live are known by a name the daemon gives them; one it forgets, as
+ * it ends, is a new agent where its name comes again.
+ */
+export class AgentMemoryStore {
+  private kept: { kilobytes: number }[] = [];
+  private readonly living = new Map<string, { kilobytes: number }>();
+  private readonly file: string | undefined;
+
+  constructor(runDir: string | undefined) {
+    this.file = runDir === undefined ? undefined : join(runDir, MEMORY_FILE);
+    if (this.file === undefined) return;
+    let value: unknown;
+    try {
+      value = JSON.parse(readFileSync(this.file, "utf8"));
+    } catch {
+      // Nothing was measured here, or the file is not ours.
+      return;
+    }
+    if (!Array.isArray(value)) return;
+    this.kept = value.filter((kilobytes): kilobytes is number => typeof kilobytes === "number" && Number.isInteger(kilobytes) && kilobytes > 0).slice(-AGENTS_KEPT).map((kilobytes) => ({ kilobytes }));
+  }
+
+  /** The measures kept, the agent read first first. */
+  kilobytes(): number[] {
+    return this.kept.map(({ kilobytes }) => kilobytes);
+  }
+
+  /** Notes a reading of an agent, and says whether the measures kept changed: a new agent's first, or a reading above its highest. The measures are held before they are written, so a write that throws leaves them in memory. */
+  note(agent: string, kilobytes: number): boolean {
+    const known = this.living.get(agent);
+    if (known !== undefined && known.kilobytes >= kilobytes) return false;
+    if (known !== undefined) known.kilobytes = kilobytes;
+    else {
+      const measured = { kilobytes };
+      this.living.set(agent, measured);
+      this.kept = [...this.kept, measured].slice(-AGENTS_KEPT);
+    }
+    if (this.file !== undefined) writeWholeFile(this.file, JSON.stringify(this.kilobytes()));
+    return true;
+  }
+
+  /** Forgets an agent that ended: its measure stays kept, and a reading under its name is a new agent's. */
+  forget(agent: string): void {
+    this.living.delete(agent);
   }
 }

@@ -6717,6 +6717,8 @@ describe("the caps on the machine", () => {
         reads.push(folder);
         return READING;
       },
+      // No process of an agent is read: the fake adapter starts none, and a pane's measure is the case's own.
+      memoryOf: () => Promise.resolve(new Map()),
     };
     return { machine, reads };
   }
@@ -6859,6 +6861,153 @@ describe("the caps on the machine", () => {
     expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("This daemon keeps no cap on the machine.");
     expect(told(c)).toEqual([]);
     expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  /** An adapter that answers as the fake does, each event `delayMs` after the one before, and notes the prompt of each run it starts. */
+  function noting(delayMs = 0) {
+    const fake = fakeAdapter({ delayMs });
+    const starts: string[] = [];
+    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(options.prompt), fake.start(options, listener)) };
+    return { roleAdapter, starts };
+  }
+
+  /** A daemon whose cap on agents a person set to 1, with a live Claude Code pane that takes that place and ends when a line is typed into it. */
+  async function atCap(options: Partial<DaemonOptions> = {}) {
+    const made = await machined(options);
+    made.c.send({ type: "setCaps", requestId: 900, agents: 1 });
+    await made.c.message("done", (m) => m.requestId === 900);
+    made.c.send({ ...START, kind: "claude", requestId: 901, workItemId: 1 });
+    const pane = (await made.c.message("started", (m) => m.requestId === 901)).session;
+    await made.c.message("machine", (m) => m.machine.agents.running === 1);
+    return { ...made, pane };
+  }
+
+  /** The newest a client was told of a headless session. */
+  const newest = (c: { messages: ServerMessage[] }, id: number): HeadlessInfo | undefined => c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === id ? [m.headless] : [])).at(-1);
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("lists a headless session asked while the agents are at the cap as queued, starts no process for it, and tells every client the queue (scenario 4)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c, bystander } = await atCap({ roleAdapter, now: () => 1_000 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    expect(headless).toMatchObject({ state: "queued", queuedAt: 1_000, startedAt: 1_000, stopped: null });
+    expect((await bystander.message("machine", (m) => m.machine.agents.queue.length === 1)).machine.agents).toMatchObject({ running: 1, queue: [headless.id] });
+    await pause(100);
+    expect(starts).toEqual([]);
+    expect(newest(bystander, headless.id)?.state).toBe("queued");
+  });
+
+  it("opens a pane a person asks for at the cap, and counts it (scenario 8)", async () => {
+    const { c, bystander } = await atCap();
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    expect((await c.message("started", (m) => m.requestId === 1)).session.alive).toBe(true);
+    expect((await bystander.message("machine", (m) => m.machine.agents.running === 2)).machine.agents).toMatchObject({ running: 2, set: 1, queue: [] });
+  });
+
+  it("starts a queued session when a place frees, with its start's time, and runs its time limit and its entry in the ledger from there (scenarios 5 and 7)", async () => {
+    let clock = 1_000;
+    const { roleAdapter, starts } = noting(1_000);
+    const { c, pane } = await atCap({ roleAdapter, now: () => clock, headlessLimitMs: 400 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    // Longer than the time limit: a session that waits runs no limit.
+    await pause(600);
+    expect(newest(c, headless.id)?.state).toBe("queued");
+    clock = 5_000;
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "working")).headless).toMatchObject({ startedAt: 5_000, queuedAt: 1_000 });
+    expect(starts).toEqual(["Which file?"]);
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless.stopped).toBe("limit");
+    c.send({ type: "readLedger", requestId: 2, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 2)).entries.map(({ startedAt, stopped }) => ({ startedAt, stopped }))).toEqual([{ startedAt: 5_000, stopped: "limit" }]);
+  });
+
+  it("starts a queued session where a person raises the cap (scenario 5)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c } = await atCap({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    c.send({ type: "setCaps", requestId: 2, agents: 2 });
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    expect(starts).toEqual(["Which file?"]);
+    expect((await c.message("machine", (m) => m.machine.agents.set === 2)).machine.agents.queue).toEqual([]);
+  });
+
+  it("ends a queued session at a stop and at an archive, with no entry in the ledger, and starts none in its place while the agents stay at the cap (scenario 9)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c, pane } = await atCap({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 1)).headless;
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Second?" });
+    const second = (await c.message("asked", (m) => m.requestId === 2)).headless;
+    await c.message("machine", (m) => m.machine.agents.queue.length === 2);
+    const before = c.messages.length;
+    c.send({ type: "stopHeadless", requestId: 3, id: first.id });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("headless", (m) => m.headless.id === first.id && m.headless.state === "failed")).headless).toMatchObject({ stopped: "request", error: "the session was stopped at a request before it finished" });
+    const left = await c.until(() => c.messages.slice(before).find((m): m is Extract<ServerMessage, { type: "machine" }> => m.type === "machine"));
+    expect(left.machine.agents).toMatchObject({ running: 1, queue: [second.id] });
+    await pause(100);
+    expect(starts).toEqual([]);
+    expect(newest(c, second.id)?.state).toBe("queued");
+    // An archive names the queued session among what runs, and ends it before the pane, whose end frees a place.
+    c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [] } });
+    expect((await c.message("error", (m) => m.requestId === 4)).message).toBe("A session started since you looked. Read it again.");
+    c.send({ type: "archiveWorkItem", requestId: 5, id: 1, running: { panes: [pane.id], headless: [second.id] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
+    expect(starts).toEqual([]);
+    c.send({ type: "readLedger", requestId: 6, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 6)).entries).toEqual([]);
+  });
+
+  it("queues nothing where it is given no reader of the machine", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c } = await daemonWithWorkItem({ roleAdapter }).then(async ({ url }) => ({ c: await client(url) }));
+    await c.message("ready");
+    for (const requestId of [1, 2, 3]) c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 3);
+    c.send({ type: "ask", requestId: 4, workItemId: 1, prompt: "Which file?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless.state).toBe("working");
+    expect(starts).toEqual(["Which file?"]);
+  });
+
+  it("reads once a minute the resident memory of each agent's own process while one lives, keeps each agent's highest in `agent-memory.json`, and proposes from it once five are measured (scenario 2, the store)", async () => {
+    const asked: number[][] = [];
+    const readings = [600, 700, 650];
+    const machine: MachineReader = {
+      read: () => READING,
+      memoryOf: async (pids) => {
+        asked.push([...pids]);
+        const kilobytes = (readings.shift() ?? 650) * 1024;
+        return new Map(pids.map((pid) => [pid, kilobytes]));
+      },
+    };
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    // Four agents a daemon before this one measured, kept in the run folder.
+    writeFileSync(join(runDir, "agent-memory.json"), JSON.stringify([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024]));
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine, measureMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
+    const c = await client(url);
+    expect((await c.message("ready")).machine?.agents).toMatchObject({ measured: 4, perAgentBytes: 679 * 1024 ** 2 });
+    await pause(150);
+    // No agent lives, so nothing is read.
+    expect(asked).toEqual([]);
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 1)).session;
+    const measured = await c.message("machine", (m) => m.machine.agents.measured === 5 && m.machine.agents.perAgentBytes === 700 * 1024 ** 2);
+    // 18,432 MB, half of 36 GB, holds 26 agents at 700 MB, more than the 6 performance cores.
+    expect(measured.machine.agents).toMatchObject({ proposed: 6, byMemory: 26 });
+    expect(asked[0]).toHaveLength(1);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    await c.message("machine", (m) => m.machine.agents.running === 0);
+    const after = asked.length;
+    await pause(150);
+    expect(asked.length).toBe(after);
+    expect(JSON.parse(readFileSync(join(runDir, "agent-memory.json"), "utf8"))).toEqual([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024, 700 * 1024]);
+    expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
   });
 });
 

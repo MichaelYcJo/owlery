@@ -118,6 +118,8 @@
       .state.working { --state: var(--state-working); --part-line: var(--shape-working); --part-fill: var(--shape-working-fill); --part-track: var(--shape-working-track); --part-turn: var(--shape-working-turn); }
       .state.finished { --state: var(--state-finished); --part-line: var(--shape-finished); --part-fill: var(--shape-finished-fill); }
       .state.no-agent { --state: var(--state-no-agent); --part-line: var(--shape-no-agent); --part-fill: var(--shape-no-agent-fill); }
+      /* A headless session that waits for the machine runs no process yet, so it is drawn as a line with no agent is. */
+      .state.queued { --state: var(--state-no-agent); --part-line: var(--shape-no-agent); --part-fill: var(--shape-no-agent-fill); }
       .state.failed { --state: var(--state-failed); --part-line: var(--shape-failed); --part-fill: var(--shape-failed-fill); --part-fill-colour: var(--state-failed-fill); }
       .state { color: var(--state, inherit); }
       /* A state's icon. Each part takes its shape from its own state, and a part the state does not name draws nothing. */

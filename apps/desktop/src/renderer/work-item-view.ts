@@ -27,6 +27,7 @@ import {
   CARD_SHOW_MS,
   cardStaysAt,
   chainSays,
+  queuedAhead,
   closeAsks,
   droppedText,
   GATE_HEAD,
@@ -1002,7 +1003,7 @@ function showSeal(workItem: WorkItem): void {
   sealHead.textContent = shown.words;
   // The daemon's sentence is plain text, never markup.
   sealWhy.textContent = shown.why;
-  sealSays.textContent = chainSays(workItem);
+  sealSays.textContent = chainSays(workItem, queuedAhead(workItem.id, held.headless, held.machine));
 }
 
 /**

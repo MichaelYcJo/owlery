@@ -1807,6 +1807,10 @@ function onMessage(message: ServerMessage): void {
       held.machine = message.machine;
       showMachineEntry();
       if (MACHINE.dialog.open) showMachine();
+      // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
+      showSidebar();
+      listInFront()?.show();
+      if (front === "view") showView();
       return;
     case "agentNotice":
       // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
