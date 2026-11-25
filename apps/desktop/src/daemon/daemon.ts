@@ -785,7 +785,6 @@ export class Daemon {
     clearInterval(this.loadReads);
     clearTimeout(this.commitTimer);
     clearTimeout(this.watchTimer);
-    for (const end of this.turnWaits.splice(0)) end();
     clearTimeout(this.idleTimer);
     clearInterval(this.measureTimer);
     this.queued.clear();
@@ -4098,7 +4097,7 @@ export class Daemon {
    * no other, and the hello of the next client to connect starts them again.
    * A daemon that closed arranges none, and nothing the watch does holds the
    * daemon or the Mac. What waits for the next turn (`turnWaits`) is settled
-   * once that turn has ended, and at once where the turn reads nothing.
+   * once that turn has ended, and at once where no pull request is watched.
    */
   private scheduleWatch(): void {
     if (this.closed || this.watching) return;
@@ -4112,12 +4111,9 @@ export class Daemon {
     const next = Math.min(...watched.map(({ item }) => this.pullRequestDue.get(item.id) ?? 0));
     this.watchTimer = setTimeout(() => {
       this.watchTimer = undefined;
-      const waits = this.turnWaits.splice(0);
       // Nobody is told what the watch reads while no client is connected.
-      if (this.clients.size === 0 || this.closed) {
-        for (const end of waits) end();
-        return;
-      }
+      if (this.clients.size === 0 || this.closed) return;
+      const waits = this.turnWaits.splice(0);
       const due = this.watched().filter(({ item }) => (this.pullRequestDue.get(item.id) ?? 0) <= Date.now());
       const turn = Promise.all(due.map((held) => this.readPullRequest(held))).then((changed) => {
         if (changed.includes(true)) this.broadcastInbox();
