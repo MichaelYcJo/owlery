@@ -33,6 +33,11 @@ The fix gives the step the 30 seconds the describe gives each case. That covers 
   }, 30_000);
 ```
 
+```seal
+verdict: fixed ad5fcc5f
+answer: Applied the paste-ready fix as written: the step's hook takes 30_000, and its comment says why. Shown red before the commit, with a throw placed in the menu-open case after "two panes side by side" and an 11-second pause in the step before its "Side by side" press, standing for panes slow to close: the unbounded hook failed with "Hook timed out in 10000ms." at line 159 (executed, -t "pane's menu"). The same probe with the bound ran the step to its end with no hook timeout, and the probe's own throw was the one failure (executed). Both probe edits were removed before the commit. The other hooks of the file name their bounds already (beforeAll 120_000, afterAll 30_000).
+```
+
 ### 2. `gaps.md` names the two hover failures by line numbers of `f521b5c2` without naming that commit, and at the target those lines are other lines
 
 ```seal
@@ -49,6 +54,11 @@ The fix names the commit the runs read, so the numbers stay true however many li
 | Whether "shows a card under a link the pointer rests on…" (line 669 of `f521b5c2`, with every replay 150 ms late) and "makes a path a pane printed a link…" (line 749 of `f521b5c2`, at 100 ms) fail by the late replay or by the machine's load. Each failed once and passed at every other delay of `trail/phases/phase-4.md`. Neither sends to a pane that came back | the orchestrator, from the first attempts of `check` that row Q1 of `frame/questions.md` counts |
 ```
 
+```seal
+verdict: fixed ad5fcc5f
+answer: Applied the paste-ready fix as written: the row names both line numbers as lines of `f521b5c2`. `git show f521b5c2:apps/desktop/test/terminal-basics.test.ts | sed -n '669p;749p'` prints the card check and the link check the row means (executed). No other line of `gaps.md` or `changelog.md` gives a line number.
+```
+
 ### 3. The plan says the menu-open case names the paste when the daemon's replay stops coming, and the target has it fail earlier, at the wait for the replay
 
 ```seal
@@ -63,6 +73,11 @@ The sentence was already wrong at the framing commit `9a2a8647`, since *Scope* i
 
 ```markdown
 - **What breaks in six months.** A later change makes the daemon answer the `attach` of a listed session late, or not at all, such as a queue in front of the daemon's messages. A returned pane then stays silent, and nothing on the screen says so: a person's keys vanish. Where the replay is more than 15 seconds late or never comes, the cases of `test/terminal-basics.test.ts` that wait for a returned pane's replay fail at `untilReplayDrawn`, the first of them the Shift+Enter case, with "the window never showed the link on the pane's first row, drawn again from its replay", and the menu-open case fails the same way before its paste. A case written later that types into a pane right after it came back loses its keys until the replay is drawn, and has to wait on something the replay draws. The build met four such cases already in the file, and `frame/design.md` *Scope* item 9 has them wait.
+```
+
+```seal
+verdict: fixed 4399091d
+answer: The framer's fold `4399091d` rewrites `frame/plan.md` *Technical context* "What breaks in six months" with this record's replacement: a replay later than 15 s, or none, fails the cases that wait for a returned pane's replay at `untilReplayDrawn`, the Shift+Enter case first, and the menu-open case the same way before its paste. The same commit rewrites the *Overlap* row for #149 from pull request #203's diff, which the Not judged line of this record named.
 ```
 
 ## Confirmations
