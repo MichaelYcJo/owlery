@@ -30,12 +30,12 @@ jobs:
           fetch-depth: 0 # the check reads the commits since the base branch
 
       # The release's tag, or the release's branch until the tag exists.
-      - name: the check, at Owlery 0.0.4
+      - name: the check, at Owlery 0.0.5
         shell: bash
         run: |
-          git clone --quiet --depth 1 --branch v0.0.4 \
+          git clone --quiet --depth 1 --branch v0.0.5 \
             https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery" \
-          || git clone --quiet --depth 1 --branch release/v0.0.4 \
+          || git clone --quiet --depth 1 --branch release/v0.0.5 \
             https://github.com/MichaelYcJo/owlery.git "$RUNNER_TEMP/owlery"
 
       - name: a declared work item carries the records it owes
