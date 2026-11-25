@@ -17,7 +17,7 @@ The tree as read at `404b9cd`, the branch `feat/134-work-items-start-their-heavy
 | `docs/architecture.md` *Records are committed to the repository* and `apps/desktop/src/daemon/record-blocks.ts`, head comment (read) | A field of a record stands inside a `seal` block, and the pull request check reads the same blocks in Python. Prose outside a block is read by neither reader, so a sentence above a run block changes no grammar |
 | `docs/design.md` *Components and their states*, *The voice of the window's words* and *A pull request that changes the window carries its screenshots* (read) | A dialog's heading says what it does. A count on a line is in the fact face. The pull request carries the screenshots of the window it changes |
 | `docs/architecture.md` *Measure before building*, "A start of the app that an agent makes on a person's machine sets `OWLERY_BACKGROUND=1`" (read) | Every start of the built app in this work's cases sets it |
-| The frame of `1795559736-caps-on-worktrees-and-agents`, issue #32, committed on its branch at `205554a`: `frame/design.md` *Scope* items 1 to 4, 7, 8 and 13, *Data & interfaces* and its seam, and `frame/questions.md` Q7 to Q9 (read). The orchestrator's message of 2026-11-25 decides the seam: #32 owns the shared parts and merges first | #32 builds the reading of the machine (`daemon/machine.ts#readMachine()`, with `cores`, `memoryBytes`, `load` and `disk`), the formulas' module `shared/machine.ts`, `limits.json`, `ready.machine`, the message `machine`, the messages `setCaps` and `readMachine`, the Machine dialog, `OWLERY_MACHINE` for the built-app cases, and the line's words "Waiting for the machine (2 ahead)". This work creates none of them and adds its own key, fields, rows and cases to each |
+| The frame of `1795559736-caps-on-worktrees-and-agents`, issue #32, committed on its branch at `205554a`: `frame/design.md` *Scope* items 1 to 4, 7, 8 and 13, *Data & interfaces* and its seam, and `frame/questions.md` Q7 to Q9 (read). The orchestrator's message of 2026-11-25 decides the seam: #32 owns the shared parts and merges first | #32 builds the reading of the machine, the formulas' module `shared/machine.ts`, `limits.json`, `ready.machine`, the message `machine`, the messages `setCaps` and `readMachine`, the Machine dialog, `OWLERY_MACHINE` for the built-app cases, and the line's words "Waiting for the machine (2 ahead)". This work creates none of them and adds its own key, fields, rows and cases to each. The reading as #32's branch built it, read at `24dfec9` and not merged then: `daemon/machine.ts#readMachine(env, given?)` gives a `MachineReader`, and the reader's `read(folder)` gives a `MachineReading` with `memoryBytes`, `cores`, `performanceCores`, `load` and `disk`. `git grep -n readMachine -- apps/desktop/src` prints nothing on this branch at `5ed274e` (executed) |
 
 What the code holds, each read at `404b9cd`:
 
@@ -62,7 +62,7 @@ In:
 
    Inside one place, the command that asked first goes first. A command that runs is never stopped for one that waits. A turn ends when its command ends, and also when the process that asked for it is gone, so a crashed command holds nothing. Lowering the limit stops nothing: it holds for the next start.
 4. **The daemon's own chain takes a turn before it starts a broad gate.** While the gate waits, it is listed as the chain's stage, and the chain's sentence says that the gate waits for the machine.
-5. **Any session takes a turn through one command, the runner.** The daemon writes a launcher, `owl-run`, into its run folder, and every pane's environment names it in `OWLERY_RUN`. `"$OWLERY_RUN" <name>` looks the name up in the worktree's `Heavy commands`, asks the daemon for a turn, says on its error output that it waits, runs the command line with the session's own input and output, and exits with the command's exit code. Words after `--` are added to the command line, each as one word. A name the repository does not hold is refused with exit code 64 and a sentence that lists the names it holds.
+5. **Any session takes a turn through one command, the runner.** The daemon writes a launcher, `owl-run`, into its run folder, and every pane's environment, a setup pane's among them, names it in `OWLERY_RUN`. `"$OWLERY_RUN" <name>` looks the name up in the worktree's `Heavy commands`, asks the daemon for a turn, says on its error output that it waits, runs the command line with the session's own input and output, and exits with the command's exit code. Words after `--` are added to the command line, each as one word. A name the repository does not hold is refused with exit code 64 and a sentence that lists the names it holds.
 6. **The chain command's `gate` takes a turn the same way**, so a pane's broad gate waits behind the gates and commands of other work items.
 7. **A command runs at once where no daemon answers.** The runner and the chain command's `gate` say so in one sentence on the error output and run the command with no turn. The same holds where the daemon ends while the command waits.
 8. **A work item's line says "Waiting for the machine" while a heavy command of it waits.** The words, their count, as in "Waiting for the machine (2 ahead)", and their place in the line's second row are #32's, which words a session that waits for the agent cap so. This work gives the line a second source of the same words. Where a work item waits in both queues, the line shows the wait that began first. The work item's view says the same at the stage that waits.
@@ -82,7 +82,7 @@ Out:
 - **Stopping a running command for a more urgent one, and moving a command up the longer it waits.**
 - **A default that moves by itself from what was measured.** The measurements are shown beside the default, and the person decides.
 - **A limit for one repository.** The limit is the machine's.
-- **The repository's `.worktreesetup`.** It stays `pnpm install`, run as a new worktree's setup with no turn. A repository that wants its setup in the queue writes the runner into that file itself.
+- **The repository's `.worktreesetup`.** It stays `pnpm install`, run as a new worktree's setup with no turn. A repository that wants its setup in the queue writes the runner into that file itself, and the setup pane's environment names the runner for it.
 - **A second run for a heavy command that is no broad gate.** Its caller reads its exit code.
 - **Windows and Linux.** The display's hold is macOS's `caffeinate`, as the hold from idle sleep is. Node gives no load average on Windows, so no run there is ever over its load.
 
@@ -106,37 +106,39 @@ Out:
 
 Each name below is this design's proposal. A phase that finds a better name takes it and says so in its phase record. The shapes are the contract.
 
-**The repository's key**, in `config.json` of the records root, read by `records-place.ts#readRecordsPlace` from the worktree's file:
+**The repository's key**, in `config.json` of the records root, read from the worktree's file by a function of its own, `records-place.ts#readHeavyCommands`, which gives each name with its command line. `readRecordsPlace` does not read it: what it gives, `RecordsPlace`, is a type of the protocol that the daemon sends each window, and no window reads a command line.
 
 ```json
 { "Heavy commands": { "test": "pnpm --filter @owlery/desktop run test", "install": "pnpm install" } }
 ```
 
-A value that is no object, and an entry whose value is no text or is empty, names nothing, and the runner's refusal says so.
+A value that is no object, and an entry whose value is no text or is empty, names nothing. The runner's refusal lists the names the key holds, or says that it holds none.
 
-**The machine's reading** is #32's: `apps/desktop/src/daemon/machine.ts#readMachine()` gives `MachineReading`, of which this work reads `cores`, `memoryBytes` and `load`. This work adds one function to #32's `apps/desktop/src/shared/machine.ts`: `heavyDefault(reading)` gives `{ value, byCores, byMemory }` as `max(1, min(floor(cores / 8), floor(memory GiB / 16)))`, with the sentence that states it.
+**The machine's reading** is #32's: `apps/desktop/src/daemon/machine.ts#readMachine(env, given?)` gives a `MachineReader`, and the reader's `read(folder)` gives a `MachineReading`, of which this work reads `cores`, `memoryBytes` and `load`. Each `read` reads the load again, and the disk of the folder with it. This branch holds no `machine.ts` before #32 merges. Until phase 5 of `frame/plan.md`, the daemon is therefore given its reading of the load and the cores as an option of its own, which a case gives, and phase 5 fills that option from #32's reader. This work adds one function to #32's `apps/desktop/src/shared/machine.ts`: `heavyDefault(reading)` gives `{ value, byCores, byMemory }` as `max(1, min(floor(cores / 8), floor(memory GiB / 16)))`, with the sentence that states it.
 
 **The limits' store** is #32's `limits.json`. This work adds the key `heavyCommands`, as in `{ "heavyCommands": 2 }`. An absent key follows the default, and a value that is no whole number from 1 to the machine's cores is read as absent.
 
-**The turn keeper**, a new module `apps/desktop/src/daemon/machine-turns.ts` that imports nothing of the `Daemon` class and starts no process. It takes asks, each with the folder, the command's name, its place of *Scope* item 3 and whether it must run alone, and gives each a turn by the limit and the order. It is given its clock, its limit and its reading of the load, so its cases run with none of them and phases 1 to 4 of `frame/plan.md` need nothing of #32's.
+**The turn keeper**, a new module `apps/desktop/src/daemon/machine-turns.ts` that imports nothing of the `Daemon` class and starts no process. It takes asks, each with the folder, the command's name, its place of *Scope* item 3 and whether it must run alone, and gives each a turn by the limit and the order. Its answer to an ask says whether the ask waits and how many of those that wait go before it. The asker's going is an `AbortSignal` of the ask. `watch()` takes any number of watchers and calls each after every change of the queue or the limit: the daemon, which then sends the inbox, and each connection of the turn socket, which then tells its asker its count. It is given its clock, its limit and its reading of the load, so its cases run with none of them and phases 1 to 4 of `frame/plan.md` need nothing of #32's.
 
-**The turn socket**, a Unix socket of the run folder beside the hook socket, readable by the user alone. One connection is one command. Each message is one line of JSON:
+**The turn socket**, `turns.sock`, a Unix socket of the run folder beside the hook socket, readable by the user alone. One connection is one command, which the runner or the chain command's `gate` opens. Each message is one line of JSON, named by its field `is`:
 
 | From | Message | Says |
 |---|---|---|
-| the runner | `ask` | the worktree's top, the command's name, the place of *Scope* item 3 as the runner read it from the committed records, and whether the run must be alone |
-| the daemon | `waits` | how many wait before it, sent at each change |
-| the daemon | `turn` | the command may start, with the load the daemon read |
-| the runner | `ended` | the exit code and the peak memory |
+| the command | `ask` | the worktree's top as `git rev-parse --show-toplevel` prints it, the command's name, the place of *Scope* item 3, and whether the run must be alone. A gate's place is `gate`. The runner reads its place from the committed records: `review` where the one directory that names the branch holds a round record at HEAD, `build` where it holds none, and `outside` where HEAD names no branch, or where no directory or more than one names it |
+| the daemon | `waits` | how many of those that wait go before it, sent when the ask begins to wait and each time that count changes |
+| the daemon | `turn` | the command may start, with the load the daemon read, or null where it was given no reading |
+| the command | `ended` | the exit code and the peak memory |
 | the daemon | `ran` | whether the machine was over its load during the run, and the highest load |
 
-A connection that closes ends its ask or its turn. The daemon's own chain asks the keeper in process and opens no socket.
+A connection that closes ends its ask or its turn. The daemon closes the socket before it ends, so a command that waits then runs at once. The daemon's own chain asks the keeper in process and opens no socket.
 
-**The runner**: `owl-run <name> [-- <words>]`, one more subcommand of the chain command's script, started by the launcher `owl-run`, which sets the run folder for it, so the launcher's path serves a session outside a pane too. Exit code: the command's own, or 64 for a refusal of the runner's.
+The daemon renames the folder of an ask from the socket before it asks the keeper (`daemon.ts`, `Daemon#turnGiver`). Git prints a worktree's top by its real path, and the daemon keeps a work item's worktree under the path it was given, which may run through a link. The folder asked with becomes the worktree's path of the work item whose worktree has the same real path, and stays as asked where no work item has one. A work item's `machineWait` is found by that path.
+
+**The runner**: `owl-run <name> [-- <words>]`. It is the subcommand `run` of the chain command's script, started by the launcher `owl-run` as `chain.js run "$@"`. The launcher sets the run folder in `OWLERY_RUN_DIR` for it, so the launcher's path serves a session outside a pane too. Exit code: the command's own, 128 and the signal's number where a signal ended the command, 127 where `/bin/sh` did not start, or 64 for a refusal of the runner's. The runner refuses, and runs nothing, for a run with no name, for words that do not follow `--`, for a folder in no worktree, and for a name the repository does not hold.
 
 **The protocol** (`apps/desktop/src/shared/protocol.ts`), each new field optional, so a window of an earlier build reads nothing from it:
 
-- `WorkItem.machineWait`: `{ name, since, ahead }` or null.
+- `WorkItem.machineWait`: `{ name, since, ahead }` or null. `ahead` counts the asks that wait before this one and not those that run, so a command that waits alone reads 0. Where several commands of one worktree wait, it is the one that began to wait first.
 - A gate that waits is a `working` stage of `ChainStage` with `gate.waits: true`, and the daemon's sentence says the wait.
 - #32's `Machine` gains `heavy`: `{ proposed, byCores, byMemory, set, queue }`, where `queue` lists `{ workItemId, repo, name, place, state, since }` in order. The daemon sends #32's message `machine` when the heavy queue or the limit changes too.
 - #32's client message `setCaps` gains `heavyCommands?: number | null`, where null follows the default.
@@ -238,8 +240,8 @@ This work adds a mechanism: a queue, a limit and a key of `config.json`. The rea
 
 | Removes | Coordinate | Where it lands, or why it can go |
 |---|---|---|
-| The words "and it talks to no daemon" of the head comment | `apps/desktop/src/daemon/chain-command.ts`, the comment that opens the file | The comment is rewritten in place to say that `gate` asks the daemon for a turn and nothing else. The policy's sentence of the same fact is a `change` of *Rule changes* |
+| The words "and it talks to no daemon" of the head comment | `apps/desktop/src/daemon/chain-command.ts`, the comment that opens the file | The comment is rewritten in place to say that the command asks the daemon for one thing, a turn on the machine, before `gate` runs the broad gate and before `run` runs a heavy command. The policy's sentence of the same fact is a `change` of *Rule changes* |
 | The sentence that `-i` leaves the display free to sleep | `apps/desktop/src/daemon/keep-awake.ts#holdAwakeFor`, its comment | Rewritten in place: the holder keeps the display awake where it is asked to |
-| The start of the gate's stage at the process's start | `apps/desktop/src/daemon/daemon.ts#runGate`, the comment "From here to the stage's listing nothing waits" and the lines under it | The stage is listed when the gate asks for its turn, and the wait for the turn stands between the listing and the start. A stop that arrives during the wait ends the ask |
+| The start of the gate's stage at the process's start | `apps/desktop/src/daemon/daemon.ts#runGate`, the comment "From here to the stage's listing nothing waits" and the lines under it | A gate whose turn is free is listed once, as its command starts, as before. A gate that waits is listed when it asks, with `gate.waits`, and the stage that waited becomes the one that runs. After a wait the daemon reads the head and the tree again before the command starts, and a head that moved stops the chain there. A stop that arrives during the wait ends the ask, fails the stage as stopped before its command started, and enters no run in the ledger |
 
 Framed 2026-11-25 by framer, before the build.
