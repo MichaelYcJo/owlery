@@ -57,4 +57,4 @@ No migration, no environment variable and no dependency. The pull request moves 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The pull request's title takes `feat:`, and the kind that came closest is `fix:`. | What a person meets is a new emblem: the app's icon and its Dock picture become owl L, the seal's owl without its head feathers (`frame/design.md` *Scope* items 1 to 3). At the base no document states what the emblem must look like: `TRADEMARKS.md` describes the drawing that stood, and `docs/name.md` names the owl's source and not its lines, so no rule stood that the change brings the app back to, and `fix:` has none to stand on. `fix:` came closest because the issue arose from a report that the owl reads as a skull. The issue's title and the branch already take `feat:`. | the plugin's `skills/commit-pr-convention/SKILL.md` *Commit messages* |
