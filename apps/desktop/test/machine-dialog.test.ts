@@ -53,7 +53,7 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
     expect(await app.stop()).toEqual([]);
   });
 
-  it("opens from a button at the sidebar's foot, and shows what the daemon read under `OWLERY_MACHINE` in one line and each cap's default with the numbers it came from (scenarios 1 and 16)", async () => {
+  it("opens from a button at the sidebar's foot, and shows what the daemon read under `OWLERY_MACHINE` in one sentence and each cap's default with the numbers it came from (scenarios 1 and 16)", async () => {
     expect(await app.evaluate<{ hidden: boolean; label: string | null; title: string }>(`(() => { const button = document.getElementById("machine-button"); return { hidden: button.hidden, label: button.getAttribute("aria-label"), title: button.title }; })()`)).toEqual({ hidden: false, label: "Machine", title: "Machine…" });
     await open();
     expect(await app.evaluate<string>(`document.getElementById("machine-reading").textContent`)).toBe("36 GB of memory, 12 cores of which 6 are performance cores, a load of 0, and 25.1 GB free of 494.4 GB on the worktrees' disk.");

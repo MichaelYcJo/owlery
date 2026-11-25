@@ -3660,7 +3660,7 @@ describe("keepAwakeControl", () => {
 
 describe("machineDialog", () => {
   /** The owner's Mac as the framer's probe read it, with one work item standing and nothing measured. */
-  it("states the reading in one line, and gives each cap a row with its value, its default's sentence and whether it follows the default (scenario 1)", () => {
+  it("states the reading in one sentence, and gives each cap a row with its value, its default's sentence and whether it follows the default (scenario 1)", () => {
     expect(machineDialog(MACHINE)).toEqual({
       reading: "36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.",
       rows: [

@@ -1564,7 +1564,7 @@ export interface CapRow {
 
 /**
  * What the Machine dialog shows: what the daemon read of the machine, in one
- * line, and a row for each cap, whose field holds the value a person set or
+ * sentence, and a row for each cap, whose field holds the value a person set or
  * else the proposal. Nothing against a daemon that sent no `machine`, one of
  * an earlier build or one given no reader, and the Machine button is then
  * hidden.
