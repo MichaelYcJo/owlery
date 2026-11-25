@@ -27,6 +27,11 @@ The conclusion stands: the card's removal changes neither the "Stop" button nor 
 | 2026-11-26 | Round 1's finding 4, located in `frame/design.md` alone, is folded by the orchestrator as the round wrote it; findings 1 to 3 go to the fix pass. No built-app case is added for a stage session's line now that `ask-section.test.ts` is gone. | `view.ts#headlessLines` gives each line's "Stop" and error output, which `view.test.ts` pins, and `work-item-view.ts#showChainList` draws them, which no built-app case now runs for a session's line: the `approval-line.test.ts` case reads the list hidden, and the screenshot run draws the gate's line alone. The diff changed that branch of `showChainList` only by the list's element and by taking out the permission card it drew, and changed neither its "Stop" nor its error output, so no case of them is owed by the diff, and one would cost a launch of the app for a branch no change of this release touches. | the plugin's `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* |
 ```
 
+```seal
+verdict: fixed e97513a8
+answer: The orchestrator's commit `e97513a8` replaced the grounds cell of the *Judgments of the run* row at `frame/plan.md:62` with this finding's paste-ready text: the diff changed that branch of `showChainList` only by the list's element and by taking out the permission card it drew, and changed neither its "Stop" nor its error output, so no case of them is owed. The decision is unchanged. The repair is located in the work item's records alone, `frame/plan.md`, and touches no code; this pass made no change for it.
+```
+
 ## Confirmations
 
 ```seal
