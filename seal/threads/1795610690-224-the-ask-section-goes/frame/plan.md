@@ -59,4 +59,4 @@ The spawn named #237, #235, #242, #214, #218, #221, #223 and #213. When this fra
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | Round 1's finding 4, located in `frame/design.md` alone, is folded by the orchestrator as the round wrote it; findings 1 to 3 go to the fix pass. No built-app case is added for a stage session's line now that `ask-section.test.ts` is gone. | Finding 4 corrects which cases verify a row. The line's "Stop" and its error output are drawn by `view.ts#headlessLines`, which `view.test.ts` pins, and the list they stand in is drawn in the built app by the new `approval-line.test.ts` case and the screenshot run, so a built-app case of its own would buy a launch and catch nothing the two do not (phase 2's `gaps.md` row). | the plugin's `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* |
