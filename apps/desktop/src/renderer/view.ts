@@ -1148,7 +1148,7 @@ export function deleteChoice(loss: WorkItemLoss | null, force: boolean): { force
 /**
  * The controls of a repository's removal dialog and what it says, for how
  * many work items the repository holds, for its two choices, "Also delete
- * the work items' worktrees and local branches" and "Also move the
+ * the work items' worktrees, and the local branches Owlery made" and "Also move the
  * repository's folder to the Trash", for the loss of each work item as far
  * as the daemon has answered, and for whether "Force delete" is checked.
  *
@@ -1167,8 +1167,8 @@ export function removalChoice(workItems: number, deletes: boolean, trash: boolea
   const lists = workItems === 0 ? "Owlery will no longer list the repository." : "Owlery will no longer list the repository or its work items.";
   const says = deletes
     ? trashes
-      ? `${lists} Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
-      : `${lists} Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
+      ? `${lists} Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
+      : `${lists} Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
     : trashes
       ? `${lists} Its folder moves to the Trash, whole, and nothing in it is erased.`
       : "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
@@ -2326,6 +2326,8 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
   // A delete removes the branch only where Owlery made it, which a daemon of an earlier build, sending no `ownsBranch`, did for every work item. A work item with no branch has none Owlery made.
   const removes = workItem.ownsBranch !== false ? "Remove the work item's worktree and its local branch from disk" : "Remove the work item's worktree from disk";
   const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: `${removes}, after a dialog names what would be lost. Nothing on a remote is removed.`, action: { do: "delete", id }, divides });
+  // A rename makes the branch of a work item with no branch yet, and renames only a branch Owlery made (../shared/protocol, `renameWorkItem`).
+  const renames = branch === null ? "Give the work item another name, and make its branch from that name." : workItem.ownsBranch === false ? "Give the work item another name. Its branch keeps its name, since Owlery did not make it." : "Give the work item another name, and its branch too where the branch was never pushed.";
   const own = groups.find((group) => group.id === workItem.groupId);
   const moves: MenuItem[] = [
     ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),
@@ -2333,7 +2335,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
   ].map((entry, at) => ({ ...entry, divides: at === 0 }));
   if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, open, ...copies, remove(true)];
   return [
-    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    { label: "Rename", description: renames, action: { do: "rename", id }, divides: false },
     ...(accounts ? [{ label: "Account…", description: "Choose the account the work item's new sessions run under.", action: { do: "account" as const, id }, divides: false }] : []),
     open,
     ...copies,

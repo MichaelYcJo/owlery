@@ -960,7 +960,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await choices()).toEqual([false, true, false, false, true, false]);
     // A choice that is not offered is not drawn either.
     expect(await value<string[]>(`["remove-force-label", "remove-delete-label"].map((id) => getComputedStyle(document.getElementById(id)).display)`)).toEqual(["none", "flex"]);
-    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
     expect(await value<string[]>(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell in In third"]);
     await app.click("#remove-submit");
     await dialogClosed("remove-dialog");

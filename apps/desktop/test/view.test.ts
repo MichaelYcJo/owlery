@@ -608,6 +608,18 @@ describe("workItemMenu", () => {
     expect([deletes(none), deletes({ ...LOGIN, ownsBranch: false }), deletes({ ...LOGIN, ownsBranch: true }), deletes(old)]).toEqual([worktreeAlone, worktreeAlone, withBranch, withBranch]);
   });
 
+  it("says that Rename makes the branch of a work item with no branch yet, keeps the name of a branch Owlery did not make, and renames a branch Owlery made where it was never pushed, which a daemon of an earlier build made for every work item", () => {
+    const renames = (workItem: WorkItem) => workItemMenu(workItem, [], []).find((entry) => entry.label === "Rename")?.description;
+    const { ownsBranch: _owns, ...old } = LOGIN;
+    const owned = "Give the work item another name, and its branch too where the branch was never pushed.";
+    expect([renames({ ...LOGIN, branch: null, ownsBranch: false }), renames({ ...LOGIN, ownsBranch: false }), renames({ ...LOGIN, ownsBranch: true }), renames(old)]).toEqual([
+      "Give the work item another name, and make its branch from that name.",
+      "Give the work item another name. Its branch keeps its name, since Owlery did not make it.",
+      owned,
+      owned,
+    ]);
+  });
+
   it("holds for an archived work item, in this order, Restore, Open in with its submenu of Finder and each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
@@ -817,9 +829,9 @@ describe("what a delete dialog says of a loss", () => {
     });
 
     it("says what the removal does on disk for each choice", () => {
-      expect(removalChoice(2, true, false, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+      expect(removalChoice(2, true, false, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
       expect(removalChoice(0, false, true, [], false).says).toBe("Owlery will no longer list the repository. Its folder moves to the Trash, whole, and nothing in it is erased.");
-      expect(removalChoice(2, true, true, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.");
+      expect(removalChoice(2, true, true, [], false).says).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.");
       // The Trash's choice counts only where it can be taken.
       expect(removalChoice(2, false, true, [], false).says).toBe(NEITHER);
     });
