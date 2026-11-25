@@ -41,8 +41,8 @@ The chosen approach, and what breaks in six months:
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1, 2, 3, 4, 5, 6, 7 and 8 | `pnpm --filter @owlery/desktop run test -- test/view.test.ts` (unit, while building). At the phase's end, one batch: `pnpm --filter @owlery/desktop run test -- test/work-item-menu.test.ts`, with its delete and removal cases rewritten and the long-list case added. Each new or rewritten case is shown red against `ab7a5730`'s renderer before it is committed. The broad gate is the orchestrator's. | 679116a1 |
-| 2 | *Scope* items 9 and 10, and the two `add` operations of *Rule changes* stated in `frame/design.md` | `pnpm --filter @owlery/desktop run test -- test/screenshots.test.ts` without `OWLERY_SCREENSHOTS` (the names case). At the phase's end, one run: `OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots`. Its six `*-delete.png` files are committed under `seal/threads/1795610689-214-delete-dialog-lists-read-cleanly/screenshots/`. | |
+| 1 | *Scope* items 1, 2, 3, 4, 5, 6, 7 and 8 | `cd apps/desktop && node scripts/test-in-electron.mjs test/view.test.ts` (unit, while building). At the phase's end, one batch: `cd apps/desktop && node scripts/test-in-electron.mjs test/work-item-menu.test.ts`, with its delete and removal cases rewritten and the long-list case added. Each new or rewritten case is shown red against `ab7a5730`'s renderer before it is committed. The broad gate is the orchestrator's. | 679116a1 |
+| 2 | *Scope* items 9 and 10, and the two `add` operations of *Rule changes* stated in `frame/design.md` | `cd apps/desktop && node scripts/test-in-electron.mjs test/screenshots.test.ts` without `OWLERY_SCREENSHOTS` (the names case). At the phase's end, one run: `OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots`. Its six `*-delete.png` files are committed under `seal/threads/1795610689-214-delete-dialog-lists-read-cleanly/screenshots/`. | |
 
 ## Overlap with the release
 

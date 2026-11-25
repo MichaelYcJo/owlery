@@ -110,7 +110,7 @@ export interface LossSection {
 
 `apps/desktop/src/renderer/index.html` styles:
 - The loss list is a grid whose first column is as wide as the widest hash.
-- Each row is `height: var(--detail-line)` and aligned to the centre.
+- Each row is one `--detail-line` high, set by the list's `grid-auto-rows` alone, and aligned to the centre.
 - The list is `max-height: calc(10 * var(--detail-line)); overflow: auto; scroll-snap-type: y mandatory`.
 - Each row is `scroll-snap-align: start`.
 - The hash is `--font-mono`, `--size-caption`, `--ink-muted`.
