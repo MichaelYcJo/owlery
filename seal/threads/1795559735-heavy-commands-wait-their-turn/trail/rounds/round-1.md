@@ -57,6 +57,12 @@ The snippet does not reach every statement of the fact, and the fix pass owes th
 - the sentence of `frame/design.md:121`, "Of each turn it keeps the load it read as it gave the turn", which then also names the restart of a second run;
 - a case, in `test/machine-turns.test.ts` beside the case of the calm wait, that reads the kept line's `load` and `highestLoad` of a second run whose load fell during its wait. It is to be seen red against the code as it stands.
 
+```seal
+verdict: fixed 6fc85e03
+answer: The giver now reads the load once a run that must run alone ends its wait, gives it as the turn's `load`, and starts the turn's highest load from it through a new `Turn.restart`, with the doc comments of `Turn`, `GivenTurn`, `turnGiver` and `overLoad` rewritten; the new case of `test/machine-turns.test.ts` failed against the old code at `expected 9 to be 2`, and `seal mutate` read red for the restart and for the read each removed. The sentence of `frame/design.md:121` is the framer's, and is handed to the orchestrator.
+location: `apps/desktop/test/machine-turns.test.ts`
+```
+
 ### 2. The runner runs the heavy command with `ELECTRON_RUN_AS_NODE=1`, which its launcher set for the Node it starts
 
 ```seal
@@ -84,6 +90,12 @@ Any heavy command a repository names that starts an Electron program, such as an
 
 The fix pass also owes a case in `test/heavy-run.test.ts`. It gives the runner `ELECTRON_RUN_AS_NODE: "1"` in its environment, runs a command that writes `${ELECTRON_RUN_AS_NODE-unset}`, and reads `unset`. It is to be seen red against the code as it stands.
 
+```seal
+verdict: fixed e03117aa
+answer: `run` now copies the context's environment and deletes `ELECTRON_RUN_AS_NODE` before the command starts, and the new case of `test/heavy-run.test.ts` failed against the old code at `expected '1' to be 'unset'`; `gate` already ran through `gateEnvironment`, and the chain command's other children are `git` and `ps`, which read no such variable.
+location: `apps/desktop/test/heavy-run.test.ts`
+```
+
 ### 3. No case holds that a pane's broad gate which failed with the machine calm runs once (scenario G)
 
 ```seal
@@ -106,6 +118,11 @@ Why it matters: acceptance row G (`frame/design.md:99`) asks for "a case beside 
 ```
 
 The case is to be seen red against the mutation above before it is committed.
+
+```seal
+verdict: fixed db681098
+answer: The case at `:200` is renamed for scenarios F, G and H and ends with a gate that fails at a load of 1 and runs once; `seal mutate` with the round's mutation of `chain-command.ts:412` read red at the new assertion, `chain-command.test.ts:245`.
+```
 
 ### 4. Scenario I's memory case leaves 1.5 seconds between the hold and a reading, and failed under load
 
@@ -147,6 +164,12 @@ function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv, memoryEve
 
 The fix pass also owes the case's title at `heavy-run.test.ts:112`, which says "read after the command's first moment", where it no longer matches. It also owes the row at `gaps.md:11`, marked `closed` with the commit.
 
+```seal
+verdict: fixed e03117aa
+answer: A shorter period still leaves the case on the readings' timing, so the fix is written in other words: `watchMemory` hands each kept reading to an observer that `CommandContext.memoryRead` passes through `run`, and the case holds the array until it has seen a reading above 64 MiB, then releases it and checks the start and end against that moment; `seal mutate` read red for the peak's `Math.max` and for the observer each removed, and the title and the `gaps.md:11` row (closed at `92df8087`) were rewritten.
+location: `apps/desktop/src/daemon/heavy-runs.ts`, `apps/desktop/src/daemon/chain-command.ts:59-64`
+```
+
 ### 5. The frame leaves two operations on `docs/design.md` to the settle, though the pull request already wrote the row, against principle 8
 
 ```seal
@@ -165,6 +188,11 @@ The fold `5b6a5be2` then turned the frame's two `add` operations into `change` o
 The settle's draft places an operation by its `from`, and one it cannot place is "written by hand" (`skills/settle/SKILL.md:203` of the plugin). So the settling session will write, by hand, a row that already stands. #32's frame drew the same dialog and leaves no operation on `docs/design.md`: the `git grep` above prints only this frame's lines.
 
 The fix removes the two operations at `frame/design.md:232-241` whole: the `- change` line, `file:`, `section:`, `from:` and `to:` of each. The section keeps its `docs/architecture.md` and `docs/architecture.ko.md` operations. Phase 5's record already says why the row was written in place, so the frame needs no sentence in their stead.
+
+```seal
+verdict: fixed 90e62e90
+answer: The frame's *Rule changes* no longer holds the two `docs/design.md` operations, and *Scope* item 13 states that this pull request rewrites #32's row in place.
+```
 
 ### 6. Two comments of the protocol still state #32's fact after this work widened it
 
@@ -189,6 +217,11 @@ The list was made by reading the comment of each message whose handling the diff
   // The machine and its caps, as `ready` carries them, sent to every client whenever a cap, the count of agents or the queue of heavy commands changes, and to the client that sent a `readMachine`.
 ```
 
+```seal
+verdict: fixed a415bc8a
+answer: Both comments now name the limit on heavy commands: `setCaps` refuses one over the machine's cores where the daemon read them, and `machine` is sent at each change of the heavy queue.
+```
+
 ### 7. *Scope* item 14 names two of the three heavy commands this repository now names
 
 ```seal
@@ -204,6 +237,12 @@ Why it matters: `frame/design.md:74` says what the work does: "`seal/config.json
 ```
 
 The fix pass also owes the case name at `test/records-place.test.ts:197`, "reads this repository's own two", which becomes "reads this repository's own three".
+
+```seal
+verdict: fixed 7dd4c944
+answer: The frame's *Scope* item 14 was fixed at `90e62e90`, and the case's name at `7dd4c944` now reads "reads this repository's own three".
+location: `apps/desktop/test/records-place.test.ts:197`
+```
 
 ## Confirmations
 
