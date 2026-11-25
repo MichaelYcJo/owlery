@@ -847,12 +847,12 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
         const path = document.querySelector("#delete-loss li .path");
         return {
           hash: [hash.fontFamily === resolved("font-family", "--font-mono"), hash.color === resolved("color", "--ink-muted"), hash.fontSize === resolved("font-size", "--size-caption")],
-          subject: [subject.whiteSpace, subject.textOverflow, subject.overflow, subject.color === resolved("color", "--ink")],
-          path: [getComputedStyle(path).fontFamily === resolved("font-family", "--font-mono"), getComputedStyle(path).whiteSpace, getComputedStyle(path).textOverflow, getComputedStyle(path).color === resolved("color", "--ink")],
+          subject: [subject.whiteSpace, subject.textOverflow, subject.overflow, subject.color === resolved("color", "--ink"), subject.fontSize === resolved("font-size", "--size-second")],
+          path: [getComputedStyle(path).fontFamily === resolved("font-family", "--font-mono"), getComputedStyle(path).whiteSpace, getComputedStyle(path).textOverflow, getComputedStyle(path).color === resolved("color", "--ink"), getComputedStyle(path).fontSize === resolved("font-size", "--size-caption")],
           titles: [...document.querySelectorAll("#delete-loss li")].map((item) => item.title),
         };
       })()`),
-    ).toEqual({ hash: [true, true, true], subject: ["nowrap", "ellipsis", "hidden", true], path: [true, "nowrap", "ellipsis", true], titles: ["owlery/doomed", worktree, "add work.txt", "notes.txt", ".env"] });
+    ).toEqual({ hash: [true, true, true], subject: ["nowrap", "ellipsis", "hidden", true, true], path: [true, "nowrap", "ellipsis", true, true], titles: ["owlery/doomed", worktree, "add work.txt", "notes.txt", ".env"] });
     // Every row of every list is one line of one height, whether its text is cut or not.
     expect(await value<number[]>(`[...new Set([...document.querySelectorAll("#delete-loss li")].map((item) => item.offsetHeight))]`)).toEqual([Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`))]);
     expect(await value<string[]>(`[...document.querySelectorAll("#delete-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell"]);
@@ -906,8 +906,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // Ten rows of the twelve show, whole, and every row of every list is of one height.
     expect(await value<number[]>(`(() => { const list = ${COMMITS}; return [list.children.length, list.clientHeight, list.scrollHeight]; })()`)).toEqual([12, 10 * row, 12 * row]);
     expect(await value<number[]>(`[...new Set([...document.querySelectorAll("#delete-loss li")].map((item) => item.offsetHeight))]`)).toEqual([row]);
-    // The hashes stand in one column, and every subject starts at one place past the widest hash.
+    // Every subject starts at one place past the widest hash.
     expect(await value<[number, boolean]>(`(() => { const list = ${COMMITS}; const starts = new Set([...list.querySelectorAll(".subject")].map((words) => words.getBoundingClientRect().left)); const widest = Math.max(...[...list.querySelectorAll(".hash")].map((hash) => hash.getBoundingClientRect().right)); return [starts.size, [...starts][0] > widest]; })()`)).toEqual([1, true]);
+    // The hashes stand in one column of the list: a hash longer than the others widens it for every row, so every subject still starts at one place past the widest hash. Git gives every hash of the case's clone seven characters, so the longer hash is written into the drawn row.
+    expect(await value<[number, boolean]>(`(() => { const list = ${COMMITS}; list.querySelector(".hash").textContent = "0123456789abcdef"; const starts = new Set([...list.querySelectorAll(".subject")].map((words) => words.getBoundingClientRect().left)); const widest = Math.max(...[...list.querySelectorAll(".hash")].map((hash) => hash.getBoundingClientRect().right)); return [starts.size, [...starts][0] > widest]; })()`)).toEqual([1, true]);
     // The long subject and the long path are cut at the row's edge, and each row's tooltip holds the whole text.
     const cut = (text: string, part: string): Promise<[boolean, string]> => value(`(() => { const item = [...document.querySelectorAll("#delete-loss li")].find((item) => item.title === ${JSON.stringify(text)}); const words = item.querySelector(${JSON.stringify(part)}); return [words.scrollWidth > words.clientWidth, words.textContent]; })()`);
     expect(await cut(long, ".subject")).toEqual([true, long]);

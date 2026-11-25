@@ -40,7 +40,8 @@
 // dialog, and its worktree an untracked file at a nested path and the
 // ignored `.env`. The delete dialog's view opens that work item's menu in
 // the sidebar, presses Delete, waits until the head of its commits counts
-// 39, and Cancel then closes the dialog, which deletes nothing.
+// 39 and the heads of its untracked file and its ignored file stand, and
+// Cancel then closes the dialog, which deletes nothing.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -279,9 +280,9 @@ const QUEUED_COMMITS = [
   "Take the screenshots of the settings again",
   "Note the rename in the changelog",
 ];
-/** The head of that work item's commits in its delete dialog, which counts them. */
-const QUEUED_COMMITS_HEAD = `${String(QUEUED_COMMITS.length)} commits no other branch, no remote and no tag holds`;
-/** The untracked file at a nested path and the ignored file the run writes into that work item's worktree with what each holds, so its delete dialog lists a path of each kind. They are invented examples. */
+/** The heads of that work item's delete dialog the view waits for: its commits', which counts them, its untracked file's and its ignored file's. */
+const QUEUED_HEADS = [`${String(QUEUED_COMMITS.length)} commits no other branch, no remote and no tag holds`, "1 untracked file", "1 ignored file or folder, which goes with the folder"];
+/** The untracked file at a nested path and the ignored file the run writes into that work item's worktree with what each holds, so its delete dialog lists the untracked files and the ignored files and folders. They are invented examples. */
 const QUEUED_UNTRACKED = { path: "notes/settings/keys-to-move.md", text: "theme, editor, proxy, channel\n" };
 const QUEUED_IGNORED = { path: ".env", text: "SETTINGS_FILE=settings.json\n" };
 
@@ -580,7 +581,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await openMenu(QUEUED_LINE);
       await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
       await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
-      await app.until(`document.getElementById("delete-dialog").open && [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === ${JSON.stringify(QUEUED_COMMITS_HEAD)})`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits`);
+      await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(QUEUED_HEADS)}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted))`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits, and the heads of its untracked file and its ignored file`);
     },
   };
 
