@@ -3061,7 +3061,7 @@ export class Daemon {
     // A chain's first stage waits for the machine after a stage of a chain that already ran one in its run.
     const rank: QueueRank = this.chainStaged.has(workItemId) ? "running-chain" : "first-stage";
     this.chainStaged.add(workItemId);
-    // The stage as the chain lists it, which a session that waited for the machine starts again from its start.
+    // The stage as the chain lists it. Where the session waited for the machine, its start replaces the stage with one whose `startedAt` is the start's.
     let working!: ChainStage;
     const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null, rank, undefined, (info) => {
       const chain = this.store.workItem(workItemId)?.item.chain;
