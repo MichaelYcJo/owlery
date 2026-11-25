@@ -47,4 +47,4 @@ None. No migration, no environment variable, no dependency and no compatibility 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | The round ceiling of a pane's chain, which `frame/questions.md` Q2 leaves out of this work, is filed as issue #246 in release 0.0.6. | Q2's default names an issue the orchestrator files; the daemon's chain, which keeps the ceiling, starts for a handed-over issue in release 0.0.6 (`docs/roadmap.md` *Releases and the tracker*). | the plugin's `skills/implement/orchestration.md` *Orchestrator: how the work is routed* *Under agentic* |
