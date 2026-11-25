@@ -194,7 +194,7 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
   });
 
-  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own two", () => {
+  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own three", () => {
     const repo = repository();
     write(repo, "seal/README.md", `${MARKER}\n`);
     write(repo, "seal/config.json", `${JSON.stringify({ "Broad gate": "pnpm test", "Heavy commands": { test: "pnpm --filter @owlery/desktop run test", install: "pnpm install", count: 3, blank: "  ", list: ["pnpm"] } })}\n`);
