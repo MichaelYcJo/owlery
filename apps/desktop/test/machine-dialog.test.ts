@@ -393,7 +393,8 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
       await app.until(`document.getElementById("status")?.textContent.startsWith("Daemon running, 1 agent of 1")`, "the pane as the one agent");
       // The answer leaves the record with no open question, and the daemon resumes the chain, whose first stage waits for the machine and never starts.
       other.send(JSON.stringify({ type: "answerQuestions", requestId: 2, workItemId: 1, answers: [{ questionId, answer: "The window's size and its theme." }] }));
-      await app.until(`document.querySelectorAll("#machine-caps .cap-queue li").length === 1`, "the stage that waits, in the dialog");
+      // The machine's message names the session before the inbox carries the chain's stage that holds it, so the line is read once the stage names it.
+      await app.until(`[...document.querySelectorAll("#machine-caps .cap-queue li .detail")].map((detail) => detail.textContent).join() === "Proofer, round 1"`, "the stage that waits, in the dialog");
     } finally {
       other.close();
     }

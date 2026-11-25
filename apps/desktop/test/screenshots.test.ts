@@ -675,13 +675,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
         if (Date.now() >= deadline) throw new Error(`the setup of ${title} never succeeded: ${JSON.stringify(await setupOf(title))}`);
       }
     }
-    await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
-
-    // Two commits in the shown work item's worktree, for the commits and the changed files of the preview and the view, which is brought to the front as a person brings it.
-    const shown = (await listed()).workItems.find((item) => item.title === SHOWN);
-    if (!shown) throw new Error(`the daemon lists no work item ${SHOWN}`);
+    // The shown work item's view is brought to the front, as a person brings it.
     await app.click(SIDEBAR_LINE);
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)}`, `the view of ${SHOWN}`);
+    await app.until(`document.getElementById("strip-state").classList.contains("waiting")`, `${SHOWN} as the one that needs the person`);
+
+    // Two commits in the shown work item's worktree, for the commits and the changed files of the preview and the view.
+    const shown = (await listed()).workItems.find((item) => item.title === SHOWN);
+    if (!shown) throw new Error(`the daemon lists no work item ${SHOWN}`);
     commitFile(shown.worktree, "redirect.ts");
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);

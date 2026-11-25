@@ -1564,6 +1564,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   if (deleteDialog.open) showDelete();
   if (daemonDialog.open) showDaemonEnding();
   if (recordsPlaceDialog.open) showRecords();
+  // The Machine dialog names a session that waits by its chain's stage, which an `inbox` after the `machine` that queued it carries.
+  if (MACHINE.dialog.open) showMachine();
   // The repository a registration added is in these lists, and not in the ones its answer found.
   const late = registeredLate;
   registeredLate = undefined;
