@@ -13,8 +13,9 @@ import { carriedIn, writePaneChain, writeRunner } from "./pane-chain";
 import { Daemon } from "./daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
 import { holdAwakeFor, wakeDisplayFor } from "./keep-awake";
-import { type MachineReader, readMachine } from "./machine";
+import { type MachineReader, readMachine, turnReading } from "./machine";
 import { TURN_SOCKET, TurnServer } from "./turn-socket";
+import { worktreesRoot } from "./worktrees";
 import { PANE_KINDS } from "./pane-kinds";
 
 /** The version `package.json` holds, which the build writes in place of this name (build.mjs). */
@@ -75,6 +76,8 @@ async function main(): Promise<void> {
     wakeDisplay: process.platform === "darwin" ? wakeDisplayFor() : undefined,
     // The machine's memory, cores and disk, from which the daemon proposes its caps, or the reading `OWLERY_MACHINE` holds in their place.
     machine,
+    // The cores and the load the turns on the machine read, from the same reader, so a broad gate that failed while the machine was over its load runs once more.
+    ...turnReading(machine, worktreesRoot(process.env)),
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
     // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the pane's Claude Code enables the AgenticSeal plugin there, under the config folder of the pane's account, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.

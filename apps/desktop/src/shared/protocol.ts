@@ -827,10 +827,36 @@ export interface Machine {
   agents: { proposed: number; byCores: number; byMemory: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
   worktrees: { proposed: number | null; set: number | null; standing: number; perWorktreeBytes: number | null; keepFreeBytes: number };
   panes: { proposed: number; set: number | null };
+  /** The limit on heavy commands that hold a turn at once: its proposal, one for each 8 cores (`byCores`) or each 16 GiB of memory (`byMemory`), whichever gives fewer and never under 1, the value a person set, and the heavy commands that run and wait, in the queue's order. */
+  heavy: { proposed: number; byCores: number; byMemory: number; set: number | null; queue: HeavyQueued[] };
 }
 
-/** The caps a person sets on the machine. */
-export type Cap = "agents" | "worktrees" | "panes";
+/** Where a heavy command stands in the order of those that wait: a work item's broad gate, a command of a work item under review, one of a work item still being built, and one in a folder no work item's records name. */
+export type HeavyPlace = "gate" | "review" | "build" | "outside";
+
+/** A heavy command that holds a turn on the machine or waits for one: the work item whose worktree it runs in, or null for none, the folder, its name, its place, whether it runs or waits, and since when, by the daemon's clock. */
+export interface HeavyQueued {
+  workItemId: number | null;
+  folder: string;
+  name: string;
+  place: HeavyPlace;
+  state: "running" | "waiting";
+  since: number;
+}
+
+/** What one heavy command of one repository took, over every run the daemon kept: the repository's folder, or null for a folder no work item's worktree is, the name the window gives it, the command's name, how many runs, the longest in milliseconds, the most memory in bytes and the highest load, each null where no run read it. */
+export interface HeavyRan {
+  repo: string | null;
+  repoName: string;
+  name: string;
+  runs: number;
+  longestMs: number;
+  mostMemory: number | null;
+  highestLoad: number | null;
+}
+
+/** The caps a person sets on the machine, the limit on heavy commands among them. */
+export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands";
 
 export type ClientMessage =
   | { type: "hello"; token: string }
@@ -917,9 +943,11 @@ export type ClientMessage =
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
   // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1 and a cap on panes over 16, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
-  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null }
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
+  // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
+  | { type: "readHeavyRuns" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
@@ -959,6 +987,8 @@ export type ServerMessage =
   | { type: "keepAwake"; keepAwake: KeepAwake }
   // The machine and its caps, as `ready` carries them, sent to every client whenever a cap or the count of agents changes, and to the client that sent a `readMachine`.
   | { type: "machine"; machine: Machine }
+  // What each heavy command of each repository took, one row for each, in the order the runs' file first names them, sent to the client that sent a `readHeavyRuns`.
+  | { type: "heavyRuns"; runs: HeavyRan[] }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
   | { type: "agentNotice"; notice: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.

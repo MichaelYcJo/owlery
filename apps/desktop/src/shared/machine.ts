@@ -2,7 +2,7 @@
 // worked out from what the daemon read of the machine and what it measured
 // there, the sentence that states each proposal with its numbers, and which
 // value a person may set. The daemon and the window read the same functions.
-import type { Cap, Machine, MachineReading, PlanDisk } from "./protocol";
+import type { Cap, HeavyRan, Machine, MachineReading, PlanDisk } from "./protocol";
 
 export const MIB = 1024 ** 2;
 export const GIB = 1024 ** 3;
@@ -27,7 +27,40 @@ export const CAP_NAMES: Record<Cap, { label: string; inSentence: string }> = {
   agents: { label: "Agents at once", inSentence: "agents at once" },
   worktrees: { label: "Worktrees", inSentence: "worktrees" },
   panes: { label: "Panes side by side", inSentence: "panes side by side" },
+  heavyCommands: { label: "Heavy commands at once", inSentence: "heavy commands at once" },
 };
+
+/** The cores and the memory one heavy command is given by the proposal of the limit on heavy commands. */
+export const HEAVY_CORES = 8;
+export const HEAVY_BYTES = 16 * GIB;
+
+/**
+ * The proposal of the limit on heavy commands that hold a turn at once: one
+ * for each 8 cores or one for each 16 GiB of memory, whichever gives fewer,
+ * and never under 1. One run of a suite takes most of a machine's cores, so
+ * a Mac of 10 to 12 cores runs one at a time.
+ */
+export function heavyProposal(reading: MachineReading): Pick<Machine["heavy"], "proposed" | "byCores" | "byMemory"> {
+  const byCores = Math.floor(reading.cores / HEAVY_CORES);
+  const byMemory = Math.floor(reading.memoryBytes / HEAVY_BYTES);
+  return { proposed: Math.max(1, Math.min(byCores, byMemory)), byCores, byMemory };
+}
+
+/** The sentence that states the proposal of the limit on heavy commands with the two numbers it came from. */
+export function heavySays(heavy: Pick<Machine["heavy"], "proposed" | "byCores" | "byMemory">): string {
+  const cores = `one for each ${String(HEAVY_CORES)} cores`;
+  const memory = `one for each ${memoryWords(HEAVY_BYTES)}`;
+  if (Math.min(heavy.byCores, heavy.byMemory) < 1) return `The default is 1, the least it can be: ${cores} gives ${String(heavy.byCores)}, and ${memory} gives ${String(heavy.byMemory)}.`;
+  if (heavy.byCores === heavy.byMemory) return `The default is ${String(heavy.proposed)}: ${cores} and ${memory} both give ${String(heavy.proposed)}.`;
+  return `The default is ${String(heavy.proposed)}: ${cores} gives ${String(heavy.byCores)}, ${memory} gives ${String(heavy.byMemory)}, and the fewer is taken.`;
+}
+
+/** What one heavy command of one repository took, as the Machine dialog's line under its name says it. */
+export function heavyRanSays(ran: HeavyRan, longest: string): string {
+  const memory = ran.mostMemory === null ? "not read" : memoryWords(ran.mostMemory);
+  const load = ran.highestLoad === null ? "not read" : trimmed(ran.highestLoad);
+  return `${counted(ran.runs, "run")} · longest ${longest} · most memory ${memory} · highest load ${load}`;
+}
 
 /**
  * The proposal of the cap on agents: the smaller of the performance cores and
@@ -136,9 +169,10 @@ export function readingSays(reading: MachineReading): string {
   return `${memoryWords(reading.memoryBytes)} of memory, ${cores}, a load of ${trimmed(reading.load)}, and ${disk}.`;
 }
 
-/** Why the daemon refuses a value a person gives a cap, or null where it takes it: a whole number from 1, and for the panes to `PANES_MOST`. */
-export function capRefusal(cap: Cap, value: unknown): string | null {
-  const most = cap === "panes" ? PANES_MOST : Number.POSITIVE_INFINITY;
+/** Why the daemon refuses a value a person gives a cap, or null where it takes it: a whole number from 1, for the panes to `PANES_MOST`, and for the limit on heavy commands to the machine's cores where `cores` gives them. */
+export function capRefusal(cap: Cap, value: unknown, cores?: number): string | null {
+  const most = cap === "panes" ? PANES_MOST : cap === "heavyCommands" && cores !== undefined ? cores : Number.POSITIVE_INFINITY;
   if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= most) return null;
-  return `The cap on ${CAP_NAMES[cap].inSentence} is a whole number from 1${cap === "panes" ? ` to ${String(PANES_MOST)}` : ""}.`;
+  const bound = Number.isFinite(most) ? ` to ${String(most)}` : "";
+  return `The ${cap === "heavyCommands" ? "limit" : "cap"} on ${CAP_NAMES[cap].inSentence} is a whole number from 1${bound}.`;
 }

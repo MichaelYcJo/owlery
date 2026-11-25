@@ -2,10 +2,12 @@
 // of the run folder, appended and never rewritten, as the ledger's lines are
 // (`ledger.ts`), and the reading of a command's peak memory that the line
 // carries. The daemon writes the line of each run, its own broad gate's and
-// each one a command ran in its turn on the turn socket (`turn-socket.ts`).
+// each one a command ran in its turn on the turn socket (`turn-socket.ts`),
+// and gives what each command of each repository took for the Machine dialog.
 import { execFile } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { HeavyRan } from "../shared/protocol";
 import { LOAD_EVERY_MS } from "./machine-turns";
 
 /** The runs' file in the run folder. */
@@ -58,6 +60,25 @@ export function readHeavyRuns(runDir: string): HeavyRun[] {
     }
   }
   return runs;
+}
+
+/**
+ * What each heavy command of each repository took, one row for each command's
+ * name and repository in the order the runs first name them: a folder no
+ * work item's worktree is counts as a repository of its own, named by
+ * `nameOf`, as the repository is. The longest run is from its start to its
+ * end, and the most memory and the highest load are null where no run read
+ * them.
+ */
+export function heavyRan(runs: readonly HeavyRun[], nameOf: (repo: string | null, folder: string) => string): HeavyRan[] {
+  const rows = new Map<string, HeavyRan>();
+  const highest = (kept: number | null, read: number | null): number | null => (read === null ? kept : Math.max(kept ?? read, read));
+  for (const run of runs) {
+    const key = JSON.stringify([run.repo ?? run.folder, run.name]);
+    const row = rows.get(key) ?? { repo: run.repo, repoName: nameOf(run.repo, run.folder), name: run.name, runs: 0, longestMs: 0, mostMemory: null, highestLoad: null };
+    rows.set(key, { ...row, runs: row.runs + 1, longestMs: Math.max(row.longestMs, run.endedAt - run.startedAt), mostMemory: highest(row.mostMemory, run.peakMemory), highestLoad: highest(row.highestLoad, run.highestLoad) });
+  }
+  return [...rows.values()];
 }
 
 /** The resident memory, in bytes, of the process and of every process it descends to, from `ps`'s lines of `pid ppid rss`, the last in KiB. */

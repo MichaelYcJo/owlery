@@ -34,6 +34,12 @@
 // and never starts: that work item's line says "Waiting for the machine",
 // the status line counts the agents against the cap and the session that
 // waits, and the Machine dialog lists the session under its cap on agents.
+// Two commands ask for their turn on the daemon's turn socket, as the
+// runner does, and hold their connections to the run's end: a command of
+// the work item at review takes the one turn, and one in a folder no work
+// item names waits, so the dialog lists both under the limit on heavy
+// commands, and no line says a wait of theirs. The run writes the daemon's
+// runs' file before the start, so the dialog says what ran.
 // The daemon reads the machine `BuiltApp` gives every start, so the dialog
 // says the same numbers on any Mac. No chain runs and the run starts
 // none: it commits with git, in a work item's worktree, the records a
@@ -93,6 +99,7 @@
 // carries the files.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { createConnection, type Socket } from "node:net";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -325,6 +332,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
   const QUEUED_ID = WORK_ITEMS.findIndex(({ title }) => title === QUEUED) + 1;
+  /** The connections of the two commands that ask for their turn on the machine, held until the run ends. */
+  const asking: Socket[] = [];
   /** The commit the broken work item's seal names, and the commit after it that broke it, once the run has committed them. */
   let brokenAt = "";
   let brokenBy = "";
@@ -502,7 +511,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     machine: async () => {
       await show.inbox();
       await app.click("#machine-button");
-      await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)}`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents`);
+      await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
     },
   };
 
@@ -601,6 +610,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
             { status: "ok", used: 0.18, resetsAt: stored + 4 * 24 * 60 * 60_000, window: "seven_day", at: stored - 20 * 60_000 },
           ];
           writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: HANDED_ID + 1, defaultId: SYSTEM_DEFAULT_ID, accounts: [{ id: HANDED_ID, name: HANDED, adapter: "claude", folder: handedFolder, made: false, signedIn: true, loginEndsAt: stored + 26 * 24 * 60 * 60_000, limits }], systemLimits: [] }), { mode: 0o600 });
+          // What the daemon kept of the heavy commands that ran: the repository's broad gate twice and its suite once, and a suite in a folder no work item names, whose memory no reading found.
+          const run = { askedAt: 0, startedAt: 0, exitCode: 0, load: 2.4, beside: false, alone: false };
+          const ran = [
+            { ...run, repo: made.repo, workItemId: 2, folder: finishedAt.worktree, name: "Broad gate", endedAt: 11 * 60_000, peakMemory: 6.2 * 1024 ** 3, highestLoad: 11.6 },
+            { ...run, repo: made.repo, workItemId: 2, folder: finishedAt.worktree, name: "Broad gate", endedAt: 14 * 60_000, peakMemory: 7.9 * 1024 ** 3, highestLoad: 12.3 },
+            { ...run, repo: made.repo, workItemId: 1, folder: parkedAt.worktree, name: "test", endedAt: 3 * 60_000, peakMemory: 4.1 * 1024 ** 3, highestLoad: 9.8 },
+            { ...run, repo: null, workItemId: null, folder: join(made.root, "scratch"), name: "test", endedAt: 40_000, peakMemory: null, highestLoad: 5.1 },
+          ];
+          writeFileSync(join(runDir, "heavy-runs.jsonl"), ran.map((line) => `${JSON.stringify(line)}\n`).join(""), { mode: 0o600 });
           // What the parked chain's gate printed, which its line's "Show output" draws.
           mkdirSync(join(runDir, GATE_OUTPUT_FOLDER), { mode: 0o700 });
           writeFileSync(join(runDir, GATE_OUTPUT_FOLDER, "1.txt"), GATE_PRINTED, { mode: 0o600 });
@@ -717,6 +735,20 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       if (Date.now() >= deadline) throw new Error(`the session asked in ${QUEUED} never waited for the machine: ${JSON.stringify((await listed()).machine?.agents)}`);
     }
 
+    // A command of the work item at review takes the one turn on the machine, and one in a folder no work item names waits behind it.
+    for (const [folder, name, place] of [[atReview.worktree, "test", "review"], [join(made.root, "scratch"), "install", "outside"]] as const) {
+      const socket = createConnection(join(app.userData, "run", "turns.sock"));
+      asking.push(socket);
+      await new Promise<void>((resolve, reject) => {
+        socket.once("connect", () => resolve());
+        socket.once("error", reject);
+      });
+      socket.write(`${JSON.stringify({ is: "ask", folder, name, place, alone: false })}\n`);
+    }
+    for (const deadline = Date.now() + 10_000; (await listed()).machine?.heavy.queue.length !== 2; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the two heavy commands never stood in the queue: ${JSON.stringify((await listed()).machine?.heavy)}`);
+    }
+
     // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document, and its focus is emulated again. Its preload tells it again that the app started in the background, so it keeps its notifications and raises none of the system's.
     await app.cdp("Page.reload");
     await app.until(`document.getElementById("summary-screen")?.hidden === false`, "the summary in front of the page loaded again", 20_000);
@@ -724,6 +756,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   }, 240_000);
 
   afterAll(async () => {
+    for (const socket of asking) socket.destroy();
     await app?.stop();
     made?.remove();
   }, 30_000);

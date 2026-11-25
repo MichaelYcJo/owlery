@@ -6736,6 +6736,7 @@ describe("the caps on the machine", () => {
     agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
     worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
     panes: { proposed: 8, set: null },
+    heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
   };
   const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
 
@@ -6867,6 +6868,62 @@ describe("the caps on the machine", () => {
     await bystander.message("machine");
     expect(told(bystander)).toHaveLength(1);
     expect(told(c).map((m) => m.panes.set)).toEqual([null, 2]);
+  });
+
+  it("gives as many heavy commands a turn at once as the limit says, the default from the reading and then the value a person sets, which outlives the daemon, and tells every client the queue of heavy commands (scenario E)", async () => {
+    const { daemon: d, runDir, c, both, ready } = await machined();
+    const worktree = ready.workItems[0]?.worktree ?? "";
+    const giver = d.turnGiver();
+    const first = await giver.ask({ folder: worktree, name: "test", place: "build", alone: false }).turn;
+    const second = giver.ask({ folder: "/elsewhere", name: "install", place: "outside", alone: false });
+    expect(second.waits).toBe(true);
+    for (const each of both) {
+      const queue = (await each.message("machine", (m) => m.machine.heavy.queue.length === 2)).machine.heavy.queue;
+      expect(queue.map(({ workItemId, folder, name, place, state }) => ({ workItemId, folder, name, place, state }))).toEqual([
+        { workItemId: 1, folder: worktree, name: "test", place: "build", state: "running" },
+        { workItemId: null, folder: "/elsewhere", name: "install", place: "outside", state: "waiting" },
+      ]);
+    }
+    // A value over the machine's 12 cores is refused, and nothing changes.
+    c.send({ type: "setCaps", requestId: 1, heavyCommands: 13 });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("The limit on heavy commands at once is a whole number from 1 to 12.");
+    c.send({ type: "setCaps", requestId: 2, heavyCommands: 2 });
+    // The raised limit gives the command that waited its turn at once.
+    expect(await second.turn).not.toBeNull();
+    expect((await c.message("machine", (m) => m.machine.heavy.set === 2 && m.machine.heavy.queue.every(({ state }) => state === "running"))).machine.heavy.set).toBe(2);
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"heavyCommands":2}');
+    first?.end();
+    (await second.turn)?.end();
+    await d.close();
+
+    // The daemon started next on the run folder gives two turns at once.
+    const { machine } = reader();
+    const { daemon: again, url } = await daemon({ runDir, machine });
+    expect((await (await client(url)).message("ready")).machine?.heavy).toMatchObject({ proposed: 1, set: 2 });
+    const next = again.turnGiver();
+    const one = await next.ask({ folder: "/a", name: "test", place: "outside", alone: false }).turn;
+    const two = next.ask({ folder: "/b", name: "test", place: "outside", alone: false });
+    expect(two.waits).toBe(false);
+    one?.end();
+    (await two.turn)?.end();
+  });
+
+  it("answers a `readHeavyRuns` with one row for each command of each repository the runs' file holds, to the client that asked alone (scenario I)", async () => {
+    const { runDir, c, bystander, ready } = await machined();
+    const item = ready.workItems[0];
+    const run = { askedAt: 0, beside: false, alone: false, load: 2, exitCode: 0 };
+    const lines = [
+      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 60_000, peakMemory: 2 * 1024 ** 3, highestLoad: 9.5 },
+      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 180_000, peakMemory: 1024 ** 3, highestLoad: 13.1 },
+      { ...run, repo: null, workItemId: null, folder: "/Users/someone/scratch", name: "test", startedAt: 0, endedAt: 5_000, peakMemory: null, highestLoad: null, exitCode: null },
+    ];
+    writeFileSync(join(runDir, "heavy-runs.jsonl"), lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
+    c.send({ type: "readHeavyRuns" });
+    expect((await c.message("heavyRuns")).runs).toEqual([
+      { repo: item?.repo, repoName: item?.repoName, name: "Broad gate", runs: 2, longestMs: 180_000, mostMemory: 2 * 1024 ** 3, highestLoad: 13.1 },
+      { repo: null, repoName: "scratch", name: "test", runs: 1, longestMs: 5_000, mostMemory: null, highestLoad: null },
+    ]);
+    expect(bystander.messages.some((m) => m.type === "heavyRuns")).toBe(false);
   });
 
   it("tells every client the count of the agents that run when a pane of a kind that reports its state opens and when its process ends, and nothing when a shell opens", async () => {

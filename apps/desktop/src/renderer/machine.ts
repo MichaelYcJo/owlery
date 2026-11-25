@@ -6,7 +6,7 @@
 // opens it is hidden.
 import type { Cap } from "../shared/protocol";
 import { byId, held, send } from "./shared";
-import { capChanges, type CapRow, machineDialog, machineQueue } from "./view";
+import { capChanges, type CapRow, heavyQueue, heavyRanRows, machineDialog, machineQueue } from "./view";
 
 const button = byId<HTMLButtonElement>("machine-button");
 const dialog = byId<HTMLDialogElement>("machine-dialog");
@@ -80,7 +80,11 @@ function capPart(cap: Cap): HTMLElement {
  * Under the agent row stand the sessions that wait for the machine, under
  * the label "Waiting for the machine", in the order they start, each by its
  * work item's title and, on the line under it, what it waits to run. Where
- * none waits, neither the label nor any session stands there.
+ * none waits, neither the label nor any session stands there. Under the
+ * limit on heavy commands stand, in the same form, the heavy commands that
+ * run and wait under "Running and waiting", and what each command of each
+ * repository took under "What ran", as the daemon last answered a
+ * `readHeavyRuns`.
  */
 export function showMachine(): void {
   const shown = machineDialog(held.machine);
@@ -121,15 +125,47 @@ export function showMachine(): void {
       return entry;
     }),
   );
+  const heavy = capsPlace.querySelector<HTMLElement>('[data-cap="heavyCommands"]');
+  if (heavy) {
+    listUnder(heavy, "heavy-queue", "machine-heavy-head", "Running and waiting", heavyQueue(held.machine, held.workItems, Date.now()));
+    listUnder(heavy, "heavy-ran", "machine-ran-head", "What ran", heavyRanRows(held.heavyRan));
+  }
 }
 
-/** Draws the dialog the caller just opened on what the daemon last said, with no field touched, and has the daemon read the load and the free disk again. */
+/**
+ * Draws a list of records at the end of a cap's row under its label, both
+ * made once and filled in place: each entry its name and, on the line under
+ * it, its detail. Where the list holds none, neither the label nor any entry
+ * stands there.
+ */
+function listUnder(part: HTMLElement, kind: string, headId: string, label: string, entries: readonly { title: string; detail: string }[]): void {
+  const head = document.getElementById(headId) ?? part.appendChild(Object.assign(document.createElement("p"), { id: headId, className: "cap-queue-head caption", textContent: label }));
+  const list = part.querySelector<HTMLUListElement>(`.${kind}`) ?? part.appendChild(Object.assign(document.createElement("ul"), { className: `${kind} named` }));
+  list.setAttribute("aria-labelledby", headId);
+  head.hidden = entries.length === 0;
+  list.replaceChildren(
+    ...entries.map(({ title, detail }) => {
+      const entry = document.createElement("li");
+      const name = document.createElement("span");
+      name.className = "name";
+      name.textContent = title;
+      const what = document.createElement("span");
+      what.className = "detail";
+      what.textContent = detail;
+      entry.append(name, what);
+      return entry;
+    }),
+  );
+}
+
+/** Draws the dialog the caller just opened on what the daemon last said, with no field touched, and has the daemon read the load and the free disk again, and what each heavy command took. */
 export function openMachine(): void {
   typed.clear();
   toDefault.clear();
   capsPlace.replaceChildren();
   showMachine();
   send({ type: "readMachine" });
+  send({ type: "readHeavyRuns" });
 }
 
 /** Wires the dialog's two buttons. A Save sends the caps the person changed through `save`, says a value the daemon would refuse in the dialog, and closes the dialog where nothing changed. */
@@ -138,7 +174,7 @@ export function initMachine(save: (caps: Partial<Record<Cap, number | null>>) =>
   byId<HTMLFormElement>("machine-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const fields = Object.fromEntries(drawn.map(({ cap }) => [cap, { text: fieldOf(cap)?.value ?? "", toDefault: toDefault.has(cap) }])) as Record<Cap, { text: string; toDefault: boolean }>;
-    const changes = capChanges(drawn, fields);
+    const changes = capChanges(drawn, fields, held.machine?.reading.cores);
     if ("refusal" in changes) {
       refusal.textContent = changes.refusal;
       return;

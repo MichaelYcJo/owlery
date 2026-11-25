@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
@@ -13,6 +14,7 @@ type Shown = { cap: string; label: string; value: string; says: string; offersDe
 const AGENTS_SAYS = "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet).";
 const WORKTREES_SAYS = "Nothing is proposed until a worktree is measured on this Mac.";
 const PANES_SAYS = "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB.";
+const HEAVY_SAYS = "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken.";
 /** The longest status line the screenshot run draws: the agents against their cap, a session that waits, and the Mac kept awake. */
 const LONGEST_STATUS = "Daemon running, 4 agents of 4, 1 waiting, keeping the Mac awake";
 
@@ -61,6 +63,7 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
       { cap: "agents", label: "Agents at once", value: "6", says: AGENTS_SAYS, offersDefault: false },
       { cap: "worktrees", label: "Worktrees", value: "", says: WORKTREES_SAYS, offersDefault: false },
       { cap: "panes", label: "Panes side by side", value: "8", says: PANES_SAYS, offersDefault: false },
+      { cap: "heavyCommands", label: "Heavy commands at once", value: "1", says: HEAVY_SAYS, offersDefault: false },
     ]);
     // A Save that changes nothing sends nothing and closes the dialog.
     await save();
@@ -105,6 +108,7 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
         { value: "4", offersDefault: true },
         { value: "", offersDefault: false },
         { value: "12", offersDefault: true },
+        { value: "1", offersDefault: false },
       ]);
       other.send(JSON.stringify({ type: "setCaps", requestId: 2, panes: null }));
       await app.until(`document.getElementById("machine-panes").value === "8"`, "the panes back on their default");
@@ -148,6 +152,64 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
     expect(foot.width).toBe(foot.inside);
     expect(foot.lines).toBeLessThanOrEqual(2);
     expect(foot.above).toBe(true);
+  });
+
+  it("lists under the limit on heavy commands those that run and wait, in the queue's order with each reason, and what ran from the runs' file, and the field changes the limit (scenarios K and I)", async () => {
+    const runDir = join(app.userData, "run");
+    // A run the daemon kept earlier: no work item's folder, 20 seconds, 1.5 GB at most and a highest load of 3.2.
+    writeFileSync(join(runDir, "heavy-runs.jsonl"), `${JSON.stringify({ repo: null, workItemId: null, folder: "/elsewhere/scratch", name: "test", askedAt: 0, startedAt: 0, endedAt: 20_000, exitCode: 0, peakMemory: 1.5 * 1024 ** 3, load: 1, highestLoad: 3.2, beside: false, alone: false })}\n`);
+    /** One command that asks for its turn on the daemon's turn socket, as the runner does, and the lines the daemon answers. */
+    const asking = async (folder: string, name: string): Promise<{ socket: Socket; heard: string[] }> => {
+      const socket = createConnection(join(runDir, "turns.sock"));
+      const heard: string[] = [];
+      socket.setEncoding("utf8");
+      socket.on("data", (chunk: string) => heard.push(...chunk.split("\n").filter(Boolean)));
+      await new Promise<void>((resolve, reject) => {
+        socket.once("connect", () => resolve());
+        socket.once("error", reject);
+      });
+      socket.write(`${JSON.stringify({ is: "ask", folder, name, place: "outside", alone: false })}\n`);
+      return { socket, heard };
+    };
+    /** The heavy commands' part of the dialog: each label where it is shown, and each entry's name and the line under it. */
+    const heavy = (): Promise<{ queueHead: string | null; queue: string[]; ranHead: string | null; ran: string[] }> =>
+      app.evaluate(`(() => {
+        const row = document.querySelector('#machine-caps [data-cap="heavyCommands"]');
+        const list = (name) => [...row.querySelectorAll("." + name + " li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent);
+        const head = (id) => { const shown = document.getElementById(id); return shown && shown.offsetParent !== null ? shown.textContent : null; };
+        return { queueHead: head("machine-heavy-head"), queue: list("heavy-queue"), ranHead: head("machine-ran-head"), ran: list("heavy-ran") };
+      })()`);
+    /** Waits, 10 seconds at most, until what the askers heard holds. */
+    const until = async (heard: () => boolean): Promise<void> => {
+      for (const deadline = Date.now() + 10_000; !heard(); await new Promise((resolve) => setTimeout(resolve, 50))) if (Date.now() >= deadline) throw new Error("the daemon did not answer the askers on its turn socket");
+    };
+    const held = await asking("/elsewhere/scratch", "test");
+    const waits = await asking("/elsewhere/other", "install");
+    try {
+      await until(() => held.heard.some((line) => line.includes('"turn"')) && waits.heard.some((line) => line.includes('"waits"')));
+      await open();
+      await app.until(`document.querySelectorAll("#machine-caps .heavy-ran li").length === 1 && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2`, "the heavy commands in the dialog");
+      expect(await heavy()).toEqual({
+        queueHead: "Running and waiting",
+        queue: ["scratch / Running · test · less than a minute", "other / Waiting · install · in no work item · less than a minute"],
+        ranHead: "What ran",
+        ran: ["scratch · test / 1 run · longest less than a minute · most memory 1.5 GB · highest load 3.2"],
+      });
+      await type("heavyCommands", "2");
+      await save();
+      expect(limits()).toBe('{"heavyCommands":2}');
+      await until(() => waits.heard.some((line) => line.includes('"turn"')));
+      await open();
+      await app.until(`[...document.querySelectorAll("#machine-caps .heavy-queue li")].every((entry) => entry.textContent.includes("Running"))`, "both heavy commands running");
+      expect((await heavy()).queue).toEqual(["scratch / Running · test · less than a minute", "other / Running · install · less than a minute"]);
+    } finally {
+      held.socket.destroy();
+      waits.socket.destroy();
+    }
+    await app.until(`document.querySelectorAll("#machine-caps .heavy-queue li").length === 0`, "no heavy command in the dialog");
+    expect((await heavy()).queueHead).toBeNull();
+    await app.click("#machine-cancel");
+    await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
   });
 });
 

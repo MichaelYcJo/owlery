@@ -79,12 +79,12 @@ import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecor
 import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
-import { addHeavyRun, watchMemory } from "./heavy-runs";
+import { addHeavyRun, heavyRan, readHeavyRuns, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
 import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
 import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
-import { AgentMemoryStore, LimitsStore, type MachineReader } from "./machine";
-import { agentsProposal, capRefusal, KEEP_FREE_BYTES, panesProposal, worktreesProposal } from "../shared/machine";
+import { AgentMemoryStore, CAPS, LimitsStore, type MachineReader } from "./machine";
+import { agentsProposal, capRefusal, heavyProposal, KEEP_FREE_BYTES, panesProposal, worktreesProposal } from "../shared/machine";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -541,12 +541,13 @@ export class Daemon {
     for (const { item } of this.store.workItems()) if (item.worktreeSize === null) this.measureWorktree(item.id);
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
-    // A change of the queue changes what a work item's `machineWait` says.
-    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, load: options.load });
+    // A change of the queue changes what a work item's `machineWait` says, and the queue of heavy commands the machine lists.
+    this.turns = new MachineTurns({ limit: this.heavyLimit(), now: options.now, load: options.load });
     this.turns.watch(() => {
       if (this.closed) return;
       this.readLoadWhileAsked();
       this.broadcastInbox();
+      this.broadcastMachine();
     });
     this.giver = turnGiver(this.turns, { cores: options.cores ?? null, load: options.load ?? (() => null), calm: options.calm, now: options.now, folderOf: (folder) => this.worktreeNamed(folder), kept: (run) => this.keepHeavyRun(run), started: () => this.keepAwake.get() !== "never" && this.options.wakeDisplay?.() });
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
@@ -1647,10 +1648,10 @@ export class Daemon {
         // Every value is read before any is taken, so a refusal changes nothing.
         const changes: Partial<Record<Cap, number | null>> = {};
         const before = this.limits.get();
-        for (const cap of ["agents", "worktrees", "panes"] as const) {
+        for (const cap of CAPS) {
           const value: unknown = message[cap];
           if (value === undefined) continue;
-          const refusal = value === null ? null : capRefusal(cap, value);
+          const refusal = value === null ? null : capRefusal(cap, value, this.reading?.cores);
           if (refusal !== null) {
             this.send(socket, { type: "error", requestId: message.requestId, message: refusal });
             return;
@@ -1669,8 +1670,16 @@ export class Daemon {
         if (Object.keys(changes).length > 0) {
           // A cap that rose starts the sessions that waited for it first, so the machine every client is told holds them as running.
           this.drainQueue();
-          this.broadcastMachine();
+          // A changed limit on heavy commands gives the next turns at once where it rose, and the keeper's watcher then tells every client the machine.
+          if (changes.heavyCommands !== undefined) this.turns.setLimit(this.heavyLimit());
+          else this.broadcastMachine();
         }
+        return;
+      }
+      case "readHeavyRuns": {
+        if (!this.options.machine) return;
+        const runs = this.options.runDir === undefined ? [] : readHeavyRuns(this.options.runDir);
+        this.send(socket, { type: "heavyRuns", runs: heavyRan(runs, (repo, folder) => this.repositoryName(repo, folder)) });
         return;
       }
       case "readMachine": {
@@ -3833,6 +3842,25 @@ export class Daemon {
     return this.limits.get().agents ?? agentsProposal(reading, this.measuredBytes()).proposed;
   }
 
+  /** The limit on heavy commands that hold a turn at once: the one a person set, where it is no more than the cores, or else its proposal, and `NO_READING_LIMIT` where the daemon was given no reader. */
+  private heavyLimit(): number {
+    const reading = this.reading;
+    if (reading === undefined) return NO_READING_LIMIT;
+    return this.heavySet(reading) ?? heavyProposal(reading).proposed;
+  }
+
+  /** The limit on heavy commands a person set, or null where none is set or it is over the machine's cores, which reads as none. */
+  private heavySet(reading: MachineReading): number | null {
+    const set = this.limits.get().heavyCommands;
+    return set !== null && set <= reading.cores ? set : null;
+  }
+
+  /** The name a repository's folder is shown by, its own or the last part of its folder, and the last part of the folder a heavy command ran in where no repository is named. */
+  private repositoryName(repo: string | null, folder: string): string {
+    const repository = repo === null ? undefined : this.store.repositories().find((stored) => stored.folder === repo);
+    return repository?.name ?? basename(repo ?? folder);
+  }
+
   /** The ids of the sessions that wait for the machine, in the order they start (`agent-queue.ts#queueOrder`). */
   private queueNow(): number[] {
     return queueOrder([...this.queued].map(([id, { rank, joined }]) => ({ id, rank, joined })));
@@ -3918,6 +3946,7 @@ export class Daemon {
       agents: { ...agentsProposal(reading, this.measuredBytes()), set: set.agents, running: this.agentsRunning(), queue: this.queueNow() },
       worktrees: { proposed: worktreesProposal(reading, standing, perWorktreeBytes), set: set.worktrees, standing, perWorktreeBytes, keepFreeBytes: KEEP_FREE_BYTES },
       panes: { proposed: panesProposal(reading), set: set.panes },
+      heavy: { ...heavyProposal(reading), set: this.heavySet(reading), queue: this.turns.queue().map(({ folder, name, place, state, since }) => ({ workItemId: this.store.workItems().find(({ item }) => item.worktree === folder)?.item.id ?? null, folder, name, place, state, since })) },
     };
   }
 

@@ -211,8 +211,8 @@ describe("the records place", () => {
     const rootless = repository();
     write(rootless, "seal/config.json", JSON.stringify({ "Heavy commands": { test: "pnpm test" } }));
     expect(readHeavyCommands(rootless)).toEqual({});
-    // This repository names the suite of the desktop app and the install as its heavy commands.
-    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({ test: "pnpm --filter @owlery/desktop run test", install: "pnpm install" });
+    // This repository names the suite of the desktop app, its built-app files as one batch, and the install as its heavy commands.
+    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({ test: "pnpm --filter @owlery/desktop run test", "test:app": "pnpm --filter @owlery/desktop run test:app", install: "pnpm install" });
   });
 
   it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {
