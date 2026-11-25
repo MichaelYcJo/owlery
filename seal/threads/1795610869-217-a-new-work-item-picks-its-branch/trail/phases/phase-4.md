@@ -45,7 +45,7 @@ Three units of the window got no mutant, each a run of the built app: the menu's
 
 ### Runs
 
-`tsc --noEmit` passed before each commit (executed). The repository configures no linter or formatter (`trail/phases/phase-2.md` *Runs*). `view.test.ts` passed whole at `7c3787d7`, 562 cases (executed). The phase changed `view.ts`, `renderer.ts` and `index.html` of the window alone. Of the test files, `view.test.ts`, `work-item-menu.test.ts`, `terminal-basics.test.ts` and `theme-controls.test.ts` import `renderer/view.ts`, and none imports `renderer/renderer.ts` (executed: `git grep -l` over `apps/desktop/test`). The last two are built-app files, and they import constants the phase did not change. So the phase boundary's unit set is `view.test.ts`, and it passed at `c0935a8d` (executed).
+`tsc --noEmit` passed before each commit (executed). The repository configures no linter or formatter (`trail/phases/phase-2.md` *Runs*). `view.test.ts` passed whole at `7c3787d7`, 562 cases (executed). The phase changed `view.ts`, `renderer.ts` and `index.html` of the window alone. Of the test files, `view.test.ts`, `work-item-menu.test.ts`, `terminal-basics.test.ts` and `theme-controls.test.ts` import `renderer/view.ts`, and none imports `renderer/renderer.ts` (executed: `git grep -l` over `apps/desktop/test`). The last two are built-app files, and they import constants the phase did not change. So the phase boundary's unit set is `view.test.ts`, and it passed at `c0935a8d` (executed). `ef993f2e`, the phase's last commit of code, changed two comments of `view.ts` alone, and `tsc --noEmit` passed there (executed).
 
 ### The built-app batch
 
