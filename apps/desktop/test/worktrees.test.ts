@@ -1038,24 +1038,43 @@ describe("making the branch of a work item with no branch yet", () => {
     expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("HEAD");
   });
 
-  it("moves the branch on to a commit made in the worktree between git's read of HEAD and its switch onto the branch, which the switch leaves off the branch", async () => {
-    const made = repository();
-    const worktree = await detached(made, "Racing");
-    const lone = commitFile(worktree, "lone.txt");
-    // In place of `git switch -c <name>`, the order git 2.54 gives where a commit lands while it switches: the switch reads HEAD, the commit lands on the detached HEAD, and the switch makes the branch at the commit it read and points HEAD at it.
-    const bin = join(made.base, "racing-bin");
+  /**
+   * Runs `makeBranch` with a `git` before the real one on the path, which
+   * runs the shell lines `instead` in place of a `git switch`, with `real`
+   * the real git and `$4` the branch's name, and the real git for every
+   * other command.
+   */
+  async function makeBranchWith(base: string, worktree: string, instead: string): Promise<void> {
+    const bin = join(base, "switch-bin");
     const path = process.env.PATH ?? "";
     mkdirSync(bin);
-    writeFileSync(join(bin, "git"), `#!/bin/sh\nreal() { PATH='${path}' git "$@"; }\nif [ "$1" = switch ]; then\n  read=$(real rev-parse HEAD) && real commit --quiet --allow-empty -m racing && real branch "$4" "$read" && real symbolic-ref -m "checkout: moving from $read to $4" HEAD "refs/heads/$4"\n  exit $?\nfi\nreal "$@"\n`, { mode: 0o755 });
+    writeFileSync(join(bin, "git"), `#!/bin/sh\nreal() { PATH='${path}' git "$@"; }\nif [ "$1" = switch ]; then\n  ${instead}\n  exit $?\nfi\nreal "$@"\n`, { mode: 0o755 });
     process.env.PATH = `${bin}:${path}`;
     cleanups.push(() => {
       process.env.PATH = path;
     });
     await makeBranch(worktree, "owlery/made");
     process.env.PATH = path;
+  }
+
+  it("moves the branch on to a commit made in the worktree between git's read of HEAD and its switch onto the branch, which the switch leaves off the branch", async () => {
+    const made = repository();
+    const worktree = await detached(made, "Racing");
+    const lone = commitFile(worktree, "lone.txt");
+    // The order git 2.54 gives where a commit lands while it switches: the switch reads HEAD, the commit lands on the detached HEAD, and the switch makes the branch at the commit it read and points HEAD at it.
+    await makeBranchWith(made.base, worktree, `read=$(real rev-parse HEAD) && real commit --quiet --allow-empty -m racing && real branch "$4" "$read" && real symbolic-ref -m "checkout: moving from $read to $4" HEAD "refs/heads/$4"`);
     expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/made");
     expect(git(worktree, "log", "--format=%s %P", "-1", "refs/heads/owlery/made").trim()).toBe(`racing ${lone}`);
     expect(git(worktree, "status", "--porcelain")).toBe("");
+  });
+
+  it("leaves the branch where a commit landed on it after the switch, and moves it back to no commit HEAD's reflog names", async () => {
+    const made = repository();
+    const worktree = await detached(made, "After");
+    const lone = commitFile(worktree, "lone.txt");
+    await makeBranchWith(made.base, worktree, `real switch "$2" "$3" "$4" && real commit --quiet --allow-empty -m after`);
+    expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/made");
+    expect(git(worktree, "log", "--format=%s %P", "-1", "refs/heads/owlery/made").trim()).toBe(`after ${lone}`);
   });
 
   it("plans the branch a rename makes for a work item with no branch, and says why none is made where an operation is under way in the worktree or its HEAD names a branch", async () => {
@@ -1070,6 +1089,7 @@ describe("making the branch of a work item with no branch yet", () => {
     git(worktree, "switch", "--quiet", "-c", "fix/x");
     expect(await planBranchMaking(made.repo, worktree, "Fix the login bug")).toEqual({ branch: "owlery/fix-the-login-bug", blocked: "The worktree is on the branch fix/x, which becomes the work item's at Owlery's next read." });
     expect(git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").trim().split("\n")).toEqual(["fix/x", "main"]);
+    expect((await planBranchMaking(made.repo, join(made.base, "missing"), "Fix the login bug")).blocked).toMatch(/\S/u);
   });
 });
 
