@@ -7,8 +7,8 @@
 // of the finished work item, the view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog and the Machine dialog) in each
-// appearance of the theme a first run opens in. The daemon keeps one account beside System
-// default, handed over by an empty folder of the run's own, and the parked
+// appearance of the theme a first run opens in. The daemon keeps one account
+// beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
 // account's field. The parked work item's shell pane runs under it, so its
 // row in the Accounts dialog offers no refresh. The repository is on the owl chain, and the Claude Code config
@@ -26,16 +26,16 @@
 // and holds the second, whose session asks the person to allow a command and
 // gets no answer, so the work item's line says the request and the view's
 // "Ask" section shows its card. The run waits until the section shows that
-// request before its first shot. It then sets the cap on agents to the
-// agents that run, as a person sets it in the Machine dialog, and asks a
-// prompt in one more work item, whose session waits for the machine and
-// never starts: that work item's line says "Waiting for the machine", the
-// status line counts the agents against the cap and the session that waits,
-// and the Machine dialog lists the session under its cap on agents. The
-// daemon reads the machine `BuiltApp` gives every start, so the dialog says
-// the same numbers on any Mac. That work item carries no decision made
+// request before its first shot. That work item carries no decision made
 // without asking and no setup's words on its line, so the line's second row
-// gives its whole width to the request. No chain runs and the run starts
+// gives its whole width to the request. The run then sets the cap on agents
+// to the agents that run, as a person sets it in the Machine dialog, and
+// asks a prompt in one more work item, whose session waits for the machine
+// and never starts: that work item's line says "Waiting for the machine",
+// the status line counts the agents against the cap and the session that
+// waits, and the Machine dialog lists the session under its cap on agents.
+// The daemon reads the machine `BuiltApp` gives every start, so the dialog
+// says the same numbers on any Mac. No chain runs and the run starts
 // none: it commits with git, in a work item's worktree, the records a
 // chain's stages write there, and it stores two chains in the daemon's run
 // folder before the app starts, as a daemon that ran them stored them. The
