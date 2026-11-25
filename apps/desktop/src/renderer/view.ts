@@ -3,7 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { agentsSays, CAP_NAMES, capRefusal, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
@@ -1005,12 +1006,17 @@ export function removalOf(repository: Repository, workItems: readonly WorkItem[]
   };
 }
 
-/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working, each with its prompt. */
+/** Whether a headless session runs for whoever would end it, or names the account it runs under: one that works, and one that waits for the machine, which starts once a place frees. */
+function headlessRuns(session: HeadlessInfo): boolean {
+  return session.state === "working" || session.state === "queued";
+}
+
+/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working or wait for the machine, each with its prompt. */
 function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
   const tabs = paneTabs(workItem, sessions);
   return {
     panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds, workItem.setup?.paneId ?? null) })),
-    asked: headless.filter((session) => session.workItemId === workItem.id && session.state === "working").map(({ id, prompt }) => ({ id, prompt })),
+    asked: headless.filter((session) => session.workItemId === workItem.id && headlessRuns(session)).map(({ id, prompt }) => ({ id, prompt })),
   };
 }
 
@@ -1047,11 +1053,11 @@ export function daemonEnding(chosen: DaemonEnd): { head: string; says: string; b
 
 /**
  * Every running session the window holds, as the dialog that asks before
- * the daemon ends names it: each live pane, then each working headless
- * session. A session of a work item the window lists, archived or not,
+ * the daemon ends names it: each live pane, then each headless session that
+ * works or waits for the machine. A session of a work item the window lists, archived or not,
  * reads as a repository's removal names it (`removalOf`). A live pane of no
  * listed work item reads as its kind's label alone, after the others, and a
- * working headless session of none by its prompt alone. The daemon's end
+ * headless session of none that works or waits by its prompt alone. The daemon's end
  * carries no list: it ends what runs at that moment.
  */
 export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): string[] {
@@ -1062,7 +1068,7 @@ export function runningSessions(workItems: readonly WorkItem[], archived: readon
     ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
     ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
     ...running.flatMap(({ workItem, asked }) => asked.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)),
-    ...headless.filter((session) => session.state === "working" && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`),
+    ...headless.filter((session) => headlessRuns(session) && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`),
   ];
 }
 
@@ -1489,10 +1495,50 @@ export function summaryControls(changes: readonly { workItem: WorkItem; line: In
     : { main: { label: "Open the first that needs you", opens: waits.workItem.id }, second: inbox, hint: "Enter opens the first that needs you." };
 }
 
-/** The status line where the window has nothing else to say: that the daemon runs, how many agents do, an agent being a live pane of a kind that reports its state, and that the daemon keeps the Mac awake where `keepsAwake` says its hold stands. */
-export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], keepsAwake: boolean): string {
-  const agents = sessions.filter((session) => session.alive && paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState)).length;
-  return `Daemon running, ${agents === 0 ? "no agent" : agents === 1 ? "1 agent" : `${agents} agents`}${keepsAwake ? ", keeping the Mac awake" : ""}`;
+/**
+ * The status line where the window has nothing else to say: that the daemon
+ * runs, how many agents do, and that the daemon keeps the Mac awake where
+ * `keepsAwake` says its hold stands. Against a daemon that keeps no cap an
+ * agent is a live pane of a kind that reports its state. Where the daemon
+ * keeps the caps, the count is the daemon's, which holds its working
+ * headless sessions too, it is said against the cap, and the sessions that
+ * wait for the machine are counted after it. Where nothing runs and nothing
+ * waits the line says "no agent" either way.
+ */
+export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], keepsAwake: boolean, machine: Machine | null = null): string {
+  const agents = machine ? machine.agents.running : sessions.filter((session) => session.alive && paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState)).length;
+  const waiting = machine?.agents.queue.length ?? 0;
+  const counted = agents === 0 && waiting === 0 ? "no agent" : `${agents === 1 ? "1 agent" : `${agents} agents`}${machine ? ` of ${machine.agents.set ?? machine.agents.proposed}` : ""}`;
+  return `Daemon running, ${counted}${waiting > 0 ? `, ${waiting} waiting` : ""}${keepsAwake ? ", keeping the Mac awake" : ""}`;
+}
+
+/** What a line, and a chain's foot, say while a session of the work item waits for the machine, with how many sessions go before it. */
+function machineWaits(ahead: number): string {
+  return ahead > 0 ? `Waiting for the machine (${ahead} ahead)` : "Waiting for the machine";
+}
+
+/** How many sessions go before the first of a work item's sessions that wait for the machine, in the daemon's queue, or null where none of them waits and against a daemon that keeps no cap. */
+export function queuedAhead(workItemId: number, headless: readonly HeadlessInfo[], machine: Machine | null): number | null {
+  const at = machine?.agents.queue.findIndex((id) => headless.some((info) => info.id === id && info.workItemId === workItemId)) ?? -1;
+  return at < 0 ? null : at;
+}
+
+/** How many sessions go before the session of the stage a work item's running chain begins, in the daemon's queue, or null where that session does not wait for the machine, where the chain does not run, and against a daemon that keeps no cap. A session a person asked in the work item is not the chain's, and counts for nothing here. */
+export function stageAhead(workItem: WorkItem, machine: Machine | null): number | null {
+  const chain = chainOf(workItem);
+  const id = chain?.state === "running" ? chain.stages.at(-1)?.headlessId : undefined;
+  const at = id === undefined || id === null ? -1 : (machine?.agents.queue.indexOf(id) ?? -1);
+  return at < 0 ? null : at;
+}
+
+/** The sessions that wait for the machine, as the Machine dialog lists them under the agent row in the order they start: each by its work item's title and what it waits to run, a chain's stage by the stage's name and a person's question by its prompt. A session the window holds no line of is listed by its number. */
+export function machineQueue(machine: Machine | null, headless: readonly HeadlessInfo[], workItems: readonly WorkItem[]): { title: string; waits: string }[] {
+  return (machine?.agents.queue ?? []).map((id) => {
+    const info = headless.find((each) => each.id === id);
+    const workItem = info ? workItems.find((item) => item.id === info.workItemId) : undefined;
+    const stage = workItem ? chainOf(workItem)?.stages.find((each) => each.headlessId === id) : undefined;
+    return { title: workItem?.title ?? "", waits: stage ? STAGES[stage.kind].short(stage.round) : info ? `Asked: ${info.prompt}` : `Session ${id}` };
+  });
 }
 
 /**
@@ -1504,6 +1550,60 @@ export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readon
 export function keepAwakeControl(keepAwake: KeepAwake | null): { choice: KeepAwakeChoice; title: string } | null {
   if (!keepAwake) return null;
   return { choice: keepAwake.choice, title: `Keep awake: ${KEEP_AWAKE_CHOICES.find(({ value }) => value === keepAwake.choice)?.label ?? keepAwake.choice}` };
+}
+
+/** One cap's row of the Machine dialog: its name, the value its field shows, or null for an empty field, its proposal, or null where there is none, whether it follows its proposal, and the sentence that states the proposal. */
+export interface CapRow {
+  cap: Cap;
+  label: string;
+  value: number | null;
+  proposed: number | null;
+  isDefault: boolean;
+  says: string;
+}
+
+/**
+ * What the Machine dialog shows: what the daemon read of the machine, in one
+ * sentence, and a row for each cap, whose field holds the value a person set or
+ * else the proposal. Nothing against a daemon that sent no `machine`, one of
+ * an earlier build or one given no reader, and the Machine button is then
+ * hidden.
+ */
+export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
+  if (!machine) return null;
+  const { reading, agents, worktrees, panes } = machine;
+  const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
+  return {
+    reading: readingSays(reading),
+    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed))],
+  };
+}
+
+/**
+ * What a Save of the Machine dialog sends, from its rows as they were drawn
+ * and each field as the person left it: the text in the field, and whether
+ * "Use the default" was pressed since. A row that already follows its
+ * proposal sends nothing while its field still shows the proposal, so the
+ * cap keeps following it. A row a person set returns to its proposal, as
+ * null, where "Use the default" was pressed or its field emptied. A value
+ * that is no whole number from 1, or over the row's most, is refused here in
+ * the daemon's own sentence, and nothing is sent.
+ */
+export function capChanges(rows: readonly CapRow[], fields: Readonly<Record<Cap, { text: string; toDefault: boolean }>>): { caps: Partial<Record<Cap, number | null>> } | { refusal: string } {
+  const caps: Partial<Record<Cap, number | null>> = {};
+  for (const row of rows) {
+    const field = fields[row.cap];
+    const text = field.text.trim();
+    if (field.toDefault || text === "") {
+      if (!row.isDefault) caps[row.cap] = null;
+      continue;
+    }
+    const value = /^\d+$/.test(text) ? Number(text) : text;
+    const refusal = capRefusal(row.cap, value);
+    if (refusal !== null) return { refusal };
+    if (value !== row.value) caps[row.cap] = value as number;
+  }
+  return { caps };
 }
 
 /** What the status line tells once `taken` is taken back: nothing where it still told `taken`, and any other notice as it stands. */
@@ -1584,14 +1684,17 @@ export function choiceNote(question: AskedQuestion): string {
 }
 
 /**
- * The text of a line's second row, and which of the nine it is: for a work
+ * The text of a line's second row, and which of the ten it is: for a work
  * item parked with questions the first question, followed by how many more
  * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
  * session of the work item waits for the person to allow a call, the oldest
  * request as the tool it asks to use and its text, followed by how many
  * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
  * stopped, the chain's sentence, which says the stage and why, as the
- * daemon wrote it; otherwise, where the chain runs a stage and the line's
+ * daemon wrote it; otherwise, where `ahead` says a headless session of the
+ * work item waits for the machine, "Waiting for the machine" and how many
+ * sessions go before it, as in "Waiting for the machine (2 ahead)";
+ * otherwise, where the chain runs a stage and the line's
  * pane does not wait for the person, the stage in short, who runs it and
  * what it is, as in "Proofer, round 2" and "Sealer, verdict", and "Broad
  * gate" for the broad gate, which no role runs; otherwise, where the agent
@@ -1606,7 +1709,7 @@ export function choiceNote(question: AskedQuestion): string {
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean): { says: "question" | "permission" | "chain" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean, ahead: number | null = null): { says: "question" | "permission" | "chain" | "machine" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const asks = searching ? [] : permissionsOf(workItem);
@@ -1614,6 +1717,7 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
   const chain = searching ? null : chainOf(workItem);
   if (chain?.state === "stopped") return { says: "chain", text: chain.says };
+  if (!searching && ahead !== null) return { says: "machine", text: machineWaits(ahead) };
   const stage = searching || session?.state === "waiting" ? null : runningStage(workItem);
   if (stage) return { says: "stage", text: STAGES[stage.kind].short(stage.round) };
   const asked = searching ? [] : askedBy(session);
@@ -1740,7 +1844,7 @@ export interface PullRequestFacts {
   /** The result of its checks: "Checks running", "Checks passed", "1 check failed" or "No checks". */
   checks: string;
   /** Each check the daemon kept, in its order, the failed ones first: its name, the mark of its state, the state's word, and the address its row opens, or null. */
-  rows: { name: string; mark: HeadlessState; words: string; link: string | null }[];
+  rows: { name: string; mark: HeadlessMark; words: string; link: string | null }[];
   /** How many more checks GitHub listed than the daemon kept, or nothing. */
   foot: string;
   /** Why the last read failed, where it did, or nothing. */
@@ -1748,7 +1852,7 @@ export interface PullRequestFacts {
 }
 
 const PULL_REQUEST_STATE: Record<PullRequest["state"], string> = { open: "Open", merged: "Merged", closed: "Closed" };
-const CHECK_SAYS: Record<PullRequestCheck["state"], { mark: HeadlessState; words: string }> = { pending: { mark: "working", words: "Running" }, passed: { mark: "finished", words: "Passed" }, failed: { mark: "failed", words: "Failed" } };
+const CHECK_SAYS: Record<PullRequestCheck["state"], { mark: HeadlessMark; words: string }> = { pending: { mark: "working", words: "Running" }, passed: { mark: "finished", words: "Passed" }, failed: { mark: "failed", words: "Failed" } };
 
 /**
  * The facts of a work item's pull request as its view lists them, as GitHub
@@ -2370,8 +2474,27 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
-/** The most panes a work item's view shows at once: fixed here at the count the four-terminal reference scene is measured at, until #32 makes it a default read from the person's machine (docs/architecture.md, Memory design). */
-export const STAGE_PANES = 4;
+/** The most panes a work item's view shows side by side: the cap a person set on panes, the proposal where none is set, and `PANES_WITHOUT_CAP` where the daemon keeps no cap. */
+export function paneCap(machine: Machine | null): number {
+  return machine === null ? PANES_WITHOUT_CAP : (machine.panes.set ?? machine.panes.proposed);
+}
+
+/** The title of "Side by side", which names the cap on the panes it shows. */
+export function sideBySideTitle(cap: number): string {
+  return cap === 1 ? "Show one of this work item's panes at a time" : `Show up to ${String(cap)} of this work item's panes at once`;
+}
+
+/**
+ * Where each of `count` tiles stands where "Side by side" lays the stage out:
+ * in the tabs' order, row by row, in two columns for 2 to 4 tiles, three for
+ * 5 to 9 and four for 10 to 16, the last tile spanning what is left of its
+ * row. One tile, or none, is no grid, and has one column.
+ */
+export function stageGrid(count: number): { columns: number; tiles: { row: number; column: number; span: number }[] } {
+  const columns = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const tiles = Array.from({ length: count }, (_, place) => ({ row: Math.floor(place / columns) + 1, column: (place % columns) + 1, span: place === count - 1 ? columns - (place % columns) : 1 }));
+  return { columns, tiles };
+}
 
 /**
  * The panes on the stage of a view that shows `tabs`, in the tabs' order,
@@ -2381,26 +2504,27 @@ export const STAGE_PANES = 4;
  * then the tabs that are not in `recent`, which were never in front, the
  * highest id first. The pane in front is `paneInFront`'s for the first of
  * `recent`. Where "Side by side" is not pressed, it is alone on the stage.
- * Where it is pressed, the stage holds up to `STAGE_PANES` panes: the one in
+ * Where it is pressed, the stage holds up to `most` panes, the cap on panes
+ * side by side (`paneCap`): the one in
  * front, then the panes of the stage order. A pressed tab is the first of
  * `recent`, so it takes the place of the shown pane last in the stage order.
  * A closed pane that `recentKept` left first takes no place: the stage holds
- * the first `STAGE_PANES` panes of the stage order, and the pane in front is
- * `paneInFront`'s among them. Where fewer than `STAGE_PANES` of the tabs
+ * the first `most` panes of the stage order, and the pane in front is
+ * `paneInFront`'s among them. Where fewer than `most` of the tabs
  * were in front, tabs never in front are among them, and one of those can
  * be the pane in front.
  */
-export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
+export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean, most: number): { front: number | undefined; shown: number[] } {
   const ids = tabs.map((tab) => tab.id);
   const never = ids.filter((id) => !recent.includes(id)).sort((a, b) => b - a);
   // A set keeps each pane at the first place it is named.
   const byRecency = [...new Set([...recent.filter((id) => ids.includes(id)), ...never])];
   const closedFirst = sideBySide && recent.length > 0 && !ids.includes(recent[0] as number);
-  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, STAGE_PANES).includes(tab.id)) : tabs;
+  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, most).includes(tab.id)) : tabs;
   const front = paneInFront(candidates, recent[0]);
   if (front === undefined) return { front, shown: [] };
   if (!sideBySide) return { front, shown: [front] };
-  const top = [...new Set([front, ...byRecency])].slice(0, STAGE_PANES);
+  const top = [...new Set([front, ...byRecency])].slice(0, most);
   return { front, shown: ids.filter((id) => top.includes(id)) };
 }
 
@@ -2409,7 +2533,7 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
  * daemon lists only `listed`. A pane it no longer lists leaves, except the
  * first one: that one stays as the pane last in front, so `paneInFront`
  * finds it is no tab and gives the live pane with the highest id, which
- * `stageOf` takes from the first `STAGE_PANES` panes of its stage order
+ * `stageOf` takes from the first panes of its stage order, as many as the cap,
  * where "Side by side" is pressed, tabs never in front among them where
  * fewer of the tabs were in front, or the one of those panes with the
  * highest id where none of them runs. Were it taken out, the pane in front
@@ -2611,8 +2735,8 @@ export function registerFields(repo: string): { folder: string } | { error: stri
   return folder ? { folder } : { error: "Choose the repository folder." };
 }
 
-/** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
-export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean } | { error: string };
+/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, or the error it refused the plan with. */
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
 
 /**
  * What the "New work item" form holds of its latest plan: the daemon's
@@ -2640,16 +2764,18 @@ function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
  * What the form shows under the name: the branch and the folder the work item
  * will get, and the setup its repository names, before the person creates
  * it: the copy where `.worktreeinclude` stands, and the command
- * `.worktreesetup` holds. Where the daemon refused the plan, `failed`, its
+ * `.worktreesetup` holds; and the warning of the room the worktree would
+ * take, where the daemon sent its disk (`shared/machine.ts#planWarning`).
+ * Where the daemon refused the plan, `failed`, its
  * message stands in the branch's place. Nothing where the form holds no
  * answer for the repository field's text.
  */
-export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; failed: boolean } {
+export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; warning: string; failed: boolean } {
   const shown = planOf(plan, repo);
-  if (shown === null) return { branch: "", worktree: "", setup: "", failed: false };
-  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", failed: true };
+  if (shown === null) return { branch: "", worktree: "", setup: "", warning: "", failed: false };
+  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", warning: "", failed: true };
   const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
-  return { branch: shown.branch, worktree: shown.worktree, setup, failed: false };
+  return { branch: shown.branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
 }
 
 /** What the form says where Create is pressed before it shows the plan of the repository field's text. */
@@ -2825,7 +2951,8 @@ function repositoryAccount(repository: Repository | undefined, held: HeldAccount
 /**
  * The name a line of the inbox shows of a work item's account: the work
  * item's own where it differs from the one its repository gives, else the
- * first live pane's or working headless session's of the work item whose
+ * first live pane's, or headless session's that works or waits for the
+ * machine, of the work item whose
  * account differs from it, and nothing where every one is the repository's,
  * or where the window holds no accounts.
  */
@@ -2836,7 +2963,7 @@ export function lineAccount(workItem: WorkItem, repository: Repository | undefin
   if (differs(workItem.accountId)) return accountName(held, workItem.accountId);
   const running = [
     ...sessions.filter((session) => session.alive && session.workItemId === workItem.id).map((session) => session.accountId),
-    ...headless.filter((session) => session.state === "working" && session.workItemId === workItem.id).map((session) => session.accountId),
+    ...headless.filter((session) => headlessRuns(session) && session.workItemId === workItem.id).map((session) => session.accountId),
   ].find(differs);
   return running === undefined ? "" : accountName(held, running);
 }
@@ -2917,12 +3044,13 @@ function signInWords(account: Account, now: number): string | null {
  * The rows of the Accounts dialog, in the daemon's order, System default
  * first, `now` being the window's clock. "Refresh usage" stands where the
  * daemon refreshes usage, no refresh of the account runs, and none of the
- * `sessions` is a live pane under it nor any of `headless` a working session
- * under it, since a session hands over its values itself.
+ * `sessions` is a live pane under it nor any of `headless` a session under
+ * it that works or waits for the machine, since a session hands over its
+ * values itself once it runs.
  */
 export function accountRows(held: HeldAccounts | null, now: number, sessions: readonly SessionInfo[] = [], headless: readonly HeadlessInfo[] = []): AccountRow[] {
   if (held === null) return [];
-  const runs = (id: number): boolean => sessions.some((session) => session.alive && session.accountId === id) || headless.some((session) => session.state === "working" && session.accountId === id);
+  const runs = (id: number): boolean => sessions.some((session) => session.alive && session.accountId === id) || headless.some((session) => headlessRuns(session) && session.accountId === id);
   return held.accounts.map((account) => ({
     id: account.id,
     name: account.name,
@@ -3067,10 +3195,14 @@ export function askButton(prompt: string, workItem: WorkItem): { enabled: boolea
  * the seal's words: where the chain of the daemon stands. It is empty where
  * no chain ran for the work item, and for a daemon of an earlier build,
  * which sends no chain. Nothing in the window starts a chain, so the foot
- * holds nothing to press.
+ * holds nothing to press. While the session of the stage a running chain
+ * begins waits for the machine, `ahead` counts the sessions before it
+ * (`stageAhead`), and the foot says so; a session a person asked that waits
+ * leaves the stage's sentence.
  */
-export function chainSays(workItem: WorkItem): string {
-  return chainOf(workItem)?.says ?? "";
+export function chainSays(workItem: WorkItem, ahead: number | null = null): string {
+  const chain = chainOf(workItem);
+  return chain?.state === "running" && ahead !== null ? machineWaits(ahead) : (chain?.says ?? "");
 }
 
 /** The headless sessions the window holds, with one the daemon just sent: in place of the one of the same id, or after the others. */
@@ -3083,19 +3215,22 @@ export function withoutHeadless(held: readonly HeadlessInfo[], id: number): Head
   return held.filter((info) => info.id !== id);
 }
 
+/** The mark a headless session's line is drawn with: its state, `waiting` while it waits for the person to allow a call, and `no-agent` while it waits for the machine, as it runs no process yet. */
+export type HeadlessMark = Exclude<HeadlessState, "queued"> | "waiting" | "no-agent";
+
 export interface HeadlessLine {
   id: number;
   prompt: string;
   state: HeadlessState;
-  /** The mark the line is drawn with: the session's state, or `waiting` while the session waits for the person to allow a call. */
-  mark: HeadlessState | "waiting";
+  /** The mark the line is drawn with (`HeadlessMark`). */
+  mark: HeadlessMark;
   /** The state in words beside the mark: the state's own word, or "Needs you" while the session waits for the person to allow a call. */
   words: string;
   /** The answer as far as it has arrived, or the error of a session that failed. */
   text: string;
   /** What the agent's process of a failed session printed on its error stream, shown under the error with its line breaks kept, and empty for a session that did not fail. */
   errorOutput: string;
-  /** Whether the line offers "Stop": a session that is working can be stopped, and one that ended cannot. */
+  /** Whether the line offers "Stop": a session that is working or waits for the machine can be stopped, and one that ended cannot. */
   stop: boolean;
   /** The calls the session waits for the person to allow or refuse, the oldest first: each with its id, which an answer names, the head that names the tool it asks to use, and what a person reads of the call. */
   asks: { id: number; head: string; text: string }[];
@@ -3113,11 +3248,11 @@ export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem)
         id: info.id,
         prompt: info.prompt,
         state: info.state,
-        mark: asks.length > 0 ? "waiting" : info.state,
-        words: asks.length > 0 ? stateHeading("waiting") : info.state,
+        mark: asks.length > 0 ? "waiting" : info.state === "queued" ? "no-agent" : info.state,
+        words: asks.length > 0 ? stateHeading("waiting") : info.state === "queued" ? "Queued" : info.state,
         text: info.state === "failed" ? (info.error ?? "") : info.answer,
         errorOutput: info.state === "failed" ? info.errorOutput : "",
-        stop: info.state === "working",
+        stop: info.state === "working" || info.state === "queued",
         asks,
       };
     });
@@ -3140,8 +3275,8 @@ export interface GateLine {
   startedAt: number;
   /** The command the gate ran, as the stage holds it. */
   command: string;
-  /** The mark the line is drawn with. */
-  state: HeadlessState;
+  /** The mark the line is drawn with: the gate's stage's state. */
+  state: ChainStage["state"];
   /** The state in words beside the mark, as a headless session's line says its state. */
   words: string;
   /** Why the gate failed, as a sentence, and empty for a gate that did not fail and for one the daemon gave no reason. */
@@ -3169,7 +3304,7 @@ export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine 
   const stage = chainOf(workItem)?.stages.findLast((held) => (held.gate ?? null) !== null);
   const run = stage?.gate;
   if (!stage || !run) return null;
-  const state: HeadlessState = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
+  const state: ChainStage["state"] = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
   const shown = read !== null && read.workItemId === workItem.id && read.startedAt === stage.startedAt;
   return {
     startedAt: stage.startedAt,

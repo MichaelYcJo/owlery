@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
 import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
@@ -12,6 +12,7 @@ import { OutputBuffer } from "../src/daemon/buffer";
 import { Daemon, type DaemonOptions, HEADLESS_KEPT, HEADLESS_LIMIT_MS } from "../src/daemon/daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "../src/daemon/discovery";
 import type { HoldAwake } from "../src/daemon/keep-awake";
+import { AgentMemoryStore, type MachineReader } from "../src/daemon/machine";
 import { hookSettings, paneCommands, writeHookSettings } from "../src/daemon/hooks";
 import { readPlugins } from "../src/daemon/claude-plugins";
 import { carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
@@ -22,7 +23,7 @@ import { readSetup } from "../src/daemon/worktree-setup";
 import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
 import { VIEW_FIELDS } from "../src/daemon/github";
@@ -6692,6 +6693,534 @@ describe("keeping the Mac awake", () => {
     expect(seen.held).toBe(1);
     expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
     expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the choice of when to keep the Mac awake was not written: /)]);
+  });
+});
+
+describe("the caps on the machine", () => {
+  const START = { type: "start", cols: 80, rows: 24 };
+  /** The owner's Mac as the framer's probe read it: 36 GB, 12 cores of which 6 are performance cores, and 25.1 GB free. */
+  const READING: MachineReading = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } };
+  /** What the daemon proposes on that reading, with one work item standing and nothing measured. */
+  const PROPOSED: Machine = {
+    reading: READING,
+    agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
+    worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
+    panes: { proposed: 8, set: null },
+  };
+  const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
+
+  /** A reader that gives `READING` and notes the folder of each read. */
+  function reader() {
+    const reads: string[] = [];
+    const machine: MachineReader = {
+      read: (folder) => {
+        reads.push(folder);
+        return READING;
+      },
+      // No process of an agent is read: the fake adapter starts none, and a pane's measure is the case's own.
+      memoryOf: () => Promise.resolve(new Map()),
+      // No worktree is measured: a measure is the case's own.
+      sizeOf: () => Promise.resolve(null),
+    };
+    return { machine, reads };
+  }
+
+  /** A daemon given a reader, with a work item, a run folder of its own and two clients, and panes whose process ends when a line arrives. */
+  async function machined(options: Partial<DaemonOptions> = {}) {
+    const { machine, reads } = reader();
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, machine, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    return { daemon: d, url, runDir, root: made.root, reads, c, bystander, both: [c, bystander], ready };
+  }
+
+  it("sends in `ready` what it read of the machine, the worktrees' folder's disk among it, and each cap's proposal with the numbers it came from, each cap following its proposal (scenario 1)", async () => {
+    const { ready, reads, root } = await machined();
+    expect(ready.machine).toEqual(PROPOSED);
+    // Once at the daemon's start, and again at each of the two hellos.
+    expect(reads).toEqual([root, root, root]);
+  });
+
+  it("takes a cap a person sets, tells every client after its `done`, keeps it in `limits.json` for the daemon started next on the run folder, and follows the proposal again once the cap is set to null (scenario 3)", async () => {
+    const { daemon: d, runDir, c, both } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    for (const each of both) expect((await each.message("machine")).machine.agents).toEqual({ ...PROPOSED.agents, set: 3 });
+    const done = c.messages.findIndex((m) => m.type === "done" && m.requestId === 1);
+    expect(done).toBeGreaterThan(-1);
+    expect(done).toBeLessThan(c.messages.findIndex((m) => m.type === "machine"));
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3}');
+    expect(statSync(join(runDir, "limits.json")).mode & 0o777).toBe(0o600);
+    // A field that is absent is left as it is.
+    c.send({ type: "setCaps", requestId: 2, panes: 12 });
+    expect((await c.message("machine", (m) => m.machine.panes.set === 12)).machine).toMatchObject({ agents: { set: 3 }, worktrees: { set: null }, panes: { proposed: 8, set: 12 } });
+    await d.close();
+
+    const { machine } = reader();
+    const { url: again } = await daemon({ runDir, machine });
+    expect((await (await client(again)).message("ready")).machine).toMatchObject({ agents: { proposed: 6, set: 3 }, panes: { proposed: 8, set: 12 } });
+  });
+
+  it("follows the proposal again where a person sets a cap to null, and writes the file without it", async () => {
+    const { runDir, c, bystander } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3, worktrees: 40 });
+    await bystander.message("machine");
+    c.send({ type: "setCaps", requestId: 2, agents: null });
+    expect((await bystander.message("machine", (m) => m.machine.agents.set === null)).machine).toMatchObject({ agents: { proposed: 6, set: null }, worktrees: { set: 40 } });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"worktrees":40}');
+  });
+
+  it.each([
+    ["no whole number", { agents: 2.5 }, "The cap on agents at once is a whole number from 1."],
+    ["a number under 1", { worktrees: 0 }, "The cap on worktrees is a whole number from 1."],
+    ["a number given as text", { agents: "3" }, "The cap on agents at once is a whole number from 1."],
+    ["a cap on panes over 16, beside a value it would take", { agents: 3, panes: 17 }, "The cap on panes side by side is a whole number from 1 to 16."],
+  ])("refuses %s with a sentence, and changes, writes and tells nothing", async (_, caps, sentence) => {
+    const { runDir, c, both } = await machined();
+    c.send({ type: "setCaps", requestId: 7, ...caps });
+    expect((await c.message("error", (m) => m.requestId === 7)).message).toBe(sentence);
+    c.send({ type: "readMachine" });
+    expect((await c.message("machine")).machine).toEqual(PROPOSED);
+    for (const each of both) expect(told(each)).toHaveLength(each === c ? 1 : 0);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  it("answers `done`, and tells and writes nothing, where a cap is set to the value it holds", async () => {
+    const { runDir, c, bystander } = await machined();
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    await bystander.message("machine");
+    rmSync(join(runDir, "limits.json"));
+    c.send({ type: "setCaps", requestId: 2, agents: 3, worktrees: null });
+    await c.message("done", (m) => m.requestId === 2);
+    bystander.send({ type: "readMachine" });
+    expect((await bystander.message("machine", (m) => m.machine.agents.set === 3 && told(bystander).length === 2)).machine.agents.set).toBe(3);
+    expect(told(c)).toHaveLength(1);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+  });
+
+  it("keeps a cap in memory and stays up where its run folder cannot be written, and says so in its log", async () => {
+    const said: unknown[][] = [];
+    const error = console.error;
+    console.error = (...args: unknown[]) => void said.push(args);
+    cleanups.push(() => {
+      console.error = error;
+    });
+    const unwritable = mkdtempSync(join(tmpdir(), "owlery-caps-"));
+    cleanups.push(() => rmSync(unwritable, { recursive: true, force: true }));
+    const { url, c } = await machined({ runDir: join(unwritable, "removed") });
+    c.send({ type: "setCaps", requestId: 1, panes: 2 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect((await c.message("machine")).machine.panes.set).toBe(2);
+    expect((await (await client(url)).message("ready")).machine?.panes.set).toBe(2);
+    expect(said.map((args) => String(args[0]))).toEqual([expect.stringMatching(/^the caps on the machine were not written: /)]);
+  });
+
+  it("counts a headless session while it works, and tells every client when it starts and when it ends", async () => {
+    const { c, both } = await machined({ roleAdapter: fakeAdapter({ delayMs: 200 }) });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    await c.message("headless", (m) => m.headless.state === "finished");
+    for (const each of both) await each.message("machine", (m) => m.machine.agents.running === 0);
+    for (const each of both) expect(told(each).map((m) => m.agents.running)).toEqual([1, 0]);
+  });
+
+  it("reads the machine again at a `readMachine`, and sends what it read to the client that asked alone", async () => {
+    const { reads, c, bystander } = await machined();
+    const before = reads.length;
+    c.send({ type: "readMachine" });
+    expect((await c.message("machine")).machine).toEqual(PROPOSED);
+    expect(reads.length).toBe(before + 1);
+    bystander.send({ type: "setCaps", requestId: 3, panes: 2 });
+    await bystander.message("machine");
+    expect(told(bystander)).toHaveLength(1);
+    expect(told(c).map((m) => m.panes.set)).toEqual([null, 2]);
+  });
+
+  it("tells every client the count of the agents that run when a pane of a kind that reports its state opens and when its process ends, and nothing when a shell opens", async () => {
+    const { c, both } = await machined();
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 1);
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 2)).session;
+    for (const each of both) expect((await each.message("machine")).machine.agents.running).toBe(1);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    for (const each of both) await each.message("machine", (m) => m.machine.agents.running === 0);
+    for (const each of both) expect(told(each).map((m) => m.agents.running)).toEqual([1, 0]);
+  });
+
+  it("sends no `machine` in `ready` nor a disk with a plan, takes no cap, reads nothing and writes no file where it is given no reader (scenario 10)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const c = await client(url);
+    expect("machine" in (await c.message("ready"))).toBe(false);
+    c.send({ type: "readMachine" });
+    c.send({ type: "setCaps", requestId: 1, agents: 3 });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("This daemon keeps no cap on the machine.");
+    expect(told(c)).toEqual([]);
+    expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+    c.send({ type: "planWorkItem", requestId: 2, repo: made.repo, title: "Next" });
+    expect("disk" in (await c.message("workItemPlan", (m) => m.requestId === 2))).toBe(false);
+  });
+
+  /** An adapter that answers as the fake does, each event `delayMs` after the one before, and notes the prompt of each run it starts. */
+  function noting(delayMs = 0) {
+    const fake = fakeAdapter({ delayMs });
+    const starts: string[] = [];
+    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(options.prompt), fake.start(options, listener)) };
+    return { roleAdapter, starts };
+  }
+
+  /** A daemon whose cap on agents a person set to 1, with a live Claude Code pane that takes that place and ends when a line is typed into it. */
+  async function atCap(options: Partial<DaemonOptions> = {}) {
+    const made = await machined(options);
+    made.c.send({ type: "setCaps", requestId: 900, agents: 1 });
+    await made.c.message("done", (m) => m.requestId === 900);
+    made.c.send({ ...START, kind: "claude", requestId: 901, workItemId: 1 });
+    const pane = (await made.c.message("started", (m) => m.requestId === 901)).session;
+    await made.c.message("machine", (m) => m.machine.agents.running === 1);
+    return { ...made, pane };
+  }
+
+  /** The newest a client was told of a headless session. */
+  const newest = (c: { messages: ServerMessage[] }, id: number): HeadlessInfo | undefined => c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === id ? [m.headless] : [])).at(-1);
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  it("lists a headless session asked while the agents are at the cap as queued, starts no process for it, and tells every client the queue (scenario 4)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c, bystander } = await atCap({ roleAdapter, now: () => 1_000 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    expect(headless).toMatchObject({ state: "queued", queuedAt: 1_000, startedAt: 1_000, stopped: null });
+    expect((await bystander.message("machine", (m) => m.machine.agents.queue.length === 1)).machine.agents).toMatchObject({ running: 1, queue: [headless.id] });
+    await pause(100);
+    expect(starts).toEqual([]);
+    expect(newest(bystander, headless.id)?.state).toBe("queued");
+  });
+
+  it("opens a pane a person asks for at the cap, and counts it (scenario 8)", async () => {
+    const { c, bystander } = await atCap();
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    expect((await c.message("started", (m) => m.requestId === 1)).session.alive).toBe(true);
+    expect((await bystander.message("machine", (m) => m.machine.agents.running === 2)).machine.agents).toMatchObject({ running: 2, set: 1, queue: [] });
+  });
+
+  it("starts a queued session when a place frees, with its start's time, and runs its time limit and its entry in the ledger from there (scenarios 5 and 7)", async () => {
+    let clock = 1_000;
+    const { roleAdapter, starts } = noting(1_000);
+    const { c, pane } = await atCap({ roleAdapter, now: () => clock, headlessLimitMs: 400 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    // Longer than the time limit: a session that waits runs no limit.
+    await pause(600);
+    expect(newest(c, headless.id)?.state).toBe("queued");
+    clock = 5_000;
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "working")).headless).toMatchObject({ startedAt: 5_000, queuedAt: 1_000 });
+    expect(starts).toEqual(["Which file?"]);
+    expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless.stopped).toBe("limit");
+    c.send({ type: "readLedger", requestId: 2, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 2)).entries.map(({ startedAt, stopped }) => ({ startedAt, stopped }))).toEqual([{ startedAt: 5_000, stopped: "limit" }]);
+  });
+
+  it("starts a queued session where a person raises the cap (scenario 5)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c } = await atCap({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 1);
+    c.send({ type: "setCaps", requestId: 2, agents: 2 });
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    expect(starts).toEqual(["Which file?"]);
+    expect((await c.message("machine", (m) => m.machine.agents.set === 2)).machine.agents.queue).toEqual([]);
+  });
+
+  it("ends a queued session at a stop and at an archive, with no entry in the ledger, and starts none in its place while the agents stay at the cap (scenario 9)", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c, pane } = await atCap({ roleAdapter });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 1)).headless;
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Second?" });
+    const second = (await c.message("asked", (m) => m.requestId === 2)).headless;
+    await c.message("machine", (m) => m.machine.agents.queue.length === 2);
+    const before = c.messages.length;
+    c.send({ type: "stopHeadless", requestId: 3, id: first.id });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("headless", (m) => m.headless.id === first.id && m.headless.state === "failed")).headless).toMatchObject({ stopped: "request", error: "the session was stopped at a request before it finished" });
+    const left = await c.until(() => c.messages.slice(before).find((m): m is Extract<ServerMessage, { type: "machine" }> => m.type === "machine"));
+    expect(left.machine.agents).toMatchObject({ running: 1, queue: [second.id] });
+    await pause(100);
+    expect(starts).toEqual([]);
+    expect(newest(c, second.id)?.state).toBe("queued");
+    // An archive names the queued session among what runs, and ends it before the pane, whose end frees a place.
+    c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [] } });
+    expect((await c.message("error", (m) => m.requestId === 4)).message).toBe("A session started since you looked. Read it again.");
+    c.send({ type: "archiveWorkItem", requestId: 5, id: 1, running: { panes: [pane.id], headless: [second.id] } });
+    await c.message("done", (m) => m.requestId === 5);
+    expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
+    expect(starts).toEqual([]);
+    c.send({ type: "readLedger", requestId: 6, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 6)).entries).toEqual([]);
+  });
+
+  it("starts a session asked while one place under the cap is free, lists it as working with no `queuedAt`, and queues the next once the agents are at the cap (scenario 6)", async () => {
+    const { roleAdapter, starts } = noting(1_000);
+    const { c } = await machined({ roleAdapter });
+    c.send({ type: "setCaps", requestId: 1, agents: 2 });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 2);
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    c.send({ type: "ask", requestId: 3, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 3)).headless;
+    expect(first.state).toBe("working");
+    expect("queuedAt" in first).toBe(false);
+    expect(c.messages.some((m) => m.type === "headless" && m.headless.id === first.id && m.headless.state === "queued")).toBe(false);
+    c.send({ type: "ask", requestId: 4, workItemId: 1, prompt: "Second?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless.state).toBe("queued");
+    expect(starts).toEqual(["First?"]);
+  });
+
+  it("ends a work item's queued session before its working one at an archive, so the place the working one frees starts none of them, and writes the one entry of the run that ran (scenario 9)", async () => {
+    const { roleAdapter, starts } = noting(1_000);
+    const { c } = await machined({ roleAdapter });
+    c.send({ type: "setCaps", requestId: 1, agents: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 2)).headless;
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    c.send({ type: "ask", requestId: 3, workItemId: 1, prompt: "Second?" });
+    const second = (await c.message("asked", (m) => m.requestId === 3)).headless;
+    expect(second.state).toBe("queued");
+    c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [first.id, second.id] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(starts).toEqual(["First?"]);
+    expect(c.messages.some((m) => m.type === "headless" && m.headless.id === second.id && m.headless.state === "working")).toBe(false);
+    expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
+    c.send({ type: "readLedger", requestId: 5, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 5)).entries).toHaveLength(1);
+  });
+
+  it("refuses to remove an account a queued session would run under, naming the session (scenario 9)", async () => {
+    const { roleAdapter } = noting();
+    const { c } = await atCap({ roleAdapter });
+    const folder = mkdtempSync(join(tmpdir(), "owlery-account-"));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    c.send({ type: "addAccount", requestId: 1, name: "Work", folder });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Which file?", accountId: 1 });
+    expect((await c.message("asked", (m) => m.requestId === 2)).headless).toMatchObject({ state: "queued", accountId: 1 });
+    c.send({ type: "removeAccount", requestId: 3, id: 1 });
+    expect((await c.message("error", (m) => m.requestId === 3)).message).toBe('"Work" is not removed while something runs under it: a session asked in "Pane work".');
+  });
+
+  it("reads the memory of a working headless session's own process, as its adapter hands it over", async () => {
+    const asked: number[][] = [];
+    const fake = fakeAdapter({ delayMs: 400 });
+    const roleAdapter: RoleAdapter = { ...fake, start: async (options, listener) => ({ ...(await fake.start(options, listener)), pid: 4242 }) };
+    const machine: MachineReader = { read: () => READING, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => (asked.push([...pids]), new Map(pids.map((pid) => [pid, 700 * 1024]))) };
+    const { c } = await machined({ roleAdapter, machine, measureMs: 50 });
+    c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
+    await c.message("asked", (m) => m.requestId === 1);
+    expect((await c.message("machine", (m) => m.machine.agents.measured === 1)).machine.agents.measured).toBe(1);
+    expect(asked[0]).toEqual([4242]);
+  });
+
+  it("starts a queued session where a measure raises the proposal above the agents that run", async () => {
+    // 2 GB of memory and 6 performance cores: 1,024 MB at 679 MB an agent proposes 1, and at 100 MB, once five are measured, 6.
+    const small: MachineReading = { ...READING, memoryBytes: 2 * 1024 ** 3 };
+    const machine: MachineReader = { read: () => small, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 100 * 1024])) };
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    writeFileSync(join(runDir, "agent-memory.json"), JSON.stringify([100 * 1024, 100 * 1024, 100 * 1024, 100 * 1024]));
+    const { roleAdapter, starts } = noting();
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine, measureMs: 200, roleAdapter });
+    const c = await client(url);
+    expect((await c.message("ready")).machine?.agents.proposed).toBe(1);
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Which file?" });
+    const { headless } = await c.message("asked", (m) => m.requestId === 2);
+    expect(headless.state).toBe("queued");
+    await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
+    expect(starts).toEqual(["Which file?"]);
+  });
+
+  it("queues nothing where it is given no reader of the machine", async () => {
+    const { roleAdapter, starts } = noting();
+    const { c } = await daemonWithWorkItem({ roleAdapter }).then(async ({ url }) => ({ c: await client(url) }));
+    await c.message("ready");
+    for (const requestId of [1, 2, 3]) c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 3);
+    c.send({ type: "ask", requestId: 4, workItemId: 1, prompt: "Which file?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless.state).toBe("working");
+    expect(starts).toEqual(["Which file?"]);
+  });
+
+  it("reads once a minute the resident memory of each agent's own process while one lives, keeps each agent's highest in `agent-memory.json`, and proposes from it once five are measured (scenario 2, the store)", async () => {
+    const asked: number[][] = [];
+    const readings = [600, 700, 650];
+    const machine: MachineReader = {
+      read: () => READING,
+      sizeOf: () => Promise.resolve(null),
+      memoryOf: async (pids) => {
+        asked.push([...pids]);
+        const kilobytes = (readings.shift() ?? 650) * 1024;
+        return new Map(pids.map((pid) => [pid, kilobytes]));
+      },
+    };
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { runDir } = await runFolderWithWorkItem(made, "Pane work");
+    // Four agents a daemon before this one measured, kept in the run folder.
+    writeFileSync(join(runDir, "agent-memory.json"), JSON.stringify([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024]));
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine, measureMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }) });
+    const c = await client(url);
+    expect((await c.message("ready")).machine?.agents).toMatchObject({ measured: 4, perAgentBytes: 679 * 1024 ** 2 });
+    await pause(150);
+    // No agent lives, so nothing is read.
+    expect(asked).toEqual([]);
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 1)).session;
+    const measured = await c.message("machine", (m) => m.machine.agents.measured === 5 && m.machine.agents.perAgentBytes === 700 * 1024 ** 2);
+    // 18,432 MB, half of 36 GB, holds 26 agents at 700 MB, more than the 6 performance cores.
+    expect(measured.machine.agents).toMatchObject({ proposed: 6, byMemory: 26 });
+    expect(asked[0]).toHaveLength(1);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    await c.message("machine", (m) => m.machine.agents.running === 0);
+    const after = asked.length;
+    await pause(150);
+    expect(asked.length).toBe(after);
+    expect(JSON.parse(readFileSync(join(runDir, "agent-memory.json"), "utf8"))).toEqual([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024, 700 * 1024]);
+    expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
+  });
+
+  it("tells the store at each reading which agents live, so it forgets an agent that ended, the last one once none lives", async () => {
+    const living = vi.spyOn(AgentMemoryStore.prototype, "keepLiving");
+    cleanups.push(() => living.mockRestore());
+    const machine: MachineReader = { read: () => READING, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 700 * 1024])) };
+    const { c } = await machined({ machine, measureMs: 50 });
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 1)).session;
+    await c.until(() => living.mock.calls.some(([names]) => names.has(`pane-${String(pane.id)}`)) || undefined);
+    c.send({ type: "input", id: pane.id, data: "\n" });
+    await c.message("machine", (m) => m.machine.agents.running === 0);
+    const after = living.mock.calls.length;
+    await c.until(() => living.mock.calls.length > after || undefined);
+    expect([...(living.mock.calls.at(-1)?.[0] ?? ["none read"])]).toEqual([]);
+  });
+
+  /** The size of a worktree a daemon of the case stored: 440 MB, at 1,024 bytes a kilobyte. */
+  const MEASURED_KB = 429_688;
+  /** The stored work item of a place a case made, measured at `kilobytes` or not at all. */
+  const storedAt = (id: number, title: string, place: Awaited<ReturnType<typeof createWorktree>>, kilobytes: number | null) => ({ id, title, branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null, worktreeSize: kilobytes === null ? null : { kilobytes, measuredAt: 1 } });
+  /** The stored repository of a folder a case made, holding the work items given. */
+  const storedIn = (id: number, folder: string, workItems: unknown[]) => ({ id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems });
+
+  it("measures a new work item's worktree with one `sizeOf` when its setup's pane exits, keeps the size with the work item, proposes the worktree cap from it, and measures it no more when its setup runs again nor after a restart (scenario 13)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    writeFileSync(join(made.repo, ".worktreesetup"), "read line; exit 0");
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const sized: string[] = [];
+    const machine: MachineReader = { ...reader().machine, sizeOf: (folder) => (sized.push(folder), Promise.resolve(MEASURED_KB)) };
+    const setupCommandFor = (command: string, id: number) => ({ command: "/bin/sh", args: ["-c", command], env: { OWLERY_PANE_ID: String(id) } });
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, machine, setupCommandFor, now: () => 1234 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: "read line; exit 0" });
+    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 1);
+    await pause(150);
+    // The setup still runs, so nothing is measured yet.
+    expect(sized).toEqual([]);
+    c.send({ type: "input", id: workItem.setup!.paneId!, data: "\n" });
+    const measured = await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes !== null);
+    // The 15.1 GB free past the 10 GB kept free holds 34 more worktrees at 440 MB.
+    expect(measured.machine.worktrees).toEqual({ proposed: 35, set: null, standing: 1, perWorktreeBytes: MEASURED_KB * 1024, keepFreeBytes: 10_000_000_000 });
+    expect(sized).toEqual([workItem.worktree]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems[0].worktreeSize).toEqual({ kilobytes: MEASURED_KB, measuredAt: 1234 });
+    // A client is not sent the size with the work item.
+    const inbox = c.messages.filter((m) => m.type === "inbox").at(-1) as Extract<ServerMessage, { type: "inbox" }>;
+    expect(Object.keys(inbox.workItems[0]!)).not.toContain("worktreeSize");
+    // The setup run again measures nothing.
+    c.send({ type: "runSetup", requestId: 2, workItemId: workItem.id, cols: 80, rows: 24, setupCommand: "read line; exit 0" });
+    const rerun = (await c.message("started", (m) => m.requestId === 2)).session;
+    c.send({ type: "input", id: rerun.id, data: "\n" });
+    await c.message("inbox", (m) => m.workItems.some((w) => w.setup?.paneId === rerun.id && w.setup.state !== "running"));
+    await pause(150);
+    expect(sized).toEqual([workItem.worktree]);
+    await d.close();
+    const again: string[] = [];
+    const { url: next } = await daemon({ runDir, worktreesRoot: made.root, machine: { ...machine, sizeOf: (folder) => (again.push(folder), Promise.resolve(1)) } });
+    expect((await (await client(next)).message("ready")).machine?.worktrees.perWorktreeBytes).toBe(MEASURED_KB * 1024);
+    await pause(150);
+    expect(again).toEqual([]);
+  });
+
+  it("measures at its start each standing worktree that has no size, one at a time, keeps none where `sizeOf` gives none, and measures at once a new work item whose repository names no setup (scenario 13)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const first = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    const second = await createWorktree({ folder: made.repo, title: "Second", root: made.root });
+    const kept = await createWorktree({ folder: made.repo, title: "Kept", root: made.root });
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 2, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "First", first, null), storedAt(2, "Second", second, null), storedAt(3, "Kept", kept, 100)])] }));
+    const asked: { folder: string; answer: (kilobytes: number | null) => void }[] = [];
+    const machine: MachineReader = { ...reader().machine, sizeOf: (folder) => new Promise((answer) => asked.push({ folder, answer })) };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine });
+    const c = await client(url);
+    await c.message("ready");
+    await pause(100);
+    // The second waits for the first, and the one measured before is measured no more.
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree]);
+    asked[0]!.answer(1000);
+    await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes === 1000 * 1024);
+    await pause(50);
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree, second.worktree]);
+    asked[1]!.answer(null);
+    await pause(50);
+    const stored = () => JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems.map((item: { worktreeSize: unknown }) => item.worktreeSize);
+    expect(stored()).toEqual([{ kilobytes: 1000, measuredAt: expect.any(Number) }, null, { kilobytes: 100, measuredAt: 1 }]);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "No setup", kind: "claude", cols: 80, rows: 24, setupCommand: null });
+    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 1);
+    expect(workItem.setup).toBeNull();
+    await pause(100);
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree, second.worktree, workItem.worktree]);
+    asked[2]!.answer(3000);
+    expect((await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes === 3000 * 1024)).machine.worktrees.standing).toBe(4);
+  });
+
+  it("answers a plan with the free disk it reads then, the 10 GB kept free, the largest worktree measured in the plan's repository, the worktrees that stand and the cap (scenario 11)", async () => {
+    const made = temporaryRepository();
+    const other = temporaryRepository("other");
+    const unmeasured = temporaryRepository("unmeasured");
+    cleanups.push(made.remove, other.remove, unmeasured.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const one = await createWorktree({ folder: made.repo, title: "One", root: made.root });
+    const two = await createWorktree({ folder: made.repo, title: "Two", root: made.root });
+    const elsewhere = await createWorktree({ folder: other.repo, title: "Elsewhere", root: other.root });
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 3, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "One", one, 300_000), storedAt(2, "Two", two, MEASURED_KB)]), storedIn(2, other.repo, [storedAt(3, "Elsewhere", elsewhere, 2_000_000)])] }));
+    const { machine, reads } = reader();
+    const low = { ...READING, disk: { freeBytes: 10_200_000_000, totalBytes: 494_384_795_648 } };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine: { ...machine, read: (folder) => (machine.read(folder), low) } });
+    const c = await client(url);
+    await c.message("ready");
+    const before = reads.length;
+    c.send({ type: "planWorkItem", requestId: 1, repo: made.repo, title: "Next" });
+    // The 0.2 GB past the 10 GB kept free holds no more worktree at the 2 GB of the largest measured anywhere, so the cap is the 3 that stand.
+    expect((await c.message("workItemPlan", (m) => m.requestId === 1)).disk).toEqual({ freeBytes: 10_200_000_000, keepFreeBytes: 10_000_000_000, needsBytes: MEASURED_KB * 1024, standing: 3, cap: 3 });
+    expect(reads.length).toBe(before + 1);
+    c.send({ type: "setCaps", requestId: 2, worktrees: 5 });
+    await c.message("done", (m) => m.requestId === 2);
+    c.send({ type: "planWorkItem", requestId: 3, repo: unmeasured.repo, title: "Next" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 3)).disk).toEqual({ freeBytes: 10_200_000_000, keepFreeBytes: 10_000_000_000, needsBytes: null, standing: 3, cap: 5 });
   });
 });
 

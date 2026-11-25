@@ -48,6 +48,7 @@ import {
   type WrittenChain,
 } from "../src/daemon/chain";
 import type { DaemonOptions } from "../src/daemon/daemon";
+import type { MachineReader } from "../src/daemon/machine";
 import { declaredBranch, readDecisionRecord, routingAnswer, withDecision, withQuestion } from "../src/daemon/decision-record";
 import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
 import { readRoundRecord } from "../src/daemon/round-record";
@@ -961,6 +962,85 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.chain(a.id, "rested")).toEqual(sealed);
     expect(head(a.worktree)).toBe(at);
     expect(c.messages.flatMap((m) => (m.type === "headless" ? [m.headless.id] : [])).every((id) => id <= 4)).toBe(true);
+  });
+
+  it("starts the sessions that wait for the machine in their order, a person's asked session, then a stage of a chain that already ran one, then a chain's first stage, and counts a stage's start and its entry in the ledger from its session's start (scenarios 6 and 7)", async () => {
+    let clock = 1_000;
+    // The first two runs are held at their start, so each counts as an agent that runs until the case lets it go.
+    const holds = [0, 1].map(() => {
+      let resolve = (): void => {};
+      const promise = new Promise<void>((done) => (resolve = done));
+      return { promise, resolve };
+    });
+    const { adapter, started } = noted(roles());
+    let starts = 0;
+    const roleAdapter: RoleAdapter = { ...adapter, start: async (options, listener) => (await holds[starts++]?.promise, adapter.start(options, listener)) };
+    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), sizeOf: () => Promise.resolve(null), memoryOf: () => Promise.resolve(new Map()) };
+    const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter, machine, now: () => clock });
+    // A case that fails lets its runs go before the daemon closes, which waits for its chains.
+    cleanups.push(() => holds.forEach(({ resolve }) => resolve()));
+    const [a, b] = workItems as [(typeof workItems)[number], (typeof workItems)[number]];
+    expect(await c.asked({ type: "setCaps", requestId: 1, agents: 1 })).toMatchObject({ type: "done" });
+    /** The sessions of a queue, each by its role, or `asked` for none, and its work item's title. */
+    const named = (queue: number[]): string[] =>
+      queue.map((id) => {
+        const info = c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === id ? [m.headless] : [])).at(-1);
+        return `${info?.role?.role ?? "asked"} ${info?.workItemId === a.id ? "First" : "Second"}`;
+      });
+    const queued = (expected: string[]) => c.until(() => c.messages.find((m) => m.type === "machine" && JSON.stringify(named(m.machine.agents.queue)) === JSON.stringify(expected)));
+
+    expect(await c.startChain(a.id)).toBe("done");
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    expect(await c.startChain(b.id)).toBe("done");
+    await queued(["proofer Second"]);
+    const asked = await c.asked({ type: "ask", requestId: 2, workItemId: b.id, prompt: "Which file?" });
+    expect(asked.type === "asked" ? asked.headless.state : asked).toBe("queued");
+    // The asked session joined last and goes first.
+    await queued(["asked Second", "proofer Second"]);
+    clock = 5_000;
+    holds[0]?.resolve();
+    // Round 1 of the first chain ended and freed its place, which the asked session took, so the fix pass waits, before the second chain's first stage that joined before it.
+    await queued(["crafter First", "proofer Second"]);
+    holds[1]?.resolve();
+    await c.chain(a.id, "rested");
+    const second = await c.chain(b.id, "rested");
+    expect(started.slice(0, 3).map(({ role, prompt }) => role?.role ?? prompt)).toEqual(["proofer", "Which file?", "crafter"]);
+    // The second chain's round waited from 1,000 and started at 5,000: the stage and its entry count from the start.
+    expect(second.stages[0]).toMatchObject({ kind: "round", round: 1, startedAt: 5_000 });
+    const round = c.messages.flatMap((m) => (m.type === "headless" && m.headless.id === second.stages[0]?.headlessId ? [m.headless] : [])).at(-1);
+    expect(round).toMatchObject({ queuedAt: 1_000, startedAt: 5_000 });
+    const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: b.id });
+    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, startedAt }) => [stage?.stage ?? "asked", startedAt]).slice(0, 2) : ledger).toEqual([
+      ["asked", 5_000],
+      ["round", 5_000],
+    ]);
+  });
+
+  it("waits as a chain's first stage again where the chain is started anew after it stopped, behind a first stage that joined before it", async () => {
+    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), sizeOf: () => Promise.resolve(null), memoryOf: () => Promise.resolve(new Map()) };
+    const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter: roles(), machine });
+    const [a, b] = workItems as [(typeof workItems)[number], (typeof workItems)[number]];
+    expect(await c.asked({ type: "setCaps", requestId: 1, agents: 1 })).toMatchObject({ type: "done" });
+    // A Claude Code pane takes the one place, so every stage waits.
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: a.id });
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    /** The newest queue every client was told, once it holds `length` sessions and none of `gone`. */
+    const queueOf = (length: number, gone: number[] = []) =>
+      c.until(() => {
+        const newest = c.messages.findLast((m) => m.type === "machine");
+        const queue = newest?.type === "machine" ? newest.machine.agents.queue : [];
+        return queue.length === length && !queue.some((id) => gone.includes(id)) ? queue : undefined;
+      });
+    expect(await c.startChain(a.id)).toBe("done");
+    const [round] = (await queueOf(1)) as [number];
+    // The person stops the waiting round, and the chain stops with it.
+    expect(await c.asked({ type: "stopHeadless", requestId: 3, id: round })).toMatchObject({ type: "done" });
+    await c.chain(a.id, "stopped");
+    expect(await c.startChain(b.id)).toBe("done");
+    const [second] = (await queueOf(1, [round])) as [number];
+    expect(await c.startChain(a.id)).toBe("done");
+    const queue = await queueOf(2);
+    expect(queue[0]).toBe(second);
   });
 
   it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest in one hold, and a client that connects later is sent the chain in its ready", async () => {

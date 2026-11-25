@@ -21,6 +21,7 @@ import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
+import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
@@ -164,6 +165,7 @@ const titleField = byId<HTMLInputElement>("work-item-title");
 const planPlace = byId("work-item-plan");
 const branchPlace = byId("work-item-branch");
 const worktreePlace = byId("work-item-worktree");
+const warningPlace = byId("work-item-warning");
 const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
@@ -226,6 +228,7 @@ const SESSIONS: Asking = { dialog: sessionsDialog, error: byId("sessions-error")
 const DELETE: Asking = { dialog: deleteDialog, error: byId("delete-error"), button: byId<HTMLButtonElement>("delete-submit") };
 const ACCOUNT: Asking = { dialog: accountDialog, error: byId("account-error"), button: byId<HTMLButtonElement>("account-submit") };
 const RECORDS: Asking = { dialog: recordsPlaceDialog, error: byId("records-error"), button: byId<HTMLButtonElement>("records-submit") };
+const MACHINE: Asking = { dialog: byId<HTMLDialogElement>("machine-dialog"), error: byId("machine-error"), button: byId<HTMLButtonElement>("machine-submit") };
 // The dialog that asks before the daemon ends waits on the main process's answer, not on the daemon's: the main process is the one that stops the daemon.
 const DAEMON: Asking = { dialog: daemonDialog, error: byId("daemon-error"), button: byId<HTMLButtonElement>("daemon-submit") };
 // The requests a dialog waits on, each with its dialog. An opening forgets the requests of the opening before it, so an answer that arrives late closes no dialog that opened since.
@@ -1601,12 +1604,13 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch, the folder and the setup under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** Draws what the form holds of its plan: the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
 function showPlan(): void {
   if (registerOnly.checked) {
     branchPlace.textContent = "";
     worktreePlace.textContent = "";
     setupPlace.textContent = "";
+    warningPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
     baseStatePlace.textContent = "";
@@ -1616,6 +1620,7 @@ function showPlan(): void {
   branchPlace.textContent = line.branch;
   worktreePlace.textContent = line.worktree;
   setupPlace.textContent = line.setup;
+  warningPlace.textContent = line.warning;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
@@ -1765,6 +1770,9 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one that can hold nothing, send no such choice, and the control is then hidden.
       held.keepAwake = message.keepAwake ?? null;
       showKeepAwake();
+      // A daemon of an earlier build, and one given no reader of the machine, send no machine, and the Machine button is then hidden.
+      held.machine = message.machine ?? null;
+      showMachineEntry();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
@@ -1805,6 +1813,16 @@ function onMessage(message: ServerMessage): void {
       showKeepAwake();
       showStatus();
       return;
+    case "machine":
+      // A cap changed, here or in another client, the count of agents changed, or the daemon read the machine again for this window.
+      held.machine = message.machine;
+      showMachineEntry();
+      if (MACHINE.dialog.open) showMachine();
+      // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
+      showSidebar();
+      listInFront()?.show();
+      if (front === "view") showView();
+      return;
     case "agentNotice":
       // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
       held.agentNotice = message.notice;
@@ -1839,8 +1857,8 @@ function onMessage(message: ServerMessage): void {
       return;
     }
     case "workItemPlan": {
-      // A daemon of an earlier build names no setup.
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false };
+      // A daemon of an earlier build names no setup, and no disk.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }
@@ -2136,6 +2154,13 @@ byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
 byId("accounts-folder").addEventListener("click", addAccount);
 byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
+byId("machine-button").addEventListener("click", () => {
+  // Against a daemon that keeps no cap the button is hidden, and nothing opens over another dialog.
+  if (held.machine === null || !opened(MACHINE)) return;
+  openMachine();
+});
+// The daemon's `done` closes the dialog, and the `machine` after it carries the caps as they now stand.
+initMachine((caps) => ask(MACHINE, (requestId) => ({ type: "setCaps", requestId, ...caps })));
 byId("remove-cancel").addEventListener("click", () => removeDialog.close());
 byId<HTMLFormElement>("remove-form").addEventListener("submit", (event) => {
   event.preventDefault();

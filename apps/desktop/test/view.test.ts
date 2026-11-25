@@ -31,6 +31,9 @@ import {
   cardStaysAt,
   chainNotifications,
   chainSays,
+  stageAhead,
+  machineQueue,
+  queuedAhead,
   changedSet,
   changedSetAfter,
   changesOf,
@@ -68,8 +71,11 @@ import {
   inboxKey,
   inboxLine,
   inboxSummary,
+  capChanges,
+  type CapRow,
   keepAwakeControl,
   keyHints,
+  machineDialog,
   lateSays,
   lastHere,
   lineBadge,
@@ -141,6 +147,9 @@ import {
   setupSection,
   shownSetup,
   sidebarTree,
+  paneCap,
+  sideBySideTitle,
+  stageGrid,
   stageOf,
   stateHeading,
   statusNotice,
@@ -169,7 +178,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -796,6 +805,11 @@ describe("archivalOf", () => {
     });
   });
 
+  it("names a headless session that waits for the machine among what the archive ends, and gives its id (scenario 9)", () => {
+    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: ["Asked: Which file holds the login form?"], running: { panes: [], headless: [1] } });
+    expect(removalOf(PROJECT, [LOGIN], [], [], [headless(1, { state: "queued" })], KINDS).running).toEqual({ panes: [], headless: [1] });
+  });
+
   it("names the pane the work item's setup names Setup, as its tab does", () => {
     const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
     expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
@@ -850,6 +864,10 @@ describe("runningSessions", () => {
     ]);
   });
 
+  it("names a headless session that waits for the machine as one that runs, of a listed work item and of none (scenario 9)", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued" })], KINDS)).toEqual(["Asked in Fix the login bug: Which file holds the login form?", "Asked: Who asked?"]);
+  });
+
   it("names none where no session runs", () => {
     expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual([]);
     expect(runningSessions([], [], [], [], KINDS)).toEqual([]);
@@ -876,7 +894,7 @@ describe("archivedHead", () => {
 });
 
 describe("settingsBases", () => {
-  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false };
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false, disk: null };
 
   it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
     expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
@@ -1740,6 +1758,34 @@ describe("a work item's chain", () => {
     expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
 
+  it("says at the view's foot that a running chain waits for the machine while the session of the stage it begins is queued, with how many go before it, and keeps the stage's sentence while only a session a person asked waits (scenario 4)", () => {
+    const queue = (ids: number[]): Machine => ({ ...MACHINE, agents: { ...MACHINE.agents, queue: ids } });
+    // The running chain's stage is session 3.
+    expect(stageAhead(RUNNING, queue([9, 3]))).toBe(1);
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9, 3])))).toBe("Waiting for the machine (1 ahead)");
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([3])))).toBe("Waiting for the machine");
+    // The stage works, and a question a person asked in the work item waits: the foot keeps the stage's sentence.
+    expect(stageAhead(RUNNING, queue([9]))).toBeNull();
+    expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9])))).toBe("Review round 1 is running.");
+    expect(stageAhead(RUNNING, null)).toBeNull();
+    // A chain that does not run waits for nothing, whatever its last stage's session is.
+    expect(stageAhead(PARKED, queue([3]))).toBeNull();
+    // A chain that stopped says why, whatever of the work item still waits.
+    expect(chainSays(STOPPED, 1)).toBe(STOPPED_SAYS);
+  });
+
+  it("says in the line's second row that a session of the work item waits for the machine, with how many go before it, after a question, a call to allow and a stopped chain's sentence and before the stage and every other text, and the branch while a search is typed (scenario 4)", () => {
+    expect(lineText(RUNNING, finished, false, 2)).toEqual({ says: "machine", text: "Waiting for the machine (2 ahead)" });
+    expect(lineText(LOGIN, waiting, false, 0)).toEqual({ says: "machine", text: "Waiting for the machine" });
+    expect(lineText(LOGIN, undefined, false, 1)).toEqual({ says: "machine", text: "Waiting for the machine (1 ahead)" });
+    expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false, 2)).toEqual({ says: "question", text: "Which base does the branch start from?" });
+    expect(lineText({ ...RUNNING, permissions: [BASH] }, finished, false, 2)).toEqual({ says: "permission", text: "Asks to use Bash: pnpm test" });
+    expect(lineText(STOPPED, finished, false, 2)).toEqual({ says: "chain", text: STOPPED_SAYS });
+    expect(lineText(RUNNING, finished, true, 2)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
+    // The line's state is the one it had: the chain runs, so the line works.
+    expect(inboxLine(RUNNING, [finished], KINDS).state).toBe("working");
+  });
+
   it('draws a work item of a daemon of an earlier build, which sends no chain, as one no chain ran for, in its line and at its view\'s foot', () => {
     for (const sessions of [[], [finished], [working], [waiting]]) expect(inboxLine(EARLIER, sessions, KINDS)).toEqual(inboxLine(LOGIN, sessions, KINDS));
     expect(lineText(EARLIER, finished, false)).toEqual(lineText(LOGIN, finished, false));
@@ -2376,46 +2422,91 @@ describe("stageOf", () => {
   const six = [session(1), session(2), session(3), session(4), session(5), session(6)];
 
   it("puts the pane in front alone on the stage where \"Side by side\" is not pressed, and nothing where the view has no tab", () => {
-    expect(stageOf([session(2), session(4), session(6)], [4, 6], false)).toEqual({ front: 4, shown: [4] });
+    expect(stageOf([session(2), session(4), session(6)], [4, 6], false, 4)).toEqual({ front: 4, shown: [4] });
     // Pane 9 was in front and is closed, so the live pane of the view with the highest id follows it, whichever were in front before.
-    expect(stageOf(six, [9, 2, 1, 3, 4], false)).toEqual({ front: 6, shown: [6] });
-    expect(stageOf([], [4], false)).toEqual({ front: undefined, shown: [] });
-    expect(stageOf([], [4], true)).toEqual({ front: undefined, shown: [] });
+    expect(stageOf(six, [9, 2, 1, 3, 4], false, 4)).toEqual({ front: 6, shown: [6] });
+    expect(stageOf([], [4], false, 4)).toEqual({ front: undefined, shown: [] });
+    expect(stageOf([], [4], true, 4)).toEqual({ front: undefined, shown: [] });
   });
 
-  it("puts every pane of a view of up to four tabs on the stage where \"Side by side\" is pressed, in the tabs' order, the one last in front having the keyboard", () => {
-    expect(stageOf([session(2), session(4)], [4, 2], true)).toEqual({ front: 4, shown: [2, 4] });
-    expect(stageOf([session(2), session(4), session(6)], [4], true)).toEqual({ front: 4, shown: [2, 4, 6] });
-    expect(stageOf([session(2), session(4), session(6), session(7)], [6, 2, 7, 4], true)).toEqual({ front: 6, shown: [2, 4, 6, 7] });
-    expect(stageOf([session(2)], [2], true)).toEqual({ front: 2, shown: [2] });
+  it("puts every pane of a view of up to as many tabs as the cap, here four, on the stage where \"Side by side\" is pressed, in the tabs' order, the one last in front having the keyboard", () => {
+    expect(stageOf([session(2), session(4)], [4, 2], true, 4)).toEqual({ front: 4, shown: [2, 4] });
+    expect(stageOf([session(2), session(4), session(6)], [4], true, 4)).toEqual({ front: 4, shown: [2, 4, 6] });
+    expect(stageOf([session(2), session(4), session(6), session(7)], [6, 2, 7, 4], true, 4)).toEqual({ front: 6, shown: [2, 4, 6, 7] });
+    expect(stageOf([session(2)], [2], true, 4)).toEqual({ front: 2, shown: [2] });
   });
 
-  it("puts the pane in front and then the panes of the stage order, up to four, on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane last in the stage order", () => {
+  it("puts the pane in front and then the panes of the stage order, up to the cap, here four, on the stage of a view with more tabs, in the tabs' order, so a pressed tab that was not shown takes the place of the shown pane last in the stage order", () => {
     // Panes 3, 5, 2 and 6 are on the stage, and the tab of pane 1 is pressed.
-    expect(stageOf(six, [1, 3, 5, 2, 6], true)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
+    expect(stageOf(six, [1, 3, 5, 2, 6], true, 4)).toEqual({ front: 1, shown: [1, 2, 3, 5] });
   });
 
   it("fills the stage with the tabs that were never in front, the highest id first, after the ones that were", () => {
     // After a load no pane was in front, so the live pane with the highest id is.
-    expect(stageOf(six, [], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
-    expect(stageOf(six, [2], true)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
+    expect(stageOf(six, [], true, 4)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf(six, [2], true, 4)).toEqual({ front: 2, shown: [2, 4, 5, 6] });
     // No pane was in front and the four tabs with the highest ids have exited, so the live pane is in front and on the stage.
     const oneLive = [session(1), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5, { alive: false })];
-    expect(stageOf(oneLive, [], true)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
+    expect(stageOf(oneLive, [], true, 4)).toEqual({ front: 1, shown: [1, 3, 4, 5] });
   });
 
-  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the first four panes of the stage order stand on the stage, tabs never in front among them where fewer than four of the tabs were in front, and the live one of the four with the highest id has the keyboard, or the one of them with the highest id where none runs, and counts a pane named twice once", () => {
-    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+  it("gives a pane no longer among the tabs no place on the stage, so where the pane in front closed the first panes of the stage order, as many as the cap, here four, stand on the stage, tabs never in front among them where fewer than the cap of the tabs were in front, and the live one of the four with the highest id has the keyboard, or the one of them with the highest id where none runs, and counts a pane named twice once", () => {
+    expect(stageOf(six, [9, 2, 9, 2, 1, 3, 4], true, 4)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
     // Pane 4 has exited, so pane 3, the live one of the four with the highest id, has the keyboard, and not pane 2, the last in front before pane 9.
     const exited = [session(1), session(2), session(3), session(4, { alive: false }), session(5), session(6)];
-    expect(stageOf(exited, [9, 2, 1, 3, 4], true)).toEqual({ front: 3, shown: [1, 2, 3, 4] });
+    expect(stageOf(exited, [9, 2, 1, 3, 4], true, 4)).toEqual({ front: 3, shown: [1, 2, 3, 4] });
     // Panes 1 to 4 have exited, so pane 4, the highest id of the four, has the keyboard, and not pane 1, the last in front before pane 9, nor panes 5 and 6, which run off the stage.
     const fourExited = [session(1, { alive: false }), session(2, { alive: false }), session(3, { alive: false }), session(4, { alive: false }), session(5), session(6)];
-    expect(stageOf(fourExited, [9, 1, 2, 3, 4], true)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
+    expect(stageOf(fourExited, [9, 1, 2, 3, 4], true, 4)).toEqual({ front: 4, shown: [1, 2, 3, 4] });
     // Only pane 6 was in front besides pane 2, which closed, so pane 3, never in front and not on the stage before, takes pane 2's place, and where pane 6 has exited pane 5, never in front, has the keyboard.
     const twoInFront = [session(1), session(3), session(4), session(5), session(6)];
-    expect(stageOf(twoInFront, [2, 6], true)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
-    expect(stageOf([session(1), session(3), session(4), session(5), session(6, { alive: false })], [2, 6], true)).toEqual({ front: 5, shown: [3, 4, 5, 6] });
+    expect(stageOf(twoInFront, [2, 6], true, 4)).toEqual({ front: 6, shown: [3, 4, 5, 6] });
+    expect(stageOf([session(1), session(3), session(4), session(5), session(6, { alive: false })], [2, 6], true, 4)).toEqual({ front: 5, shown: [3, 4, 5, 6] });
+  });
+
+  it("puts as many panes on the stage as the cap on panes side by side gives, and leaves the other panes tabs (scenario 14)", () => {
+    expect(stageOf(six, [], true, 6)).toEqual({ front: 6, shown: [1, 2, 3, 4, 5, 6] });
+    expect(stageOf(six, [], true, 2)).toEqual({ front: 6, shown: [5, 6] });
+    expect(stageOf(six, [2, 1], true, 2)).toEqual({ front: 2, shown: [1, 2] });
+    // A cap of 1 shows the pane in front alone, as where "Side by side" is not pressed.
+    expect(stageOf(six, [2, 1], true, 1)).toEqual({ front: 2, shown: [2] });
+    // Pane 9, in front, closed: the pane in front is the live one with the highest id of the first two of the stage order.
+    expect(stageOf(six, [9, 2, 1, 3, 4], true, 2)).toEqual({ front: 2, shown: [1, 2] });
+  });
+});
+
+describe("stageGrid", () => {
+  it("lays out 2 to 4 tiles in two columns, 5 to 9 in three and 10 to 16 in four, row by row, the last tile spanning what is left of its row (scenario 14)", () => {
+    const placed = (count: number) => stageGrid(count).tiles.map(({ row, column, span }) => `${String(row)}.${String(column)}${span > 1 ? `+${String(span)}` : ""}`);
+    expect(stageGrid(1)).toEqual({ columns: 1, tiles: [{ row: 1, column: 1, span: 1 }] });
+    expect(stageGrid(0)).toEqual({ columns: 1, tiles: [] });
+    expect(stageGrid(2).columns).toBe(2);
+    expect(placed(2)).toEqual(["1.1", "1.2"]);
+    expect(placed(3)).toEqual(["1.1", "1.2", "2.1+2"]);
+    expect(placed(4)).toEqual(["1.1", "1.2", "2.1", "2.2"]);
+    expect(stageGrid(5).columns).toBe(3);
+    expect(placed(5)).toEqual(["1.1", "1.2", "1.3", "2.1", "2.2+2"]);
+    expect(placed(6)).toEqual(["1.1", "1.2", "1.3", "2.1", "2.2", "2.3"]);
+    expect(placed(7).at(-1)).toBe("3.1+3");
+    expect(stageGrid(9).columns).toBe(3);
+    expect(stageGrid(10).columns).toBe(4);
+    expect(placed(10).slice(-2)).toEqual(["3.1", "3.2+3"]);
+    expect(stageGrid(16).columns).toBe(4);
+    expect(placed(16).at(-1)).toBe("4.4");
+  });
+});
+
+describe("paneCap", () => {
+  it("is the cap a person set on panes side by side, the proposal where none is set, and 4 where the daemon keeps no cap (scenario 10)", () => {
+    expect(paneCap(MACHINE)).toBe(8);
+    expect(paneCap({ ...MACHINE, panes: { proposed: 8, set: 12 } })).toBe(12);
+    expect(paneCap(null)).toBe(4);
+  });
+
+  it("names the cap in the title of \"Side by side\"", () => {
+    expect(sideBySideTitle(4)).toBe("Show up to 4 of this work item's panes at once");
+    expect(sideBySideTitle(16)).toBe("Show up to 16 of this work item's panes at once");
+    expect(sideBySideTitle(1)).toBe("Show one of this work item's panes at a time");
   });
 });
 
@@ -2424,7 +2515,7 @@ describe("recentKept", () => {
     // Panes 1 and 3 run and pane 2 has exited. Pane 2 was in front, then pane 3, which is closed.
     const kept = recentKept([3, 2, 1], new Set([1, 2]));
     expect(kept).toEqual([3, 2, 1]);
-    expect(stageOf([session(1), session(2, { alive: false })], kept, false)).toEqual({ front: 1, shown: [1] });
+    expect(stageOf([session(1), session(2, { alive: false })], kept, false, 4)).toEqual({ front: 1, shown: [1] });
   });
 
   it("takes out every other pane the daemon no longer lists", () => {
@@ -2741,6 +2832,7 @@ const PLAN: FormPlan = {
   defaultBase: "origin/main",
   setupCommand: null,
   includes: false,
+  disk: null,
 };
 
 describe("planAnswer", () => {
@@ -2761,7 +2853,7 @@ describe("planAnswer", () => {
 
 describe("planLine", () => {
   it("shows the branch and the folder the plan's answer gave, and no setup where the repository names none", () => {
-    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", failed: false });
+    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", warning: "", failed: false });
   });
 
   it("names the setup the repository's two files name: the copy where .worktreeinclude stands, and the command .worktreesetup holds", () => {
@@ -2771,11 +2863,33 @@ describe("planLine", () => {
   });
 
   it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", failed: true });
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", warning: "", failed: true });
+  });
+
+  /** What a daemon that reads the machine sends with a plan: 25.1 GB free and nothing measured, one worktree standing and no cap. */
+  const ROOM: PlanDisk = { freeBytes: 25_088_950_272, keepFreeBytes: 10_000_000_000, needsBytes: null, standing: 1, cap: null };
+
+  it("warns where the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and not where it holds it (scenario 11)", () => {
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB.");
+    // Exactly the 10 GB stays free.
+    expect(warning({ freeBytes: 10_440_000_512, needsBytes: 440_000_512 })).toBe("");
+    expect(warning({ freeBytes: 10_440_000_511, needsBytes: 440_000_512 })).not.toBe("");
+    // No worktree of the repository was measured, so nothing says what this one takes, though less than the 10 GB is free.
+    expect(warning({ freeBytes: 9_900_000_000 })).toBe("");
+  });
+
+  it("warns where the worktrees that stand are at their cap or over it, after the disk's warning, and says nothing where the daemon sent no disk (scenario 12)", () => {
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    expect(warning({ standing: 2, cap: 2 })).toBe("This is worktree 3 of a cap of 2.");
+    expect(warning({ standing: 4, cap: 2 })).toBe("This is worktree 5 of a cap of 2.");
+    expect(warning({ standing: 1, cap: 2 })).toBe("");
+    expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512, standing: 2, cap: 2 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB. This is worktree 3 of a cap of 2.");
+    expect(planLine({ ...PLAN, disk: null }, "/r/project").warning).toBe("");
   });
 
   it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
-    const nothing = { branch: "", worktree: "", setup: "", failed: false };
+    const nothing = { branch: "", worktree: "", setup: "", warning: "", failed: false };
     expect(planLine(null, "/r/project")).toEqual(nothing);
     expect(planLine(PLAN, "/r/other")).toEqual(nothing);
     expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);
@@ -2972,6 +3086,10 @@ describe("headlessLines", () => {
       { id: 4, errorOutput: "" },
       { id: 3, errorOutput: "warning: no config\nerror: unknown option '--no-such-option'\n" },
     ]);
+  });
+
+  it("says Queued on the line of a session that waits for the machine, and offers Stop on it (scenario 4)", () => {
+    expect(headlessLines([headless(1, { state: "queued", queuedAt: 1234 })], LOGIN)).toEqual([{ id: 1, prompt: "Which file holds the login form?", state: "queued", mark: "no-agent", words: "Queued", text: "", errorOutput: "", stop: true, asks: [] }]);
   });
 
   it("offers Stop on the line of a session that is working, and on no line of one that ended", () => {
@@ -3490,6 +3608,14 @@ describe("summaryCount", () => {
   });
 });
 
+/** What a daemon that keeps the caps sends of a Mac with 36 GB of memory, 6 performance cores and 25.1 GB free, where no cap is set and nothing runs. */
+const MACHINE: Machine = {
+  reading: { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, load: 3.9, disk: { freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 } },
+  agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
+  worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
+  panes: { proposed: 8, set: null },
+};
+
 describe("daemonStatus", () => {
   it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
     const sessions = [session(1), session(2, { state: "working" }), session(3, { kind: "shell" }), session(4, { alive: false, state: "finished" })];
@@ -3508,6 +3634,16 @@ describe("daemonStatus", () => {
     expect(daemonStatus(sessions, KINDS, false)).toBe("Daemon running, 2 agents");
     expect(daemonStatus([], KINDS, true)).toBe("Daemon running, no agent, keeping the Mac awake");
   });
+
+  it("counts against the cap, where the daemon keeps one, the agents it counts, its working headless sessions among them, and the sessions that wait (scenarios 4 and 8)", () => {
+    const agents = (running: number, queue: number[], set: number | null = null): Machine => ({ ...MACHINE, agents: { ...MACHINE.agents, running, queue, set } });
+    expect(daemonStatus([], KINDS, false, agents(6, [7, 8]))).toBe("Daemon running, 6 agents of 6, 2 waiting");
+    expect(daemonStatus([session(1)], KINDS, false, agents(1, [7], 1))).toBe("Daemon running, 1 agent of 1, 1 waiting");
+    expect(daemonStatus([session(1), session(2)], KINDS, true, agents(2, [], 1))).toBe("Daemon running, 2 agents of 1, keeping the Mac awake");
+    // Where nothing runs and nothing waits, the line says so as a daemon without a cap does, and a session that waits is counted where none runs.
+    expect(daemonStatus([], KINDS, false, agents(0, []))).toBe("Daemon running, no agent");
+    expect(daemonStatus([], KINDS, false, agents(0, [7]))).toBe("Daemon running, 0 agents of 6, 1 waiting");
+  });
 });
 
 describe("keepAwakeControl", () => {
@@ -3519,6 +3655,104 @@ describe("keepAwakeControl", () => {
 
   it("shows nothing against a daemon that sent no `keepAwake`: one of an earlier build, or one that can hold nothing", () => {
     expect(keepAwakeControl(null)).toBeNull();
+  });
+});
+
+describe("machineDialog", () => {
+  /** The owner's Mac as the framer's probe read it, with one work item standing and nothing measured. */
+  it("states the reading in one sentence, and gives each cap a row with its value, its default's sentence and whether it follows the default (scenario 1)", () => {
+    expect(machineDialog(MACHINE)).toEqual({
+      reading: "36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.",
+      rows: [
+        { cap: "agents", label: "Agents at once", value: 6, proposed: 6, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
+        { cap: "worktrees", label: "Worktrees", value: null, proposed: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
+        { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+      ],
+    });
+  });
+
+  it("shows the value a person set in place of the proposal, and the row no longer follows the default (scenario 3)", () => {
+    const rows = machineDialog({ ...MACHINE, agents: { ...MACHINE.agents, set: 3 }, worktrees: { ...MACHINE.worktrees, set: 40 } })?.rows;
+    expect(rows?.map(({ cap, value, isDefault }) => ({ cap, value, isDefault }))).toEqual([
+      { cap: "agents", value: 3, isDefault: false },
+      { cap: "worktrees", value: 40, isDefault: false },
+      { cap: "panes", value: 8, isDefault: true },
+    ]);
+    // The sentence still states the default, which "Use the default" returns to.
+    expect(rows?.[0]?.says).toMatch(/^The default is 6: /);
+  });
+
+  it("does not follow the default where a person set a cap to the value of its proposal, so \"Use the default\" is offered (scenario 3)", () => {
+    const rows = machineDialog({ ...MACHINE, agents: { ...MACHINE.agents, set: 6 }, panes: { ...MACHINE.panes, set: 8 } })?.rows;
+    expect(rows?.map(({ cap, value, isDefault }) => ({ cap, value, isDefault }))).toEqual([
+      { cap: "agents", value: 6, isDefault: false },
+      { cap: "worktrees", value: null, isDefault: true },
+      { cap: "panes", value: 8, isDefault: false },
+    ]);
+  });
+
+  it("shows nothing against a daemon that sent no `machine`: one of an earlier build, or one given no reader, and the Machine button is then hidden (scenario 10)", () => {
+    expect(machineDialog(null)).toBeNull();
+  });
+});
+
+describe("the queue of the agents", () => {
+  const ROUND: ChainStage = { kind: "round", round: 2, state: "working", failure: null, startedAt: 1, endedAt: null, headlessId: 8, refusals: 0, gate: null };
+  const CHAINED: WorkItem = { ...SEARCH, chain: { state: "running", says: "Review round 2 is running.", since: 1, stages: [ROUND] } };
+  const HEADLESS = [headless(7, { state: "queued", prompt: "Which file?" }), headless(8, { workItemId: 2, state: "queued", role: { role: "proofer", stage: "round" } }), headless(9, { state: "queued", prompt: "And the tests?" }), headless(3)];
+  const QUEUED: Machine = { ...MACHINE, agents: { ...MACHINE.agents, running: 6, queue: [8, 7, 9] } };
+
+  it("lists under the agent row each session that waits, in the order they start, by its work item's title and what it waits to run: a chain's stage by its name, a person's question by its prompt (scenario 4)", () => {
+    expect(machineQueue(QUEUED, HEADLESS, [LOGIN, CHAINED])).toEqual([
+      { title: "Speed up search", waits: "Proofer, round 2" },
+      { title: "Fix the login bug", waits: "Asked: Which file?" },
+      { title: "Fix the login bug", waits: "Asked: And the tests?" },
+    ]);
+    // A session the window holds no line of yet is listed as the daemon gave it, by its number.
+    expect(machineQueue({ ...QUEUED, agents: { ...QUEUED.agents, queue: [11] } }, HEADLESS, [LOGIN])).toEqual([{ title: "", waits: "Session 11" }]);
+    expect(machineQueue(MACHINE, HEADLESS, [LOGIN, CHAINED])).toEqual([]);
+    expect(machineQueue(null, HEADLESS, [LOGIN, CHAINED])).toEqual([]);
+  });
+
+  it("counts how many go before a work item's first session that waits, and gives null for a work item none of whose sessions waits and against a daemon that keeps no cap", () => {
+    expect(queuedAhead(1, HEADLESS, QUEUED)).toBe(1);
+    expect(queuedAhead(2, HEADLESS, QUEUED)).toBe(0);
+    expect(queuedAhead(3, HEADLESS, QUEUED)).toBeNull();
+    expect(queuedAhead(1, HEADLESS, null)).toBeNull();
+  });
+});
+
+describe("capChanges", () => {
+  const rows = (set: { agents?: number; worktrees?: number }): CapRow[] => [
+    { cap: "agents", label: "Agents at once", value: set.agents ?? 6, proposed: 6, isDefault: set.agents === undefined, says: "" },
+    { cap: "worktrees", label: "Worktrees", value: set.worktrees ?? null, proposed: null, isDefault: set.worktrees === undefined, says: "" },
+    { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "" },
+  ];
+  const fields = (text: Partial<Record<Cap, string>>, toDefault: Cap[] = []) => ({
+    agents: { text: text.agents ?? "6", toDefault: toDefault.includes("agents") },
+    worktrees: { text: text.worktrees ?? "", toDefault: toDefault.includes("worktrees") },
+    panes: { text: text.panes ?? "8", toDefault: toDefault.includes("panes") },
+  });
+
+  it("sends the value a person typed, and nothing of a row that still shows its proposal untouched (scenario 3)", () => {
+    expect(capChanges(rows({}), fields({}))).toEqual({ caps: {} });
+    expect(capChanges(rows({}), fields({ agents: " 3 " }))).toEqual({ caps: { agents: 3 } });
+    expect(capChanges(rows({}), fields({ worktrees: "40", panes: "12" }))).toEqual({ caps: { worktrees: 40, panes: 12 } });
+  });
+
+  it("returns a row a person set to its proposal where they pressed \"Use the default\" or emptied its field, and sends nothing of a row that already follows it", () => {
+    const set = rows({ agents: 3, worktrees: 40 });
+    expect(capChanges(set, fields({ agents: "6", worktrees: "40" }, ["agents"]))).toEqual({ caps: { agents: null } });
+    expect(capChanges(set, fields({ agents: "3", worktrees: "" }))).toEqual({ caps: { worktrees: null } });
+    expect(capChanges(rows({}), fields({ agents: "" }, ["panes"]))).toEqual({ caps: {} });
+  });
+
+  it("refuses, with the daemon's sentence and before anything is sent, a value that is no whole number from 1, or over 16 for the panes", () => {
+    expect(capChanges(rows({}), fields({ agents: "2.5" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
+    expect(capChanges(rows({}), fields({ worktrees: "many" }))).toEqual({ refusal: "The cap on worktrees is a whole number from 1." });
+    // Text a number is read from in another notation is no whole number as a person types one.
+    expect(capChanges(rows({}), fields({ agents: "1e1" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
+    expect(capChanges(rows({}), fields({ panes: "17" }))).toEqual({ refusal: "The cap on panes side by side is a whole number from 1 to 16." });
   });
 });
 
@@ -4243,6 +4477,8 @@ describe("accounts in the window", () => {
     expect(lineAccount(LOGIN, repository, [session(3, { accountId: 2, workItemId: 2 })], [], HELD)).toBe("");
     expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2 })], HELD)).toBe("Home");
     expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "finished" })], HELD)).toBe("");
+    // A session that waits for the machine runs under its account once it starts.
+    expect(lineAccount(LOGIN, repository, [], [headless(4, { accountId: 2, state: "queued" })], HELD)).toBe("Home");
     // A repository set to none gives the default.
     expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], HELD)).toBe("");
     expect(lineAccount({ ...LOGIN, accountId: 0 }, PROJECT, [], [], { ...HELD, defaultId: 1 })).toBe("System default");
@@ -4278,6 +4514,8 @@ describe("accounts in the window", () => {
     expect(offers({ ...held, refreshesUsage: false })).toEqual([false, false, false]);
     expect(offers(held, [session(3, { accountId: 1 }), session(4, { accountId: 2, alive: false })])).toEqual([true, false, true]);
     expect(offers(held, [], [headless(5, { accountId: 2 }), headless(6, { accountId: 0, state: "finished" })])).toEqual([true, true, false]);
+    // A session that waits for the machine will hand over its values once it starts, as the daemon reads it.
+    expect(offers(held, [], [headless(5, { accountId: 1, state: "queued" })])).toEqual([true, false, true]);
     expect(offers({ ...held, accounts: [SYSTEM, { ...WORK, refresh: { state: "running", startedAt: NOW } }, HOME] })).toEqual([true, false, true]);
     expect(REFRESH_SAYS).toBe("A refresh starts one short Claude Code session under the account, and uses a little of its limit.");
   });

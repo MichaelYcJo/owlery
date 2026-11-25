@@ -43,6 +43,7 @@ import {
   type LinkTarget,
   lineSince,
   opensToBack,
+  paneCap,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -60,6 +61,9 @@ import {
   repoNameOf,
   screenMoves,
   sealShown,
+  sideBySideTitle,
+  stageAhead,
+  stageGrid,
   type ScreenTurns,
   screenTurns,
   stageOf,
@@ -670,10 +674,17 @@ function stageShows(shown: readonly number[]): void {
   );
   for (const { screen } of moves.back) giveBack(pool[screen] as Screen);
   const taken = moves.taken.map(({ screen, pane }) => ({ screen: pool[screen] ?? newScreen(), pane }));
-  // The page's style reads both: how many tiles the stage holds, and which of them a screen is.
+  // The page's style reads how many tiles the stage holds and in how many columns, and the row and the column of each tile, which also draw the rules between them. Each tile is placed in the grid, since the pool's order is not the tabs'.
+  const grid = stageGrid(shown.length);
   stage.dataset.tiles = String(shown.length);
+  stage.dataset.columns = String(grid.columns);
   const placed = (screen: Screen, pane: number): void => {
-    screen.element.dataset.tile = String(shown.indexOf(pane) + 1);
+    const place = shown.indexOf(pane);
+    const { row, column, span } = grid.tiles[place] as { row: number; column: number; span: number };
+    screen.element.dataset.tile = String(place + 1);
+    screen.element.dataset.row = String(row);
+    screen.element.dataset.column = String(column);
+    screen.element.style.gridArea = `${String(row)} / ${String(column)} / span 1 / span ${String(span)}`;
     screen.element.hidden = false;
   };
   for (const screen of pool) if (screen.turns.pane !== undefined) placed(screen, screen.turns.pane);
@@ -698,7 +709,7 @@ export function dropClosed(listed: ReadonlySet<number>): void {
   // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
   if (asking !== undefined && !listed.has(asking)) closeDialog.close();
   if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
-  // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first four panes of the stage order, which hold tabs never in front where fewer than four of the tabs were in front, or the one of the four with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
+  // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first panes of the stage order, as many as the cap on panes side by side, which hold tabs never in front where fewer than the cap of the tabs were in front, or the one of those with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
   for (const pane of [...replayed]) if (!listed.has(pane)) replayed.delete(pane);
@@ -1004,7 +1015,7 @@ function showSeal(workItem: WorkItem): void {
   sealHead.textContent = shown.words;
   // The daemon's sentence is plain text, never markup.
   sealWhy.textContent = shown.why;
-  sealSays.textContent = chainSays(workItem);
+  sealSays.textContent = chainSays(workItem, stageAhead(workItem, held.machine));
 }
 
 /**
@@ -1242,7 +1253,7 @@ export function takeBackRefusal(requestId: number, refusal: string): boolean {
  * panes on the stage, each on a screen of the pool, with the strip under
  * them, its right column, the questions it is parked with among it, and its
  * "Ask" section. The stage holds the pane in
- * front, or up to four panes as tiles where "Side by side" is pressed, and
+ * front, or as many panes as the cap on panes side by side as tiles where "Side by side" is pressed, and
  * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
  */
@@ -1281,7 +1292,9 @@ export function showView(): void {
   const backed = hasBack(workItem);
   if (!backed) backFront = false;
   // With the back in front no pane is on the stage, and the stage gives way to the back's place.
-  const { front: target, shown } = backFront ? { front: undefined, shown: [] } : stageOf(listed, recent.get(workItem.id) ?? [], sideBySide);
+  const cap = paneCap(held.machine);
+  sideBySideButton.title = sideBySideTitle(cap);
+  const { front: target, shown } = backFront ? { front: undefined, shown: [] } : stageOf(listed, recent.get(workItem.id) ?? [], sideBySide, cap);
   tabs.replaceChildren(...(backed ? [backTab(backFront)] : []), ...listed.map((session) => tabElement(session, listed, session.id === target, shown.includes(session.id), workItem.setup?.paneId ?? null)));
   noPanes.hidden = listed.length > 0 || backFront;
   stage.hidden = backFront;
