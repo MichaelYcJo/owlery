@@ -35,6 +35,11 @@ None. No migration, no environment variable, no dependency and no compatibility 
 
 In the second snippet, the two cells marked `… (unchanged)` keep their text as it stands at line 67. Only the words "in this file" change.
 
+```seal
+verdict: fixed df7e7c12
+answer: The orchestrator repaired both sentences of `frame/plan.md` at `df7e7c12`, which changes that file and nothing else, so the repair is located in the work item's records alone. *Operational impact* (line 61) still says the version does not move in this pull request, and now names who moved it: "#245's pull request (#247) moved it to 0.0.5 on `release/v0.0.5`". This adapts the round's wording, since #247 is the pull request of issue #245. In the 2026-11-25 row of *Judgments of the run* (line 67), "located in this file alone" now reads "located in `frame/design.md` alone", and its other cells are unchanged. The fix pass changed no line. The evidence search, rerun at HEAD, prints only this round record's own lines 23, 24 and 26.
+```
+
 ## Confirmations
 
 ```seal
