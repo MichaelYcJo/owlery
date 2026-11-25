@@ -58,10 +58,10 @@ The spawn named #237, #235, #242, #224 and #217. Their worktrees held no built c
 
 ## Operational impact
 
-None. No migration, no environment variable, no dependency and no compatibility break. The version does not move in this pull request. #237 moves it to 0.0.5.
+None. No migration, no environment variable, no dependency and no compatibility break. The version does not move in this pull request. #245's pull request (#247) moved it to 0.0.5 on `release/v0.0.5`.
 
 ## Judgments of the run
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| 2026-11-25 | Round 1's finding 1 is deferred to issue #251; findings 2 and 3 go to the fix pass; findings 4 and 5, located in this file alone, are folded by the orchestrator as the round wrote them. | Finding 1 predates the branch and its fix redraws the dialogs only where their losses change, a unit the frame does not name, which would cost a fold and its rounds; its home is an issue with the round's paste-ready fix. Findings 4 and 5 correct coordinates and remove a paragraph whose fact stands in *Grounding* and *Scope* items 8 and 9 (`trail/rounds/round-1.md`). | the plugin's `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* and `skills/implement/orchestration.md` *Orchestrator: drain the rows before the broad run, and keep the records* |
+| 2026-11-25 | Round 1's finding 1 is deferred to issue #251; findings 2 and 3 go to the fix pass; findings 4 and 5, located in `frame/design.md` alone, are folded by the orchestrator as the round wrote them. | Finding 1 predates the branch and its fix redraws the dialogs only where their losses change, a unit the frame does not name, which would cost a fold and its rounds; its home is an issue with the round's paste-ready fix. Findings 4 and 5 correct coordinates and remove a paragraph whose fact stands in *Grounding* and *Scope* items 8 and 9 (`trail/rounds/round-1.md`). | the plugin's `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* and `skills/implement/orchestration.md` *Orchestrator: drain the rows before the broad run, and keep the records* |
