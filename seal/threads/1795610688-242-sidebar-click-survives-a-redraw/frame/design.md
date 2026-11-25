@@ -43,7 +43,7 @@ In scope:
 3. The three cases that click a sidebar line again until the view shows click once (`approval-line.test.ts`, `seal-back-view.test.ts`, `machine-dialog.test.ts`). The comments that state the defect as a fact of the sidebar go with them.
 4. A built-app case in `apps/desktop/test/seal-back-view.test.ts`, which already holds a client socket of the daemon and sidebar lines to press. It presses on a work item's sidebar line with `Input.dispatchMouseEvent`. While the button is held, the case has the daemon send an `inbox`, by a `setWorkItem` on its own socket that pins another work item. It waits until the window's socket has taken that `inbox`, as probe 3 shows. It then releases at the same point. The case expects the view of the pressed work item in front, and then the pin drawn in the sidebar.
 5. A unit case file, `apps/desktop/test/press.test.ts`, for the hold's logic.
-6. The rule of `## Rule changes`, in both editions of `docs/architecture.md`.
+6. The rule of `## Rule changes`, which the settle writes into both editions of `docs/architecture.md`.
 
 Out of scope:
 
