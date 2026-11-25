@@ -208,7 +208,8 @@ describe("the chain command", { timeout: 60_000 }, () => {
       cleanups.push(() => server.close());
       return turns;
     };
-    const once = commandOn(cleanups, { gate: 'if [ -e "$HOME/gate.failed" ]; then exit 0; fi; touch "$HOME/gate.failed"; while [ ! -e "$HOME/go" ]; do sleep 0.05; done; exit 3' });
+    // The gate runs in this process with no daemon to stop it, so its wait for `go` also ends once the cleanup has removed `$HOME`.
+    const once = commandOn(cleanups, { gate: 'if [ -e "$HOME/gate.failed" ]; then exit 0; fi; touch "$HOME/gate.failed"; while [ -d "$HOME" ] && [ ! -e "$HOME/go" ]; do sleep 0.05; done; exit 3' });
     const turns = await answering(once, 20_000);
     const gate = once.run(["gate"]);
     await until(() => (existsSync(join(once.folder, "gate.failed")) ? true : undefined));

@@ -22,8 +22,8 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-/** A command that marks its start in `$OUT` with its name, waits until a file of that name ending `.go` stands there, and marks its end. */
-const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ ! -e "$OUT/${name}.go" ]; do sleep 0.05; done; touch "$OUT/${name}.ended"`;
+/** A command that marks its start in `$OUT` with its name, waits until a file of that name ending `.go` stands there or `$OUT` is gone, and marks its end. A case that fails before it writes the file removes `$OUT` at its cleanup, and nothing else stops the command. */
+const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ -d "$OUT" ] && [ ! -e "$OUT/${name}.go" ]; do sleep 0.05; done; touch "$OUT/${name}.ended"`;
 
 /** Writes the records root's config.json of a folder with these heavy commands, and commits it. */
 function naming(folder: string, heavy: unknown): void {
@@ -114,8 +114,8 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Measured work"], { now: Date.now });
     const [item] = stood.workItems as [(typeof stood.workItems)[number]];
     const out = stood.made.base;
-    // The shell starts a child that holds 64 MiB until the case has seen a reading of the memory find it, so no reading's time decides the case.
-    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(600)" & while [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
+    // The shell starts a child that holds 64 MiB until the case has seen a reading of the memory find it, so no reading's time decides the case. A case that fails before then removes `$OUT` at its cleanup, which ends the hold.
+    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(600)" & while [ -d "$OUT" ] && [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
     const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
     cleanups.push(() => server.close());
     const asked = Date.now();
