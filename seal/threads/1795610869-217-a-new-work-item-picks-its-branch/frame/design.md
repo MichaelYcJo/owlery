@@ -1,0 +1,181 @@
+# Design: a new work item makes a worktree, and its branch is picked or made later (#217)
+
+## Grounding
+
+The tree as read at `f1bab823` (`release/v0.0.5` at `ab7a5730`, plus this work item's `routing.md`).
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/product.md` *What we deliberately don't do*, **Owlery deletes nothing of a person's work without that person's word** | A delete removes "a work item's worktree and its local branch". Once a work item can stand on a branch the person picked, that sentence would have Owlery run `git branch -D` on the person's own branch. This work narrows it to the branch Owlery made (`## Rule changes`). |
+| `docs/product.md` *Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call*, **A work item says how far its branch is ahead of its base branch and how far behind it** | The counts still stand for a work item with no branch: they are read from the worktree's `HEAD`, which is where its work is. |
+| `docs/architecture.md` *State lives in three places*, **The daemon keeps repositories, and every work item belongs to one** | "What a person sets on a repository or a work item ... is written nowhere in the person's repository." Whether Owlery made a work item's branch is daemon state, kept with the work item. A git hook written into the repository would break the same clause (Alternatives, `plan.md`). |
+| `docs/architecture.md` *What a session survives*, **An update of the app ends no session** | A window of a newer build attaches to a daemon of an earlier build. Each new protocol field is read by its absence as the older daemon's behaviour: an absent `held` in a plan means a daemon that still cuts a branch at creation. |
+| `docs/architecture.md` *Code runs the order, the orchestrator judges*, **The daemon runs a work item's review rounds and fix passes one stage at a time** | The daemon starts a chain "on a work item whose branch holds a commit after its base". A work item with no branch has no chain, and `whyNoChain` says why in words. |
+| `docs/design.md` *Components and their states* | The issue asks for the form's row and the work item's row. The table holds a row for the form's warning and none for the form or for the place of a work item's branch, so both rows are added (`## Rule changes`). |
+
+What the tree answered, by reading or by running a command:
+
+- **The branch prefix is the literal `owlery/`, and not the repository's name.** The issue says the daemon names the branch `<repository>/<title>`. `daemon/worktrees.ts#placeFor` builds `owlery/${numbered}` (read: `worktrees.ts:214`), and `planBranchRename` builds `owlery/${slug}` (read: `worktrees.ts:556-560`). The issue's owner saw `owlery/...` in the Owlery repository itself. This design keeps `owlery/<slug>`.
+- **The form's random name is a placeholder, not a value.** `renderer.ts#openWorkItemForm` sets `titleField.value = ""` and `titleField.placeholder = formName` (read: `renderer.ts:1590-1592`). So the daemon can tell a typed title from the random one: a typed title arrives in `title`, and the random name in `name`.
+- **The commits are read only while a window is connected.** `daemon.ts#scheduleCommitRead` returns at once where `this.clients.size === 0`, and reads every `commitPollMs`, 3000 ms by default, otherwise (read: `daemon.ts:4026-4035`). A first commit made while no window is connected is found at the next connection. The commit is not lost meanwhile (probe 3 below).
+- **The chain command reads the worktree's `HEAD` itself and stores nothing.** `chain-command.ts#here` refuses where `HEAD` names no branch (read: `chain-command.ts:155-156`).
+- **Nothing in the tree already makes a branch at a detached `HEAD` or reads a worktree's `HEAD` for its branch.** A search for what the work does, not for a name: `git grep -n -e 'switch' -e '--detach' -e 'symbolic-ref' -- apps/desktop/src/daemon` (executed at `f1bab823`) prints two JavaScript `switch` statements (`agent-state.ts:16`, `daemon.ts:883`), and the `symbolic-ref` reads of `worktrees.ts:223` (`branchOfHead`), `worktrees.ts:871` (`whyNoCommit`), `chain-command.ts:155`, `:497` and `:560`, and `records-place.ts:362`. Each of those only reads which branch `HEAD` names. No line runs `git switch` or passes `--detach`. `worktrees.ts#listedWorktrees` already parses `git worktree list --porcelain`, the branch each worktree holds among it (read: `worktrees.ts:715-733`), and the plan's list of held branches reuses it.
+- **Git behaves as this design needs** (executed: `sh <scratch>/test_tmp_detached.sh` with git 2.54.0 on a fresh repository, output in `<scratch>/probe-output.txt`, where `<scratch>` is `/private/tmp/claude-501/-Users-yc-Documents-GitHub-owlery/66fc475f-7468-49ce-95e4-d5ba9694fa5e/scratchpad/1795610869-217-a-new-work-item-picks-its-branch/frame`):
+  1. `git worktree add --quiet --detach <folder> origin/main` adds a worktree and no branch: `git branch` lists the same names before and after, and `git worktree list --porcelain` prints `detached` for it.
+  2. `git rev-list -1 HEAD --not --branches --remotes --tags`, run in that worktree, prints nothing before a commit and the new commit after one. That is the test for "a commit made in the worktree".
+  3. After `git gc --prune=now`, the detached commit is still in the object store: a linked worktree's `HEAD` keeps its commit alive.
+  4. `git -C <worktree> switch --quiet -c owlery/eager-heron` makes the branch at the detached commit and puts the worktree on it. The branch's tip is that commit.
+  5. `git worktree add <folder> held-elsewhere` exits 128 with `'held-elsewhere' is already used by worktree at '<folder>'`.
+  6. `git worktree add <folder> remote-only`, for a branch only `origin` holds, makes a local `remote-only` whose upstream is `origin/remote-only`.
+  7. `git worktree add <folder> free-one`, for a local branch no worktree holds, checks it out and adds no branch.
+  8. `git switch -c` exits 128 with `cannot switch branch while rebasing` where a rebase is under way, so git itself refuses to make the branch mid-rebase.
+- **The other records.** `seal/follow-up.md` is absent (executed: `ls seal`). `seal/threads/` holds this work item alone (executed: `ls seal/threads`). The latest release, `v0.0.3`, carries no `### Process changes` heading in its body (executed: `gh release view --json tagName,body`). The issue has no comments (executed: `gh issue view 217 --json title,body,comments`). `docs/README.md`, the index `skills/settle/rule-changes.md` *The index* names, does not stand (executed: `ls docs`), so each `file:` below is a document of `docs/` named directly. No `seal/parity.json` stands.
+- **Each English operation of `## Rule changes` carries its Korean edition's operation,** so the broad gate's comparison of `docs/*.md` with `docs/*.ko.md` finds the same headings and table rows once the settle writes both. The Korean rows take the edition's own words for a field and for the ring, `입력 칸` and `고리입니다.`, as its row for a field has them (read: `docs/design.ko.md:447`).
+
+## Scope
+
+In scope, numbered for `plan.md`'s Delivers cells:
+
+1. **A work item may have no branch.** `WorkItem.branch` becomes `string | null` in `shared/protocol.ts`, `StoredWorkItem.branch` and `OldWorkItem.branch` in `daemon/repositories.ts` likewise, and the look (`daemon/last-look.ts#isWorkItem`) and the ledger (`daemon/ledger.ts#entryOf`, `HeadlessSession.branch`) read a null branch.
+2. **Owlery knows which branches it made.** A new field `ownsBranch: boolean` on `WorkItem` and `StoredWorkItem`: true where Owlery made the branch, false where the work item has no branch, where the person picked a local branch, and where the worktree's `HEAD` took up a branch by itself (item 6). A stored work item with no such field was cut by Owlery, so the store reads its absence as true. A daemon of an earlier build sends no such field, and a client reads its absence as true.
+3. **Each reader of the branch has a no-branch state, and a reader that removes or renames a branch touches only one Owlery made.** The table *The readers of a work item's branch* below lists each reader and its state. The cases are named in *User scenarios & acceptance*.
+4. **A creation makes a worktree, detached at the base, and no branch,** where the person picked none: `createWorktree` runs `git worktree add --quiet --detach <folder> <start>` in place of `-b`. The folder takes the slug of the title, of `name`, or a generated name, as now. `baseCommit` is the commit `HEAD` stands at. A title typed in the form names the work item and, later, its branch, and makes no branch at creation.
+5. **A creation can check out an existing branch** of the repository, local or a remote's, named as `WorkItem.baseBranch` names one. `createWorkItem` gains `branch?: string`. A local branch is checked out as it stands, and nothing new is made: `ownsBranch` is false. A remote's branch is fetched through the daemon's `BaseFetches` keeper, as a base is, and checked out as git's own `git worktree add <folder> <name>` does it: a local branch of the remote branch's name that tracks it. That local branch is Owlery's, so `ownsBranch` is true, and a delete removes the local copy alone; the remote's branch stays. `baseCommit` is `git merge-base <base> <branch>` where a base stands and git gives one, and the branch's tip otherwise. A branch another worktree holds is refused before git runs, with the sentence git's refusal carries, naming the folder.
+6. **Where no branch was chosen, the branch is made later, from the work's name.** At each read of the work item (`daemon.ts#readBranch`), for a work item with no branch:
+   - where the worktree's `HEAD` names a branch, the work item takes that branch up, with `ownsBranch` false. An agent that ran `git switch -c` itself keeps its branch, and Owlery never renames it.
+   - where `HEAD` is detached at a commit no local branch, no remote's branch and no tag holds (probe 2), Owlery makes the branch at that commit and puts the worktree on it, with `git switch --quiet -c <name>` in the worktree (probe 4), and `ownsBranch` true.
+   - The name is `owlery/<slug of the title>`, numbered `-2`, `-3` and so on while a local branch bears it, as `planBranchRename` numbers it, and `owlery/<slug of the worktree's folder name>` where the title leaves no slug. A title that is still the random name gives `owlery/<random name>`, as the issue states.
+   - The making runs on `this.changing`, behind the creations and the renames, so a rename and a read never both make a branch. Where git refuses, for a rebase under way (probe 8) or any other reason, nothing is stored, the log says why, and the next read tries again.
+7. **A rename of a work item with no branch makes its branch,** named from the new title as item 6 names it, at the commit the worktree's `HEAD` stands at, committed or not. `planRename` answers the name the rename would make, and `blocked` where the worktree's `HEAD` already names a branch or an operation is under way. `renameWorkItem` with `branch: true` makes it. `planBranchRename` refuses to rename a branch Owlery did not make: "The branch <name> is not one Owlery made, so it keeps its name."
+8. **The plan lists the branches a creation can check out and which are held.** `workItemPlan` gains `held: { branch: string; folder: string }[]`: each local branch a worktree of the repository has checked out, the main checkout among them, read from `git worktree list --porcelain`. The branches offered are `localBases` and `remoteBases`, which the plan already sends. A daemon of an earlier build sends no `held`, and the window reads its absence as a daemon that cuts a branch at creation: the form then shows no branch field and the plan's branch as today.
+9. **The form makes a worktree, and its branch is a choice under the base.** In `renderer/index.html`'s `#work-item-dialog`, a field "Branch" stands under "Starts from". Its first option, the default, is "No branch yet". Under it stand the groups "Local" and "Remote", from the plan's lists. A branch another worktree holds stands as a disabled option whose label names that worktree's folder. The plan's branch place under the name says what the creation does:
+   - "No branch yet. The first commit or a rename makes owlery/<slug>." for no branch;
+   - "Checks out <name>." for a local branch;
+   - "Checks out <name>, tracking <remote>/<name>." for a remote's branch.
+   The form takes no new branch name typed in it (Alternatives, `plan.md`).
+10. **The window draws each no-branch state** the table below gives for the renderer, and the rename dialog says "The rename makes the branch <name>." with its box checked and disabled for a work item with no branch.
+11. **Milestone 3's work item made from an issue**, release 0.0.6 (issues #54 and #55), names its branch from the issue at once. This work leaves it one call to make: the making of item 6 is one function of `worktrees.ts`, `makeBranch(worktree, name)`, which a creation from an issue calls right after the detached `git worktree add`. The frame of #54 and #55, which lands second, reconciles the two, as the issue's *Done when* asks. Until then, `whyNoChain` refuses a work item with no branch, so a handed-over issue's chain never starts on one.
+
+Out of scope:
+
+- **The rest of the form #232 adds**, drawn on this work's form: the repository picked from Owlery's list in place of the typed "Repository folder" field, a first prompt sent to the agent once its pane starts, the setting that trusts a worktree Owlery made in Claude Code's config, and a start from a pull request's number or URL. A start from a pull request is one more source for item 5: it checks out the pull request's head branch, a remote's branch, through the same path.
+- **A worktree made outside Owlery shown in the sidebar (#227).** Such a worktree, brought in, is a work item whose branch Owlery did not make, `ownsBranch` false, or one with no branch where its `HEAD` is detached. Item 2 and item 3 give it its states.
+- **Work items as a tree (#228).** A child made from a parent with no branch has no branch to start from. #228's frame decides whether its base is the parent's base or the parent's `HEAD`.
+- **A read of the worktree's `HEAD` while no window is connected.** *What the daemon could do beyond the issue* names it.
+
+## User scenarios & acceptance *(mandatory)*
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| A creation with no branch chosen | Given a repository, when a work item is created with no `branch`, then a worktree stands detached at the base, `git branch` lists the names it listed before, and the work item's `branch` is null and `ownsBranch` false. | A case in `apps/desktop/test/worktrees.test.ts` on `createWorktree`, and one in `apps/desktop/test/daemon.test.ts` on `createWorkItem` comparing `git for-each-ref refs/heads` before and after. |
+| A creation on a local branch | Given a local branch no worktree holds, when a work item is created with that `branch`, then its worktree has it checked out, no branch is added, `ownsBranch` is false, and `baseCommit` is the merge base with the base. | Cases in `worktrees.test.ts` and `daemon.test.ts`. |
+| A creation on a remote's branch | Given a branch only `origin` holds, when a work item is created with `origin/<name>`, then the branch is fetched, a local `<name>` tracking it is checked out, and `ownsBranch` is true. | A case in `worktrees.test.ts` on a clone of a folder remote. |
+| A held branch cannot be taken | Given a branch another worktree has checked out, when the plan is asked, then `held` names it with that worktree's folder, and a creation with it is refused naming the folder, with nothing created. In the form the branch is a disabled option. | Cases in `daemon.test.ts`, and a built-app case in `apps/desktop/test/work-item-form.test.ts`. |
+| The first commit makes the branch | Given a work item with no branch, when a commit is made in its worktree, then at the next read the branch `owlery/<slug of the title>` stands at that commit, the worktree is on it, and `ownsBranch` is true. | A case in `daemon.test.ts` with a short `commitPollMs`, seen red before `readBranch` makes the branch. |
+| A branch the worktree took up | Given a work item with no branch, when `git switch -c fix/x` runs in its worktree, then at the next read the work item's branch is `fix/x`, `ownsBranch` is false, and no `owlery/` branch is made. | A case in `daemon.test.ts`. |
+| A rename makes the branch | Given a work item with no branch, when it is renamed "Fix the login bug", then `owlery/fix-the-login-bug` stands at the worktree's `HEAD` and the worktree is on it. | A case in `daemon.test.ts`; the dialog's sentence in `apps/desktop/test/view.test.ts` on `renameChoice`. |
+| A delete keeps a branch Owlery did not make | Given a work item on a local branch the person picked, when it is deleted, then the worktree is removed, the branch stands, and the dialog says the branch stays. | A case in `daemon.test.ts` on `deleteWorkItem`, and one in `view.test.ts` on `lossSections`. |
+| Each reader shows its no-branch state | Given a work item with no branch, each reader of the table below does what its third column states. | The case the table's fourth column names, each seen red against the reader as it stood at `f1bab823`. |
+| The old daemon and the new window | Given a plan with no `held`, the form shows no branch field and the plan's branch as today. | A case in `view.test.ts` on `planLine`. |
+| The creation no longer cuts a branch | After the build, no code of `apps/desktop/src` passes `-b` to `git worktree add`. | `git grep -n -e '"-b", branch' -- apps/desktop/src` prints nothing. At `f1bab823` it prints `apps/desktop/src/daemon/worktrees.ts:533` alone (executed), the line Scope item 4 replaces. The pathspec names `apps/desktop/src` alone, so this frame's own text, which quotes the pattern, is outside it. |
+
+### The readers of a work item's branch
+
+The list was made by `git grep -nE '\.branch\b|branch:'` and `git grep -nE '\{[^}]*\bbranch\b[^}]*\} *='` over `apps/desktop/src`, and by the callers of each `worktrees.ts` and `decision-record.ts` function that takes a branch (executed at `f1bab823`). That is a sample by rule 12 of the contract: a reader that passes the branch on under another name is missed by a search. The method that makes the list whole is the type change of Scope item 1: once `branch` is `string | null`, the broad gate's `tsc --noEmit` refuses each reader that still reads it as a `string`, and the crafter adds that reader to this table in the phase record.
+
+| Reader | What it reads the branch for | Its state for a work item with no branch | Its case |
+|---|---|---|---|
+| `daemon.ts#readBranch`, `daemon.ts:4153-4182` | the counts, the head, the commits, the changes and the seal | Reads the worktree's `HEAD` (`worktreeHead`) where it read `refs/heads/<branch>`, so the counts, the commits and the changes are those of the detached work. The seal is absent, since no directory's `routing.md` names a null branch. Then Scope item 6. | `daemon.test.ts` |
+| `daemon.ts#readRecord` and `#writtenRecord`, `daemon.ts:703` and `:735`, through `decision-record.ts#workItemDirectories` | the work item's directory | `workItemDirectories` takes `string | null` and gives none for null: no decision, no question, no `recorded`. | `apps/desktop/test/decision-record.test.ts` |
+| `readSealRecords`, `daemon.ts:1586-1590` | the head the back of the seal is read at | Answers `noSealRecords` at the worktree's `HEAD`, where it threw "Owlery cannot read the head of the branch". | `daemon.test.ts` |
+| `planRename` and `renameWorkItem`, `daemon.ts:1291` and `:1310-1324` | the branch to rename, and the routing to rewrite | Scope item 7. `routeRenamed` is not called, since no routing names a null branch. | `daemon.test.ts` |
+| `workItemLoss` and `#deleteOne`, `daemon.ts:1404` and `:2106-2118`, through `worktrees.ts#readLoss` and `#removeBranch` | the branch a delete removes, and the commits it would lose | `readLoss` takes the branch to remove, `string | null`, and the daemon passes the work item's branch only where `ownsBranch` is true. With null, the loss names no branch, its commits are those the worktree's `HEAD` holds that nothing else holds, `blocked` is never about a branch, and `removeBranch` does not run. A kept branch holds its own commits, so they are no loss. | `apps/desktop/test/worktrees.test.ts`, `daemon.test.ts` |
+| `#personWrote`, `daemon.ts:2825-2838`, through `worktrees.ts#whyNoCommit` | the branch a person's word is committed on | Refused before anything is written: "Nothing was written: the work item has no branch yet." | `daemon.test.ts` |
+| `#whyNoChain`, `daemon.ts:3025` | the branch a chain commits on | "The work item has no branch yet. Owlery makes one at the first commit in its worktree, or when it is renamed." | `daemon.test.ts` |
+| the chain's loop, `#chainDirectory`, `#placeOf`, `#runPullRequest` and the gate's ledger entry, `daemon.ts:3109`, `:3163`, `:3174`, `:3561`, `:3638` | the branch of each stage | Reached only past `#whyNoChain`. The loop reads the branch at each stage and stops the chain with the sentence above where it is null, so the code after it reads a `string`. `stage-records.ts#Place.branch` stays `string`. | `apps/desktop/test/chain.test.ts` |
+| a headless session's `branch` and its ledger entry, `daemon.ts:384`, `:2311`, `:2394`, `ledger.ts:56-65` | the ledger's record of the stage | The entry holds `branch: null`, and `entryOf` reads it. | `apps/desktop/test/ledger.test.ts` |
+| `seal-state.ts#workItemSeal`, `seal-state.ts:90-93` | the directory the seal is read from | Null. | `apps/desktop/test/seal-state.test.ts` |
+| `repositories.ts` validators and `addWorkItem`, `repositories.ts:96`, `:155`, `:330`, `:364-365` | the stored work item | A null branch is read and written, and `ownsBranch` stored. | `apps/desktop/test/repositories.test.ts` |
+| `last-look.ts#isWorkItem`, `last-look.ts:120` | the look's copy of the lists | A null branch is a work item. | `apps/desktop/test/last-look.test.ts` |
+| `chain-command.ts#here`, `chain-command.ts:155-156` | the branch the pane's chain commits on, read from `HEAD` | Refuses as now, in words that say what follows: "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has." | `apps/desktop/test/chain-command.test.ts` |
+| `view.ts#inboxLine`, `view.ts:112` and `:261`, drawn by `list.ts:119` and `work-item-view.ts:1271` | the branch a line's preview and a view's head show | `InboxLine.branch` is `string | null`. The place shows "No branch yet" in the sans and `--ink-muted`, where it shows a branch in the fixed-width face. | `view.test.ts` |
+| the search, `view.ts:1233` | the texts a search matches | The title and the repository's name. | `view.test.ts` |
+| the line's last fact, `view.ts:1776` | what a line says where nothing says more | `{ says: "branch", text: "No branch yet" }`. | `view.test.ts` |
+| `view.ts#workItemMenu`, `view.ts:2299-2301` | "Copy branch name", and the words of "Delete" | No "Copy branch name" for a work item with no branch. "Delete" says "Remove the work item's worktree from disk, after a dialog names what would be lost. Nothing on a remote is removed." where `ownsBranch` is false. | `view.test.ts`, and `apps/desktop/test/work-item-menu.test.ts` in the built app |
+| `view.ts#lossSections` and the dialog's sentence, `view.ts:1092` and `:1108` | the branch the dialog names as removed | Names no branch where the loss names none. For a branch Owlery did not make, the dialog adds "The branch <name> stays, since Owlery did not make it." | `view.test.ts` |
+| `view.ts#renameChoice`, and `renderer.ts:679` | what the rename dialog says of the branch | Scope item 10. | `view.test.ts` |
+| `view.ts#planLine` and `PlanAnswered`, `view.ts:2784` and `:2818-2823`, and `renderer.ts:1620` and `:1866` | the branch the form's plan shows | Scope item 9. | `view.test.ts`, `work-item-form.test.ts` |
+| the seal's place and the pull request section | the seal at the branch's head, and the pull request | The seal is absent, so the place is drawn blank, as `docs/design.md` *Components and their states* draws an absent seal. The pull request section stays hidden, as for every work item with no pull request: a work item with no branch has none, so a section that says "no branch yet" would stand for nothing. | `view.test.ts` |
+
+## Data & interfaces
+
+- `shared/protocol.ts#WorkItem`: `branch: string | null`, its comment saying when it is null; `ownsBranch?: boolean`, absent read as true.
+- `shared/protocol.ts` `createWorkItem`: `branch?: string`, an existing branch named as `WorkItem.baseBranch` names one. Absent: no branch, the worktree detached at the base. The comment above the message is rewritten in place: the sentence "The work item's branch and folder are named by the title ..." becomes one about the folder alone, and the branch's rules follow Scope items 4 and 5.
+- `shared/protocol.ts` `workItemPlan`: `branch` keeps its type and names the branch a making from this title would give now; `held?: { branch: string; folder: string }[]`, absent read as a daemon that cuts a branch at creation.
+- `shared/protocol.ts` `renameWorkItem`: `branch: true` renames the work item's branch, or makes it where it has none. `renamePlan`'s comment states Scope item 7.
+- `daemon/worktrees.ts`: `createWorktree` takes `branch?: string` and returns `branch: string | null` and `ownsBranch`; `planWorktree` returns `held`; a new `makeBranch(worktree, name)` runs `git switch --quiet -c <name>` in the worktree; a new `branchName(repo, title, folder)` numbers `owlery/<slug>` as `planBranchRename` does, and `planBranchRename` uses it; `readLoss(repo, branch: string | null, worktree)`.
+- `daemon/repositories.ts#StoredWorkItem`: `branch: string | null`, `ownsBranch: boolean`. `repositories.json` keeps its file and version: a field added with its absence read as true needs no migration.
+
+## Rule changes
+
+- add
+  file: docs/product.md
+  section: Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call
+  to: **A new work item makes a worktree, and its branch is one the person picked or one Owlery makes later from the work's name.** The "New work item" form offers the repository's branches under the base, and "No branch yet" first. A branch the person picks is checked out as it stands, and one another worktree has checked out cannot be picked. With no branch picked, the worktree stands detached at the base, and the repository gains no branch. Owlery makes the branch at the first commit in the worktree, or when the person renames the work item, whichever comes first, named `owlery/` and the work item's name. A branch the worktree took up by itself before then, as an agent's `git switch -c` makes one, becomes the work item's. A repository so gains no branch named after nothing, which each creation added before.
+    check: apps/desktop/test/worktrees.test.ts apps/desktop/test/daemon.test.ts
+- add
+  file: docs/product.ko.md
+  section: 바탕: 작업함, AgenticSeal 프로세스, 인장의 뒷면, 그리고 불러 쓰는 터미널
+  to: **새 작업은 worktree를 만들고, 그 브랜치는 사람이 고른 것이거나 Owlery가 나중에 작업의 이름으로 만드는 것입니다.** "New work item" 양식은 바탕 아래에 저장소의 브랜치들을 보이고, 맨 앞에 "No branch yet"을 둡니다. 사람이 고른 브랜치는 그대로 체크아웃되고, 다른 worktree가 체크아웃한 브랜치는 고를 수 없습니다. 브랜치를 고르지 않으면 worktree는 바탕에서 detached 상태로 서고, 저장소에는 브랜치가 하나도 생기지 않습니다. Owlery는 worktree의 첫 커밋 때나 사람이 작업의 이름을 바꿀 때 중 먼저 오는 때에 브랜치를 만들고, 이름은 `owlery/` 뒤에 작업의 이름을 붙입니다. 그 전에 worktree가 스스로 올라선 브랜치는, 에이전트의 `git switch -c`가 만드는 것처럼, 그대로 작업의 브랜치가 됩니다. 그래서 만들 때마다 생기던, 아무것도 가리키지 않는 이름의 브랜치가 저장소에 더는 생기지 않습니다.
+    check: apps/desktop/test/worktrees.test.ts apps/desktop/test/daemon.test.ts
+- change
+  file: docs/product.md
+  section: What we deliberately don't do
+  from: A delete removes a work item's worktree and its local branch after the person confirms.
+  to: A delete removes a work item's worktree, and the local branch Owlery made for it, after the person confirms. A branch the person picked when making the work item, and one its worktree took up by itself, stays, and the delete's dialog says so.
+- change
+  file: docs/product.ko.md
+  section: 일부러 하지 않는 것
+  from: 삭제는 사람이 확인한 뒤에 작업의 worktree와 로컬 브랜치를 지웁니다.
+  to: 삭제는 사람이 확인한 뒤에 작업의 worktree와, Owlery가 그 작업을 위해 만든 로컬 브랜치를 지웁니다. 사람이 작업을 만들 때 고른 브랜치와 worktree가 스스로 올라선 브랜치는 남고, 삭제 대화상자가 그렇게 말합니다.
+- add
+  file: docs/design.md
+  section: Components and their states
+  to: | The branch of the "New work item" form | A field "Branch" under "Starts from", in the form of a field. Its first option is "No branch yet", chosen when the form opens. Under it stand the groups "Local" and "Remote", each branch by its name. A branch another worktree has checked out stands among them disabled, its label ending in the folder of that worktree. Under the name, the branch's place says what the creation does: "No branch yet. The first commit or a rename makes owlery/<name>.", "Checks out <branch>." or "Checks out <branch>, tracking <remote>/<branch>.", in `--font-fact` for the names. | — | — | — | The ring. | An option of a held branch, as the system draws an option that takes nothing. |
+- add
+  file: docs/design.ko.md
+  section: 부분과 그 상태
+  to: | "New work item" 양식의 브랜치 | "Starts from" 아래의 "Branch" 입력 칸이고, 입력 칸의 형태를 따릅니다. 첫 선택지는 "No branch yet"이고, 양식이 열릴 때 골라져 있습니다. 그 아래에 "Local"과 "Remote" 묶음이 서고, 브랜치마다 그 이름으로 놓입니다. 다른 worktree가 체크아웃한 브랜치는 그 사이에 쓸 수 없는 채로 서고, 이름표 끝에 그 worktree의 폴더를 적습니다. 이름 아래의 브랜치 자리는 만들기가 무엇을 하는지 말합니다. "No branch yet. The first commit or a rename makes owlery/<name>.", "Checks out <branch>." 또는 "Checks out <branch>, tracking <remote>/<branch>."이고, 이름은 `--font-fact`로 씁니다. | — | — | — | 고리입니다. | 다른 worktree가 체크아웃한 브랜치의 선택지는, 시스템이 아무것도 받지 않는 선택지를 그리는 대로입니다. |
+- add
+  file: docs/design.md
+  section: Components and their states
+  to: | The place of a work item's branch | The branch's name in the fixed-width face, in a line's preview and a view's head. A work item with no branch says "No branch yet" there, in the sans and `--ink-muted`, its line's last fact says the same where nothing says more, its menu holds no "Copy branch name", its seal's place is blank, and its view shows no pull request section. | — | — | — | — | — |
+- add
+  file: docs/design.ko.md
+  section: 부분과 그 상태
+  to: | 작업의 브랜치 자리 | 줄의 미리 보기와 작업 화면의 머리에, 브랜치의 이름을 고정폭 글꼴로 씁니다. 브랜치가 없는 작업은 그 자리에 "No branch yet"을 산세리프와 `--ink-muted`로 쓰고, 더 말할 것이 없을 때 줄의 마지막 사실도 같은 말을 하며, 메뉴에는 "Copy branch name"이 없고, 인장의 자리는 비어 있고, 작업 화면에는 pull request 구역이 없습니다. | — | — | — | — | — |
+
+## Removes
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| The cut of a new branch at each creation, `git worktree add ... -b <branch>` | `apps/desktop/src/daemon/worktrees.ts#createWorktree` | Replaced by the detached checkout and the checkout of a picked branch (Scope items 4 and 5). The branch is made by `makeBranch` (Scope item 6). |
+| The branch half of the creation's naming: `owlery/<name>` numbered with the folder, and the check that no branch bears it | `apps/desktop/src/daemon/worktrees.ts#placeFor` | The folder keeps its numbering. The branch's name is given at its making by `branchName`, which `planBranchRename` shares. |
+| The protocol's statement that a creation names the work item's branch by its title | `apps/desktop/src/shared/protocol.ts`, the comment above `createWorkItem` | Rewritten in place (*Data & interfaces*). |
+| The assumption that a work item's branch is Owlery's to delete and to rename | `apps/desktop/src/daemon/daemon.ts#deleteOne`, `apps/desktop/src/daemon/worktrees.ts#planBranchRename` | `ownsBranch` (Scope item 2). |
+| The test pins of a branch made at creation, such as `branch: "owlery/fix-the-login-bug"` on a `workItemCreated` and `git branch --show-current` in a new worktree | `apps/desktop/test/daemon.test.ts`, the cases of `createWorkItem` and `planWorkItem`; the built-app cases that create through the form and read the branch | Each is rewritten to what Scope items 4 to 7 give. A case that needs a branch after its creation renames the work item, or commits and waits for the read, and says which. |
+| The policy sentence that a delete removes "its local branch" | `docs/product.md` *What we deliberately don't do*, and `docs/product.ko.md` *일부러 하지 않는 것* | `## Rule changes`. |
+
+This design adds no gate, check, hook, CI step, label or mark. It adds one field of state, `ownsBranch`, in place of an assumption the tree held without a field.
+
+## What the daemon could do beyond the issue
+
+The orchestrator takes what is cheap and in scope, and files an issue for the rest.
+
+- **Read a work item's `HEAD` while no window is connected.** `scheduleCommitRead` reads nothing without a client, so an agent's first commit in a pane is branched only once a window connects again. A watch on the worktree's own `HEAD` file in the common git folder, `worktrees/<name>/HEAD`, for the work items with no branch alone, would make the branch within a moment of the commit, window or not. This matters once milestone 3's chains run with no window, and costs one watcher for each work item with no branch. An issue.
+- **Take up the branch at the chain command's own call.** `chain-command.ts#here` refuses a detached `HEAD`, and a session that commits and runs `start` at once can meet it in the seconds before the read. The command could ask the daemon, over the pane's socket, to make the branch now. An issue, since it adds a message to the pane's socket.
+- **Offer to remove the `owlery/` branches no work item names.** The creations before this work left such branches, the pile the owner found odd. The daemon can list them per repository, with the commits each holds that nothing else holds, as a delete's dialog does, and remove them on the person's word. An issue.
+- **Name a work item that still carries its random name from its first commit's subject.** At the first commit the title may still be `eager-heron`, so the branch is named after nothing, as before. The daemon could propose the commit's subject as the name. The issue states that the branch is named from the title, so this changes what the owner chose: an issue for the owner.
+- **Show how far behind its base a work item with no branch stands.** `readBranch` reading the worktree's `HEAD` gives the behind count at no added cost, so a person sees the base move before the first commit. In scope: Scope item 3, the first row of the readers' table.
+
+Framed 2026-11-25 by framer, before the build.
