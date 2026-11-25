@@ -503,8 +503,6 @@ export class Daemon {
   private readonly paneChains = new Map<number, { owl: boolean; plugin: boolean }>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
-  // The work items with no branch yet whose turn to be given one waits on `changing`, by their ids (`branchUp`).
-  private readonly branching = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
   private readonly archiving = new Set<number>();
   // The work items a delete is under way for, by their ids, from its first read of the loss until it has removed them or was refused: one delete's, or every work item of a repository whose removal deletes them. No pane and no headless session starts in one meanwhile, in a folder git is about to remove, and no archive ends its sessions beside the delete.
@@ -4241,11 +4239,9 @@ export class Daemon {
    * branch by then, as a rename that waited ahead of the turn gives it.
    * Where git refuses, for a rebase under way or any other reason, nothing
    * is stored, the log says why, and the next read tries again. Every client
-   * is told of the branch. One turn of a work item waits at a time.
+   * is told of the branch.
    */
   private branchUp(workItemId: number): void {
-    if (this.branching.has(workItemId)) return;
-    this.branching.add(workItemId);
     const up = async (): Promise<void> => {
       try {
         const held = this.store.workItem(workItemId);
@@ -4259,8 +4255,6 @@ export class Daemon {
         if (this.store.setWorkItem(workItemId, { branch, ownsBranch: !taken })) this.broadcastInbox();
       } catch (error) {
         console.error(`the branch of work item ${String(workItemId)} was not made: ${error instanceof Error ? error.message : String(error)}`);
-      } finally {
-        this.branching.delete(workItemId);
       }
     };
     this.changing = this.changing.then(up);

@@ -413,6 +413,8 @@ describe("RepositoryStore", () => {
     const made = store.addWorkItem({ ...PLACE, branch: null, ownsBranch: false }).item.id;
     expect(store.setWorkItem(made, { branch: "owlery/made", ownsBranch: true })).toBe(true);
     expect(store.setWorkItem(made, { branch: "owlery/made", ownsBranch: true })).toBe(false);
+    expect(store.setWorkItem(made, { ownsBranch: false })).toBe(true);
+    expect(store.setWorkItem(made, { ownsBranch: true })).toBe(true);
     expect(new RepositoryStore(dir).workItems().map(({ item }) => [item.branch, item.ownsBranch])).toEqual([
       [null, false],
       ["feature", false],
