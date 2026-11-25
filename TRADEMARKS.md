@@ -16,10 +16,12 @@ this repository are:
   the line of a sealed work item.
 - [`apps/desktop/assets/icon/app-icon.svg`](apps/desktop/assets/icon/app-icon.svg),
   Owlery's emblem: a warm white owl on a black rounded square, which both
-  READMEs open with.
+  READMEs open with. Its owl is the owl of `owl.svg` taken out of its wax,
+  without the feathers on its forehead and round its eyes, each line 1.8
+  times as thick.
 - [`apps/desktop/assets/icon/app-icon-small.svg`](apps/desktop/assets/icon/app-icon-small.svg),
-  the emblem drawn for 32 pixels and under: the same owl without its chest
-  marks and its two side lines, with heavier eyes.
+  the emblem drawn for 32 pixels and under: the same owl without the feathers
+  on its chest and wings, each line 3 times as thick as the seal's.
 - [`apps/desktop/assets/icon/app-icon.png`](apps/desktop/assets/icon/app-icon.png),
   the emblem at 1024 pixels, which the app gives the macOS Dock. It is drawn
   from `app-icon.svg` with librsvg 2.58.4, by this command run in
@@ -28,9 +30,16 @@ this repository are:
   ```
   rsvg-convert -w 1024 -h 1024 assets/icon/app-icon.svg -o assets/icon/app-icon.png
   ```
+- [`apps/desktop/assets/icon/earlier-2026-11-19/`](apps/desktop/assets/icon/earlier-2026-11-19/),
+  which holds `app-icon.svg`, `app-icon-small.svg` and `app-icon.png`: the
+  emblem as releases 0.0.1 through 0.0.3 showed it, whose owl is the owl of
+  `owl-icon-cream.svg` taken out of its wax. The build copies none of them.
+  Copying them over the files of the same names in `apps/desktop/assets/icon/`
+  puts the earlier emblem back.
 
 Each of the two seal drawings is the file of the same name from the
-AgenticSeal plugin 0.38.2, unchanged. The emblem's owl is the seal's little
-owl taken out of its wax.
+AgenticSeal plugin 0.38.2, unchanged. The emblem's owl is drawn from
+`owl.svg` and is a drawing of its own. A later change to `owl.svg` changes
+the emblem only where somebody draws the emblem again.
 
 Nothing here reserves any code.
