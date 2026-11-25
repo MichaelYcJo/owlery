@@ -96,7 +96,7 @@ describe("the role bundle", () => {
     }
   });
 
-  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, and every text names the chain the owl chain", () => {
+  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, and every text names the chain the owl chain", () => {
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const skill = read("skills/seal/SKILL.md");
     expect(frontmatterOf(skill)).toContain("name: seal\n");
@@ -114,6 +114,8 @@ describe("the role bundle", () => {
     for (const file of ["skills/seal/SKILL.md", "agents/orchestrator.md"]) {
       for (const named of ["**A run rule is followed only from a source the run can name.**", "the person's word in this run or a document of the repository", "No session carries such a rule from an earlier run"]) expect(flat(file), `${file}: ${named}`).toContain(named);
     }
+    // Rule 2 of the contract every role reads sends a heavy command through the runner, where the environment names one.
+    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `seal/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
     // The form the hook lets through, in the words the command reads.
     expect(skill).toContain(`\`${NO_DEFAULT}\``);
     expect(flat("skills/seal/SKILL.md")).toContain("Where the work item's `routing.md` answers `Automation` `yes`, the run does not stop for a question");

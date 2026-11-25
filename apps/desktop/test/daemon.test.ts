@@ -6425,15 +6425,16 @@ describe("keeping the Mac awake", () => {
   const told = (c: { messages: ServerMessage[] }): KeepAwake[] => c.messages.flatMap((m) => (m.type === "keepAwake" ? [m.keepAwake] : []));
   const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
 
-  /** A holder that starts no process: it counts the holds asked of it and those released, and `lose` ends the last hold as a child that ended by itself does. */
+  /** A holder that starts no process: it counts the holds asked of it and those released, keeps whether each held the display too, counts the wakes of the display, and `lose` ends the last hold as a child that ended by itself does. */
   function holder() {
-    const seen = { held: 0, released: 0, lose: (): void => undefined };
-    const holdAwake: HoldAwake = (lost) => {
+    const seen = { held: 0, released: 0, displays: [] as boolean[], wakes: 0, lose: (): void => undefined };
+    const holdAwake: HoldAwake = (lost, display) => {
       seen.held++;
+      seen.displays.push(display);
       seen.lose = lost;
       return { release: () => void seen.released++ };
     };
-    return { holdAwake, seen };
+    return { holdAwake, wakeDisplay: () => void seen.wakes++, seen };
   }
 
   /** A run folder of the case's own, removed after it. */
@@ -6445,8 +6446,8 @@ describe("keeping the Mac awake", () => {
 
   /** A daemon given a counting holder, with two clients, and panes whose process ends when a line arrives. */
   async function held(options: Partial<DaemonOptions> = {}) {
-    const { holdAwake, seen } = holder();
-    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const { holdAwake, wakeDisplay, seen } = holder();
+    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, wakeDisplay, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
     const c = await client(url);
     const ready = await c.message("ready");
     const bystander = await client(url);
@@ -6654,6 +6655,35 @@ describe("keeping the Mac awake", () => {
     expect((await (await client(url)).message("ready")).keepAwake).toEqual({ choice: "always", held: true });
     for (const each of both) expect(told(each).map((k) => k.held)).toEqual([true, false, true]);
     expect(seen).toMatchObject({ held: 2, released: 1 });
+  });
+
+  it("holds the display too and wakes it once at each heavy command's start while one holds a turn, releases the display's hold with the last heavy command, keeps the hold from idle sleep a working pane wants, and asks nothing under `never` (scenario J)", async () => {
+    const { daemon: d, c, seen, workingPane } = await held();
+    const giver = d.turnGiver();
+    const ask = (name: string) => giver.ask({ folder: `/elsewhere/${name}`, name, place: "build", alone: false });
+    // Under `working`, with no session working, a heavy command alone holds the Mac and its display.
+    const first = await ask("first").turn;
+    expect((await c.message("keepAwake")).keepAwake).toEqual({ choice: "working", held: true });
+    const second = ask("second");
+    first?.end();
+    (await second.turn)?.end();
+    expect((await c.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 1, displays: [true], wakes: 2 });
+    // A pane that works holds the Mac from idle sleep, and a heavy command adds the display to that hold until it ends.
+    await workingPane();
+    const third = await ask("third").turn;
+    await c.until(() => (seen.held === 3 ? true : undefined));
+    third?.end();
+    await c.until(() => (seen.held === 4 ? true : undefined));
+    expect(seen).toMatchObject({ held: 4, released: 3, displays: [true, false, true, false], wakes: 3 });
+    // Under `never` nothing is held and no display is woken, whatever runs.
+    c.send({ type: "setKeepAwake", choice: "never" });
+    await c.message("keepAwake", (m) => m.keepAwake.choice === "never");
+    const fourth = await ask("fourth").turn;
+    await pause(100);
+    fourth?.end();
+    await pause(100);
+    expect(seen).toMatchObject({ held: 4, released: 4, displays: [true, false, true, false], wakes: 3 });
   });
 
   it("holds nothing once it closed, though its choice is `always` and a pane's process ends afterwards", async () => {

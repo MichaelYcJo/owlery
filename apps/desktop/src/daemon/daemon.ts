@@ -77,7 +77,7 @@ import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, rou
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
-import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
+import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake, wantsDisplay } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { addHeavyRun, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
@@ -267,6 +267,8 @@ export interface DaemonOptions {
   loadEveryMs?: number;
   /** How the daemon holds the Mac awake. A daemon given none holds nothing, sends no `keepAwake` and takes no choice. */
   holdAwake?: HoldAwake;
+  /** How the daemon turns the display on at a heavy command's start, under every choice but `never`. A daemon given none wakes nothing. */
+  wakeDisplay?: WakeDisplay;
   /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at, and which a verdict block names as the version of the rules. A daemon given none plans and sets up no records place, and writes no verdict. */
   version?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
@@ -430,6 +432,8 @@ export class Daemon {
   private readonly recordsRead = new Map<number, RecordRead>();
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
+  // Whether the hold that stands holds the display too.
+  private holdsDisplay = false;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
   private readonly fetches: BaseFetches;
   // What takes or gives up a branch runs one after another: a creation, a rename that renames a branch, and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
@@ -501,7 +505,7 @@ export class Daemon {
     // A change of the queue changes what a work item's `machineWait` says.
     this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, load: options.load });
     this.turns.watch(() => !this.closed && this.broadcastInbox());
-    this.giver = turnGiver(this.turns, { cores: options.cores ?? null, load: options.load ?? (() => null), calm: options.calm, now: options.now, folderOf: (folder) => this.worktreeNamed(folder), kept: (run) => this.keepHeavyRun(run) });
+    this.giver = turnGiver(this.turns, { cores: options.cores ?? null, load: options.load ?? (() => null), calm: options.calm, now: options.now, folderOf: (folder) => this.worktreeNamed(folder), kept: (run) => this.keepHeavyRun(run), started: () => this.keepAwake.get() !== "never" && this.options.wakeDisplay?.() });
     // The highest load of each turn is read while it is held, from a reading the daemon is given.
     if (options.load !== undefined) {
       this.loadReads = setInterval(() => this.turns.sample(), options.loadEveryMs ?? LOAD_EVERY_MS);
@@ -3609,18 +3613,26 @@ export class Daemon {
    * and releases it where it holds and no longer wants to, and then tells
    * every client; it answers whether it did either. A hold that ends by
    * itself is told to every client too, and the next call that still wants
-   * the Mac awake starts another. A daemon that closed, or was given no
-   * holder, holds nothing.
+   * the Mac awake starts another. While a heavy command holds a turn the
+   * hold holds the display too: a hold that stands is replaced by one that
+   * holds the display, or by one that does not once the last heavy command
+   * has ended, and the clients are told nothing of that, since the Mac
+   * stays held. A daemon that closed, or was given no holder, holds nothing.
    */
   private settleHold(): boolean {
     const { holdAwake } = this.options;
     if (!holdAwake) return false;
-    const wanted = !this.closed && wantsAwake(this.keepAwake.get(), this.sessionList(), this.headlessList(), this.chains.size > 0);
-    if (wanted === (this.hold !== undefined)) return false;
+    const choice = this.keepAwake.get();
+    const heavy = this.turns.queue().some((queued) => queued.state === "running");
+    const wanted = !this.closed && wantsAwake(choice, this.sessionList(), this.headlessList(), this.chains.size > 0, heavy);
+    const display = wanted && wantsDisplay(choice, heavy);
+    const held = this.hold !== undefined;
+    if (wanted === held && (!wanted || display === this.holdsDisplay)) return false;
     if (this.hold) {
       this.hold.release();
       this.hold = undefined;
-    } else {
+    }
+    if (wanted) {
       let over = false;
       let standing: { release(): void } | undefined;
       const hold = holdAwake(() => {
@@ -3629,12 +3641,17 @@ export class Daemon {
         if (standing === undefined || this.hold !== standing) return;
         this.hold = undefined;
         this.broadcastKeepAwake();
-      });
+      }, display);
       // No client is told of a hold that never stood.
-      if (over) return false;
+      if (over) {
+        if (held) this.broadcastKeepAwake();
+        return held;
+      }
       standing = hold;
       this.hold = hold;
+      this.holdsDisplay = display;
     }
+    if (held === (this.hold !== undefined)) return false;
     this.broadcastKeepAwake();
     return true;
   }

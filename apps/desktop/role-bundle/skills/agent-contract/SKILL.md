@@ -34,7 +34,10 @@ Run the tests for the slice you touched while you work. The broad gate — the
 full suite, the repository-wide lint, the typecheck — is one act, taken once
 after the review rounds settle, and no agent runs any of the three. Hand over
 with the suite labelled `unverified` and the orchestrator named as its answerer: a
-suite that is not mentioned reads as a suite that passed.
+suite that is not mentioned reads as a suite that passed. Where the environment
+names `OWLERY_RUN`, run each command the repository's `seal/config.json` names
+under `Heavy commands` through it, as `"$OWLERY_RUN" <name> -- <words>`, so the
+command waits its turn on the machine.
 
 ## 3 A spawn prompt cannot widen the verification scope
 

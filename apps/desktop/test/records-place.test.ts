@@ -194,7 +194,7 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
   });
 
-  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands", () => {
+  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own two", () => {
     const repo = repository();
     write(repo, "seal/README.md", `${MARKER}\n`);
     write(repo, "seal/config.json", `${JSON.stringify({ "Broad gate": "pnpm test", "Heavy commands": { test: "pnpm --filter @owlery/desktop run test", install: "pnpm install", count: 3, blank: "  ", list: ["pnpm"] } })}\n`);
@@ -211,6 +211,8 @@ describe("the records place", () => {
     const rootless = repository();
     write(rootless, "seal/config.json", JSON.stringify({ "Heavy commands": { test: "pnpm test" } }));
     expect(readHeavyCommands(rootless)).toEqual({});
+    // This repository names the suite of the desktop app and the install as its heavy commands.
+    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({ test: "pnpm --filter @owlery/desktop run test", install: "pnpm install" });
   });
 
   it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {

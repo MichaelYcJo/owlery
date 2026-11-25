@@ -11,7 +11,7 @@ import { readPlugins } from "./claude-plugins";
 import { carriedIn, writePaneChain, writeRunner } from "./pane-chain";
 import { Daemon } from "./daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
-import { holdAwakeFor } from "./keep-awake";
+import { holdAwakeFor, wakeDisplayFor } from "./keep-awake";
 import { TURN_SOCKET, TurnServer } from "./turn-socket";
 import { PANE_KINDS } from "./pane-kinds";
 
@@ -61,6 +61,8 @@ async function main(): Promise<void> {
     version: OWLERY_VERSION,
     // The hold is a program of macOS, and watches this process so that it ends when the daemon ends, however it ends. On another platform the daemon holds nothing.
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
+    // A heavy command's start turns the display on, through the same program.
+    wakeDisplay: process.platform === "darwin" ? wakeDisplayFor() : undefined,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
     // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the pane's Claude Code enables the AgenticSeal plugin there, under the config folder of the pane's account, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.

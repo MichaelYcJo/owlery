@@ -72,7 +72,7 @@ export interface TurnGiver {
   ran(asked: GiverAsked, turn: GivenTurn, end: RunEnd): Ran;
 }
 
-/** What a giver is given: the cores, null where none were read, the reading of the load the keeper reads too, the calm wait, its clock, what names the folder of an ask before the keeper takes it, and where a run's line is kept. */
+/** What a giver is given: the cores, null where none were read, the reading of the load the keeper reads too, the calm wait, its clock, what names the folder of an ask before the keeper takes it, where a run's line is kept, and what it calls as it gives each turn, which is where a heavy command starts. */
 export interface GiverOptions {
   cores: number | null;
   load: () => number | null;
@@ -80,6 +80,7 @@ export interface GiverOptions {
   now?: () => number;
   folderOf?: (folder: string) => string;
   kept?: (run: HeavyRunTaken) => void;
+  started?: () => void;
 }
 
 /**
@@ -106,6 +107,7 @@ export function turnGiver(turns: MachineTurns, options: GiverOptions): TurnGiver
           given.end();
           return null;
         }
+        options.started?.();
         return { ...given, startedAt: now() };
       });
       return { waits: asked.waits || loaded, turn, ahead: asked.ahead, ask, askedAt };

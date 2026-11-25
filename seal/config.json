@@ -2,5 +2,9 @@
   "Mode": "shared",
   "Commit and pull request language": "English",
   "Record language": "English",
-  "Broad gate": "pnpm -r run check && for f in docs/*.md README.md; do case \"$f\" in *.ko.md) continue;; esac; k=\"${f%.md}.ko.md\"; test -f \"$k\" || { echo \"missing $k\"; exit 1; }; [ \"$(grep -c '^#' \"$f\")\" = \"$(grep -c '^#' \"$k\")\" ] || { echo \"headings differ: $f $k\"; exit 1; }; [ \"$(grep -c '^|' \"$f\")\" = \"$(grep -c '^|' \"$k\")\" ] || { echo \"table rows differ: $f $k\"; exit 1; }; done && ! git grep -n -e '도장' -- docs README.md README.ko.md"
+  "Broad gate": "pnpm -r run check && for f in docs/*.md README.md; do case \"$f\" in *.ko.md) continue;; esac; k=\"${f%.md}.ko.md\"; test -f \"$k\" || { echo \"missing $k\"; exit 1; }; [ \"$(grep -c '^#' \"$f\")\" = \"$(grep -c '^#' \"$k\")\" ] || { echo \"headings differ: $f $k\"; exit 1; }; [ \"$(grep -c '^|' \"$f\")\" = \"$(grep -c '^|' \"$k\")\" ] || { echo \"table rows differ: $f $k\"; exit 1; }; done && ! git grep -n -e '도장' -- docs README.md README.ko.md",
+  "Heavy commands": {
+    "test": "pnpm --filter @owlery/desktop run test",
+    "install": "pnpm install"
+  }
 }
