@@ -70,7 +70,7 @@ function capPart(cap: Cap): HTMLElement {
 }
 
 /**
- * Draws the dialog from what the daemon last said: the reading in its line,
+ * Draws the dialog from what the daemon last said: the reading in its sentence,
  * and for each cap its name, its field, "Use the default" and the sentence of
  * its default. The rows are made once for each opening and filled in place
  * afterwards, so a `machine` that arrives while a person types takes no
