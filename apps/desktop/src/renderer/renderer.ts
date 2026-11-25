@@ -1561,7 +1561,7 @@ function drawAccountsDialog(): void {
   if (accountsDialog.open) showAccounts();
 }
 
-/** Draws the Machine dialog where it is open, at a `machine` message, through the hold: its draw replaces the rows of its lists. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
+/** Draws the Machine dialog where it is open, through the hold: at a `machine` message, whose draw replaces the rows of its lists, and at an `inbox`, which carries the chain's stage that names a session that waits. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
 function drawMachineDialog(): void {
   if (MACHINE.dialog.open) showMachine();
 }
