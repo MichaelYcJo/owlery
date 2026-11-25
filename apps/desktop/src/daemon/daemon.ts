@@ -290,6 +290,8 @@ export interface DaemonOptions {
   commitPollMs?: number;
   /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
   readyWaitMs?: number;
+  /** How long the answer to a `readLists` waits, from the start of the reads it asked for, for the reads of the open pull requests; 5 seconds when absent. A pull request read later reaches every client in the watch's own inbox. */
+  listsWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
   /** How long the watch of a working pane's session log waits for a log that does not stand yet; `SESSION_LOG_WAIT_MS` of `session-log.ts` when absent. */
@@ -513,10 +515,14 @@ export class Daemon {
   });
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
-  // The read of the counts under way, which a hello that arrives meanwhile waits on.
+  // The read of the counts under way, which a hello that arrives meanwhile waits on, and after whose end a `readLists` that arrives meanwhile reads again.
   private readingCommits: Promise<void> | undefined;
   // When the watch next reads each work item's open pull request, by the work item's id, on the system's clock. A pull request with no time here is read at the watch's next turn.
   private readonly pullRequestDue = new Map<number, number>();
+  // How many times `readOutside` made every watched pull request due at once. A read that began before the latest of them leaves its pull request due.
+  private pullRequestAsks = 0;
+  // What waits on the watch: each settles once the turn that starts after it was added has ended, which is the turn that reads what `readOutside` made due.
+  private readonly turnWaits: (() => void)[] = [];
   private watchTimer: NodeJS.Timeout | undefined;
   // The watch's reads under way: one turn of reads runs at a time.
   private watching: Promise<void> | undefined;
@@ -779,6 +785,7 @@ export class Daemon {
     clearInterval(this.loadReads);
     clearTimeout(this.commitTimer);
     clearTimeout(this.watchTimer);
+    for (const end of this.turnWaits.splice(0)) end();
     clearTimeout(this.idleTimer);
     clearInterval(this.measureTimer);
     this.queued.clear();
@@ -835,12 +842,7 @@ export class Daemon {
         this.clients.set(socket, new Set());
         this.greeting.add(socket);
         this.checkIdle();
-        // A notice that stands is read again as a window connects, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
-        if (this.agentNotice !== null) void this.readAgentNotice();
-        // Each open pull request is read again at a hello, which is when a person looks.
-        this.pullRequestDue.clear();
-        this.scheduleWatch();
-        void this.greet(socket, early);
+        void this.greet(socket, early, this.readOutside().commits);
         return;
       }
       if (this.greeting.has(socket)) early.push(message);
@@ -856,19 +858,38 @@ export class Daemon {
   }
 
   /**
-   * Answers a hello. The counts of new commits are read from git first, so
-   * `ready` carries the commits that landed while no client was connected and
-   * a daemon that just started sends counts. Where the read takes longer than
-   * the wait, `ready` carries the counts the daemon holds and the read's
-   * result follows in an inbox. What the client sent meanwhile is handled
-   * after its `ready`.
+   * Reads again what the daemon holds from outside: the one list a client's
+   * hello and a `readLists` both read, so a press reads what a window that
+   * connects reads. It reads the adapter's notice where one stands, makes
+   * every watched pull request due now, and reads git (`readCommitsNow`). It
+   * gives that read of git, and what settles once the watch's turn that
+   * reads those pull requests has ended, at once where the watch reads none.
    */
-  private async greet(socket: WebSocket, early: ClientMessage[]): Promise<void> {
+  private readOutside(): { commits: Promise<void>; pullRequests: Promise<void> } {
+    // A notice that stands is read again as a window connects and at a `readLists`, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
+    if (this.agentNotice !== null) void this.readAgentNotice();
+    // Each open pull request is read again at a hello and at a `readLists`, which is when a person looks.
+    this.pullRequestDue.clear();
+    this.pullRequestAsks++;
+    const pullRequests = new Promise<void>((resolve) => this.turnWaits.push(resolve));
+    this.scheduleWatch();
+    return { commits: this.readCommitsNow(), pullRequests };
+  }
+
+  /**
+   * Answers a hello. The counts of new commits are read from git first
+   * (`commits`, which `readOutside` started), so `ready` carries the commits
+   * that landed while no client was connected and a daemon that just started
+   * sends counts. Where the read takes longer than the wait, `ready` carries
+   * the counts the daemon holds and the read's result follows in an inbox.
+   * What the client sent meanwhile is handled after its `ready`.
+   */
+  private async greet(socket: WebSocket, early: ClientMessage[], commits: Promise<void>): Promise<void> {
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.readyWaitMs ?? 500);
     });
-    await Promise.race([this.readCommitsNow(), waited]);
+    await Promise.race([commits, waited]);
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
@@ -877,6 +898,37 @@ export class Daemon {
     const machine = this.machineNow();
     this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}) });
     for (const message of early) this.handle(socket, message);
+  }
+
+  /**
+   * Answers a `readLists`: reads again what a hello reads (`readOutside`),
+   * once the read of git under way has ended, since that read began before
+   * the message arrived. Once git has been read and the watch's reads of the
+   * pull requests have ended, or `listsWaitMs` has passed since they were
+   * asked for, the client that asked is sent the four lists in an `inbox`,
+   * whether or not anything changed, and then `done`. Where a read throws, it
+   * is sent an `error` with the read's sentence and no `inbox`. A client that
+   * left meanwhile is sent nothing.
+   */
+  private async answerReadLists(socket: WebSocket, requestId: number): Promise<void> {
+    let waitTimer: NodeJS.Timeout | undefined;
+    try {
+      // What a read under way throws is not this request's to say: the read that follows reads the same, and says why.
+      await this.readingCommits?.catch(() => undefined);
+      const { commits, pullRequests } = this.readOutside();
+      const waited = new Promise<void>((resolve) => {
+        waitTimer = setTimeout(resolve, this.options.listsWaitMs ?? 5000);
+      });
+      await Promise.all([commits, Promise.race([pullRequests, waited])]);
+    } catch (error) {
+      if (!this.closed && this.clients.has(socket)) this.send(socket, { type: "error", requestId, message: `The work items were not read again: ${(error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "")}.` });
+      return;
+    } finally {
+      clearTimeout(waitTimer);
+    }
+    if (this.closed || !this.clients.has(socket)) return;
+    this.send(socket, { type: "inbox", ...this.lists() });
+    this.send(socket, { type: "done", requestId });
   }
 
   private handle(socket: WebSocket, message: ClientMessage): void {
@@ -1688,6 +1740,9 @@ export class Daemon {
         if (machine) this.send(socket, { type: "machine", machine });
         return;
       }
+      case "readLists":
+        void this.answerReadLists(socket, message.requestId);
+        return;
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -4042,25 +4097,34 @@ export class Daemon {
    * is connected: a turn that comes while none is reads nothing and arranges
    * no other, and the hello of the next client to connect starts them again.
    * A daemon that closed arranges none, and nothing the watch does holds the
-   * daemon or the Mac.
+   * daemon or the Mac. What waits for the next turn (`turnWaits`) is settled
+   * once that turn has ended, and at once where the turn reads nothing.
    */
   private scheduleWatch(): void {
     if (this.closed || this.watching) return;
     clearTimeout(this.watchTimer);
     this.watchTimer = undefined;
     const watched = this.watched();
-    if (watched.length === 0) return;
+    if (watched.length === 0) {
+      for (const end of this.turnWaits.splice(0)) end();
+      return;
+    }
     const next = Math.min(...watched.map(({ item }) => this.pullRequestDue.get(item.id) ?? 0));
     this.watchTimer = setTimeout(() => {
       this.watchTimer = undefined;
+      const waits = this.turnWaits.splice(0);
       // Nobody is told what the watch reads while no client is connected.
-      if (this.clients.size === 0 || this.closed) return;
+      if (this.clients.size === 0 || this.closed) {
+        for (const end of waits) end();
+        return;
+      }
       const due = this.watched().filter(({ item }) => (this.pullRequestDue.get(item.id) ?? 0) <= Date.now());
       const turn = Promise.all(due.map((held) => this.readPullRequest(held))).then((changed) => {
         if (changed.includes(true)) this.broadcastInbox();
       });
       this.watching = turn.finally(() => {
         this.watching = undefined;
+        for (const end of waits) end();
         this.scheduleWatch();
       });
     }, Math.max(0, next - Date.now()));
@@ -4079,14 +4143,16 @@ export class Daemon {
    * pushed commit, and after `prRestPollMs` otherwise. Where the call fails
    * or its answer does not read, the stored pull request keeps what the
    * last read gave, its `failure` holds the sentence that says why, and the
-   * next read is due after `prRestPollMs`. A work item that left the watch
-   * while `gh` was asked, or whose pull request the stage replaced, keeps
-   * what it holds. It answers whether the stored pull request changed in
-   * more than the time of its read.
+   * next read is due after `prRestPollMs`. Where `readOutside` made every
+   * pull request due while `gh` was asked, the next read stays due now. A
+   * work item that left the watch while `gh` was asked, or whose pull
+   * request the stage replaced, keeps what it holds. It answers whether the
+   * stored pull request changed in more than the time of its read.
    */
   private async readPullRequest({ item }: Held): Promise<boolean> {
     const before = item.pullRequest;
     if (before === null) return false;
+    const asks = this.pullRequestAsks;
     const now = this.options.now ?? Date.now;
     let read: PullRequest;
     let wait: number;
@@ -4099,7 +4165,8 @@ export class Daemon {
       wait = this.options.prRestPollMs ?? PR_REST_POLL_MS;
     }
     if (this.closed || !this.watched().some((held) => held.item.id === item.id && held.item.pullRequest === before)) return false;
-    this.pullRequestDue.set(item.id, Date.now() + wait);
+    // A hello or a `readLists` that came while gh was asked made the pull request due after this read began, so it stays due.
+    if (asks === this.pullRequestAsks) this.pullRequestDue.set(item.id, Date.now() + wait);
     this.store.setWorkItem(item.id, { pullRequest: read });
     return JSON.stringify({ ...read, readAt: 0 }) !== JSON.stringify({ ...before, readAt: 0 });
   }
