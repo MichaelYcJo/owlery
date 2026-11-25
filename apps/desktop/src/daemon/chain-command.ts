@@ -56,8 +56,8 @@ export interface CommandContext {
   gateLimitMs?: number;
   /** What the command's input holds, to its end. `ask` alone reads it, and a run given none reads an empty input. */
   input?: () => Promise<string>;
-  /** Writes one line to the command's error output at once, while the command still runs, as a wait for the machine is said. Where it is absent, each line opens the `err` of the run's end. */
-  say?: (line: string) => void;
+  /** Writes one line to the command's error output at once, while the command still runs, as a wait for the machine is said. */
+  say: (line: string) => void;
 }
 
 /** How a run of the command ended: its exit code, and what it prints on each stream. */
@@ -509,10 +509,9 @@ function turnSocket(context: CommandContext): string | null {
  * so in one sentence and gives a turn of nothing: the command runs at once.
  */
 async function inTurn(context: CommandContext, request: TurnRequest): Promise<() => void> {
-  const say = context.say ?? (() => {});
-  const taken = await takeTurn(turnSocket(context), request, (ahead) => say(waitingSays(request.name, ahead)));
+  const taken = await takeTurn(turnSocket(context), request, (ahead) => context.say(waitingSays(request.name, ahead)));
   if (taken.held) return taken.end;
-  say(taken.why === "no daemon" ? noDaemonSays(request.name) : daemonEndedSays(request.name));
+  context.say(taken.why === "no daemon" ? noDaemonSays(request.name) : daemonEndedSays(request.name));
   return () => {};
 }
 
@@ -580,24 +579,18 @@ const OWN_ENDS: Record<"ask" | "run", (context: CommandContext, args: readonly s
  * one JSON object on the first line of its output, or with exit code 1 and
  * a sentence on its error output: a refusal's, or, for what a reader or git
  * threw, the chain's sentence of a stop. `ask` and `run` answer as their own
- * comments say. A line said while the run went on (`CommandContext.say`)
- * opens the error output of its end where the context gives no `say`.
+ * comments say. A line said while the run goes on reaches the error output
+ * at once, through `CommandContext.say`.
  */
-export async function chainCommand(args: readonly string[], given: CommandContext): Promise<CommandEnd> {
+export async function chainCommand(args: readonly string[], context: CommandContext): Promise<CommandEnd> {
   const [name = "", ...rest] = args;
   const printed = (subcommand: (typeof RUNS)[keyof typeof RUNS]) => async (context: CommandContext, args: readonly string[]): Promise<CommandEnd> => ({ code: 0, out: `${JSON.stringify(await subcommand(context, args))}\n`, err: "" });
   const subcommand = name === "ask" || name === "run" ? OWN_ENDS[name] : (SUBCOMMANDS as readonly string[]).includes(name) ? printed(RUNS[name as keyof typeof RUNS]) : undefined;
   if (subcommand === undefined) return { code: 1, out: "", err: `${name === "" ? "The chain command takes a subcommand." : `The chain command has no subcommand ${name}.`}\n${USAGE}` };
-  const said: string[] = [];
-  const context: CommandContext = { ...given, say: given.say ?? ((line) => said.push(line)) };
-  const ended = async (): Promise<CommandEnd> => {
-    try {
-      return await subcommand(context, rest);
-    } catch (error) {
-      if (error instanceof Refusal) return { code: 1, out: "", err: `${error.message.replace(/\n+$/u, "")}\n` };
-      return { code: 1, out: "", err: `${chainStoppedSays(error instanceof Error ? error.message : String(error))}\n` };
-    }
-  };
-  const end = await ended();
-  return said.length === 0 ? end : { ...end, err: `${said.map((line) => `${line}\n`).join("")}${end.err}` };
+  try {
+    return await subcommand(context, rest);
+  } catch (error) {
+    if (error instanceof Refusal) return { code: 1, out: "", err: `${error.message.replace(/\n+$/u, "")}\n` };
+    return { code: 1, out: "", err: `${chainStoppedSays(error instanceof Error ? error.message : String(error))}\n` };
+  }
 }
