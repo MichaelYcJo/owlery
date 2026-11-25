@@ -3,8 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
@@ -1512,7 +1512,7 @@ export function daemonStatus(sessions: readonly SessionInfo[], paneKinds: readon
   return `Daemon running, ${counted}${waiting > 0 ? `, ${waiting} waiting` : ""}${keepsAwake ? ", keeping the Mac awake" : ""}`;
 }
 
-/** What a line, and a chain's foot, say while a session of the work item waits for the machine, with how many sessions go before it. */
+/** What a line, and a chain's foot, say while a session or a heavy command of the work item waits for the machine, with how many go before it. */
 function machineWaits(ahead: number): string {
   return ahead > 0 ? `Waiting for the machine (${ahead} ahead)` : "Waiting for the machine";
 }
@@ -1521,6 +1521,49 @@ function machineWaits(ahead: number): string {
 export function queuedAhead(workItemId: number, headless: readonly HeadlessInfo[], machine: Machine | null): number | null {
   const at = machine?.agents.queue.findIndex((id) => headless.some((info) => info.id === id && info.workItemId === workItemId)) ?? -1;
   return at < 0 ? null : at;
+}
+
+/**
+ * How many go before a work item's wait for the machine, or null where none
+ * of it waits: a session of it that waits for the cap on agents
+ * (`queuedAhead`), and a heavy command of its worktree that waits for its
+ * turn (`WorkItem.machineWait`). Where both wait, the one that began to wait
+ * first is the line's, and a session the daemon gave no time of its wait is
+ * taken as the first.
+ */
+export function machineAhead(workItem: WorkItem, headless: readonly HeadlessInfo[], machine: Machine | null): number | null {
+  const session = queuedAhead(workItem.id, headless, machine);
+  const heavy = workItem.machineWait ?? null;
+  if (heavy === null) return session;
+  if (session === null) return heavy.ahead;
+  const first = machine?.agents.queue.find((id) => headless.some((info) => info.id === id && info.workItemId === workItem.id));
+  const since = headless.find((info) => info.id === first)?.queuedAt ?? Number.NEGATIVE_INFINITY;
+  return since <= heavy.since ? session : heavy.ahead;
+}
+
+/** Why a heavy command that waits stands where it does in the queue, in the words of the Machine dialog. */
+const HEAVY_PLACE_SAYS: Record<HeavyPlace, string> = { gate: "one step from its seal", review: "under review", build: "still being built", outside: "in no work item" };
+
+/**
+ * The heavy commands that run and wait, as the Machine dialog lists them
+ * under the limit on heavy commands, in the queue's order: each by its work
+ * item's title, or the last part of its folder where no work item the
+ * window holds runs there, and on the line under it whether it runs or
+ * waits, the command's name, the reason for the place of one that waits,
+ * and how long it has run or waited. Nothing against a daemon that sent no
+ * `machine`.
+ */
+export function heavyQueue(machine: Machine | null, workItems: readonly WorkItem[], now: number): { title: string; detail: string }[] {
+  return (machine?.heavy.queue ?? []).map(({ workItemId, folder, name, place, state, since }) => {
+    const title = workItems.find((workItem) => workItem.id === workItemId)?.title ?? folder.split("/").filter(Boolean).at(-1) ?? folder;
+    const parts = [state === "running" ? "Running" : "Waiting", name, ...(state === "waiting" ? [HEAVY_PLACE_SAYS[place]] : []), ageOf(since, now)];
+    return { title, detail: parts.join(" · ") };
+  });
+}
+
+/** What each heavy command of each repository took, as the Machine dialog lists it: the repository's name and the command's, and on the line under them the runs, the longest, the most memory and the highest load. */
+export function heavyRanRows(ran: readonly HeavyRan[]): { title: string; detail: string }[] {
+  return ran.map((row) => ({ title: `${row.repoName} · ${row.name}`, detail: heavyRanSays(row, ageOf(0, row.longestMs)) }));
 }
 
 /** How many sessions go before the session of the stage a work item's running chain begins, in the daemon's queue, or null where that session does not wait for the machine, where the chain does not run, and against a daemon that keeps no cap. A session a person asked in the work item is not the chain's, and counts for nothing here. */
@@ -1571,11 +1614,11 @@ export interface CapRow {
  */
 export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
   if (!machine) return null;
-  const { reading, agents, worktrees, panes } = machine;
+  const { reading, agents, worktrees, panes, heavy } = machine;
   const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
   return {
     reading: readingSays(reading),
-    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed))],
+    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)), row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy))],
   };
 }
 
@@ -1586,10 +1629,11 @@ export function machineDialog(machine: Machine | null): { reading: string; rows:
  * proposal sends nothing while its field still shows the proposal, so the
  * cap keeps following it. A row a person set returns to its proposal, as
  * null, where "Use the default" was pressed or its field emptied. A value
- * that is no whole number from 1, or over the row's most, is refused here in
- * the daemon's own sentence, and nothing is sent.
+ * that is no whole number from 1, or over the row's most, the limit on heavy
+ * commands over the machine's `cores`, is refused here in the daemon's own
+ * sentence, and nothing is sent.
  */
-export function capChanges(rows: readonly CapRow[], fields: Readonly<Record<Cap, { text: string; toDefault: boolean }>>): { caps: Partial<Record<Cap, number | null>> } | { refusal: string } {
+export function capChanges(rows: readonly CapRow[], fields: Readonly<Record<Cap, { text: string; toDefault: boolean }>>, cores?: number): { caps: Partial<Record<Cap, number | null>> } | { refusal: string } {
   const caps: Partial<Record<Cap, number | null>> = {};
   for (const row of rows) {
     const field = fields[row.cap];
@@ -1599,7 +1643,7 @@ export function capChanges(rows: readonly CapRow[], fields: Readonly<Record<Cap,
       continue;
     }
     const value = /^\d+$/.test(text) ? Number(text) : text;
-    const refusal = capRefusal(row.cap, value);
+    const refusal = capRefusal(row.cap, value, cores);
     if (refusal !== null) return { refusal };
     if (value !== row.value) caps[row.cap] = value as number;
   }
@@ -1691,9 +1735,10 @@ export function choiceNote(question: AskedQuestion): string {
  * request as the tool it asks to use and its text, followed by how many
  * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
  * stopped, the chain's sentence, which says the stage and why, as the
- * daemon wrote it; otherwise, where `ahead` says a headless session of the
- * work item waits for the machine, "Waiting for the machine" and how many
- * sessions go before it, as in "Waiting for the machine (2 ahead)";
+ * daemon wrote it; otherwise, where `ahead` says a headless session or a
+ * heavy command of the work item waits for the machine (`machineAhead`),
+ * "Waiting for the machine" and how many go before it, as in "Waiting for
+ * the machine (2 ahead)";
  * otherwise, where the chain runs a stage and the line's
  * pane does not wait for the person, the stage in short, who runs it and
  * what it is, as in "Proofer, round 2" and "Sealer, verdict", and "Broad

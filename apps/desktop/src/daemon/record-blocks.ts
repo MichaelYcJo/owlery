@@ -546,7 +546,8 @@ export const UNSURE =
   "the walk cannot place this fence line: a line above it opens an HTML block, or a fence stands in a list item, a block quote or an indent, so no `seal` block from there on is read; write each fence at the start of its line";
 const LINE_BREAK = "a value holds a line break, and a block's line holds one field";
 
-function listed(words: string[], last = "and"): string {
+/** The words in backticks as a list in prose: `a`, `b` and `c`, with another word than "and" before the last where `last` names one. */
+export function listed(words: string[], last = "and"): string {
   const quoted = words.map((word) => `\`${word}\``);
   if (quoted.length < 2) return quoted.join("");
   return `${quoted.slice(0, -1).join(", ")} ${last} ${quoted[quoted.length - 1]}`;

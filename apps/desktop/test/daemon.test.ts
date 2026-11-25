@@ -34,7 +34,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -458,7 +458,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -514,7 +514,7 @@ describe("work items", () => {
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
       // The look keeps nothing of what the records say of the chain, nor the account set on the work item, and keeps the seal reading the lists carried.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId") : WORK_ITEM_FIELDS);
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -4807,8 +4807,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain, which the look does not keep, and with its seal reading. */
-  const asLooked = ({ recorded: _recorded, accountId: _accountId, ...kept }: WorkItem): WorkItem => kept;
+  /** A work item as the look keeps it: without what its records say of the chain and without the wait of a heavy command, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
@@ -6426,15 +6426,16 @@ describe("keeping the Mac awake", () => {
   const told = (c: { messages: ServerMessage[] }): KeepAwake[] => c.messages.flatMap((m) => (m.type === "keepAwake" ? [m.keepAwake] : []));
   const stateOf = (m: Extract<ServerMessage, { type: "inbox" }>, id: number) => m.sessions.find((s) => s.id === id)?.state;
 
-  /** A holder that starts no process: it counts the holds asked of it and those released, and `lose` ends the last hold as a child that ended by itself does. */
+  /** A holder that starts no process: it counts the holds asked of it and those released, keeps whether each held the display too, counts the wakes of the display, and `lose` ends the last hold as a child that ended by itself does. */
   function holder() {
-    const seen = { held: 0, released: 0, lose: (): void => undefined };
-    const holdAwake: HoldAwake = (lost) => {
+    const seen = { held: 0, released: 0, displays: [] as boolean[], wakes: 0, lose: (): void => undefined };
+    const holdAwake: HoldAwake = (lost, display) => {
       seen.held++;
+      seen.displays.push(display);
       seen.lose = lost;
       return { release: () => void seen.released++ };
     };
-    return { holdAwake, seen };
+    return { holdAwake, wakeDisplay: () => void seen.wakes++, seen };
   }
 
   /** A run folder of the case's own, removed after it. */
@@ -6446,8 +6447,8 @@ describe("keeping the Mac awake", () => {
 
   /** A daemon given a counting holder, with two clients, and panes whose process ends when a line arrives. */
   async function held(options: Partial<DaemonOptions> = {}) {
-    const { holdAwake, seen } = holder();
-    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
+    const { holdAwake, wakeDisplay, seen } = holder();
+    const { daemon: d, url } = await daemonWithWorkItem({ holdAwake, wakeDisplay, commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line; exit 0"], env: {} }), ...options });
     const c = await client(url);
     const ready = await c.message("ready");
     const bystander = await client(url);
@@ -6657,6 +6658,35 @@ describe("keeping the Mac awake", () => {
     expect(seen).toMatchObject({ held: 2, released: 1 });
   });
 
+  it("holds the display too and wakes it once at each heavy command's start while one holds a turn, releases the display's hold with the last heavy command, keeps the hold from idle sleep a working pane wants, and asks nothing under `never` (scenario J)", async () => {
+    const { daemon: d, c, seen, workingPane } = await held();
+    const giver = d.turnGiver();
+    const ask = (name: string) => giver.ask({ folder: `/elsewhere/${name}`, name, place: "build", alone: false });
+    // Under `working`, with no session working, a heavy command alone holds the Mac and its display.
+    const first = await ask("first").turn;
+    expect((await c.message("keepAwake")).keepAwake).toEqual({ choice: "working", held: true });
+    const second = ask("second");
+    first?.end();
+    (await second.turn)?.end();
+    expect((await c.message("keepAwake", (m) => !m.keepAwake.held)).keepAwake).toEqual({ choice: "working", held: false });
+    expect(seen).toMatchObject({ held: 1, released: 1, displays: [true], wakes: 2 });
+    // A pane that works holds the Mac from idle sleep, and a heavy command adds the display to that hold until it ends.
+    await workingPane();
+    const third = await ask("third").turn;
+    await c.until(() => (seen.held === 3 ? true : undefined));
+    third?.end();
+    await c.until(() => (seen.held === 4 ? true : undefined));
+    expect(seen).toMatchObject({ held: 4, released: 3, displays: [true, false, true, false], wakes: 3 });
+    // Under `never` nothing is held and no display is woken, whatever runs.
+    c.send({ type: "setKeepAwake", choice: "never" });
+    await c.message("keepAwake", (m) => m.keepAwake.choice === "never");
+    const fourth = await ask("fourth").turn;
+    await pause(100);
+    fourth?.end();
+    await pause(100);
+    expect(seen).toMatchObject({ held: 4, released: 4, displays: [true, false, true, false], wakes: 3 });
+  });
+
   it("holds nothing once it closed, though its choice is `always` and a pane's process ends afterwards", async () => {
     const { daemon: d, c, seen, pane } = await held();
     await pane();
@@ -6706,6 +6736,7 @@ describe("the caps on the machine", () => {
     agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
     worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
     panes: { proposed: 8, set: null },
+    heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
   };
   const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
 
@@ -6837,6 +6868,74 @@ describe("the caps on the machine", () => {
     await bystander.message("machine");
     expect(told(bystander)).toHaveLength(1);
     expect(told(c).map((m) => m.panes.set)).toEqual([null, 2]);
+  });
+
+  it("gives as many heavy commands a turn at once as the limit says, the default from the reading and then the value a person sets, which outlives the daemon, and tells every client the queue of heavy commands (scenario E)", async () => {
+    const { daemon: d, runDir, c, both, ready } = await machined();
+    const worktree = ready.workItems[0]?.worktree ?? "";
+    const giver = d.turnGiver();
+    const first = await giver.ask({ folder: worktree, name: "test", place: "build", alone: false }).turn;
+    const second = giver.ask({ folder: "/elsewhere", name: "install", place: "outside", alone: false });
+    expect(second.waits).toBe(true);
+    for (const each of both) {
+      const queue = (await each.message("machine", (m) => m.machine.heavy.queue.length === 2)).machine.heavy.queue;
+      expect(queue.map(({ workItemId, folder, name, place, state }) => ({ workItemId, folder, name, place, state }))).toEqual([
+        { workItemId: 1, folder: worktree, name: "test", place: "build", state: "running" },
+        { workItemId: null, folder: "/elsewhere", name: "install", place: "outside", state: "waiting" },
+      ]);
+    }
+    // A value over the machine's 12 cores is refused, and nothing changes.
+    c.send({ type: "setCaps", requestId: 1, heavyCommands: 13 });
+    expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("The limit on heavy commands at once is a whole number from 1 to 12.");
+    c.send({ type: "setCaps", requestId: 2, heavyCommands: 2 });
+    // The raised limit gives the command that waited its turn at once.
+    expect(await second.turn).not.toBeNull();
+    expect((await c.message("machine", (m) => m.machine.heavy.set === 2 && m.machine.heavy.queue.every(({ state }) => state === "running"))).machine.heavy.set).toBe(2);
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"heavyCommands":2}');
+    first?.end();
+    (await second.turn)?.end();
+    await d.close();
+
+    // The daemon started next on the run folder gives two turns at once.
+    const { machine } = reader();
+    const { daemon: again, url } = await daemon({ runDir, machine });
+    expect((await (await client(url)).message("ready")).machine?.heavy).toMatchObject({ proposed: 1, set: 2 });
+    const next = again.turnGiver();
+    const one = await next.ask({ folder: "/a", name: "test", place: "outside", alone: false }).turn;
+    const two = next.ask({ folder: "/b", name: "test", place: "outside", alone: false });
+    expect(two.waits).toBe(false);
+    one?.end();
+    (await two.turn)?.end();
+    await again.close();
+
+    // A value over the machine's cores, written by hand, is read as none, and the daemon follows the default of 1.
+    writeFileSync(join(runDir, "limits.json"), '{"heavyCommands":13}');
+    const { daemon: third, url: thirdUrl } = await daemon({ runDir, machine: reader().machine });
+    expect((await (await client(thirdUrl)).message("ready")).machine?.heavy).toMatchObject({ proposed: 1, set: null });
+    const held = await third.turnGiver().ask({ folder: "/a", name: "test", place: "outside", alone: false }).turn;
+    expect(third.turnGiver().ask({ folder: "/b", name: "test", place: "outside", alone: false }).waits).toBe(true);
+    held?.end();
+  });
+
+  it("answers a `readHeavyRuns` with one row for each command of each repository the runs' file holds, to the client that asked alone (scenario I)", async () => {
+    const { runDir, c, bystander, ready } = await machined();
+    const item = ready.workItems[0];
+    const run = { askedAt: 0, beside: false, alone: false, load: 2, exitCode: 0 };
+    // The longest run comes first, the most memory and the highest load in different runs, and a folder no work item names is a row of its own for each folder.
+    const lines = [
+      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 180_000, peakMemory: 1024 ** 3, highestLoad: 13.1 },
+      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 60_000, peakMemory: 2 * 1024 ** 3, highestLoad: 9.5 },
+      { ...run, repo: null, workItemId: null, folder: "/Users/someone/scratch", name: "test", startedAt: 0, endedAt: 5_000, peakMemory: null, highestLoad: null, exitCode: null },
+      { ...run, repo: null, workItemId: null, folder: "/Users/someone/other", name: "test", startedAt: 0, endedAt: 7_000, peakMemory: null, highestLoad: 4, exitCode: 1 },
+    ];
+    writeFileSync(join(runDir, "heavy-runs.jsonl"), lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
+    c.send({ type: "readHeavyRuns" });
+    expect((await c.message("heavyRuns")).runs).toEqual([
+      { repo: item?.repo, repoName: item?.repoName, name: "Broad gate", runs: 2, longestMs: 180_000, mostMemory: 2 * 1024 ** 3, highestLoad: 13.1 },
+      { repo: null, repoName: "scratch", name: "test", runs: 1, longestMs: 5_000, mostMemory: null, highestLoad: null },
+      { repo: null, repoName: "other", name: "test", runs: 1, longestMs: 7_000, mostMemory: null, highestLoad: 4 },
+    ]);
+    expect(bystander.messages.some((m) => m.type === "heavyRuns")).toBe(false);
   });
 
   it("tells every client the count of the agents that run when a pane of a kind that reports its state opens and when its process ends, and nothing when a shell opens", async () => {

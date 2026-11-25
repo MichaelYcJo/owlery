@@ -12,8 +12,8 @@ import { writeWholeFile } from "./whole-file";
 
 const FILE = "limits.json";
 
-/** The caps in the order the file and the dialog give them. */
-const CAPS: readonly Cap[] = ["agents", "worktrees", "panes"];
+/** The caps in the order the file and the dialog give them, the limit on heavy commands last. */
+export const CAPS: readonly Cap[] = ["agents", "worktrees", "panes", "heavyCommands"];
 
 /** The program macOS asks for the performance cores. It ships with macOS. */
 const SYSCTL = "/usr/sbin/sysctl";
@@ -67,6 +67,16 @@ export interface MachineReader {
   read(folder: string): MachineReading;
   memoryOf(pids: readonly number[]): Promise<Map<number, number>>;
   sizeOf(folder: string): Promise<number | null>;
+}
+
+/**
+ * What the turn keeper is given of the machine: the cores, read once, and
+ * the load average of the last minute, read again at each call, from the
+ * reader's reading of the worktrees' folder. Under `OWLERY_MACHINE` both are
+ * the reading that variable holds.
+ */
+export function turnReading(reader: MachineReader, folder: string): { cores: number; load: () => number } {
+  return { cores: reader.read(folder).cores, load: () => reader.read(folder).load };
 }
 
 /**
@@ -172,13 +182,14 @@ function givenReading(text: string): MachineReading {
 /**
  * The caps a person set. Like the choice of keep-awake they are the daemon's
  * state: they live in `limits.json` in the run directory, one key for each
- * cap a person set, as in `{"agents":3}`, readable by the user alone, and are
+ * cap a person set, as in `{"agents":3}`, and the limit on heavy commands
+ * under `heavyCommands`, readable by the user alone, and are
  * read at start, so they outlive the daemon. A key that is absent, or holds a
  * value `setCaps` would refuse, is a cap that follows its proposal. Given no
  * run directory, the caps are kept in memory alone.
  */
 export class LimitsStore {
-  private readonly caps: Record<Cap, number | null> = { agents: null, worktrees: null, panes: null };
+  private readonly caps: Record<Cap, number | null> = { agents: null, worktrees: null, panes: null, heavyCommands: null };
   private readonly file: string | undefined;
 
   constructor(runDir: string | undefined) {

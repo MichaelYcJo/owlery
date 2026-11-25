@@ -3,7 +3,7 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
 import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
@@ -34,6 +34,8 @@ export const held = {
   keepAwake: null as KeepAwake | null,
   /** What the daemon read of the machine and the caps it keeps there, as `ready` and each `machine` since said them, or null against a daemon that sends none: one of an earlier build, or one given no reader. The Machine button is then hidden (./view, `machineDialog`). */
   machine: null as Machine | null,
+  /** What each heavy command of each repository took, as the daemon last answered the Machine dialog's `readHeavyRuns`, or none before it answered (./view, `heavyRanRows`). */
+  heavyRan: [] as HeavyRan[],
   /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without a seal reading, which join where their seal was then given or broke since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */
   changed: { ids: [], unread: [] } as ChangedSet,
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
