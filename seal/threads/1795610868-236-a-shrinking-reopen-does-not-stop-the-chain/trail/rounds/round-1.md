@@ -41,6 +41,11 @@ by the counts of open findings that the last round and the round before it are c
 
 The frame line is not the crafter's to write (`agents/crafter.md` *Before you hand back, ...*), so a crafter's pass names it for the orchestrator to fold, and a pane's session corrects it itself (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).
 
+```seal
+verdict: fixed 02b2302b
+answer: `orchestrator.md:104-109` now says a finding located in the records "is counted neither among the last round's open findings nor among those of the round before it", and adds "So the third signal compares the findings of the two rounds that are located outside the records."; both sentences are pinned in the orchestrator's case (`role-bundle.test.ts:207-208`), and each went red in `seal mutate` with only its change undone, the first by restoring the old wording and the second by deleting it, each failing on its own pin (executed). `changelog.md:8` now names "the counts of open findings that the last round and the round before it are compared on" and says that the third signal compares the two rounds' findings outside the records. `frame/design.md` *Scope* item 4 was folded at `81d728a2`. The search the pass ran is the evidence line's `git grep -n -F "last round's open findings" -- .`, rerun at `02b2302b`, a sample: it prints `orchestrator.md:96`, the signal itself, which stands; `orchestrator.md:106` and `role-bundle.test.ts:207`, the new sentence and its pin; and this record's own lines. Beyond the finding's `location:` lines the pass corrected no place. For the orchestrator to fold: `frame/design.md:40`, *Scope* item 4, says "a round heavier in the code than the round before still holds it", where the third signal holds only where the last round's findings outside the records are no fewer and no lighter, so a last round of one `must` against a round before of two `should` is heavier and does not hold it; the changelog says "no fewer and no lighter".
+```
+
 ### 2. The crafter is told to correct a fact at every place that states it, though its Job withholds the frame and the daemon drops what a crafter hands back, so the convergence rule's grounds fail for a crafter's pass
 
 ```seal
@@ -68,6 +73,12 @@ finding names it.
 
 The fix pass owes a pin of each new sentence in the case at `apps/desktop/test/role-bundle.test.ts:157`, seen red with only its sentence deleted. Where the pass takes the second fix, the sentence at `orchestrator.md:109-112` and its pin at `role-bundle.test.ts:203` change instead. The other statements of "every place that states" that the `git grep -n -F "every place that states" -- .` of this round printed are `changelog.md:6`, `frame/design.md:37` and `pr.md:4`. Each stays true under the first fix, and `changelog.md:6` owes a clause that the crafter corrects a frame line in such a pass.
 
+```seal
+verdict: fixed 02b2302b
+location: `apps/desktop/test/role-bundle.test.ts:168-173`, `seal/threads/1795610868-236-a-shrinking-reopen-does-not-stop-the-chain/changelog.md:6`
+answer: The pass took the first fix, as `frame/design.md` *Scope* item 8 (folded at `81d728a2`) designs it, and `orchestrator.md:109-113` stays as it reads. `agents/crafter.md` *Job* (`:24-29`) now gives a fix pass "each line of the work item's records that states the fact a finding corrects, a line of the frame among them", to rewrite to what HEAD gives or remove, with no new account of what was built. In *Before you hand back, ...* the sentence that names what goes to the hand-back now says "`routing.md` or a line of the frame your *Job* does not give you" in place of "any line of the frame but your Status cell", which the new *Job* made false in a fix pass, and after "which is a sample and is called one." (`:196-201`) two sentences say that in a fix pass a place in a frame line is corrected too, and that each item the rule has the crafter name in the hand-back goes into the `answer:` of the finding's close block, or of the last close block, since no party of the owl chain folds a fix pass's hand-back. The five sentences are pinned in the case at `role-bundle.test.ts:157`, at `:168-173`, and each went red in one `seal mutate` batch with only its change undone, each failing on its own pin (executed). `changelog.md:6` gains the clause. The search the pass ran, a sample: `git grep -n -e "every place that states" -e "for the orchestrator to fold" -e "any line of the frame but" -- .`, and a grep of the bundle for "a write you do not make", "Status cell", "line of the frame" and "framer" with "writ" or "fold". Beyond the `location:` lines it corrected no place. Those that stand: `orchestrator.md:113`, which now holds for a crafter's pass; `changelog.md:6`, `pr.md:4`, `gaps.md:7` and `frame/design.md:18`, `:38`, `:44` and `:113`, which state the rule as the work now holds it or the tree at the commit they are dated to; and `skills/implement/SKILL.md:287` of the bundle, whose table names the framer as the writer of `frame/design.md`, which the correction of a line by a fix pass's maker, given by `agents/crafter.md` *Job* and `skills/implement/fix-pass.md`, does not make false. `docs/` holds no statement of the crafter's writes.
+```
+
 ### 3. The changelog and the plan say the rule answers yes "before rounds 2 and 3", where the daemon asks after each of those rounds, before its fix pass
 
 ```seal
@@ -88,6 +99,11 @@ On #225's records it gives `yes` after rounds 2 and 3, before the fix pass on ea
 
 The plan line is not the crafter's to write, so the orchestrator folds it from a crafter's hand-back.
 
+```seal
+verdict: fixed 02b2302b
+answer: `changelog.md:8` now ends "the rule answers `converging: yes` after rounds 2 and 3, before the fix pass on each one's record", the paste-ready text. `frame/plan.md:18`, row B, was folded at `81d728a2` and reads the same. The search the pass ran is the evidence line's `git grep -n -F "before rounds 2 and 3" -- .`, rerun at `02b2302b`, a sample: it prints this record's own lines alone. Beyond the finding's `location:` lines the pass corrected no place; the read of the records found `changelog.md:3` ("before round 3's fix pass") and `changelog.md:10` ("before the fix pass on round 2 or a later round"), which already use the convention the fix takes.
+```
+
 ### 4. The design's Grounding places `ROUNDS_CEILING = 6` at `chain.ts:50`, where line 50 is blank at the commit it is dated to
 
 ```seal
@@ -101,6 +117,11 @@ Why it matters: *Grounding* is dated to `9325cb64`, and its row at `frame/design
 ```markdown
 <!-- frame/design.md line 10 -->
 `ROUNDS_CEILING = 6` (`chain.ts:52`)
+```
+
+```seal
+verdict: fixed 81d728a2
+answer: The framer's fold at `81d728a2` rewrote `frame/design.md:10` to cite `ROUNDS_CEILING = 6` at `chain.ts:52`, and the same row's `gateBefore` at `chain.ts:456-463`; this pass changed no line for it. The evidence line's `git grep -n -F "chain.ts:50" -- .`, rerun at `02b2302b`, prints this record's own lines alone, a sample.
 ```
 
 ## Confirmations
