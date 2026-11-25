@@ -1,0 +1,56 @@
+# Phase 4: 1795610869-217-a-new-work-item-picks-its-branch
+
+## What this phase found
+
+### The frame holds
+
+The plan's row for phase 4 was checked against the tree at `7b68f9d6` before the build (read). `view.ts#planLine`, `#renameChoice`, `#baseMenu` and `#workItemFields`, `renderer.ts#openWorkItemForm`, `#showPlan`, `#showRenamePlan` and `#rename`, the form's markup in `index.html`, the plan's `held` in `shared/protocol.ts` and the built-app files `work-item-form.test.ts`, `work-item-menu.test.ts` and `screenshots.test.ts` stand where the frame and the phase records say. The frame holds. Since phase 3, a creation through the form made a work item with no branch while the form's place under the name still showed the plan's branch in the words of a creation that cut it. This phase rewrote those words first, as the spawn asked.
+
+### Decisions settled while building, each with its grounds
+
+- **The place of the branch under the name is a list of parts, and a branch's name is a part of its own.** `frame/design.md` `## Rule changes` gives the form's row: the place says what the creation does, "in `--font-fact` for the names". `planLine` gives `branch` as parts, each `{ text, fact }`. `renderer.ts#showPlan` draws a name in a `span.fact`, which the rule `#work-item-branch .fact` of `index.html` sets in `--font-fact`, and the words in the dialog's sans. The place was in `--font-mono` whole before. The built-app case reads the names in `.fact`. No case reads the face they are drawn in, and the screenshots show it (*Screenshots*).
+- **A plan with no `held` shows the plan's branch as one name, in `--font-fact`.** `frame/design.md` *Scope* item 8 and the scenario "The old daemon and the new window" ask for the form "as today" where a daemon of an earlier build answers. The words are as they were, and the "Branch" field is hidden. The face of the name follows the new row, `--font-fact`, where it was `--font-mono`, so one rule draws a branch's name in that place. Judged against `docs/design.md` *Components and their states* as `## Rule changes` adds to it.
+- **A remote's branch whose local branch of its name stands says "Checks out <name>."** `frame/design.md` *Scope* item 9 gives three forms of words, and phase 3 made this a fourth case of the creation: the local branch is checked out, and nothing is made (`trail/phases/phase-3.md`). The form says what the creation does, so it names the local branch and no tracking.
+- **The form reads a remote's branch's local name at the first slash.** The plan lists `origin/release`, and names no remote apart from it. `view.ts#localOf` reads `release` from it. A local branch is matched by its whole name first, so a local `owlery/fix-the-login-bug` is named whole (the case "says that a picked local branch is checked out, …", after `seal mutate` found that the local check survived without it). `gaps.md` *Not done* holds a remote whose name holds a slash.
+- **A remote's branch whose local branch is held stands disabled too, with that worktree's folder.** `frame/design.md` *Scope* item 9 disables "a branch another worktree holds". A creation on `origin/main` where a worktree holds `main` checks `main` out, and the daemon refuses it (`worktrees.ts#pickedBranch`). The menu offers no choice the daemon refuses.
+- **The option of a held branch reads "<branch>, checked out in <folder>".** The rule's row says that the label ends in that worktree's folder, and gives no words. These are the words of the daemon's refusal, "The branch <name> is checked out in <folder>, …".
+- **The "Branch" field shows from the form's opening, and is hidden only by a plan with no `held`.** Before the plan answers, and where the daemon refused the plan, the field holds "No branch yet" alone and is disabled, as "Starts from" is then. Hiding it until a plan answers would move the form's fields at the first answer of each opening.
+- **A held branch the person chose is not kept.** `branchMenu` keeps the person's choice only while the menu offers it enabled, so a branch a worktree took between two plans falls back to "No branch yet", as `baseMenu` falls back to the default base.
+- **The rename dialog tells a making from a rename by the work item's branch, not by a field of the plan.** `frame/design.md` *Scope* item 10 leaves the choice open. `renameChoice` takes whether the work item has a branch, which the window holds. The protocol gains nothing, and a daemon of an earlier build, whose work items all have a branch, is read the same way. For a work item with no branch yet, the choice stands checked and disabled where the plan names the branch the rename makes, and the dialog says "The rename makes the branch <name>.". Where the plan is blocked, the choice stands unchecked and disabled, and the dialog says why, so a rename then renames the name alone, which the daemon allows (`shared/protocol.ts`, the comment above `renameWorkItem`). The label "Rename the branch too" stays (`gaps.md` *Not done*).
+- **`rename` sends the box as it stands.** It sent `checked && !disabled`, which would send no making. `showRenamePlan` is now what keeps the box checked only where the plan lets the rename run with it.
+- **The words of the "+" button and of a repository's add button said that a creation makes "a new branch and worktree".** Phase 3 made that false. They now say "a new worktree in a repository, on a branch picked in the form or made later" and "a new worktree". The frame did not name them. They are the window's words of the same creation, judged against `docs/design.md` *The voice of the window's words*, "A whole sentence that names the thing". `view.test.ts` pins them, and `work-item-menu.test.ts` reads them in the built app.
+
+### Seen red, and the mutation runs
+
+The new and rewritten cases of `view.test.ts` were run against the source as it stood at `7b68f9d6` (executed): 15 failed, each on the function or the words it names, and 7 passed, which the phase did not change in what they assert. Each unit of `view.ts` was then broken by `seal mutate` after `7c3787d7` (executed):
+
+| File | Mutants | Verdict | Cases run |
+|---|---|---|---|
+| `src/renderer/view.ts` | the making's check of the branch (failing line read); its `makes`; its words; the `branch` of a creation's fields; the words of no branch; the local branch's check, first SURVIVED and then red once a local branch's name with a slash was pinned (failing line read); a remote's branch whose local branch stands; the tracking words; a plan with no `held` read as a new daemon's (failing line read); `localOf`; a held branch not disabled; a remote's branch matched by its own name; a held choice kept (failing line read); a choice of another repository's text kept; the field shown without `held` | 14 red, and 1 SURVIVED and then red | `test/view.test.ts -t "renameChoice\|planLine\|branchMenu\|workItemFields"` |
+
+The window's units and the drawing of phase 1 that no case had rendered were broken under the built-app file that drives each, after `c0935a8d` (executed). Each failing case was read from the run's output.
+
+| File | Mutant | Verdict | Case that failed |
+|---|---|---|---|
+| `src/renderer/renderer.ts` | the creation sends no `branch` | red | "checks out a local branch the person picked, …" |
+| `src/renderer/renderer.ts` | a held branch's option not disabled | red | "offers a generated name, …" and "checks out a local branch the person picked, …" |
+| `src/renderer/renderer.ts` | the plan's `held` not read | red | "offers a generated name, …", and the two cases after it |
+| `src/renderer/list.ts` | the preview's `none` flag not drawn | red | "creates a work item named by the generated name, …" |
+| `src/renderer/work-item-view.ts` | the view's head's `none` flag not drawn | red | "creates a work item named by the generated name, …" |
+| `src/renderer/renderer.ts` | the rename's box not kept checked for a making | red | `work-item-menu.test.ts`'s creation in its `beforeAll`, at the box's state |
+| `src/renderer/renderer.ts` | the rename sends the box only where it is enabled, as before this phase | red | `work-item-menu.test.ts`'s creation in its `beforeAll`: "the window never showed the branch owlery/first-item in the view" |
+| `src/renderer/view.ts` | "Copy branch name" offered for a work item with no branch, phase 1's guard | red | "holds no Copy branch name in the menu of a work item with no branch yet" |
+
+Three units of the window got no mutant, each a run of the built app: the menu's `change` listener, which the picked branch's case reaches through the words "Checks out main."; the reset of the picked branch at each opening, which no case watches, since the opening after the picked branch's creation finds that branch held and falls back to no branch either way; and the `--font-fact` rule of the names, which the screenshots show.
+
+### Runs
+
+`tsc --noEmit` passed before each commit (executed). The repository configures no linter or formatter (`trail/phases/phase-2.md` *Runs*). `view.test.ts` passed whole at `7c3787d7`, 562 cases (executed). The phase changed `view.ts`, `renderer.ts` and `index.html` of the window alone. Of the test files, `view.test.ts`, `work-item-menu.test.ts`, `terminal-basics.test.ts` and `theme-controls.test.ts` import `renderer/view.ts`, and none imports `renderer/renderer.ts` (executed: `git grep -l` over `apps/desktop/test`). The last two are built-app files, and they import constants the phase did not change. So the phase boundary's unit set is `view.test.ts`, and it passed at `c0935a8d` (executed).
+
+### The built-app batch
+
+The batch ran once, at `c0935a8d`, in one command of the `app` project (executed): `work-item-form.test.ts` and `work-item-menu.test.ts`, 40 cases passed. `screenshots.test.ts` ran in the screenshot run below. The files `ask-section`, `chain-choice`, `notification-click`, `theme-controls` and `terminal-basics`, and the helpers `test/korean-pane.ts` and `test/memory.ts`, wait only until the form's place under the name holds text (read: `git grep -n work-item-branch -- apps/desktop/test`). `planLine` gives that place text for every plan the daemon answered, so they were not run.
+
+### Screenshots
+
+The screenshot run ran once, at `c0935a8d`, with `OWLERY_SCREENSHOT_THEMES=all` (executed: `OWLERY_SCREENSHOTS=1 OWLERY_SCREENSHOT_THEMES=all OWLERY_SCREENSHOT_DIR=<scratch>/screenshots node scripts/test-in-electron.mjs test/screenshots.test.ts` in `apps/desktop`, where `<scratch>` is `/private/tmp/claude-501/-Users-yc-Documents-GitHub-owlery/66fc475f-7468-49ce-95e4-d5ba9694fa5e/scratchpad/1795610869-217-a-new-work-item-picks-its-branch/phase-4`). It passed and wrote 72 files. The shot this phase changes is the form's, `<theme>-<appearance>-dialog.png`, in Night watch, Register and Desk, dark and light. The themes draw the field differently: `--font-fact` is the sans in Night watch and Desk and the fixed-width face in Register (`docs/design.md` *Tokens*), and the shots show the branch's name under the form's name so (read). The shot shows the form with no branch picked. A held branch's disabled option stands in the system's menu, which the capture of the page does not draw. The files stay in the scratch folder, for the orchestrator to commit with the pull request (`gaps.md` *Not done*).
