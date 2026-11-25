@@ -40,3 +40,34 @@ Not judged here, and named with their answerers in `gaps.md` *Not verified*: whe
 target: 1de4cbb13f42482c07e7d750c933953e4710f391 against 943b1bfd92e0a73c3fee88593e7c3d1ec7591c0f
 Verdict: withheld reason: the changelog (changelog.md:8), plan row B (frame/plan.md:18) and the design's scenario (frame/design.md:66) claim the rule answers converging yes after round 3 on records shaped like #225's run, but apps/desktop/role-bundle/agents/orchestrator.md:110-111 has the third signal (orchestrator.md:98-99) compare only the findings outside the records, which before round 3's fix pass are none against none, and none is no fewer and no lighter than none (the reading frame/design.md:24 gives equal counts), so the text as written holds the signal and answers no; the rule needs a sentence saying the third signal does not hold where the last round has no finding outside the records, with its pin seen red
 ```
+
+## The audit at `832046b5`
+
+This audit reads what came after the block above, whose target is `1de4cbb1`. The commits since then are `26de7c42`, which holds that block alone and is unchanged (executed: `git show --stat 26de7c42`); the repair `302e8886`, which changes `agents/orchestrator.md`, `role-bundle.test.ts` and `changelog.md`; the orchestrator's fold of *Scope* item 4, `8964e4d2`; round 4's record, `a633fff1`; and the gate's record, `832046b5`. `release/v0.0.5@{upstream}` still resolves to `943b1bfd`. The newest run in `trail/gate.md` is `a633fff1 against 943b1bfd`. It is an ancestor of HEAD, and only `832046b5` follows it, which changes `trail/gate.md` alone (executed: `git log --no-merges --name-only a633fff1..HEAD ^943b1bfd`). `seal pr-body <item> --body <the rewritten body file> --check` exited 0 (executed). The clone at `<scratchpad>/1795610868-236-a-shrinking-reopen-does-not-stop-the-chain/at-base/` was moved to `832046b5`. Every claim this audit re-ran stands at a coordinate one of these commits touched. The claims of the table above whose coordinates they did not touch were not re-run.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The new sentence "Where the last round has no open finding located outside the records, the third signal does not hold." is pinned and seen red | `302e8886`, the pin at `apps/desktop/test/role-bundle.test.ts:215` | In the clone: `agents/orchestrator.md` restored from `1de4cbb1`, then `node scripts/test-in-electron.mjs test/role-bundle.test.ts -t "holds the orchestrator's definition"`; and again at HEAD with that sentence alone deleted by a one-match substitution | Holds. Both runs exit 1, each failing on that sentence's pin (executed). |
+| The unit cases of `the role bundle` pass at the head | `trail/rounds/round-4.md` *Probes* | In the clone at `832046b5`: `node scripts/test-in-electron.mjs test/role-bundle.test.ts -t "the role bundle"` | Holds. Exit 0, 15 passed and 4 skipped by the filter (executed). The built-app cases are the broad gate's, recorded at `a633fff1`, and were not re-run. |
+| On records shaped like #225's run, the rule answers `converging: yes` after rounds 2 and 3, before the fix pass on each one's record | `changelog.md:8`; `frame/plan.md:18`; `frame/design.md:66` | Read `apps/desktop/role-bundle/agents/orchestrator.md:93-114` at HEAD against #225's round records, as the first audit read them (`git show f131e16b^:` of each) | Holds. After round 2, round 2 has no open finding outside the records, so the new sentence leaves the third signal unheld. Its `reopens:` line and the two findings at `changelog.md:3` stand in the records, and nothing was closed `rejected`, so the answer is `yes`. After round 3, rounds 2 and 3 both have none outside the records, and the new sentence answers that case: the third signal does not hold, so the answer is `yes` (read). |
+| A heavier round in the code still answers `no` | `frame/design.md:68` (scenario) | Read the same lines | Holds. Where the last round has one `must` finding outside the records, the new sentence does not apply. Against the round before's one `should` outside the records, it is no fewer and no lighter, so the third signal holds (read). |
+| The fold of *Scope* item 4 states the repair | `frame/design.md:40`, at `8964e4d2` | `git diff 1de4cbb1 HEAD -- <item>/frame <item>/changelog.md` | Holds. The fold adds "and not where the last round has no finding outside the records", and `changelog.md:8` adds the same rule (executed). |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | *Scope* item 4 now leaves the third signal unheld where the last round has no finding outside the records. The scenarios at `frame/design.md:66` and `:68` say `yes` on #225's records and `no` on a heavier code round | the build at `orchestrator.md:110-113`, and the walk in *Claims re-run* above (read); the issue's *Done when*, that a shrinking records-only reopen with the code unchanged is no signal by itself | none |
+| the build | `302e8886`: one sentence of `agents/orchestrator.md` and its pin | the design's item 4; the seen-red re-run above (executed) | none |
+| the last round | `trail/rounds/round-4.md`: no finding. It walks five cases and finds #225's two judgments `yes` and the code-side cases `no` | this audit's walk of the same text, which reaches the same answers (read) | none |
+| the changelog | `changelog.md:8` adds the rule and keeps the claim that the rule answers `yes` after rounds 2 and 3 | the tree at `orchestrator.md:110-113`, which now makes the claim hold | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged since the first audit (executed: `git diff --stat 1de4cbb1 HEAD` lists no `pr.md`), above `## From the records` in the rewritten body file | its quotes stand at their coordinates, *Scope* item 4's lead among them (read) | none |
+
+Still not judged, and named with their answerers in `gaps.md` *Not verified*: whether a model follows the new text is the owner's walk's (#184), by `frame/questions.md` Q1's default. The whole suite, the lint and the typecheck at the repaired head are the broad gate's, which `trail/gate.md` records at `a633fff1`.
+
+```seal
+target: 832046b54672ac4f33f71e416dcff95a70344105 against 943b1bfd92e0a73c3fee88593e7c3d1ec7591c0f
+Verdict: sealed
+```
