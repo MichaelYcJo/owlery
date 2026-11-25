@@ -1072,30 +1072,41 @@ export function runningSessions(workItems: readonly WorkItem[], archived: readon
   ];
 }
 
-/** One kind of thing a loss names, as a dialog draws it: its heading, a line for each entry the loss carries, and how many more there are where the list is cut, or nothing. */
+/** One entry of a loss list: a commit by its short hash and its subject, or a path, the branch's name among them. */
+export type LossRow = { hash: string; subject: string } | { path: string };
+
+/** One kind of thing a loss names, as a dialog draws it: its heading with its count, a row for each entry the loss lists, and how many more there are where the daemon cut the list, or nothing. */
 export interface LossSection {
   caption: string;
-  lines: string[];
+  rows: LossRow[];
   more: string;
 }
 
 /**
  * What a dialog names of a loss, a section for each kind the loss holds
- * something of, in this order: the branch and the folder a delete removes;
- * the commits nothing else holds, each by its hash and its subject; the
- * tracked files with a change that is not committed; the untracked files;
- * and the ignored files and folders, which a removal of the folder takes
- * with it.
+ * something of, in this order: the branch and the folder a delete removes,
+ * which its heading names; the commits nothing else holds, each by its hash
+ * and its subject; the tracked files with a change that is not committed;
+ * the untracked files; and the ignored files and folders, which a removal
+ * of the folder takes with it. The heading of each of the four last kinds
+ * counts what the loss counts, the entries the daemon left out among them,
+ * and counts one in the singular.
  */
 export function lossSections(loss: WorkItemLoss): LossSection[] {
-  const section = (caption: string, lines: string[], count: number): LossSection[] => (lines.length === 0 ? [] : [{ caption, lines, more: count > lines.length ? `and ${count - lines.length} more` : "" }]);
-  const removed = [...(loss.branch === null ? [] : [`The branch ${loss.branch}`]), ...(loss.worktree === null ? [] : [`The folder ${loss.worktree}`])];
+  const section = (caption: string, rows: LossRow[], count: number): LossSection[] => (rows.length === 0 ? [] : [{ caption, rows, more: count > rows.length ? `and ${count - rows.length} more` : "" }]);
+  const paths = (listed: readonly string[]): LossRow[] => listed.map((path) => ({ path }));
+  const removed = paths([...(loss.branch === null ? [] : [loss.branch]), ...(loss.worktree === null ? [] : [loss.worktree])]);
+  const removedHead = loss.branch === null ? "The folder removed from disk" : loss.worktree === null ? "The branch removed from disk" : "The branch and the folder removed from disk";
   return [
-    ...section("Removed from disk", removed, removed.length),
-    ...section("Commits no other branch, no remote and no tag holds", loss.commits.map(({ hash, subject }) => `${hash} ${subject}`), loss.commitCount),
-    ...section("Files with changes that are not committed", loss.uncommitted, loss.uncommittedCount),
-    ...section("Untracked files", loss.untracked, loss.untrackedCount),
-    ...section("Ignored files and folders, which go with the folder", loss.ignored, loss.ignoredCount),
+    ...section(removedHead, removed, removed.length),
+    ...section(
+      counted(loss.commitCount, "commit no other branch, no remote and no tag holds", "commits no other branch, no remote and no tag holds"),
+      loss.commits.map(({ hash, subject }) => ({ hash, subject })),
+      loss.commitCount,
+    ),
+    ...section(counted(loss.uncommittedCount, "file with changes that are not committed", "files with changes that are not committed"), paths(loss.uncommitted), loss.uncommittedCount),
+    ...section(counted(loss.untrackedCount, "untracked file", "untracked files"), paths(loss.untracked), loss.untrackedCount),
+    ...section(counted(loss.ignoredCount, "ignored file or folder, which goes with the folder", "ignored files and folders, which go with the folder"), paths(loss.ignored), loss.ignoredCount),
   ];
 }
 
