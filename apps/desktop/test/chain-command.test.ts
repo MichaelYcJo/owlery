@@ -2,7 +2,7 @@
 // (`src/daemon/chain-command.ts`): each case calls its subcommands in a
 // temporary repository, in the case's own process, and reads the commits
 // they made. No case starts an agent or reaches a remote.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BASE_RECORDED, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
@@ -197,7 +197,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(turns.queue()).toEqual([]);
   });
 
-  it("runs a broad gate that failed while the machine was over its load once more, alone, and commits the pass with the earlier run's sentence, and refuses one that failed twice with a sentence that names both runs (scenarios F and H)", async () => {
+  it("runs a broad gate that failed while the machine was over its load once more, alone, and commits the pass with the earlier run's sentence, refuses one that failed twice with a sentence that names both runs, and runs one that failed with the machine calm once (scenarios F, G and H)", async () => {
     const load = { now: 9 };
     const answering = async (on: ReturnType<typeof commandOn>, waitMs: number): Promise<MachineTurns> => {
       await on.said(["start"]);
@@ -237,6 +237,13 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const before = head(twice.repo);
     expect(await twice.run(["gate"])).toEqual({ code: 1, out: "", err: `${stoppedSays("gate", 1, twiceFailedWhy("the command exited with code 3", "the command exited with code 3"))}\nthe suite is red\n` });
     expect(head(twice.repo)).toBe(before);
+
+    // The machine calm, a load at the cores or under and nothing beside the run: a gate that failed runs once (scenario G).
+    load.now = 1;
+    const calm = commandOn(cleanups, { gate: 'touch "$HOME/gate.$$"; echo the suite is red; exit 3' });
+    await answering(calm, 200);
+    expect(await calm.run(["gate"])).toEqual({ code: 1, out: "", err: `${stoppedSays("gate", 1, "the command exited with code 3")}\nthe suite is red\n` });
+    expect(readdirSync(calm.folder).filter((name) => name.startsWith("gate."))).toHaveLength(1);
   });
 
   it("refuses to start on a branch that left its base, naming the commit or the base and how another is named, and writes nothing: a branch reset onto a line that does not hold the commit it was read against, and a base that shares no commit with the branch", async () => {
