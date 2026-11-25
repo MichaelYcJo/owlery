@@ -58,7 +58,7 @@ In:
 8. **The row "The delete dialog" is written in *Components and their states*, in both editions of `docs/design.md`.** It states the form of items 1 to 6 and says that the repository's removal dialog draws each work item's loss in the same form. The text of the English row is under *Data & interfaces*.
 9. **The screenshot run gains a view, `delete`.** It shows the delete dialog of a work item that holds 39 commits no other branch holds.
    - The run commits the 39 commits in the worktree of "Rename the settings file", the work item whose session waits for the machine. It does this before the look is taken, next to the two commits of the shown work item. Some subjects are longer than the row, so the shot shows the ellipsis.
-   - It also writes one untracked file at a nested path and the ignored `.env` there, so the shot shows every kind of path list.
+   - It also writes one untracked file at a nested path and the ignored `.env` there, so the shot shows the untracked and the ignored path lists.
    - The view's step opens the dialog from the work item's menu in the sidebar, and its leave step presses Cancel, which deletes nothing.
    - The view list sentence of *A pull request that changes the window carries its screenshots* gains "the delete dialog of a work item with many commits", in both editions, in place.
    - The run's new scene paragraph goes through *Rule changes*.
@@ -125,12 +125,12 @@ The English row for *Components and their states*. The Korean edition says the s
 - add
   file: docs/design.md
   section: A pull request that changes the window carries its screenshots
-  to: **The screenshot run's scene holds a work item with many commits no other branch holds, and the run captures its delete dialog.** Before the look is taken, the run commits 39 commits on the branch of the work item whose session waits for the machine, some with a subject longer than a row of the dialog. It writes an untracked file at a nested path and the ignored `.env` into that work item's worktree. The view of the delete dialog opens that work item's menu in the sidebar, presses Delete, and waits until the head of its commits counts 39. Cancel then closes the dialog, and nothing is deleted. So the shot shows a list longer than the dialog shows at once, cut subjects, and every kind of path list.
+  to: **The screenshot run's scene holds a work item with many commits no other branch holds, and the run captures its delete dialog.** Before the look is taken, the run commits 39 commits on the branch of the work item whose session waits for the machine, some with a subject longer than a row of the dialog. It writes an untracked file at a nested path and the ignored `.env` into that work item's worktree. The view of the delete dialog opens that work item's menu in the sidebar, presses Delete, and waits until the head of its commits counts 39. Cancel then closes the dialog, and nothing is deleted. So the shot shows a list longer than the dialog shows at once, cut subjects, and the untracked and the ignored path lists.
     check: apps/desktop/test/screenshots.test.ts
 - add
   file: docs/design.ko.md
   section: 창을 바꾸는 PR은 스크린샷을 싣습니다
-  to: **스크린샷 실행의 장면에는 다른 브랜치가 갖지 않은 커밋이 많은 작업이 하나 있고, 실행은 그 작업의 삭제 대화 상자를 찍습니다.** 실행은 둘러본 시점을 잡기 전에, 세션이 컴퓨터를 기다리는 작업의 브랜치에 커밋 39개를 합니다. 그 가운데 몇 커밋의 제목은 대화 상자의 한 행보다 깁니다. 실행은 그 작업의 워크트리에 깊은 경로의 추적하지 않는 파일 하나와 무시되는 `.env`를 씁니다. 삭제 대화 상자의 화면은 사이드바에서 그 작업의 메뉴를 열고 Delete를 누른 뒤, 커밋 절의 머리가 39를 셀 때까지 기다립니다. 그다음 Cancel이 대화 상자를 닫고, 아무것도 지우지 않습니다. 그래서 이 스크린샷은 대화 상자가 한 번에 보이는 것보다 긴 목록, 잘린 제목, 경로 목록의 모든 종류를 보입니다.
+  to: **스크린샷 실행의 장면에는 다른 브랜치가 갖지 않은 커밋이 많은 작업이 하나 있고, 실행은 그 작업의 삭제 대화 상자를 찍습니다.** 실행은 둘러본 시점을 잡기 전에, 세션이 컴퓨터를 기다리는 작업의 브랜치에 커밋 39개를 합니다. 그 가운데 몇 커밋의 제목은 대화 상자의 한 행보다 깁니다. 실행은 그 작업의 워크트리에 깊은 경로의 추적하지 않는 파일 하나와 무시되는 `.env`를 씁니다. 삭제 대화 상자의 화면은 사이드바에서 그 작업의 메뉴를 열고 Delete를 누른 뒤, 커밋 절의 머리가 39를 셀 때까지 기다립니다. 그다음 Cancel이 대화 상자를 닫고, 아무것도 지우지 않습니다. 그래서 이 스크린샷은 대화 상자가 한 번에 보이는 것보다 긴 목록, 잘린 제목, 추적하지 않는 경로 목록과 무시되는 경로 목록을 보입니다.
     check: apps/desktop/test/screenshots.test.ts
 
 The row "The delete dialog" of *Components and their states* and the view list sentence of *A pull request that changes the window carries its screenshots* are not operations here. Principle 8 of `docs/design.md`, and that section's own sentence on the view list, have this pull request write both in place in both editions.
