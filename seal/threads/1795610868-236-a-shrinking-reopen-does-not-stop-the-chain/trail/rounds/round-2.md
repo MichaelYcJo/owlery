@@ -47,6 +47,11 @@ gives it each line of the three frame files that states the fact a finding corre
 
 With these, `crafter.md:98` and `crafter.md:187-188` stand as they read, and `frame/design.md:67` agrees with the *Job*. The pin owes a run seen red with only its sentence restored to the old wording.
 
+```seal
+verdict: fixed 90d035c1
+answer: `crafter.md:24-28` now reads "and in a fix pass one close block under each open finding, and each line of the three frame files that states the fact a finding corrects.", with the rewrite-or-remove sentence and "A write not named here is a write you do not make." as the paste-ready text gives them; `crafter.md:97` and `:186-187` stand unchanged, and with the narrowed *Job* they now agree with it. The pin at `role-bundle.test.ts:175` holds the new sentence; it went red against the old text before the edit, and again at `90d035c1` in `seal mutate` with only that sentence restored to the old wording, failing on that pin (executed); `the role bundle`'s unit cases pass (15) and `chain-command.test.ts` with `heavy-run.test.ts` pass (25) at `90d035c1` (executed). `changelog.md:6` now says "gives it each line of the three frame files that states the fact a finding corrects". `frame/design.md:45` was folded at `558712ac`. The search the pass ran is the evidence line's `git grep -n -F "a line of the frame among them" -- .`, rerun at `90d035c1`, a sample: it prints the round records' own lines alone. Beyond the finding's `location:` lines the pass corrected no place. `frame/plan.md:29`, row M, still says "each line of the work item's records that states the corrected fact, `routing.md` among them", and stands: it names the alternative the fold rejected.
+```
+
 ### 2. The closing memo still asks whether scenario I passes with a zeroed 64 MiB `bytearray`, a case the merged #247 replaced
 
 ```seal
@@ -60,6 +65,11 @@ Why it matters: the row at `gaps.md:11` asks "Whether `test/heavy-run.test.ts` .
 ```markdown
 <!-- gaps.md line 11, the whole row -->
 | closed whether `test/heavy-run.test.ts` "keeps one line for the run in the run folder's file ... (scenario I)" passes on a machine whose memory compressor took a zeroed 64 MiB `bytearray`: in phase 2 it timed out there (`trail/phases/phase-2.md`). #247, merged into this branch at `6ae3535b`, rewrote the case to hold random pages it writes every 50 ms (`heavy-run.test.ts:118-119`), and the broad gate runs it with the whole suite (the row above). This work item's range changes neither the case nor the code it covers. | #245, closed by #247 (`5f58752b`) |
+```
+
+```seal
+verdict: fixed 90d035c1
+answer: `gaps.md:11` is marked closed, in the paste-ready words with two changes. The case's merge is named at both its commits, `5f58752b` on `release/v0.0.5` and `6ae3535b` on this branch. The answerer cell names #247 at `5f58752b` and says that #245 stays open until the release reaches `main`, since `gh issue view 245` shows it OPEN, while `gh pr view 247` shows MERGED at `5f58752b` (executed); "#245, closed by #247" would state a closed issue that is open. The coordinates hold: `heavy-run.test.ts:118-119` holds the random pages written every 50 ms, and `git show --stat 5f58752b` shows that commit changes `heavy-run.test.ts` (executed and read). `seal unverified` reads the memo as 4 open and 1 closed (executed). `gaps.md:10` keeps the whole suite as the broad gate's.
 ```
 
 ## Confirmations
