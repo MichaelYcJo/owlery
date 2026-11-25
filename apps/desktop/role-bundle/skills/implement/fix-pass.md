@@ -55,10 +55,10 @@ session makes the pass, that rule's *Job* stands for the work item: a
 pane's session built the work and wrote the work item's records, so it
 corrects every statement HEAD contradicts in its range and in each file of
 the work item's directory that the rule names. That rule's hand-back
-stands for the close blocks: what the rule has the crafter name in its
-hand-back, a pane's session names in the `answer:` of the close block of
-the finding it concerns, and otherwise in the `answer:` of the last close
-block it appends.
+stands for the close blocks: each item the rule has the crafter name in
+its hand-back, a pane's session names in the `answer:` of the close block
+of the finding the item concerns, and otherwise in the `answer:` of the
+last close block it appends.
 
 ## The close blocks, last
 
