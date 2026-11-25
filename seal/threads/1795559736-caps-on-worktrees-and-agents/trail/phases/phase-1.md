@@ -44,6 +44,19 @@ The frame held. The crafter checked its paths and its patterns against the tree 
 
 Each survivor's mutant then went red against its new case. The mutant of the redraw also turned the refusal's case red.
 
+**Each case of `machine.test.ts` and each case of `machineDialog` and `capChanges` in `view.test.ts` went red under at least one mutant.** The batch logs above give a verdict for each mutant and do not name the cases. So the crafter ran a probe after phase 1 closed. It ran each of the 47 mutants of `shared/machine.ts`, `daemon/machine.ts` and `renderer/view.ts` alone over both files, with the verbose reporter, and listed the cases each mutant turned red. 26 of the 32 cases, the case `575aeac` added after phase 1 among them, went red under one mutant or more. Six went red under none, and five more mutants were run for them:
+
+| Case | The mutant that turned it red | What the mutant removes |
+|---|---|---|
+| `OWLERY_MACHINE` that holds an object without the free disk | `amount`'s check made `if (false)` | The check of each amount |
+| `OWLERY_MACHINE` that holds a number given as text | the same | The same |
+| `OWLERY_MACHINE` that holds text that is no JSON | `givenReading` returning a fixed reading for any text | Every refusal at once |
+| `OWLERY_MACHINE` that holds JSON that is no object | the same | The same |
+| `limits.json` that holds JSON that is no object | `LimitsStore` taking each value without `capRefusal` | The check of each stored value |
+| `limits.json` that holds text that is no JSON | `LimitsStore` taking `{ "agents": 3 }` where the text does not parse | The fallback to no cap |
+
+Two guards hold each of three cases, so no mutant of one guard alone turns them red. For `OWLERY_MACHINE` that holds text that is no JSON, these are the parse's `catch` and the checks of the fields. For `OWLERY_MACHINE` that holds JSON that is no object, they are the check of each amount and the check of the whole cores. For `limits.json` that holds text that is no JSON, they are the parse's `catch` and `capRefusal`. Those three cases pin the outcome and not one guard of it. The new case of a cap set to the value of its proposal (`575aeac`) went red under the mutant `isDefault: set === null || set === proposed`. Before that case existed, the same mutant survived.
+
 **A probe of the system reader, run once under Electron's Node on the owner's Mac without `OWLERY_MACHINE`**, read 38,654,705,664 bytes, 12 cores, 6 performance cores and the disk of the worktrees' folder, and its first read took 4.9 ms. One case of `machine.test.ts` runs the real `statfs`. No case runs the real `sysctl`, so this probe is its only run.
 
 **The *Phase boundary* set was 39 test files in one command, at `1e80e1e`, and passed: 37 files and 1,637 cases, with 2 files and 6 cases skipped.** The set holds the files the plan row names, the files the phase changed, the files that import a changed path or start the app built from one, and `themes.test.ts`, which reads every module of the renderer. No contribution guide names tree-wide test files, so `themes.test.ts` stands for them as the file that reads the directory of a changed path. Six of the files import `shared/protocol.ts` alone of the changed paths, and this phase added only types there. The set holds them all the same. The skipped cases should be those that run only where a variable asks for them: a real `claude` session or pane, the screenshots and the memory measurement. The crafter did not list them one by one.
