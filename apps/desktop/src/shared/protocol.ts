@@ -939,7 +939,7 @@ export type ClientMessage =
   | { type: "answerPermission"; requestId: number; workItemId: number; id: number; allow: boolean }
   // Asks for the cost ledger of one work item, archived or not: the entries of the stages that ended in it since its `createdAt`. The daemon answers with a `ledger`, and with an `error` for an id it lists no work item under, as a deleted work item's.
   | { type: "readLedger"; requestId: number; workItemId: number }
-  // Asks for what the committed records of one work item, archived or not, say for the back of its seal, read at its branch's head commit. The daemon answers with a `sealRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
+  // Asks for what the committed records of one work item, archived or not, say for the back of its seal, read at its branch's head commit, and at its worktree's `HEAD` for a work item with no branch yet. The daemon answers with a `sealRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, a work item with no branch among them, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
   | { type: "readSealRecords"; requestId: number; workItemId: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }

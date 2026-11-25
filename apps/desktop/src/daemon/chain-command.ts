@@ -142,7 +142,7 @@ interface Here {
 }
 
 /** Why the command refuses a worktree whose HEAD names no branch: a work item's branch is made at its first commit, from a read the daemon makes only while a window is connected. */
-export const NO_BRANCH_HERE = "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has.";
+const NO_BRANCH_HERE = "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has.";
 
 /**
  * Reads where the command is run: the worktree's top, the branch its HEAD

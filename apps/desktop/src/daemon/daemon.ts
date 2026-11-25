@@ -109,13 +109,13 @@ const STATE_TEXT_CHARS = 2000;
 const INTERRUPTED_TEXT = "The turn was interrupted, and the agent waits for what to do next.";
 
 /** Why a chain does not start on a work item with no branch yet, and why one stops where it meets one: a chain's records are committed on the work item's branch. */
-export const NO_BRANCH_FOR_CHAIN = "The work item has no branch yet. Owlery makes one at the first commit in its worktree, or when it is renamed.";
+const NO_BRANCH_FOR_CHAIN = "The work item has no branch yet. Owlery makes one at the first commit in its worktree, or when it is renamed.";
 
 /** Why a person's word, a reversal or an answer, is refused for a work item with no branch yet: it is committed on the work item's branch, and no routing names a directory of one. */
-export const NO_BRANCH_TO_WRITE = "Nothing was written: the work item has no branch yet.";
+const NO_BRANCH_TO_WRITE = "Nothing was written: the work item has no branch yet.";
 
 /** Why a rename of the branch is refused for a work item with no branch yet. */
-export const NO_BRANCH_TO_RENAME = "The work item has no branch yet, so there is none to rename.";
+const NO_BRANCH_TO_RENAME = "The work item has no branch yet, so there is none to rename.";
 
 /** The branch a delete of the work item removes: its branch where Owlery made it, and none where it has none or its branch is one Owlery did not make, which stays. */
 function removedBranch(item: Pick<StoredWorkItem, "branch" | "ownsBranch">): string | null {
@@ -2838,8 +2838,9 @@ export class Daemon {
    * (`worktrees.ts#whyNoCommit`), and the words of one worktree are read and
    * written one after another, in the order they came. It throws, with the
    * file as it stood and no commit, for a work item the daemon does not
-   * keep, for one with no branch yet (`NO_BRANCH_TO_WRITE`), for a worktree that is not on the work item's branch or has a
-   * rebase, a merge, a cherry-pick, a revert or a `git am` under way, for a
+   * keep, for one with no branch yet (`NO_BRANCH_TO_WRITE`), for a worktree
+   * that is not on the work item's branch or has a rebase, a merge, a
+   * cherry-pick, a revert or a `git am` under way, for a
    * worktree that holds no directory of the work item, and whatever the
    * change or the writer throws. A word written into a worktree in the
    * middle of a rebase would be lost where the rebase is aborted, and would

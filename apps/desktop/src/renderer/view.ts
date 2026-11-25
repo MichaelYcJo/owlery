@@ -108,7 +108,7 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
 }
 
 /** What the place of a work item's branch says, and a line's last fact, where the work item has no branch yet. */
-export const NO_BRANCH = "No branch yet";
+const NO_BRANCH = "No branch yet";
 
 /** What the place of a work item's branch shows, in a line's preview and a view's head: the branch's name, or `NO_BRANCH` where it has none, which `none` says is drawn in the sans and not as a name. */
 export function branchPlace(branch: string | null): { text: string; none: boolean } {
@@ -1128,7 +1128,7 @@ export function deleteSays(loss: WorkItemLoss | null, workItem?: Pick<WorkItem, 
 }
 
 /** The work item's branch where a delete leaves it, since Owlery did not make it, or null where the work item has none or Owlery made it. A daemon of an earlier build sends no `ownsBranch`, and made every work item's branch. */
-export function keptBranch(workItem: Pick<WorkItem, "branch" | "ownsBranch">): string | null {
+function keptBranch(workItem: Pick<WorkItem, "branch" | "ownsBranch">): string | null {
   return workItem.ownsBranch === false ? workItem.branch : null;
 }
 
@@ -2307,8 +2307,8 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 
 /**
  * A work item's menu, in its order: Rename; "Open in", whose submenu lists
- * Finder and each installed editor and terminal; Copy path and Copy branch
- * name; "Account…", after Rename, where `accounts` says the window offers a
+ * Finder and each installed editor and terminal; Copy path, and Copy
+ * branch name where the work item has a branch; "Account…", after Rename, where `accounts` says the window offers a
  * choice of account (`offersAccounts`); Pin or Unpin, and Mute notifications or Unmute notifications; "Move
  * to" for each of `groups`, the groups of its repository, but the one it
  * stands in, and "Move out of" that one; Archive and Delete. The menu of an

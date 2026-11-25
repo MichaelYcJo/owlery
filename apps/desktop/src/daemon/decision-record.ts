@@ -155,8 +155,8 @@ export function declaredBranch(text: string): string | null {
  * where the worktree holds no records root, and none where `branch` is null,
  * for a work item with no branch yet: `declaredBranch` gives null for a
  * routing it refuses, and such a routing is no work item's. It reads the
- * working tree, committed or not. A `routing.md` that is a link, that is no plain file, or
- * that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
+ * working tree, committed or not. A `routing.md` that is a link, that is no
+ * plain file, or that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
  * the check reads it: the daemon reads each one in its pass, from a checkout
  * it did not write.
  */
