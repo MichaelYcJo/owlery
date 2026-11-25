@@ -38,6 +38,11 @@ The fix reads the count before the session is listed. It changes only the compar
     if (full) {
 ```
 
+```seal
+verdict: fixed 092e4a7e
+answer: Applied the paste-ready fix: `beginHeadless` reads the count before it lists the session. A new case in the caps group of `daemon.test.ts` sets the cap to 2, opens one Claude Code pane and asks once, and reads the session as working with no `queuedAt`. It was red before the fix, on "expected 'queued' to be 'working'". A mutant that counts the session itself (`agentsRunning() + 1 >= cap`) turns it red again.
+```
+
 ### 2. An archive, a delete or a removal starts a queued session of the very work item it is ending, and writes its entry in the ledger
 
 ```seal
@@ -61,6 +66,11 @@ The fix stops the queued sessions first, so they leave the queue before any plac
     const stops = ordered.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
 ```
 
+```seal
+verdict: fixed 092e4a7e
+answer: Applied the paste-ready fix: `endSessions` stops the queued sessions before the working ones, and its docstring says so. A new case sets the cap to 1, asks `First?` and `Second?` in one work item and archives both. It was red before the fix, on two adapter starts against one. It now reads one start and one ledger entry. A mutant without the sort and one that stops the working sessions first each turn it red.
+```
+
 ### 3. The pull request carries no screenshot of the Machine dialog in Register, which draws its reading line in another face
 
 ```seal
@@ -78,6 +88,11 @@ The fix runs the screenshot run once more for Register and commits its two Machi
 ```text
 seal/threads/1795559736-caps-on-worktrees-and-agents/screenshots/register-dark-machine.png
 seal/threads/1795559736-caps-on-worktrees-and-agents/screenshots/register-light-machine.png
+```
+
+```seal
+verdict: fixed d45f29b1
+answer: Ran `OWLERY_SCREENSHOT_THEMES=register OWLERY_BACKGROUND=1 pnpm run screenshots` once, alone, after the fix commits, and committed `register-dark-machine.png` and `register-light-machine.png` beside the four Night watch files. No other view the work changed is drawn differently by Register: the inbox line's second row and the status line take no `--font-fact`. The row at `gaps.md:13` now ends with the word `closed`.
 ```
 
 ### 4. The screenshot run gains the Machine dialog as a view, and neither edition of `docs/design.md` adds it to the list of views
@@ -100,6 +115,11 @@ docs/design.md:502
 docs/design.ko.md:502
   from: 저장소 설정, Accounts 대화 상자입니다.
   to:   저장소 설정, Accounts 대화 상자, Machine 대화 상자입니다.
+```
+
+```seal
+verdict: fixed 91c2fcb7
+answer: Both editions' list of views now ends with the Machine dialog, in the words the finding gives. The same commit writes the *Components and their states* rows of the Machine dialog, of the creation form's warning and of the stage side by side, in both editions, as the orchestrator's judgment of 2026-11-25 asks. `apps/desktop/test/screenshots.ts` needed no change.
 ```
 
 ### 5. The view's foot says a running chain waits for the machine while only a session a person asked for waits
@@ -130,6 +150,11 @@ export function stageAhead(workItem: WorkItem, machine: Machine | null): number 
   sealSays.textContent = chainSays(workItem, stageAhead(workItem, held.machine));
 ```
 
+```seal
+verdict: fixed 7f247d22
+answer: Added `stageAhead` to `view.ts`, which counts the sessions before the running chain's own stage session, and the view's foot draws `chainSays` from it. `chainSays`'s docstring and the case's name now say the foot keeps the stage's sentence while only an asked session waits. The case was red before the fix (`stageAhead is not a function`). A mutant that counts any queued session and one that reads a chain in any state each turn it red.
+```
+
 ### 6. The daemon never forgets an agent that ended, though the store's docstring and the phase record say it does
 
 ```seal
@@ -154,6 +179,12 @@ The fix forgets, at each reading, every name the reading did not find living. It
     if (agents.size === 0) return;
 ```
 
+```seal
+verdict: fixed d331a5fb
+location: `apps/desktop/test/daemon.test.ts`
+answer: Replaced `forget` with `keepLiving`. `measureAgents` calls it before its early return, so the last agent is forgotten once none lives. The store's docstring and the daemon's say so, and the case at `machine.test.ts:251` reads it. The fix also added a case in `daemon.test.ts`, a path the finding does not name. It spies on `keepLiving` and reads that the reading after a pane ends names no agent. A mutant that keeps every agent, one without the call and one with the call after the return each turn a case red.
+```
+
 ### 7. `gaps.md` says no other built-app file names the stand-in for the CLI, and the fix pass added one that does and queues a session
 
 ```seal
@@ -170,6 +201,11 @@ The fix rewrites the row's last two sentences in place. Its item stays open.
 No chain runs in that scene, and no shot opens the view of the work item that waits. `apps/desktop/test/machine-dialog.test.ts` also starts the app with that stand-in and queues an asked session, and reads it in the Machine dialog alone: no built-app case opens the view of a work item whose session waits, so neither the "Queued" line under "Ask" nor a chain's foot is drawn by any case, and no case runs a chain in the built app.
 ```
 
+```seal
+verdict: fixed cc7a2dbe
+answer: Rewrote the row's last two sentences in place with the finding's text. The item stays open.
+```
+
 ### 8. The changelog says a waiting session gets "its account's limit" when it starts, and the limit it gets is the session's time limit
 
 ```seal
@@ -182,6 +218,11 @@ Why it matters: the fragment becomes the release note a person reads. It says: "
 
 ```text
 A waiting session gets its time limit and its start time when it starts, so the time it waited counts toward no stage's time or cost.
+```
+
+```seal
+verdict: fixed cc7a2dbe
+answer: The sentence now reads "A waiting session gets its time limit and its start time when it starts, so the time it waited counts toward no stage's time or cost."
 ```
 
 ## Confirmations
