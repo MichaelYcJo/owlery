@@ -2497,14 +2497,14 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
 }
 
 /** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
-export const NEW_WORK_ITEM_SAYS = "Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.";
+export const NEW_WORK_ITEM_SAYS = "Create a work item: a new worktree in a repository, on a branch picked in the form or made later. The form can also register a repository alone.";
 /** What a pointer over the form's choice "Register the repository only" is told. */
 export const REGISTER_ONLY_SAYS = "Add the repository to the sidebar without creating a work item, a branch or a worktree.";
 
 /** The two icon buttons of a repository's row: the name of each, which a screen reader is told, and what a pointer over it is told that a press does. */
 export function rowButtons(repositoryName: string): Record<"add" | "menu", { name: string; says: string }> {
   return {
-    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new branch and worktree.` },
+    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new worktree.` },
     menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
   };
 }
@@ -2514,15 +2514,21 @@ export type RenamePlanned = { branch: string | null; blocked: string | null } | 
 
 /**
  * The rename dialog's choice "Rename the branch too", given the plan the
- * dialog holds for the name typed, or null until the daemon has answered:
- * whether it can be taken, and what the dialog says under it, the branch the
- * rename gives or why the branch keeps its name.
+ * dialog holds for the name typed, or null until the daemon has answered,
+ * and whether the work item has a branch: whether the person can take the
+ * choice, whether it stands taken and cannot be taken back (`makes`), and
+ * what the dialog says under it. For a work item with a branch it says the
+ * branch the rename gives, or why the branch keeps its name. For one with no
+ * branch yet, the rename makes its branch (./protocol, `renameWorkItem`), so
+ * the choice stands taken where the plan names the branch it makes, and it
+ * says why none can be made where the plan is blocked.
  */
-export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; says: string } {
-  if (plan === null) return { enabled: false, says: "" };
-  if ("error" in plan) return { enabled: false, says: plan.error };
-  if (plan.blocked !== null || plan.branch === null) return { enabled: false, says: plan.blocked ?? "" };
-  return { enabled: true, says: `The branch becomes ${plan.branch}.` };
+export function renameChoice(plan: RenamePlanned | null, branched: boolean): { enabled: boolean; makes: boolean; says: string } {
+  if (plan === null) return { enabled: false, makes: false, says: "" };
+  if ("error" in plan) return { enabled: false, makes: false, says: plan.error };
+  if (plan.blocked !== null || plan.branch === null) return { enabled: false, makes: false, says: plan.blocked ?? "" };
+  if (!branched) return { enabled: false, makes: true, says: `The rename makes the branch ${plan.branch}.` };
+  return { enabled: true, makes: false, says: `The branch becomes ${plan.branch}.` };
 }
 
 /**
@@ -2791,14 +2797,17 @@ export function notificationOpens(session: Pick<SessionInfo, "id" | "workItemId"
  * plan, or why it sends nothing. `name` is the name the window generated for
  * this opening of the form, and the title may be empty: the daemon then names
  * the work item by `name`. `base` is the menu's choice, and null where the
- * menu holds none or the request is a plan. An empty folder is refused here,
- * in the form's own words. The daemon refuses every folder that is not
- * absolute, since it would run git with one in the daemon's own folder.
+ * menu holds none or the request is a plan. `branch` is the branch picked to
+ * check out (`branchMenu`), and null where none is picked or the request is
+ * a plan: the daemon then makes the worktree with no branch. An empty folder
+ * is refused here, in the form's own words. The daemon refuses every folder
+ * that is not absolute, since it would run git with one in the daemon's own
+ * folder.
  */
-export function workItemFields(repo: string, title: string, name: string, base: string | null): { repo: string; title: string; name: string; base?: string } | { error: string } {
-  const fields = { repo: repo.trim(), title: title.trim(), name };
+export function workItemFields(repo: string, title: string, name: string, base: string | null, branch: string | null): { repo: string; title: string; name: string; base?: string; branch?: string } | { error: string } {
+  const fields = { repo: repo.trim(), title: title.trim(), name, ...(base === null ? {} : { base }), ...(branch === null ? {} : { branch }) };
   if (!fields.repo) return { error: "Choose the repository folder." };
-  return base === null ? fields : { ...fields, base };
+  return fields;
 }
 
 /** The folder the form registers a repository by, where "Register the repository only" is chosen: the repository field's text without the spaces around it. An empty one is refused here, in the words a creation's is. */
@@ -2807,8 +2816,14 @@ export function registerFields(repo: string): { folder: string } | { error: stri
   return folder ? { folder } : { error: "Choose the repository folder." };
 }
 
-/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, or the error it refused the plan with. */
-export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
+/** A local branch a worktree of the repository has checked out, and that worktree's folder, as a `workItemPlan` names it. */
+export interface HeldBranch {
+  branch: string;
+  folder: string;
+}
+
+/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, and its `held` null where it sent none, as a daemon of an earlier build, which cuts the plan's branch at the creation; or the error it refused the plan with. */
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; held: HeldBranch[] | null; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
 
 /**
  * What the "New work item" form holds of its latest plan: the daemon's
@@ -2832,22 +2847,104 @@ function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
   return plan !== null && plan.repo === repo.trim() ? plan : null;
 }
 
+/** A part of the words in the form's place of the branch: a branch's name, `fact`, which the form sets in `--font-fact`, or words around one. */
+export interface PlanPart {
+  text: string;
+  fact: boolean;
+}
+
 /**
- * What the form shows under the name: the branch and the folder the work item
- * will get, and the setup its repository names, before the person creates
- * it: the copy where `.worktreeinclude` stands, and the command
- * `.worktreesetup` holds; and the warning of the room the worktree would
- * take, where the daemon sent its disk (`shared/machine.ts#planWarning`).
- * Where the daemon refused the plan, `failed`, its
- * message stands in the branch's place. Nothing where the form holds no
- * answer for the repository field's text.
+ * The local branch a creation checks out for a remote's branch the form
+ * offers, such as `release` for `origin/release`: the name after the
+ * remote's, which the plan does not name apart, so the first slash is read
+ * as the end of it.
  */
-export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; warning: string; failed: boolean } {
+function localOf(remoteBranch: string): string {
+  return remoteBranch.slice(remoteBranch.indexOf("/") + 1);
+}
+
+/**
+ * What the place of the branch says of a creation (`planLine`), where the
+ * plan names the branches worktrees hold, given the branch picked in the
+ * form's "Branch" menu, or "" for none: that the first commit or a rename
+ * makes the branch the plan names, that a local branch is checked out, and
+ * that a remote's branch is checked out as a local branch of its name that
+ * tracks it, or as the local branch of that name where one stands, as the
+ * daemon does (./protocol, `createWorkItem`).
+ */
+function branchParts(plan: { branch: string; localBases: string[] }, picked: string): PlanPart[] {
+  const words = (text: string): PlanPart => ({ text, fact: false });
+  const name = (text: string): PlanPart => ({ text, fact: true });
+  if (picked === "") return [words("No branch yet. The first commit or a rename makes "), name(plan.branch), words(".")];
+  if (plan.localBases.includes(picked)) return [words("Checks out "), name(picked), words(".")];
+  const local = localOf(picked);
+  if (plan.localBases.includes(local)) return [words("Checks out "), name(local), words(".")];
+  return [words("Checks out "), name(local), words(", tracking "), name(picked), words(".")];
+}
+
+/**
+ * What the form shows under the name: what the creation does of the branch,
+ * as `branchParts` says it for `picked`, the branch the "Branch" menu holds
+ * or "" for none, and the folder the work item will get, and the setup its
+ * repository names, before the person creates it: the copy where
+ * `.worktreeinclude` stands, and the command `.worktreesetup` holds; and the
+ * warning of the room the worktree would take, where the daemon sent its
+ * disk (`shared/machine.ts#planWarning`). Where the plan names no held
+ * branches, as a daemon of an earlier build's, which cuts the plan's branch
+ * at the creation, the place shows that branch's name alone. Where the
+ * daemon refused the plan, `failed`, its message stands in the branch's
+ * place. Nothing where the form holds no answer for the repository field's
+ * text.
+ */
+export function planLine(plan: FormPlan | null, repo: string, picked: string): { branch: PlanPart[]; worktree: string; setup: string; warning: string; failed: boolean } {
   const shown = planOf(plan, repo);
-  if (shown === null) return { branch: "", worktree: "", setup: "", warning: "", failed: false };
-  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", warning: "", failed: true };
+  if (shown === null) return { branch: [], worktree: "", setup: "", warning: "", failed: false };
+  if ("error" in shown) return { branch: [{ text: shown.error, fact: false }], worktree: "", setup: "", warning: "", failed: true };
   const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
-  return { branch: shown.branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
+  const branch = shown.held === null ? [{ text: shown.branch, fact: true }] : branchParts(shown, picked);
+  return { branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
+}
+
+/** A branch the person picked in the form's "Branch" menu, and the repository field's text it was picked under. */
+export interface BranchChoice {
+  repo: string;
+  branch: string;
+}
+
+/** An option of the form's "Branch" menu: the branch, the words it shows, and whether it cannot be picked, as a branch a worktree has checked out. */
+export interface BranchOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+
+/**
+ * The form's "Branch" menu, under "Starts from": whether it is `shown`, the
+ * `local` branches and the `remote` ones, each as an option, and the `value`
+ * picked, "" for "No branch yet", which stands first and is chosen when the
+ * form opens. A branch a worktree has checked out, the main checkout among
+ * them, cannot be picked, and its label ends in that worktree's folder; so
+ * does a remote's branch whose local branch of its name is held, which the
+ * daemon would check out. The value is the person's choice while the
+ * repository field's text is the one it was made under and the menu offers
+ * it, and otherwise "". The menu is hidden where the plan names no held
+ * branches, as a daemon of an earlier build's, which picks no branch, and
+ * holds nothing where the form holds no answer for the field's text or the
+ * daemon refused the plan.
+ */
+export function branchMenu(plan: FormPlan | null, choice: BranchChoice | null, repo: string): { shown: boolean; local: BranchOption[]; remote: BranchOption[]; value: string } {
+  const shown = planOf(plan, repo);
+  if (shown === null || "error" in shown) return { shown: true, local: [], remote: [], value: "" };
+  if (shown.held === null) return { shown: false, local: [], remote: [], value: "" };
+  const held = shown.held;
+  const option = (value: string, local: string): BranchOption => {
+    const holder = held.find(({ branch }) => branch === local);
+    return holder === undefined ? { value, label: value, disabled: false } : { value, label: `${value}, checked out in ${holder.folder}`, disabled: true };
+  };
+  const local = shown.localBases.map((branch) => option(branch, branch));
+  const remote = shown.remoteBases.map((branch) => option(branch, localOf(branch)));
+  const kept = choice !== null && choice.repo === shown.repo && [...local, ...remote].some((offered) => offered.value === choice.branch && !offered.disabled) ? choice.branch : "";
+  return { shown: true, local, remote, value: kept };
 }
 
 /** What the form says where Create is pressed before it shows the plan of the repository field's text. */

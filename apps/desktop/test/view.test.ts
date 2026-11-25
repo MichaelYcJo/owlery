@@ -27,6 +27,7 @@ import {
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
+  branchMenu,
   baseSays,
   bellSays,
   cardStaysAt,
@@ -692,10 +693,10 @@ describe("submenuPlace", () => {
   });
 
   it("says of the button at the sidebar's top, of a repository's two buttons and of the form's choice what each does, and tells registering a repository from creating a work item", () => {
-    expect(NEW_WORK_ITEM_SAYS).toBe("Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.");
+    expect(NEW_WORK_ITEM_SAYS).toBe("Create a work item: a new worktree in a repository, on a branch picked in the form or made later. The form can also register a repository alone.");
     expect(REGISTER_ONLY_SAYS).toBe("Add the repository to the sidebar without creating a work item, a branch or a worktree.");
     expect(rowButtons("the project")).toEqual({
-      add: { name: "New work item in the project", says: "Create a work item in the project: a new branch and worktree." },
+      add: { name: "New work item in the project", says: "Create a work item in the project: a new worktree." },
       menu: { name: "Menu of the project", says: "Open the menu of the project: its settings, its icon, hiding it and removing it." },
     });
   });
@@ -930,7 +931,7 @@ describe("archivedHead", () => {
 });
 
 describe("settingsBases", () => {
-  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false, disk: null };
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], held: [], defaultBase: "develop", setupCommand: null, includes: false, disk: null };
 
   it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
     expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
@@ -2031,17 +2032,24 @@ describe("setupSection", () => {
 
 describe("renameChoice", () => {
   it("enables the choice to rename the branch too where the plan names a branch and nothing stands in the way, and says the branch", () => {
-    expect(renameChoice({ branch: "owlery/second-name", blocked: null })).toEqual({ enabled: true, says: "The branch becomes owlery/second-name." });
+    expect(renameChoice({ branch: "owlery/second-name", blocked: null }, true)).toEqual({ enabled: true, makes: false, says: "The branch becomes owlery/second-name." });
   });
 
   it("disables the choice and says why, where the plan says the branch keeps its name, and where the daemon refused the plan", () => {
-    expect(renameChoice({ branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." })).toEqual({ enabled: false, says: "The branch is already owlery/first-name." });
-    expect(renameChoice({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." })).toEqual({ enabled: false, says: "The name leaves no letter or digit to name a branch by." });
-    expect(renameChoice({ error: "no work item 9" })).toEqual({ enabled: false, says: "no work item 9" });
+    expect(renameChoice({ branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." }, true)).toEqual({ enabled: false, makes: false, says: "The branch is already owlery/first-name." });
+    expect(renameChoice({ branch: null, blocked: "The name leaves no letter or digit to name a branch by." }, true)).toEqual({ enabled: false, makes: false, says: "The name leaves no letter or digit to name a branch by." });
+    expect(renameChoice({ error: "no work item 9" }, true)).toEqual({ enabled: false, makes: false, says: "no work item 9" });
+  });
+
+  it("says for a work item with no branch yet that the rename makes the branch, with the choice taken and not to be taken back, and says why where none can be made now", () => {
+    expect(renameChoice({ branch: "owlery/fix-the-login-bug", blocked: null }, false)).toEqual({ enabled: false, makes: true, says: "The rename makes the branch owlery/fix-the-login-bug." });
+    expect(renameChoice({ branch: "owlery/fix-the-login-bug", blocked: "The branch cannot be made while a merge is under way in the worktree." }, false)).toEqual({ enabled: false, makes: false, says: "The branch cannot be made while a merge is under way in the worktree." });
+    expect(renameChoice({ error: "no work item 9" }, false)).toEqual({ enabled: false, makes: false, says: "no work item 9" });
   });
 
   it("disables the choice and says nothing until the daemon has answered", () => {
-    expect(renameChoice(null)).toEqual({ enabled: false, says: "" });
+    expect(renameChoice(null, true)).toEqual({ enabled: false, makes: false, says: "" });
+    expect(renameChoice(null, false)).toEqual({ enabled: false, makes: false, says: "" });
   });
 });
 
@@ -2842,19 +2850,24 @@ describe("notificationOpens", () => {
 
 describe("workItemFields", () => {
   it("gives the folder and the title without the spaces around them, with the generated name and the chosen base", () => {
-    expect(workItemFields("  /r/project ", " Fix the login bug  ", "amber-heron", "origin/main")).toEqual({ repo: "/r/project", title: "Fix the login bug", name: "amber-heron", base: "origin/main" });
+    expect(workItemFields("  /r/project ", " Fix the login bug  ", "amber-heron", "origin/main", null)).toEqual({ repo: "/r/project", title: "Fix the login bug", name: "amber-heron", base: "origin/main" });
   });
 
   it("refuses an empty folder, so nothing is sent that the daemon would run in its own folder", () => {
-    expect(workItemFields("   ", "Fix the login bug", "amber-heron", "main")).toEqual({ error: "Choose the repository folder." });
+    expect(workItemFields("   ", "Fix the login bug", "amber-heron", "main", "feature")).toEqual({ error: "Choose the repository folder." });
   });
 
   it("gives the fields of a creation for an empty name, which the daemon names by the generated name", () => {
-    expect(workItemFields("/r/project", " ", "amber-heron", "main")).toEqual({ repo: "/r/project", title: "", name: "amber-heron", base: "main" });
+    expect(workItemFields("/r/project", " ", "amber-heron", "main", null)).toEqual({ repo: "/r/project", title: "", name: "amber-heron", base: "main" });
   });
 
   it("gives no base where none is chosen, so the daemon starts the work item from the default base", () => {
-    expect(workItemFields("/r/project", "", "amber-heron", null)).toEqual({ repo: "/r/project", title: "", name: "amber-heron" });
+    expect(workItemFields("/r/project", "", "amber-heron", null, null)).toEqual({ repo: "/r/project", title: "", name: "amber-heron" });
+  });
+
+  it("gives the branch picked to check out, and none where no branch is picked, so the daemon makes the worktree with no branch", () => {
+    expect(workItemFields("/r/project", "", "amber-heron", "main", "feature")).toEqual({ repo: "/r/project", title: "", name: "amber-heron", base: "main", branch: "feature" });
+    expect(workItemFields("/r/project", "", "amber-heron", "main", null)).toEqual({ repo: "/r/project", title: "", name: "amber-heron", base: "main" });
   });
 });
 
@@ -2865,6 +2878,7 @@ const PLAN: FormPlan = {
   worktree: "/w/project/amber-heron",
   localBases: ["feature", "main", "owlery/fix-the-login-bug"],
   remoteBases: ["origin/main", "origin/release"],
+  held: [{ branch: "feature", folder: "/r/project" }],
   defaultBase: "origin/main",
   setupCommand: null,
   includes: false,
@@ -2888,25 +2902,46 @@ describe("planAnswer", () => {
 });
 
 describe("planLine", () => {
-  it("shows the branch and the folder the plan's answer gave, and no setup where the repository names none", () => {
-    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", warning: "", failed: false });
+  it("says, where no branch is picked, that the first commit or a rename makes the branch the plan names, with the name apart from the words, and shows the folder, and no setup where the repository names none", () => {
+    expect(planLine(PLAN, " /r/project ", "")).toEqual({
+      branch: [
+        { text: "No branch yet. The first commit or a rename makes ", fact: false },
+        { text: "owlery/amber-heron", fact: true },
+        { text: ".", fact: false },
+      ],
+      worktree: "/w/project/amber-heron",
+      setup: "",
+      warning: "",
+      failed: false,
+    });
+  });
+
+  it("says that a picked local branch is checked out, and a remote's branch as a local branch of its name that tracks it, or as the local branch of that name where one stands", () => {
+    const words = (picked: string) => planLine(PLAN, "/r/project", picked).branch.map(({ text, fact }) => (fact ? `[${text}]` : text)).join("");
+    expect(words("main")).toBe("Checks out [main].");
+    expect(words("origin/release")).toBe("Checks out [release], tracking [origin/release].");
+    expect(words("origin/main")).toBe("Checks out [main].");
+  });
+
+  it("shows the plan's branch as a name alone where the plan names no held branches, as a daemon of an earlier build's does, which cuts that branch at the creation", () => {
+    expect(planLine({ ...PLAN, held: null }, "/r/project", "").branch).toEqual([{ text: "owlery/amber-heron", fact: true }]);
   });
 
   it("names the setup the repository's two files name: the copy where .worktreeinclude stands, and the command .worktreesetup holds", () => {
-    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n", includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout. Then runs: pnpm install");
-    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project").setup).toBe("Then runs: pnpm install");
-    expect(planLine({ ...PLAN, includes: true }, "/r/project").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout.");
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n", includes: true }, "/r/project", "").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout. Then runs: pnpm install");
+    expect(planLine({ ...PLAN, setupCommand: "pnpm install\n" }, "/r/project", "").setup).toBe("Then runs: pnpm install");
+    expect(planLine({ ...PLAN, includes: true }, "/r/project", "").setup).toBe("Copies the ignored files .worktreeinclude names from the main checkout.");
   });
 
   it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", warning: "", failed: true });
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere", "")).toEqual({ branch: [{ text: "/r/nowhere is not inside a git repository", fact: false }], worktree: "", setup: "", warning: "", failed: true });
   });
 
   /** What a daemon that reads the machine sends with a plan: 25.1 GB free and nothing measured, one worktree standing and no cap. */
   const ROOM: PlanDisk = { freeBytes: 25_088_950_272, keepFreeBytes: 10_000_000_000, needsBytes: null, standing: 1, cap: null };
 
   it("warns where the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and not where it holds it (scenario 11)", () => {
-    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project", "").warning;
     expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB.");
     // Exactly the 10 GB stays free.
     expect(warning({ freeBytes: 10_440_000_512, needsBytes: 440_000_512 })).toBe("");
@@ -2916,19 +2951,57 @@ describe("planLine", () => {
   });
 
   it("warns where the worktrees that stand are at their cap or over it, after the disk's warning, and says nothing where the daemon sent no disk (scenario 12)", () => {
-    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project", "").warning;
     expect(warning({ standing: 2, cap: 2 })).toBe("This is worktree 3 of a cap of 2.");
     expect(warning({ standing: 4, cap: 2 })).toBe("This is worktree 5 of a cap of 2.");
     expect(warning({ standing: 1, cap: 2 })).toBe("");
     expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512, standing: 2, cap: 2 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB. This is worktree 3 of a cap of 2.");
-    expect(planLine({ ...PLAN, disk: null }, "/r/project").warning).toBe("");
+    expect(planLine({ ...PLAN, disk: null }, "/r/project", "").warning).toBe("");
   });
 
   it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
-    const nothing = { branch: "", worktree: "", setup: "", warning: "", failed: false };
-    expect(planLine(null, "/r/project")).toEqual(nothing);
-    expect(planLine(PLAN, "/r/other")).toEqual(nothing);
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);
+    const nothing = { branch: [], worktree: "", setup: "", warning: "", failed: false };
+    expect(planLine(null, "/r/project", "")).toEqual(nothing);
+    expect(planLine(PLAN, "/r/other", "")).toEqual(nothing);
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project", "")).toEqual(nothing);
+  });
+});
+
+describe("branchMenu", () => {
+  it("holds each local branch and each remote's branch, a branch a worktree has checked out disabled with that worktree's folder, and a remote's branch whose local branch is checked out disabled the same way, with no branch chosen", () => {
+    const held = { ...PLAN, held: [...(PLAN as { held: { branch: string; folder: string }[] }).held, { branch: "main", folder: "/w/project/other" }] };
+    expect(branchMenu(held, null, "/r/project")).toEqual({
+      shown: true,
+      local: [
+        { value: "feature", label: "feature, checked out in /r/project", disabled: true },
+        { value: "main", label: "main, checked out in /w/project/other", disabled: true },
+        { value: "owlery/fix-the-login-bug", label: "owlery/fix-the-login-bug", disabled: false },
+      ],
+      remote: [
+        { value: "origin/main", label: "origin/main, checked out in /w/project/other", disabled: true },
+        { value: "origin/release", label: "origin/release", disabled: false },
+      ],
+      value: "",
+    });
+  });
+
+  it("keeps the person's choice while the repository's text is the same and the menu offers it, and goes back to no branch otherwise", () => {
+    expect(branchMenu(PLAN, { repo: "/r/project", branch: "main" }, "/r/project ").value).toBe("main");
+    expect(branchMenu(PLAN, { repo: "/r/project", branch: "origin/release" }, "/r/project").value).toBe("origin/release");
+    expect(branchMenu(PLAN, { repo: "/r/project", branch: "feature" }, "/r/project").value).toBe("");
+    expect(branchMenu(PLAN, { repo: "/r/other", branch: "main" }, "/r/project").value).toBe("");
+    expect(branchMenu(PLAN, { repo: "/r/project", branch: "gone" }, "/r/project").value).toBe("");
+  });
+
+  it("is hidden, and holds nothing, where the plan names no held branches, as a daemon of an earlier build's, which cuts a branch at the creation", () => {
+    expect(branchMenu({ ...PLAN, held: null }, { repo: "/r/project", branch: "main" }, "/r/project")).toEqual({ shown: false, local: [], remote: [], value: "" });
+  });
+
+  it("is shown and holds nothing where the form holds no answer for the repository's text, or the daemon refused the plan", () => {
+    const empty = { shown: true, local: [], remote: [], value: "" };
+    expect(branchMenu(null, null, "/r/project")).toEqual(empty);
+    expect(branchMenu(PLAN, { repo: "/r/project", branch: "main" }, "/r/other")).toEqual(empty);
+    expect(branchMenu({ repo: "/r/project", error: "refused" }, null, "/r/project")).toEqual(empty);
   });
 });
 

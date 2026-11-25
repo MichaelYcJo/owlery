@@ -605,8 +605,10 @@
       #pane-menu .keys { color: var(--ink-faint); }
       #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
-      #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
-      #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
+      /* What the creation does of the branch, in words, with each branch's name in the face of a fact. */
+      #work-item-branch { color: var(--ink); }
+      #work-item-branch .fact { font-family: var(--font-fact); }
+      #work-item-plan.failed #work-item-branch { color: var(--state-failed); }
       #work-item-worktree { color: var(--ink-faint); }
       /* The setup the repository names: its command is plain text, with its line breaks kept. */
       #work-item-setup { color: var(--ink-muted); white-space: pre-wrap; }
@@ -831,6 +833,13 @@
           </span>
         </label>
         <p id="work-item-base-state" aria-live="polite"></p>
+        <!-- Hidden where the daemon's plan names no held branches, as a daemon of an earlier build's, which cuts a branch at the creation. -->
+        <label id="work-item-branch-field">
+          Branch
+          <span class="row">
+            <select id="work-item-branch-menu" disabled></select>
+          </span>
+        </label>
         <label>
           Open
           <span class="row">
