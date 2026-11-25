@@ -53,7 +53,8 @@ describe("drawHold", () => {
     expect(drawn).toEqual([]);
     later.run();
     expect(drawn).toEqual(["lists"]);
-    // A second release, with nothing kept, schedules nothing.
+    // A press and its release with no draw asked for between them schedule nothing.
+    hold.press();
     hold.release();
     expect(later.count()).toBe(0);
   });
