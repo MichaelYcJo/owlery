@@ -2461,6 +2461,8 @@ describe("stageOf", () => {
     expect(stageOf(six, [2, 1], true, 2)).toEqual({ front: 2, shown: [1, 2] });
     // A cap of 1 shows the pane in front alone, as where "Side by side" is not pressed.
     expect(stageOf(six, [2, 1], true, 1)).toEqual({ front: 2, shown: [2] });
+    // Pane 9, in front, closed: the pane in front is the live one with the highest id of the first two of the stage order.
+    expect(stageOf(six, [9, 2, 1, 3, 4], true, 2)).toEqual({ front: 2, shown: [1, 2] });
   });
 });
 

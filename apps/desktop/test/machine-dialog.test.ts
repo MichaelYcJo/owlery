@@ -191,7 +191,7 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
       return { tiles: document.getElementById("stage").dataset.tiles, columns: new Set(boxes.map((box) => Math.round(box.left))).size, rows: new Set(boxes.map((box) => Math.round(box.top))).size, title: document.getElementById("side-by-side").title };
     })()`);
 
-  it("lays out six panes in three columns where the cap on panes side by side is 6, and two where it is 2, the rest staying tabs (scenario 14)", async () => {
+  it("lays out six panes in three columns where the cap on panes side by side is 6, five with the last spanning two columns where it is 5, and two where it is 2, the rest staying tabs (scenario 14)", async () => {
     await capPanes(6);
     // The sidebar is drawn again at each message, so the click is made again until the view shows.
     const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`;
@@ -213,6 +213,12 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
     await app.click("#side-by-side");
     await app.until(`document.getElementById("stage").dataset.tiles === "6"`, "six panes side by side");
     expect(await stage()).toEqual({ tiles: "6", columns: 3, rows: 2, title: "Show up to 6 of this work item's panes at once" });
+    // Five tiles: three above, and two under them, the last spanning the two columns left of its row.
+    await capPanes(5);
+    await app.until(`document.getElementById("stage").dataset.tiles === "5"`, "five panes side by side");
+    expect(await stage()).toEqual({ tiles: "5", columns: 3, rows: 2, title: "Show up to 5 of this work item's panes at once" });
+    const widths = await app.evaluate<number[]>(`[...document.querySelectorAll("#stage .pane:not([hidden])")].sort((a, b) => Number(a.dataset.tile) - Number(b.dataset.tile)).map((tile) => Math.round(tile.getBoundingClientRect().width))`);
+    expect(widths[4]! / widths[0]!).toBeGreaterThan(1.9);
     await capPanes(2);
     await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
     expect(await stage()).toEqual({ tiles: "2", columns: 2, rows: 1, title: "Show up to 2 of this work item's panes at once" });
