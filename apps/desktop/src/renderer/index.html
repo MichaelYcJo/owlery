@@ -265,9 +265,9 @@
       /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
       .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
       .group-head .word { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* The foot: the status line, the control that chooses when the Mac is kept awake, the control that chooses the theme and the control that chooses the appearance. Each control is its icon with the choices laid over it as the filter's are. */
-      #sidebar-foot { flex: none; display: flex; align-items: center; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
-      #status { flex: 1; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      /* The foot: the status line on a row of its own, the foot's whole width, and under it the buttons of the accounts and of the machine, the control that chooses when the Mac is kept awake, the control that chooses the theme and the control that chooses the appearance, at the row's end. Each control is its icon with the choices laid over it as the filter's are. */
+      #sidebar-foot { flex: none; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--space-3); min-height: var(--sidebar-line); padding: var(--space-3) 10px 10px 18px; }
+      #status { flex: 1 0 100%; min-width: 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* What the window has to tell: that it is reconnecting, or a request the daemon refused. */
       #status.notice { color: var(--state-failed); }
       #status:empty::before { content: "\00a0"; }
@@ -323,13 +323,18 @@
       /* The sign-in pane takes the width of eighty columns, so the dialog that holds it is wider than the others. */
       #accounts-dialog { width: min(760px, 92vw); }
       #accounts-terminal { padding: var(--space-3); border-radius: var(--radius-card); background: var(--terminal-ground); overflow: hidden; }
-      /* The Machine dialog: what the daemon read, as a fact, and for each cap its name, its field with "Use the default" beside it, and the default's sentence under them. */
+      /* The Machine dialog: what the daemon read, as a fact, and for each cap its name, its field with "Use the default" beside it, and the default's sentence under them. Under the agent row's sentence, where a session waits, the label "Waiting for the machine" and under it each session that waits: its work item's name, and on the line under it, in the secondary colour, what it waits to run. */
       #machine-dialog { width: min(560px, 92vw); }
       #machine-reading { font-family: var(--font-fact); }
       #machine-caps .cap { margin-bottom: var(--space-5); }
       #machine-caps label { margin-bottom: 0; }
       #machine-caps input { flex: none; width: 8ch; }
       #machine-caps .cap-says { margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-muted); }
+      #machine-caps .cap-queue-head { margin: var(--space-4) 0 var(--space-2); }
+      #machine-caps .cap-queue { margin-bottom: 0; }
+      #machine-caps .cap-queue li { display: block; min-height: 0; padding: var(--space-2) 0; }
+      #machine-caps .cap-queue li > span { display: block; }
+      #machine-caps .cap-queue .detail { color: var(--ink-muted); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }

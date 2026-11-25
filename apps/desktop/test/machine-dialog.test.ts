@@ -13,6 +13,8 @@ type Shown = { cap: string; label: string; value: string; says: string; offersDe
 const AGENTS_SAYS = "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet).";
 const WORKTREES_SAYS = "Nothing is proposed until a worktree is measured on this Mac.";
 const PANES_SAYS = "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB.";
+/** The longest status line the screenshot run draws: the agents against their cap, a session that waits, and the Mac kept awake. */
+const LONGEST_STATUS = "Daemon running, 4 agents of 4, 1 waiting, keeping the Mac awake";
 
 // One start of the app, in the background, with a user data folder of its own and the machine the harness gives every start in place of the one the suite runs on.
 describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built app", { timeout: 120_000 }, () => {
@@ -126,6 +128,27 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
     await app.click("#machine-cancel");
     await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
   });
+
+  it("gives the status line the foot's whole width, on a row above the foot's buttons, so its longest sentence reads on two lines at most", async () => {
+    // The sentence is put in the status line and taken out again within one script, so no message of the daemon draws between.
+    const foot = await app.evaluate<{ width: number; inside: number; lines: number; above: boolean }>(`(() => {
+      const foot = document.getElementById("sidebar-foot");
+      const status = document.getElementById("status");
+      const said = status.textContent;
+      status.textContent = ${JSON.stringify(LONGEST_STATUS)};
+      const style = getComputedStyle(foot);
+      const box = status.getBoundingClientRect();
+      const words = document.createRange();
+      words.selectNodeContents(status);
+      const lines = new Set([...words.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      const buttons = [...foot.querySelectorAll(".icon-button")].filter((button) => !button.hidden).map((button) => button.getBoundingClientRect().top);
+      status.textContent = said;
+      return { width: Math.round(box.width), inside: Math.round(foot.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)), lines, above: buttons.length > 0 && buttons.every((top) => top >= box.bottom) };
+    })()`);
+    expect(foot.width).toBe(foot.inside);
+    expect(foot.lines).toBeLessThanOrEqual(2);
+    expect(foot.above).toBe(true);
+  });
 });
 
 // A second start, on a disk nearly full: 10.2 GB free, and a work item whose worktree is measured at 440 MB in the run folder.
@@ -223,5 +246,86 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
     await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
     expect(await stage()).toEqual({ tiles: "2", columns: 2, rows: 1, title: "Show up to 2 of this work item's panes at once" });
     expect(await app.evaluate<number>(tabs)).toBe(6);
+  });
+});
+
+// A third start, whose login shell is the stand-in of the screenshot run, which names the stand-in for the CLI (fixtures/sample-pane.sh, fixtures/sample-cli.sh), so a session a person asks for runs no `claude` of the person's. The cap on agents is 1, set in the run folder before the start.
+describe.skipIf(process.platform !== "darwin")("the sessions that wait for the machine, in the Machine dialog of the built app", { timeout: 120_000 }, () => {
+  let app: BuiltApp;
+  let made: ReturnType<typeof temporaryRepository>;
+  /** The prompt the stand-in for the CLI holds: it asks the person to allow a command and waits, so its session works until the app stops. */
+  const HELD = "Run the tests of the redirect.";
+  /** The prompt asked second, whose session waits for the machine and never starts. */
+  const WAITS = "Which keys does the settings file hold?";
+  const TITLE = "Rename the settings file";
+
+  beforeAll(async () => {
+    buildApp();
+    made = temporaryRepository();
+    const worktree = join(made.root, "settings");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/settings", worktree);
+    const stored = { id: 1, title: TITLE, branch: "owlery/settings", worktree, createdAt: Date.now() - 60_000, baseCommit: null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null };
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60_000, groups: [], workItems: [stored] };
+    app = await BuiltApp.start(
+      { SHELL: join(__dirname, "fixtures", "sample-pane.sh"), OWLERY_WORKTREES: made.root },
+      {
+        writeRun: (runDir) => {
+          writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
+          writeFileSync(join(runDir, "limits.json"), JSON.stringify({ agents: 1 }));
+        },
+      },
+    );
+    await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
+  });
+
+  afterAll(async () => {
+    expect(await app?.stop()).toEqual([]);
+    made?.remove();
+  });
+
+  it("lists the sessions that wait under a label of their own, \"Waiting for the machine\", each with its work item's name and, on the line under it in the secondary colour, what it waits to run, and shows no label while none waits", async () => {
+    await app.click("#machine-button");
+    await app.until(`document.getElementById("machine-dialog").open && document.querySelector('#machine-caps [data-cap="agents"]')`, "the Machine dialog");
+    /** The queue's label, as the agent row draws it where it is shown, and each entry's two parts with their boxes and colours. */
+    const queue = (): Promise<{ label: string | null; entries: { name: string; detail: string; under: boolean; aligned: boolean; muted: boolean }[] }> =>
+      app.evaluate(`(() => {
+        const row = document.querySelector('#machine-caps [data-cap="agents"]');
+        const list = row.querySelector(".cap-queue");
+        const label = list?.previousElementSibling;
+        const shown = label && label.offsetParent !== null ? label.textContent : null;
+        const muted = getComputedStyle(row.querySelector(".cap-says")).color;
+        return {
+          label: shown,
+          entries: [...(list?.querySelectorAll("li") ?? [])].map((entry) => {
+            const name = entry.querySelector(".name");
+            const detail = entry.querySelector(".detail");
+            const a = name.getBoundingClientRect();
+            const b = detail.getBoundingClientRect();
+            const from = label ? Math.round(label.getBoundingClientRect().left) : -1;
+            return { name: name.textContent, detail: detail.textContent, under: b.top >= a.bottom, aligned: Math.round(a.left) === from && Math.round(b.left) === from, muted: getComputedStyle(detail).color === muted };
+          }),
+        };
+      })()`);
+    expect(await queue()).toEqual({ label: null, entries: [] });
+
+    const discovery = readDiscovery(join(app.userData, "run"));
+    if (!discovery) throw new Error("the daemon wrote no discovery file");
+    const other = new WebSocket(`ws://127.0.0.1:${String(discovery.port)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        other.once("open", () => resolve());
+        other.once("error", reject);
+      });
+      other.send(JSON.stringify({ type: "hello", token: discovery.token }));
+      other.send(JSON.stringify({ type: "ask", requestId: 1, workItemId: 1, prompt: HELD }));
+      await app.until(`document.getElementById("status")?.textContent.startsWith("Daemon running, 1 agent of 1")`, "the held session as the one agent");
+      other.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: 1, prompt: WAITS }));
+      await app.until(`document.querySelectorAll("#machine-caps .cap-queue li").length === 1`, "the session that waits, in the dialog");
+    } finally {
+      other.close();
+    }
+    expect(await queue()).toEqual({ label: "Waiting for the machine", entries: [{ name: TITLE, detail: `Asked: ${WAITS}`, under: true, aligned: true, muted: true }] });
+    await app.click("#machine-cancel");
+    await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
   });
 });

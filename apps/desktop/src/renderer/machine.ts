@@ -77,9 +77,10 @@ function capPart(cap: Cap): HTMLElement {
  * field from under them. A field the person typed in keeps what they typed,
  * and one they returned to the default shows the proposal. "Use the default"
  * is offered where the field would not follow the default after a Save.
- * Under the agent row stand the sessions that wait for the machine, in the
- * order they start, each by its work item's title and what it waits to
- * run, and nothing where none waits.
+ * Under the agent row stand the sessions that wait for the machine, under
+ * the label "Waiting for the machine", in the order they start, each by its
+ * work item's title and, on the line under it, what it waits to run. Where
+ * none waits, neither the label nor any session stands there.
  */
 export function showMachine(): void {
   const shown = machineDialog(held.machine);
@@ -101,9 +102,14 @@ export function showMachine(): void {
     if (says) says.textContent = row.says;
   }
   const agents = capsPlace.querySelector<HTMLElement>('[data-cap="agents"]');
+  // The label is made before the list, so it stands over it.
+  const head = agents?.querySelector<HTMLElement>(".cap-queue-head") ?? agents?.appendChild(Object.assign(document.createElement("p"), { id: "machine-queue-head", className: "cap-queue-head caption", textContent: "Waiting for the machine" }));
   const queue = agents?.querySelector<HTMLUListElement>(".cap-queue") ?? agents?.appendChild(Object.assign(document.createElement("ul"), { className: "cap-queue named" }));
+  queue?.setAttribute("aria-labelledby", "machine-queue-head");
+  const waiting = machineQueue(held.machine, held.headless, held.workItems);
+  if (head) head.hidden = waiting.length === 0;
   queue?.replaceChildren(
-    ...machineQueue(held.machine, held.headless, held.workItems).map(({ title, waits }) => {
+    ...waiting.map(({ title, waits }) => {
       const entry = document.createElement("li");
       const name = document.createElement("span");
       name.className = "name";
