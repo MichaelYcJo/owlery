@@ -165,6 +165,12 @@ describe("the role bundle", () => {
       // A fact a finding corrects is corrected wherever it is stated, and the close block says how the places were found.
       ["agents/crafter.md", "In a fix pass, a finding that corrects a fact, a statement of which things hold something, is corrected at every place that states that fact, and not at its `location:` lines alone."],
       ["agents/crafter.md", "Find those places two ways: by the whole read above, which is a closed set, and by `git grep` on the fact's words across the tree, which is a sample and is called one."],
+      // A crafter's fix pass corrects the frame's lines that state the fact, and puts in the close blocks what a hand-back would name, since nobody on the owl chain folds a fix pass's hand-back (round-1#2).
+      ["agents/crafter.md", "and in a fix pass one close block under each open finding and each line of the work item's records that states the fact a finding corrects, a line of the frame among them."],
+      ["agents/crafter.md", "You rewrite such a line to what HEAD gives, or remove it, and write no new account of what was built into it."],
+      ["agents/crafter.md", "Name each one that stands in a file you do not write, `routing.md` or a line of the frame your *Job* does not give you, in the hand-back with its coordinate and the fact HEAD gives, for the orchestrator to fold."],
+      ["agents/crafter.md", "In a fix pass, a place in a line of the frame is corrected too, since your *Job* gives you that line."],
+      ["agents/crafter.md", "In a fix pass, each item this rule has you name in the hand-back goes instead into the `answer:` of the close block of the finding the item concerns, and otherwise into the `answer:` of the last close block you append, since no party of the owl chain folds a fix pass's hand-back."],
       ["skills/implement/fix-pass.md", "Where the finding corrects a fact, the `answer:` also names the search the pass ran for the other places that state the fact, and each place beyond the finding's `location:` lines that the pass corrected, or says that the search found none."],
       ["skills/implement/fix-pass.md", "The search is the `git grep` on the fact's words that `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for, and the `answer:` calls it a sample."],
     ] as const)
@@ -198,7 +204,8 @@ describe("the role bundle", () => {
     for (const said of [
       "**A finding located in the work item's records alone counts toward none of the first four signals.**",
       "A finding is located in the records where every path its `location:` lines name stands in the work item's directory.",
-      "Such a finding holds no signal by its `reopens:` line or its `regression:` line, is not counted among the last round's open findings, and is not one of two findings at one location or on one rule of the frame two rounds in a row.",
+      "Such a finding holds no signal by its `reopens:` line or its `regression:` line, is counted neither among the last round's open findings nor among those of the round before it, and is not one of two findings at one location or on one rule of the frame two rounds in a row.",
+      "So the third signal compares the findings of the two rounds that are located outside the records.",
       "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
       "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
       "Where the daemon runs the chain, its ceiling of rounds bounds such findings as well.",

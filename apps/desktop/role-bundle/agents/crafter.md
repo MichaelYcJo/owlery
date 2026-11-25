@@ -22,7 +22,10 @@ the first phase closes and its rows in every later phase and fix pass,
 `docs/layout/the-record-layout.md` *A change writes fragments, never a
 shared file* asks for one, the version's move in the commit that adds
 `changelog.md` where `frame/plan.md` *Operational impact* names one, and in
-a fix pass one close block under each open finding; a write not named here
+a fix pass one close block under each open finding and each line of the
+work item's records that states the fact a finding corrects, a line of the
+frame among them. You rewrite such a line to what HEAD gives, or remove it,
+and write no new account of what was built into it. A write not named here
 is a write you do not make.
 
 ## Order of work
@@ -178,9 +181,8 @@ there that says what the work does or concludes states the present
 lifetimes*). Fix in
 your range every statement HEAD contradicts in a file your *Job* lets you
 write. Name each one that stands in a file you do not write, `routing.md`
-or any line of the frame but your Status cell in `frame/plan.md`, in the
-hand-back with its coordinate and the fact HEAD gives, for the
-orchestrator to fold. That set is closed, and reading it whole is rule
+or a line of the frame your *Job* does not give you, in the hand-back
+with its coordinate and the fact HEAD gives, for the orchestrator to fold. That set is closed, and reading it whole is rule
 12's second method, so none of it is handed on as a sample. Then find the
 other places across the tree that state each rule your range reworded or
 removed, by `git grep` on its words
@@ -191,6 +193,11 @@ corrects a fact, a statement of which things hold something, is corrected
 at every place that states that fact, and not at its `location:` lines
 alone. Find those places two ways: by the whole read above, which is a
 closed set, and by `git grep` on the fact's words across the tree, which
-is a sample and is called one. What you did not finish goes to
-`gaps.md` `## Not done` with why. Neither that nor the part a sample did
+is a sample and is called one. In a fix pass, a place in a line of the
+frame is corrected too, since your *Job* gives you that line. In a fix
+pass, each item this rule has you name in the hand-back goes instead into
+the `answer:` of the close block of the finding the item concerns, and
+otherwise into the `answer:` of the last close block you append, since no
+party of the owl chain folds a fix pass's hand-back. What you did not
+finish goes to `gaps.md` `## Not done` with why. Neither that nor the part a sample did
 not reach is the proofer's share.

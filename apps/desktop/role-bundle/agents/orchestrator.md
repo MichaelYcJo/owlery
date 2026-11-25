@@ -102,10 +102,12 @@ converging, and one of them is enough for `no`:
 **A finding located in the work item's records alone counts toward none of
 the first four signals.** A finding is located in the records where every
 path its `location:` lines name stands in the work item's directory. Such a
-finding holds no signal by its `reopens:` line or its `regression:` line, is
-not counted among the last round's open findings, and is not one of two
-findings at one location or on one rule of the frame two rounds in a row.
-The last signal, a finding closed `rejected` and raised again, holds for
+finding holds no signal by its `reopens:` line or its `regression:` line,
+is counted neither among the last round's open findings nor among those of
+the round before it, and is not one of two findings at one location or on
+one rule of the frame two rounds in a row. So the third signal compares the
+findings of the two rounds that are located outside the records. The last
+signal, a finding closed `rejected` and raised again, holds for
 every finding, wherever it is located. A finding in the records corrects
 text of the records, and the fix pass that closes it reads the work item's
 records whole and corrects the fact at every place that states it
