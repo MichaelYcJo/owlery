@@ -6,10 +6,11 @@
 // or against a run folder no daemon listens in. No case starts an agent.
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { routingText } from "../src/daemon/chain";
 import { type CommandEnd, RUN_REFUSED, USAGE, chainCommand, daemonEndedSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
 import { type HeavyRun, readHeavyRuns } from "../src/daemon/heavy-runs";
+import { MachineTurns } from "../src/daemon/machine-turns";
 import { MARKER } from "../src/daemon/records-place";
 import { TURN_SOCKET, TurnServer, takeTurn } from "../src/daemon/turn-socket";
 import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
@@ -154,22 +155,27 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     expect(gone).toMatchObject({ workItemId: item.id, name: "gone", exitCode: null, peakMemory: null });
   });
 
-  it("reads the load the daemon is given only while a heavy command holds or waits for a turn, every reading time apart, and starts no reading while none does", async () => {
+  it("reads the load the daemon is given only while a heavy command holds or waits for a turn, every reading time apart, and keeps no reading timer while none does", async () => {
     let reads = 0;
-    const stood = await standing(cleanups, ["Idle work"], { load: () => (reads++, 1), cores: 4, loadEveryMs: 20 });
-    const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-    await pause(200);
-    expect(reads).toBe(0);
-    const giver = stood.d.turnGiver();
-    const held = await giver.ask({ folder: "/elsewhere/held", name: "held", place: "build", alone: false }).turn;
-    const waiting = giver.ask({ folder: "/elsewhere/waiting", name: "waiting", place: "build", alone: false });
-    await pause(200);
-    expect(reads).toBeGreaterThan(4);
-    held?.end();
-    (await waiting.turn)?.end();
-    const after = reads;
-    await pause(200);
-    expect(reads).toBe(after);
+    const samples = vi.spyOn(MachineTurns.prototype, "sample");
+    try {
+      const stood = await standing(cleanups, ["Idle work"], { load: () => (reads++, 1), cores: 4, loadEveryMs: 20 });
+      const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      await pause(200);
+      expect([reads, samples.mock.calls.length]).toEqual([0, 0]);
+      const giver = stood.d.turnGiver();
+      const held = await giver.ask({ folder: "/elsewhere/held", name: "held", place: "build", alone: false }).turn;
+      const waiting = giver.ask({ folder: "/elsewhere/waiting", name: "waiting", place: "build", alone: false });
+      await pause(200);
+      expect(reads).toBeGreaterThan(4);
+      held?.end();
+      (await waiting.turn)?.end();
+      const after = [reads, samples.mock.calls.length];
+      await pause(200);
+      expect([reads, samples.mock.calls.length]).toEqual(after);
+    } finally {
+      samples.mockRestore();
+    }
   });
 
   it("runs a named command at once where no daemon answers, and says so in one sentence (scenario D)", async () => {
