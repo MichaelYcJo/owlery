@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
@@ -76,6 +76,7 @@ import { setupPaneCommand } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { BROAD_GATE_NAME, MachineTurns, NO_READING_LIMIT, type Turn } from "./machine-turns";
+import type { TurnGiver } from "./turn-socket";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -152,6 +153,15 @@ export const REFRESH_PROMPT = "Reply with the single word OK.";
 
 /** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
 export const HEADLESS_KEPT = 50;
+
+/** A folder's real path, or the path as given where it does not stand. */
+function realPathOf(folder: string): string {
+  try {
+    return realpathSync(folder);
+  } catch {
+    return folder;
+  }
+}
 
 const isIds = (value: unknown): value is number[] => Array.isArray(value) && value.every((id) => typeof id === "number");
 const isRunning = (value: unknown): value is Running => typeof value === "object" && value !== null && isIds((value as Running).panes) && isIds((value as Running).headless);
@@ -474,7 +484,8 @@ export class Daemon {
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
     // A change of the queue changes what a work item's `machineWait` says.
-    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now, changed: () => !this.closed && this.broadcastInbox() });
+    this.turns = new MachineTurns({ limit: NO_READING_LIMIT, now: options.now });
+    this.turns.watch(() => !this.closed && this.broadcastInbox());
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
     for (const held of this.store.workItems()) if (held.item.archivedAt !== null) this.readRecord(held);
     this.flushTimes();
@@ -2521,6 +2532,27 @@ export class Daemon {
   private version(): string {
     if (this.options.version === undefined) throw new Error("This build of Owlery names no version, so it cannot write the workflow of the pull request check.");
     return this.options.version;
+  }
+
+  /**
+   * What gives turns to the commands that ask on the turn socket
+   * (`turn-socket.ts`): the keeper, asked with the folder named as the work
+   * item whose worktree it is names it. git names a worktree's top by its
+   * real path, and the daemon names a work item's worktree as it was given,
+   * which may run through a link, so the work item finds the wait of its
+   * worktree (`workItemOf`) whichever name the command asked with.
+   */
+  turnGiver(): TurnGiver {
+    return {
+      ask: (ask) => this.turns.ask({ ...ask, folder: this.worktreeNamed(ask.folder) }),
+      watch: (watcher) => this.turns.watch(watcher),
+    };
+  }
+
+  /** The folder as the work item whose worktree it is names it, or as given where it is no work item's worktree. Two names are one folder where their real paths are one. */
+  private worktreeNamed(folder: string): string {
+    const real = realPathOf(folder);
+    return this.store.workItems().find(({ item }) => realPathOf(item.worktree) === real)?.item.worktree ?? folder;
   }
 
   /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */

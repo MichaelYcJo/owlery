@@ -1,35 +1,44 @@
 // The chain command: what a pane's session calls to run the owl chain on the
 // branch it built. It is Owlery's code, built from the daemon's own modules
-// into `dist/chain.js`, and it talks to no daemon: it reads the worktree it
-// is run in, says which stage the records owe (`chain.ts#stepOwed`), hands
-// the session that stage's prompt, and turns each role's answer into a
-// committed record through the module the daemon's chain writes its records
-// with (`stage-records.ts`). So the order stays code, a judging role writes
-// no record, and a gate is an exit code Owlery's code read, in a pane as in
-// the daemon's chain (docs/architecture.md, "Code runs the order, the
-// orchestrator judges").
+// into `dist/chain.js`: it reads the worktree it is run in, says which stage
+// the records owe (`chain.ts#stepOwed`), hands the session that stage's
+// prompt, and turns each role's answer into a committed record through the
+// module the daemon's chain writes its records with (`stage-records.ts`). So
+// the order stays code, a judging role writes no record, and a gate is an
+// exit code Owlery's code read, in a pane as in the daemon's chain
+// (docs/architecture.md, "Code runs the order, the orchestrator judges"). It
+// asks the daemon for one thing, a turn on the machine (`turn-socket.ts`),
+// before `gate` runs the broad gate and before `run` runs a heavy command,
+// and runs the command at once where no daemon answers.
 //
-// Each subcommand but `ask` prints one JSON object on its first line and
-// exits with 0, or writes a sentence to its error output and exits with 1,
-// with nothing committed. The session runs each role as a subagent of the
-// bundle and judges what the daemon asks its orchestrator agent: this command
-// starts no session and judges nothing. `ask` is the subcommand the bundle's
-// hook on `AskUserQuestion` runs (role-bundle/hooks/hooks.json): it prints no
-// JSON, and its exit code tells Claude Code whether the call goes through.
-import { execFile } from "node:child_process";
+// Each subcommand but `ask` and `run` prints one JSON object on its first
+// line and exits with 0, or writes a sentence to its error output and exits
+// with 1, with nothing committed. The session runs each role as a subagent of
+// the bundle and judges what the daemon asks its orchestrator agent: this
+// command starts no session and judges nothing. `ask` is the subcommand the
+// bundle's hook on `AskUserQuestion` runs (role-bundle/hooks/hooks.json): it
+// prints no JSON, and its exit code tells Claude Code whether the call goes
+// through. `run` is the runner of heavy commands, which the launcher
+// `OWLERY_RUN` names starts (`pane-chain.ts#writeRunner`): it prints no JSON,
+// and exits with the command's exit code.
+import { execFile, spawn } from "node:child_process";
+import { constants } from "node:os";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RoleStage } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import { agentOf, rulesFileName, rulesText } from "./adapters/claude-roles";
-import { BASE_RECORDED, type ChainBase, ChainStop, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, gateNotRunSays, inFolder, promptText, recordedBase, stageName, standingOf, stepOwed, stoppedSays, whyNoBase } from "./chain";
+import { BASE_RECORDED, type ChainBase, ChainStop, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, gateNotRunSays, inFolder, promptText, recordedBase, roundNumber, stageName, standingOf, stepOwed, stoppedSays, whyNoBase } from "./chain";
 import { ROUTING_FILE, routingAnswer, workItemDirectories } from "./decision-record";
 import { GATE_LIMIT_MS, gateEnvironment, startGate } from "./gate";
 import { backSection, bodyRecords, sealSection } from "./github";
-import { ROUND_BASE, THE_SESSION, isSessionId } from "./record-blocks";
-import { readRecordsPlace, rootOf } from "./records-place";
+import { shellQuote } from "./hooks";
+import { BROAD_GATE_NAME, type TurnPlace } from "./machine-turns";
+import { ROUND_BASE, THE_SESSION, isSessionId, listed } from "./record-blocks";
+import { readHeavyCommands, readRecordsPlace, rootOf } from "./records-place";
 import { repositoryFileText } from "./repository-file";
 import { sealRecords } from "./seal-back-records";
+import { TURN_SOCKET, type TurnRequest, takeTurn } from "./turn-socket";
 import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
 import { writeWholeFile } from "./whole-file";
 import { baseRef, commitNamed, newCommits, sharedCommit, uncommittedPaths, whyNoCommit, worktreeHead } from "./worktrees";
@@ -47,6 +56,8 @@ export interface CommandContext {
   gateLimitMs?: number;
   /** What the command's input holds, to its end. `ask` alone reads it, and a run given none reads an empty input. */
   input?: () => Promise<string>;
+  /** Writes one line to the command's error output at once, while the command still runs, as a wait for the machine is said. Where it is absent, each line opens the `err` of the run's end. */
+  say?: (line: string) => void;
 }
 
 /** How a run of the command ended: its exit code, and what it prints on each stream. */
@@ -57,7 +68,7 @@ export interface CommandEnd {
 }
 
 /** The subcommands, in the order the usage names them. */
-export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal", "body", "ask"] as const;
+export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal", "body", "ask", "run"] as const;
 
 /** The usage, which a run with no subcommand or an unknown one is refused with. */
 export const USAGE = [
@@ -70,6 +81,7 @@ export const USAGE = [
   "  seal <answer-file> --judged-by <id> --model <name>    record a sealer's answer",
   "  body                                                  write the pull request body's sections",
   "  ask                                                   answer the bundle's hook on an AskUserQuestion call",
+  "  run <name> [-- <words>]                               run a heavy command the repository names, in its turn on the machine",
   "",
 ].join("\n");
 
@@ -324,9 +336,13 @@ async function fixPass(context: CommandContext, args: readonly string[]): Promis
 /**
  * Runs the repository's broad gate at the head, with no terminal, as the
  * daemon's chain starts it (`gate.ts#startGate`), with the pane's
- * environment less what says a terminal stands, and reads its exit. A pass
- * commits one run block. Every other end is refused with what the command
- * printed after the sentence, and commits nothing.
+ * environment less what says a terminal stands, and reads its exit. It
+ * first takes a turn on the machine in the place of a broad gate
+ * (`inTurn`), and reads the records and the head it runs at once the turn
+ * has come, so a wait does not run a gate the records no longer owe; the
+ * turn ends when the command does. A pass commits one run block. Every
+ * other end is refused with what the command printed after the sentence,
+ * and commits nothing.
  */
 async function gate(context: CommandContext, args: readonly string[]): Promise<object> {
   parsed(args, []);
@@ -335,20 +351,26 @@ async function gate(context: CommandContext, args: readonly string[]): Promise<o
   const standing = await standingHere(at, base);
   const step = owes(stepOwed(standing), "gate", "gate");
   const place = placeOf(at);
+  const endTurn = await inTurn(context, { folder: at.worktree, name: BROAD_GATE_NAME, place: "gate" });
   let run: { command: string; head: string; base: string };
-  try {
-    run = await gateOwed(place, standing, base);
-  } catch (error) {
-    throw new Refusal(gateNotRunSays(error instanceof Error ? error.message : String(error)));
-  }
-  const started = startGate({ command: run.command, cwd: at.worktree, env: gateEnvironment(context.env as NodeJS.ProcessEnv, null) });
+  let end: Awaited<ReturnType<typeof startGate>["ended"]>;
   let late = false;
-  const limit = setTimeout(() => {
-    late = true;
-    void started.stop();
-  }, context.gateLimitMs ?? GATE_LIMIT_MS);
-  const end = await started.ended;
-  clearTimeout(limit);
+  try {
+    try {
+      run = await gateOwed(place, standing, base);
+    } catch (error) {
+      throw new Refusal(gateNotRunSays(error instanceof Error ? error.message : String(error)));
+    }
+    const started = startGate({ command: run.command, cwd: at.worktree, env: gateEnvironment(context.env as NodeJS.ProcessEnv, null) });
+    const limit = setTimeout(() => {
+      late = true;
+      void started.stop();
+    }, context.gateLimitMs ?? GATE_LIMIT_MS);
+    end = await started.ended;
+    clearTimeout(limit);
+  } finally {
+    endTurn();
+  }
   const failure = late ? "the command reached its time limit and was stopped" : end.error !== null ? `the command did not start: ${end.error}` : end.signal !== null ? `the signal ${end.signal} ended the command` : end.exitCode !== 0 ? `the command exited with code ${String(end.exitCode)}` : null;
   if (failure !== null) throw new Refusal(`${stoppedSays("gate", step.round, failure)}\n${end.output}`);
   try {
@@ -455,23 +477,127 @@ async function ask(context: CommandContext, args: readonly string[]): Promise<Co
   };
 }
 
-const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, seal, body };
+/** The exit code of a refusal of the runner's, which runs no command: a run with no name, words not after `--`, a folder in no worktree, and a name the repository does not hold. 64 is the code of a usage error, so it is told apart from a command's own failure. */
+export const RUN_REFUSED = 64;
+
+/** What the runner and `gate` say while a command waits for its turn on the machine. */
+export function waitingSays(name: string, ahead: number): string {
+  return `${name} waits for the machine (${String(ahead)} ahead).`;
+}
+
+/** What the runner and `gate` say where no daemon answers the ask for a turn. */
+export function noDaemonSays(name: string): string {
+  return `No daemon of Owlery answered, so ${name} runs now without waiting its turn on the machine.`;
+}
+
+/** What the runner and `gate` say where the daemon ended while the command waited for its turn. */
+export function daemonEndedSays(name: string): string {
+  return `Owlery's daemon ended while ${name} waited, so it runs now without waiting its turn on the machine.`;
+}
+
+/** The daemon's turn socket in the run folder the environment names: in `OWLERY_RUN_DIR`, or by the launcher of the runner in `OWLERY_RUN` or of the chain command in `OWLERY_CHAIN`. Null where it names none. */
+function turnSocket(context: CommandContext): string | null {
+  const launcher = context.env.OWLERY_RUN || context.env.OWLERY_CHAIN || "";
+  const run = context.env.OWLERY_RUN_DIR || (launcher === "" ? "" : dirname(launcher));
+  return run === "" ? null : join(run, TURN_SOCKET);
+}
 
 /**
- * Runs one subcommand. Each but `ask` answers with exit code 0 and one JSON
- * object on the first line of its output, or with exit code 1 and a sentence
- * on its error output: a refusal's, or, for what a reader or git threw, the
- * chain's sentence of a stop. `ask` answers as its own comment says.
+ * Takes a turn on the machine for a command, saying how many go before it
+ * each time the daemon says so, and gives what ends the turn. Where no
+ * daemon answers, and where the daemon ends before the turn comes, it says
+ * so in one sentence and gives a turn of nothing: the command runs at once.
  */
-export async function chainCommand(args: readonly string[], context: CommandContext): Promise<CommandEnd> {
-  const [name = "", ...rest] = args;
-  const run = name !== "ask" && (SUBCOMMANDS as readonly string[]).includes(name) ? RUNS[name as keyof typeof RUNS] : undefined;
-  if (run === undefined && name !== "ask") return { code: 1, out: "", err: `${name === "" ? "The chain command takes a subcommand." : `The chain command has no subcommand ${name}.`}\n${USAGE}` };
+async function inTurn(context: CommandContext, request: TurnRequest): Promise<() => void> {
+  const say = context.say ?? (() => {});
+  const taken = await takeTurn(turnSocket(context), request, (ahead) => say(waitingSays(request.name, ahead)));
+  if (taken.held) return taken.end;
+  say(taken.why === "no daemon" ? noDaemonSays(request.name) : daemonEndedSays(request.name));
+  return () => {};
+}
+
+/**
+ * The place a command of the worktree waits in, as its committed records
+ * give it: `review` where the one directory that names the branch holds a
+ * review round's record at HEAD, `build` where it holds none, and
+ * `outside` where HEAD names no branch, or no directory or more than one
+ * names it.
+ */
+async function turnPlace(worktree: string): Promise<TurnPlace> {
+  const branch = await gitSays(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch === null || branch === "") return "outside";
+  const directories = workItemDirectories(worktree, branch);
+  const [directory] = directories;
+  if (directory === undefined || directories.length > 1) return "outside";
+  const rounds = await gitSays(worktree, ["ls-tree", "--name-only", "HEAD", "--", `${relative(worktree, directory)}/trail/rounds/`]);
+  return (rounds ?? "").split("\n").some((path) => roundNumber(basename(path)) !== null) ? "review" : "build";
+}
+
+/** Runs a command line with `/bin/sh -c` in the folder, with this process's input and output, and gives its exit code: 128 and the signal's number where a signal ended it, and 127 where it did not start. */
+function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
+  return new Promise((done) => {
+    const child = spawn("/bin/sh", ["-c", command], { cwd, env, stdio: "inherit" });
+    child.once("error", () => done(127));
+    child.once("close", (code, signal) => done(code ?? 128 + (signal === null ? 0 : constants.signals[signal])));
+  });
+}
+
+/**
+ * The runner of heavy commands: `run <name> [-- <words>]`. It looks the name
+ * up in the worktree's `Heavy commands` (`records-place.ts#readHeavyCommands`),
+ * takes a turn on the machine in the place the worktree's committed records
+ * give (`turnPlace`), and runs the command line at the worktree's top, with
+ * each word after `--` added as one word, with the session's own input and
+ * output. It exits with the command's exit code, and with `RUN_REFUSED` and a
+ * sentence, running nothing, for a run it refuses.
+ */
+async function run(context: CommandContext, args: readonly string[]): Promise<CommandEnd> {
+  const refused = (why: string): CommandEnd => ({ code: RUN_REFUSED, out: "", err: `${why.replace(/\n+$/u, "")}\n` });
+  const [name = "", next, ...words] = args;
+  if (name === "") return refused(`\`run\` takes the name of a heavy command the repository names.\n${USAGE}`);
+  if (next !== undefined && next !== "--") return refused(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
+  const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
+  if (worktree === null || worktree === "") return refused(`${context.cwd} is in no worktree of a repository, and a heavy command runs at the top of the worktree whose records name it.`);
+  const commands = readHeavyCommands(worktree);
+  const line = commands[name];
+  const names = Object.keys(commands);
+  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${rootOf(worktree) ?? "seal"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
+  const endTurn = await inTurn(context, { folder: worktree, name, place: await turnPlace(worktree) });
   try {
-    if (run === undefined) return await ask(context, rest);
-    return { code: 0, out: `${JSON.stringify(await run(context, rest))}\n`, err: "" };
-  } catch (error) {
-    if (error instanceof Refusal) return { code: 1, out: "", err: `${error.message.replace(/\n+$/u, "")}\n` };
-    return { code: 1, out: "", err: `${chainStoppedSays(error instanceof Error ? error.message : String(error))}\n` };
+    return { code: await runLine([line, ...words.map(shellQuote)].join(" "), worktree, context.env as NodeJS.ProcessEnv), out: "", err: "" };
+  } finally {
+    endTurn();
   }
+}
+
+const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask" | "run">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, seal, body };
+
+/** The subcommands that end in their own way, each as its own comment says. */
+const OWN_ENDS: Record<"ask" | "run", (context: CommandContext, args: readonly string[]) => Promise<CommandEnd>> = { ask, run };
+
+/**
+ * Runs one subcommand. Each but `ask` and `run` answers with exit code 0 and
+ * one JSON object on the first line of its output, or with exit code 1 and
+ * a sentence on its error output: a refusal's, or, for what a reader or git
+ * threw, the chain's sentence of a stop. `ask` and `run` answer as their own
+ * comments say. A line said while the run went on (`CommandContext.say`)
+ * opens the error output of its end where the context gives no `say`.
+ */
+export async function chainCommand(args: readonly string[], given: CommandContext): Promise<CommandEnd> {
+  const [name = "", ...rest] = args;
+  const printed = (subcommand: (typeof RUNS)[keyof typeof RUNS]) => async (context: CommandContext, args: readonly string[]): Promise<CommandEnd> => ({ code: 0, out: `${JSON.stringify(await subcommand(context, args))}\n`, err: "" });
+  const subcommand = name === "ask" || name === "run" ? OWN_ENDS[name] : (SUBCOMMANDS as readonly string[]).includes(name) ? printed(RUNS[name as keyof typeof RUNS]) : undefined;
+  if (subcommand === undefined) return { code: 1, out: "", err: `${name === "" ? "The chain command takes a subcommand." : `The chain command has no subcommand ${name}.`}\n${USAGE}` };
+  const said: string[] = [];
+  const context: CommandContext = { ...given, say: given.say ?? ((line) => said.push(line)) };
+  const ended = async (): Promise<CommandEnd> => {
+    try {
+      return await subcommand(context, rest);
+    } catch (error) {
+      if (error instanceof Refusal) return { code: 1, out: "", err: `${error.message.replace(/\n+$/u, "")}\n` };
+      return { code: 1, out: "", err: `${chainStoppedSays(error instanceof Error ? error.message : String(error))}\n` };
+    }
+  };
+  const end = await ended();
+  return said.length === 0 ? end : { ...end, err: `${said.map((line) => `${line}\n`).join("")}${end.err}` };
 }

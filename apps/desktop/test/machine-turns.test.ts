@@ -3,7 +3,7 @@
 // keeper its limit, its clock and its reading of the load, and starts no
 // process.
 import { describe, expect, it } from "vitest";
-import { MachineTurns, type Turn, type TurnPlace } from "../src/daemon/machine-turns";
+import { type Asked, MachineTurns, type TurnPlace } from "../src/daemon/machine-turns";
 
 const AT = 1_795_388_700_000;
 
@@ -12,7 +12,8 @@ function keeper(limit: number) {
   let at = AT;
   let load: number | null = 2.5;
   const told: string[][] = [];
-  const turns = new MachineTurns({ limit, now: () => at, load: () => load, changed: () => told.push(shown(turns)) });
+  const turns = new MachineTurns({ limit, now: () => at, load: () => load });
+  turns.watch(() => told.push(shown(turns)));
   return {
     turns,
     told,
@@ -28,8 +29,8 @@ function keeper(limit: number) {
 /** The queue as one line for each ask: its state and its name. */
 const shown = (turns: MachineTurns): string[] => turns.queue().map(({ state, name }) => `${state} ${name}`);
 
-/** Asks in a folder of the name's own for a command of that name and place, and gives the turn once it comes, with whether the ask waited. */
-function ask(turns: MachineTurns, name: string, place: TurnPlace, gone?: AbortSignal): { waits: boolean; turn: Promise<Turn | null> } {
+/** Asks in a folder of the name's own for a command of that name and place. */
+function ask(turns: MachineTurns, name: string, place: TurnPlace, gone?: AbortSignal): Asked {
   return turns.ask({ folder: `/work/${name}`, name, place, gone });
 }
 
@@ -54,6 +55,8 @@ describe("the turns on the machine", () => {
     expect(turns.waitOf("/work/built")).toEqual({ name: "built", since: AT + 1_000, ahead: 2 });
     expect(turns.waitOf("/work/gate")).toEqual({ name: "gate", since: AT + 5_000, ahead: 0 });
     expect(turns.waitOf("/work/first")).toBeNull();
+    // Each ask says how many go before it while it waits, and nothing once it holds its turn.
+    expect([first, gate, reviewed, built, builtLater, outside].map((asked) => asked.ahead())).toEqual([null, 0, 1, 2, 3, 4]);
 
     const order: string[] = [];
     for (const asked of [first, gate, reviewed, built, builtLater, outside]) {
@@ -90,6 +93,7 @@ describe("the turns on the machine", () => {
     expect(await leaving.turn).toBeNull();
     expect(shown(turns)).toEqual(["running running", "waiting next", "waiting last"]);
     expect(turns.waitOf("/work/next")).toEqual({ name: "next", since: AT, ahead: 0 });
+    expect([leaving.ahead(), next.ahead(), last.ahead()]).toEqual([null, 0, 1]);
 
     const turn = await running.turn;
     first.abort();
@@ -128,20 +132,25 @@ describe("the turns on the machine", () => {
     expect(await gate.turn).not.toBeNull();
   });
 
-  it("gives each turn the load read when it was given, and tells of every change once the queue shows it", async () => {
+  it("gives each turn the load read when it was given, and tells each watcher of every change once the queue shows it, until the watcher stops watching", async () => {
     const { turns, told, setLoad } = keeper(1);
+    const second: string[][] = [];
+    const unwatch = turns.watch(() => second.push(shown(turns)));
     const first = ask(turns, "first", "build");
     expect(told).toEqual([["running first"]]);
-    const second = ask(turns, "second", "gate");
+    const gate = ask(turns, "second", "gate");
     expect(told.at(-1)).toEqual(["running first", "waiting second"]);
     setLoad(7.25);
     const turn = await first.turn;
     expect(turn?.load).toBe(2.5);
     turn?.end();
     expect(told.at(-1)).toEqual(["running second"]);
-    expect((await second.turn)?.load).toBe(7.25);
+    expect((await gate.turn)?.load).toBe(7.25);
+    expect(second).toEqual(told);
+    unwatch();
     turns.setLimit(2);
     expect(told).toHaveLength(4);
+    expect(second).toHaveLength(3);
     setLoad(null);
     expect((await ask(turns, "third", "build").turn)?.load).toBeNull();
   });

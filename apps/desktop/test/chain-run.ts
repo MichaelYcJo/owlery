@@ -8,7 +8,7 @@
 // `PATH`, so no case runs a repository's check or asks a login shell. The
 // repository's remote is a bare repository in the case's temporary folder,
 // and `gh` is a stand-in the case writes, so no case reaches GitHub.
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -40,6 +40,17 @@ const WAIT_MS = 20_000;
 export type Cleanups = (() => Promise<void> | void)[];
 
 /** A client that keeps every message it receives. `at` is the daemon's address, or the address with the daemon itself, which a case that starts a chain through the client gives. */
+/** Waits until the find gives something, outside any client's messages. */
+export async function until<T>(find: () => T | undefined, ms = WAIT_MS): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const found = find();
+    if (found !== undefined) return found;
+    if (Date.now() > end) throw new Error("timed out");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 export async function client(at: string | { url: string; d: Daemon }, cleanups: Cleanups) {
   const { url, d } = typeof at === "string" ? { url: at, d: undefined } : at;
   const socket = new WebSocket(url);
@@ -276,10 +287,12 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * `gh` (`ghStandIn`), so a chain that ends sealed pushes there and opens its
  * pull request at the stand-in. With `apart: true` each title after the
  * first has a repository of its own, made the same way with a remote of its
- * own, and `made` is the first title's.
+ * own, and `made` is the first title's. With `linked: true` the daemon is
+ * given each worktree by a link beside its repository's folder, as a person
+ * may give a folder, while git names it by its real path.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean } = {}) {
-  const { root = true, gate = "true", apart = false, ...daemonOptions } = options;
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean } = {}) {
+  const { root = true, gate = "true", apart = false, linked = false, ...daemonOptions } = options;
   const repository = (): ReturnType<typeof temporaryRepository> => {
     const repo = temporaryRepository();
     cleanups.push(repo.remove);
@@ -299,7 +312,9 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     const place = await createWorktree({ folder: own.repo, title, root: own.root });
     write(place.worktree, "feature.txt", "A greeting\n");
     commitAll(place.worktree, "feat: greet");
-    workItems.push({ id: index + 1, title, createdAt: 1, ...place });
+    const link = join(own.base, `linked-${String(index + 1)}`);
+    if (linked) symlinkSync(place.worktree, link);
+    workItems.push({ id: index + 1, title, createdAt: 1, ...place, worktree: linked ? link : place.worktree });
     if (own !== made) bareRemote(own.base, own.repo);
   }
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));

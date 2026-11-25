@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { HEAD_FILE, LAUNCHER_FILE, carriedIn, paneHead, writePaneChain } from "../src/daemon/pane-chain";
+import { HEAD_FILE, LAUNCHER_FILE, RUNNER_FILE, carriedIn, paneHead, writePaneChain, writeRunner } from "../src/daemon/pane-chain";
 
 const dirs: string[] = [];
 function scratch(): string {
@@ -66,6 +66,25 @@ describe("writePaneChain", () => {
     expect(JSON.parse(execFileSync(launcher, ["owed"], { encoding: "utf8" })).args).toEqual(["owed"]);
     // The command writes each stage's prompt under `chain/<work item>/` of the run folder (`chain-command.ts#stageFolder`), so a launcher named `chain` would stand where that folder goes.
     mkdirSync(join(dir, "chain", "1-a-work-item"), { recursive: true });
+  });
+});
+
+describe("writeRunner", () => {
+  it("writes the runner's launcher into the run folder, readable by the user alone and over what an earlier daemon left, which runs the chain command's `run` with the Node it was given, as Node, with the run folder in OWLERY_RUN_DIR and every argument as it was typed, from a folder whose name holds a space and a quote", () => {
+    const dir = join(scratch(), "a run's folder");
+    mkdirSync(dir);
+    writeFileSync(join(dir, RUNNER_FILE), "#!/bin/sh\nexit 9\n", { mode: 0o644 });
+    const script = join(dir, "prints.js");
+    writeFileSync(script, "process.stdout.write(JSON.stringify({ args: process.argv.slice(2), asNode: process.env.ELECTRON_RUN_AS_NODE ?? null, runDir: process.env.OWLERY_RUN_DIR ?? null }));\n");
+    const runner = writeRunner(dir, { node: process.execPath, script });
+    expect(runner).toBe(join(dir, RUNNER_FILE));
+    expect(statSync(runner).mode & 0o777).toBe(0o700);
+    // A session outside a pane holds neither variable, and the launcher sets both for its one process.
+    const env = { ...process.env };
+    delete env.ELECTRON_RUN_AS_NODE;
+    delete env.OWLERY_RUN_DIR;
+    const printed = execFileSync(runner, ["test", "--", "test/a view.test.ts", "it's"], { encoding: "utf8", env });
+    expect(JSON.parse(printed)).toEqual({ args: ["run", "test", "--", "test/a view.test.ts", "it's"], asNode: "1", runDir: dir });
   });
 });
 

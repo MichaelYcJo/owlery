@@ -1,0 +1,150 @@
+// The runner of heavy commands (`chain-command.ts#run`), which a session
+// starts through the launcher `OWLERY_RUN` names: it looks a name up in the
+// worktree's `Heavy commands`, asks the daemon for a turn on the turn socket
+// of the run folder (`turn-socket.ts`), and runs the command in its turn.
+// Each case runs the runner in its own process against a daemon of its own,
+// or against a run folder no daemon listens in. No case starts an agent.
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { basename, join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { routingText } from "../src/daemon/chain";
+import { type CommandEnd, RUN_REFUSED, USAGE, chainCommand, daemonEndedSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
+import { MARKER } from "../src/daemon/records-place";
+import { TURN_SOCKET, TurnServer } from "../src/daemon/turn-socket";
+import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
+import { BUNDLE, commandOn } from "./chain-command-run";
+import { temporaryRepository } from "./repositories";
+
+const cleanups: Cleanups = [];
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
+
+/** A command that marks its start in `$OUT` with its name, waits until a file of that name ending `.go` stands there, and marks its end. */
+const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ ! -e "$OUT/${name}.go" ]; do sleep 0.05; done; touch "$OUT/${name}.ended"`;
+
+/** Writes the records root's config.json of a folder with these heavy commands, and commits it. */
+function naming(folder: string, heavy: unknown): void {
+  write(folder, "seal/README.md", `${MARKER}\n`);
+  write(folder, "seal/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
+  commitAll(folder, "chore: name the heavy commands");
+}
+
+/** Runs the runner in a folder, with the run folder and `$OUT` in its environment, and keeps each line it says on its error output while it runs. */
+function runner(folder: string, runDir: string, out: string, args: string[]): { end: Promise<CommandEnd>; said: string[] } {
+  const said: string[] = [];
+  const end = chainCommand(["run", ...args], { cwd: folder, env: { PATH: process.env.PATH, OWLERY_RUN_DIR: runDir, OUT: out }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, say: (line) => said.push(line) });
+  return { end, said };
+}
+
+
+describe("the runner of heavy commands", { timeout: 60_000 }, () => {
+  it("runs a named command in its turn: it says it waits while another heavy command holds the turn, its work item carries the wait though the daemon names the worktree through a link, the command starts once the other has ended with each word after `--` as one word, and the runner exits with the command's exit code (scenario C)", async () => {
+    const stood = await standing(cleanups, ["Built work"], { linked: true });
+    const [item] = stood.workItems as [(typeof stood.workItems)[number]];
+    const worktree = realpathSync(item.worktree);
+    expect(worktree).not.toBe(item.worktree);
+    const out = stood.made.base;
+    naming(worktree, { hold: holds("hold"), test: `sh -c '[ -e "$OUT/hold.ended" ] && printf "%s|" "$@" > "$OUT/test.args"; exit 3' test` });
+    const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
+    cleanups.push(() => server.close());
+
+    const holding = runner(worktree, stood.runDir, out, ["hold"]);
+    await until(() => (existsSync(join(out, "hold.started")) ? true : undefined));
+    expect(holding.said).toEqual([]);
+    const test = runner(worktree, stood.runDir, out, ["test", "--", "a b", "it's"]);
+    await until(() => (test.said.length > 0 ? true : undefined));
+    expect(test.said).toEqual([waitingSays("test", 0)]);
+    expect(await stood.c.until(() => stood.c.workItem(item.id)?.machineWait ?? undefined)).toEqual({ name: "test", since: NOW, ahead: 0 });
+
+    writeFileSync(join(out, "hold.go"), "");
+    expect(await holding.end).toEqual({ code: 0, out: "", err: "" });
+    expect(await test.end).toEqual({ code: 3, out: "", err: "" });
+    expect(readFileSync(join(out, "test.args"), "utf8")).toBe("a b|it's|");
+    await stood.c.until(() => (stood.c.workItem(item.id)?.machineWait === null ? true : undefined));
+  });
+
+  it("asks in the place the committed records give: a work item whose branch holds a review round's record goes before one still being built, and that before a folder no work item's records name", async () => {
+    const stood = await standing(cleanups, ["Reviewed work", "Built work"]);
+    const [reviewed, built] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+    const loose = temporaryRepository();
+    cleanups.push(loose.remove);
+    const out = stood.made.base;
+    const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
+    for (const [index, item] of [reviewed, built].entries()) {
+      const directory = `seal/threads/${String(index + 1)}-work`;
+      write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, item.branch, "2026-11-25"));
+      if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
+      naming(item.worktree, { mark: appends });
+    }
+    naming(loose.repo, { mark: appends });
+    const giver = stood.d.turnGiver();
+    const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), giver);
+    cleanups.push(() => server.close());
+
+    const held = giver.ask({ folder: out, name: "held", place: "gate" });
+    const asked = [];
+    for (const folder of [loose.repo, built.worktree, reviewed.worktree]) {
+      const run = runner(folder, stood.runDir, out, ["mark"]);
+      await until(() => (run.said.length > 0 ? true : undefined));
+      asked.push(run);
+    }
+    // Each ask that comes goes before those of a later place, and each runner says so as the count before it grows.
+    const [first] = asked as [(typeof asked)[number]];
+    await until(() => (first.said.length === 3 ? true : undefined));
+    expect(asked.map(({ said }) => said)).toEqual([
+      [waitingSays("mark", 0), waitingSays("mark", 1), waitingSays("mark", 2)],
+      [waitingSays("mark", 0), waitingSays("mark", 1)],
+      [waitingSays("mark", 0)],
+    ]);
+    (await held.turn)?.end();
+    for (const run of asked) expect((await run.end).code).toBe(0);
+    expect(readFileSync(join(out, "order"), "utf8")).toBe(`${[reviewed.worktree, built.worktree, loose.repo].map((folder) => basename(folder)).join("\n")}\n`);
+  });
+
+  it("runs a named command at once where no daemon answers, and says so in one sentence (scenario D)", async () => {
+    const on = commandOn(cleanups);
+    naming(on.repo, { test: `sh -c 'printf "%s|" "$@" > "$OUT/test.args"; exit 5' test` });
+    const run = runner(on.repo, on.runDir, on.folder, ["test", "--", "one"]);
+    expect(await run.end).toEqual({ code: 5, out: "", err: "" });
+    expect(run.said).toEqual([noDaemonSays("test")]);
+    expect(readFileSync(join(on.folder, "test.args"), "utf8")).toBe("one|");
+  });
+
+  it("runs the command at once where the daemon ends while the runner waits, and says that it waited and that the daemon ended", async () => {
+    const stood = await standing(cleanups, ["Built work"]);
+    const [item] = stood.workItems as [(typeof stood.workItems)[number]];
+    const out = stood.made.base;
+    naming(item.worktree, { test: 'touch "$OUT/test.ran"' });
+    const giver = stood.d.turnGiver();
+    const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), giver);
+    const held = giver.ask({ folder: out, name: "held", place: "gate" });
+    const run = runner(item.worktree, stood.runDir, out, ["test"]);
+    await until(() => (run.said.length > 0 ? true : undefined));
+    expect(existsSync(join(out, "test.ran"))).toBe(false);
+    await server.close();
+    expect(await run.end).toEqual({ code: 0, out: "", err: "" });
+    expect(run.said).toEqual([waitingSays("test", 0), daemonEndedSays("test")]);
+    expect(existsSync(join(out, "test.ran"))).toBe(true);
+    (await held.turn)?.end();
+  });
+
+  it("refuses with exit code 64 and runs nothing: a name the repository does not hold, with the names it holds, a repository whose key names none, a run with no name, and words not after `--`", async () => {
+    const on = commandOn(cleanups);
+    naming(on.repo, { test: 'touch "$OUT/ran"', install: 'touch "$OUT/ran"' });
+    const refused = async (args: string[]): Promise<string> => {
+      const run = runner(on.repo, on.runDir, on.folder, args);
+      const end = await run.end;
+      expect(end.code, args.join(" ")).toBe(RUN_REFUSED);
+      expect(run.said, args.join(" ")).toEqual([]);
+      return end.err;
+    };
+    expect(RUN_REFUSED).toBe(64);
+    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of seal/config.json. It names `test` and `install`.\n');
+    expect(await refused([])).toBe(`\`run\` takes the name of a heavy command the repository names.\n${USAGE}`);
+    expect(await refused(["test", "a.test.ts"])).toBe(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
+    naming(on.repo, "pnpm test");
+    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of seal/config.json. It names none.\n');
+    expect(existsSync(join(on.folder, "ran"))).toBe(false);
+  });
+});

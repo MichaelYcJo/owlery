@@ -2,8 +2,9 @@
 // work item and every repository, and the order those that wait are given
 // theirs. A heavy command is one that loads the whole machine, the broad gate
 // always. The keeper starts no process and imports nothing of the daemon: it
-// is given its limit, its clock and its reading of the load, and the daemon
-// asks it in process for the broad gate of its own chain. It is no turn of
+// is given its limit, its clock and its reading of the load. The daemon asks
+// it in process for the broad gate of its own chain, and for each command
+// that asks on the turn socket (`turn-socket.ts`). It is no turn of
 // `stage-records.ts#InTurn`, which puts the commits of one worktree in order.
 // The queue lives in memory alone: a daemon that starts again holds none, and
 // each command that still waits asks again.
@@ -57,8 +58,13 @@ export interface MachineTurnsOptions {
   now?: () => number;
   /** The load average a turn is given with, read as it is given; null for every turn when absent. */
   load?: () => number | null;
-  /** Called after every change of the queue or of the limit, once the queue shows it. */
-  changed?: () => void;
+}
+
+/** An ask as the keeper took it: whether it waits rather than holding its turn at once, the turn once it is given, or null where the asker went before it came, and how many of those that wait go before it, which is null once it holds its turn or has ended. */
+export interface Asked {
+  waits: boolean;
+  turn: Promise<Turn | null>;
+  ahead(): number | null;
 }
 
 interface Entry {
@@ -86,19 +92,19 @@ export class MachineTurns {
   private readonly running: Entry[] = [];
   // The asks that wait, in the order they asked.
   private readonly waiting: Entry[] = [];
+  private readonly watchers = new Set<() => void>();
 
   constructor(private readonly options: MachineTurnsOptions) {
     this.limit = options.limit;
   }
 
   /**
-   * Asks for a turn: `waits` says whether the ask waits rather than holding
-   * its turn at once, and `turn` settles with the turn once it is given, or
+   * Asks for a turn. Its `turn` settles with the turn once it is given, or
    * with null where the asker went before it came, and at once where the
    * asker is gone already, which the queue then never lists.
    */
-  ask(ask: TurnAsk): { waits: boolean; turn: Promise<Turn | null> } {
-    if (ask.gone?.aborted) return { waits: false, turn: Promise.resolve(null) };
+  ask(ask: TurnAsk): Asked {
+    if (ask.gone?.aborted) return { waits: false, turn: Promise.resolve(null), ahead: () => null };
     let settle: (turn: Turn | null) => void = () => {};
     const turn = new Promise<Turn | null>((resolve) => {
       settle = resolve;
@@ -109,15 +115,29 @@ export class MachineTurns {
     entry.forget = () => ask.gone?.removeEventListener("abort", leave);
     this.waiting.push(entry);
     this.give();
-    this.options.changed?.();
-    return { waits: this.waiting.includes(entry), turn };
+    this.tell();
+    return {
+      waits: this.waiting.includes(entry),
+      turn,
+      ahead: () => {
+        const ahead = this.ordered().indexOf(entry);
+        return ahead === -1 ? null : ahead;
+      },
+    };
+  }
+
+  /** Calls the watcher after every change of the queue or of the limit, once the queue shows it, until the function it gives is called. */
+  watch(watcher: () => void): () => void {
+    const own = (): void => watcher();
+    this.watchers.add(own);
+    return () => this.watchers.delete(own);
   }
 
   /** Sets the limit: a lower one stops no command that runs, and a higher one gives the next turns at once. */
   setLimit(limit: number): void {
     this.limit = limit;
     this.give();
-    this.options.changed?.();
+    this.tell();
   }
 
   /** The asks that hold a turn, in the order their turns were given, then those that wait, in the order they will be given theirs. */
@@ -161,6 +181,10 @@ export class MachineTurns {
     } else this.running.splice(ran, 1);
     entry.forget();
     this.give();
-    this.options.changed?.();
+    this.tell();
+  }
+
+  private tell(): void {
+    for (const watcher of [...this.watchers]) watcher();
   }
 }

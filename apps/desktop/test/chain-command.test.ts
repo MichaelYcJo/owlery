@@ -6,12 +6,14 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BASE_RECORDED } from "../src/daemon/chain";
-import { BASE_OPTION, NO_DEFAULT, USAGE } from "../src/daemon/chain-command";
+import { BASE_OPTION, NO_DEFAULT, USAGE, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
+import { BROAD_GATE_NAME, MachineTurns } from "../src/daemon/machine-turns";
+import { TURN_SOCKET, TurnServer } from "../src/daemon/turn-socket";
 import { routingAnswer } from "../src/daemon/decision-record";
 import { rulesText } from "../src/daemon/adapters/claude-roles";
 import { BACK_OPEN, SECTION_OPEN } from "../src/daemon/github";
 import { workItemSeal } from "../src/daemon/seal-state";
-import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenSeal, head, proofs, roundRecord, sealSection, status, write } from "./chain-run";
+import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenSeal, head, proofs, roundRecord, sealSection, status, until, write } from "./chain-run";
 import { BRANCH, BUNDLE, type Owed, commandOn, sealThrough } from "./chain-command-run";
 import { git } from "./repositories";
 
@@ -24,6 +26,7 @@ afterEach(async () => {
 const DIRECTORY = "seal/threads/1795388700-greet";
 
 const read = (file: string | undefined): string => readFileSync(file ?? "", "utf8");
+
 
 /** The JSON a `PreToolUse` hook's command is handed on its input for an `AskUserQuestion` call that asks these questions. */
 const asked = (...questions: string[]): string =>
@@ -160,6 +163,38 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(head(on.repo)).toBe(before);
     expect(existsSync(join(on.repo, DIRECTORY, "trail/gate.md"))).toBe(false);
     expect(await on.said(["owed"])).toEqual({ step: "gate", round: 1, head: before });
+  });
+
+  it("asks the daemon for a turn on the machine before it runs the broad gate: it says it waits while another heavy command holds the turn and starts the command once that ends, and where no daemon answers it runs the gate at once and says so", async () => {
+    const owesGate = async (on: ReturnType<typeof commandOn>): Promise<void> => {
+      await on.said(["start"]);
+      const round = await on.said(["owed"]);
+      await on.said(["round", on.answer("round-1.md", clean(givenRound(read(round.prompt))))]);
+    };
+    const alone = commandOn(cleanups, { gate: 'touch "$HOME/gate.ran"' });
+    await owesGate(alone);
+    expect(await alone.said(["gate"])).toMatchObject({ recorded: "gate", round: 1 });
+    expect(alone.told).toEqual([noDaemonSays(BROAD_GATE_NAME)]);
+
+    const on = commandOn(cleanups, { gate: 'touch "$HOME/gate.ran"' });
+    await owesGate(on);
+    const turns = new MachineTurns({ limit: 1 });
+    const server = await TurnServer.listen(join(on.runDir, TURN_SOCKET), turns);
+    cleanups.push(() => server.close());
+    const held = turns.ask({ folder: on.folder, name: "test", place: "build" });
+    const gate = on.run(["gate"]);
+    await until(() => (on.told.length > 0 ? true : undefined));
+    expect(on.told).toEqual([waitingSays(BROAD_GATE_NAME, 0)]);
+    expect(turns.queue()).toEqual([
+      { folder: on.folder, name: "test", place: "build", since: expect.any(Number), state: "running" },
+      { folder: on.repo, name: BROAD_GATE_NAME, place: "gate", since: expect.any(Number), state: "waiting" },
+    ]);
+    expect(existsSync(join(on.folder, "gate.ran"))).toBe(false);
+    (await held.turn)?.end();
+    expect(JSON.parse((await gate).out)).toMatchObject({ recorded: "gate", round: 1 });
+    expect(existsSync(join(on.folder, "gate.ran"))).toBe(true);
+    // The gate's turn ended with its command.
+    expect(turns.queue()).toEqual([]);
   });
 
   it("refuses to start on a branch that left its base, naming the commit or the base and how another is named, and writes nothing: a branch reset onto a line that does not hold the commit it was read against, and a base that shares no commit with the branch", async () => {
