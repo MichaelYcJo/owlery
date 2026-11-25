@@ -100,8 +100,8 @@ describe("the role bundle", () => {
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const skill = read("skills/seal/SKILL.md");
     expect(frontmatterOf(skill)).toContain("name: seal\n");
-    // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options.
-    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
+    // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options. `ask` is the hook's, and `run` is reached through the launcher OWLERY_RUN names, which no step of the chain runs.
+    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
     expect(flat("skills/seal/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
     // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
     for (const said of [
