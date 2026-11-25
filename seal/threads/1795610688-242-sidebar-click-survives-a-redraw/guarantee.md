@@ -48,3 +48,29 @@ Each re-run took place in `<scratchpad>/1795610688-242-sidebar-click-survives-a-
 target: 3cfbe2d3 against f5ee5ba7
 Verdict: sealed
 ```
+
+## Re-audit at `c7a7663c`
+
+The pull request's `records` check refused the block above, because the base had moved to `f5ee5ba7` after `3cfbe2d3`. The base still resolves through `release/v0.0.5@{upstream}` to `f5ee5ba7` after a fetch (executed).
+
+The commits since `3cfbe2d3` are `1eb6d803`, which commits this file, then the merge `f93485fd` of `f5ee5ba7`, then `c7a7663c`, which adds a `trail/gate.md` run (executed: `git log --oneline 3cfbe2d3..HEAD`). `trail/gate.md`'s newest run is `f93485fd against f5ee5ba7`, and `f93485fd` is an ancestor of HEAD. `git log --no-merges --name-only f93485fd..HEAD ^f5ee5ba7` lists only `c7a7663c` with `trail/gate.md` of this work item (executed). `seal pr-body <item> --body <pr-body.md> --check` exited 0 on the rewritten body file (executed).
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The merge brings only the base's files, and the branch's change stands as audited above | `f93485fd` | `git diff --quiet f5ee5ba7 f93485fd -- <every path git diff --name-only 5f58752b f5ee5ba7 lists>`; `git patch-id --stable` of `git diff f5ee5ba7...3cfbe2d3 -- apps` against that of `git diff f5ee5ba7 HEAD -- apps`; `git diff --quiet 3cfbe2d3 HEAD -- <this work item> ':!guarantee.md' ':!trail/gate.md'` | Holds. Each path the base changed is the base's at the merge. The patch ids of the branch's code change are equal, and the work item's records are unchanged. So every coordinate of the claims and the parties above stands, and none was re-run except the files below. Executed |
+| The unit cases and both built-app files pass with #252's daemon beside the branch's renderer | The block above, its rows that ran at HEAD; `trail/gate.md` (`f93485fd`) | `node scripts/test-in-electron.mjs test/press.test.ts test/seal-back-view.test.ts test/theme-controls.test.ts`, from `apps/desktop` of a new `git clone --no-local` at `c7a7663c` under `<scratchpad>/1795610688-242-sidebar-click-survives-a-redraw/at-base/` | Holds. 3 files and 21 cases passed, at a load average near 4. Executed |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| The design, the build, the last round, the changelog and the orchestrator's part of the pull request body | As above. No record of the work item changed (executed above), and `pr.md` stands above `## From the records` in the rewritten body (executed: `--check`) | The diff, which is the same patch as the one audited above | None |
+
+The earlier *Not verified* row on the merged tree is closed by the broad run at `f93485fd` (read: `trail/gate.md`) and by the run above. The rows on the system popup and on Q1 still stand, as above.
+
+```seal
+target: c7a7663c against f5ee5ba7
+Verdict: sealed
+```
