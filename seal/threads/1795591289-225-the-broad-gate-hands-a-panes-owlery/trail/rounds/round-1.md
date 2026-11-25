@@ -26,6 +26,11 @@ Two things do hold the condition. The first is the session's own run, which `gap
 | 3 | `test/daemon.test.ts`'s group "a Claude Code pane and the owl chain" passes when the suite runs in a pane that holds the four variables. | The session's run of the group in the pane of `balmy-bison`, which holds the four variables (`gaps.md` *Not verified*). The broad gate cannot hold this row: `gateEnvironment` takes the four variables out before the suite starts (`apps/desktop/src/daemon/gate.ts`), so under the gate the group runs without them. What the gate runs of this condition is scenario 1's case, which sets the four variables in the suite's own process. |
 ```
 
+```seal
+verdict: fixed da555e9d
+answer: The finding holds: the gate's environment takes the four variables out, so the gate cannot fail on scenario 3. The row now names the session's run in the pane of `balmy-bison` and says what the gate runs of the condition, as the paste-ready cell gives it. The same commit corrects *Grounding*'s line on the runs: the run with the four variables unset and `OWLERY_RUN_DIR` kept was made in this work item's worktree at `5cb81763`, and the run at `e098fc7a` unset `OWLERY_RUN_DIR` as well.
+```
+
 ### 2. The `gateEnv` option's comment still describes the gate's environment without the new cut
 
 ```seal
@@ -40,6 +45,11 @@ This round searched the sources and the policy documents for the phrases "say a 
 
 ```ts
   /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands and without the variables of the pane the daemon was started from (`hooks.ts#PANE_VARIABLES`), with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
+```
+
+```seal
+verdict: fixed 0d0b3e72
+answer: The finding holds: the option's comment named the old cuts alone. It now names the pane variables too, as the paste-ready comment gives it, and `daemon.ts:3530` stays as it is.
 ```
 
 ### 3. The changelog says every pane named the outer chain command, and that each pane now gets its own hook socket
@@ -61,6 +71,11 @@ Line 6, and the rest of lines 3 and 5, hold as they read.
 Issue #225. A pane under the owl chain holds four variables of its own: its id, the hook socket it reports to, the chain command and the work item's base. A daemon or a broad gate started in such a pane inherited them. Every pane that daemon opened whose own command sets no chain, a shell among them, then named the outer pane's chain command, and the broad gate of this repository failed six cases when the owner sealed a branch from a pane.
 
 - **A pane holds a chain's variables only where its own command sets them.** A daemon started in an Owlery pane, for example by `pnpm start` typed there, gives a shell and a Claude Code pane on no chain no `OWLERY_CHAIN` and no `OWLERY_BASE`, and gives each pane only the id and hook socket its own command sets. The daemon's run folder, `OWLERY_RUN_DIR`, still reaches every pane.
+```
+
+```seal
+verdict: fixed 17a73729
+answer: The finding holds: a pane on the owl chain always named its own launcher, and a setup pane's command sets its id alone. Both sentences now read as the paste-ready text gives them, and line 6 is unchanged.
 ```
 
 ## Confirmations
