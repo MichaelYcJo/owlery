@@ -32,6 +32,11 @@ import { shellQuote } from "./hooks";
 
 The quoting assumes a POSIX shell, which the bundle's agent contract rule 21 asks every command to be written for. Where importing `hooks.ts` into `chain.ts` is unwanted, because it brings `node-pty` into the module's graph, moving `shellQuote` to a module both import serves as well.
 
+```seal
+verdict: fixed 12c19090
+answer: `chain.ts:673` quotes the worktree with `hooks.ts#shellQuote`, imported into `chain.ts`; the daemon and the chain command already load `hooks.ts`, and `hooks.ts` imports no module that imports `chain.ts`. The pin at `chain.test.ts:422` reads `git -C '<path>'`, and the same case now pins `/repos/my repo's wt` as `'/repos/my repo'\''s wt'`. The case was seen red against the unquoted `chain.ts`, failing on the `git -C` line, and a `seal mutate` run that drops `shellQuote` turned it red. Run again after the fix, `git grep -n -F 'git -C ${' HEAD -- apps/desktop` prints `chain.ts:673` alone, which now quotes the path. The pin's line no longer matches, because it reads `git -C '${`.
+```
+
 ### 2. The new case *names the tree the stage reads by the worktree's path in each of the five prompts, and as this folder in none* covers nothing its group does not already cover, and its name claims a check it does not make
 
 ```seal
@@ -53,6 +58,11 @@ The fix is to drop the case and fold *Scope* item 6 to the pins that already hol
 ```
 
 There is another way to fix it, if the orchestrator wants a case that covers all five builders at once. The case asserts the first line of each prompt positively, to end with `` `, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.` ``, and is renamed to what it asserts. It would still repeat the pins. So the frame's item 6 would need to state why a second assertion is worth keeping.
+
+```seal
+verdict: fixed 12c19090
+answer: The case is removed from `chain.test.ts`, and nothing replaces it. `roundPrompt`, `sealPrompt`, `convergencePrompt`, `rulingPrompt` and `promptText` stay in use elsewhere in the file, so no import goes. The frame was folded at `36c52a2c` (*Scope* item 6, the acceptance row, and `plan.md` row G and *Verified by*). `git grep -n -e 'this folder' -e "the session's folder" -- apps/desktop/src/daemon/chain.ts apps/desktop/test/chain.test.ts` now prints nothing. Three lines of `trail/phases/phase-1.md` no longer hold at HEAD, and the pass leaves them as the build wrote them. At `:13`, the search there now prints nothing. At `:21` and `:30`, mutation 4's case is gone. Run again, `git grep -n -F 'names the tree the stage reads' -- seal/threads/1795610687-235-stage-prompts-name-the-worktree` prints `phase-1.md:21` and `:30`, for that reason, and this record's own finding.
+```
 
 ### 3. The crafter's definition does not say that every other path its prompt gives is from the worktree's top, although *Scope* item 8 says that step 9 says the same as the other three definitions
 
@@ -80,6 +90,11 @@ Why it matters: *Scope* item 8 (`design.md:40`) says three things of `agents/pro
 ```
 
 The new pin should be shown red against `crafter.md` as it stands at `8fb5de99` before it is committed.
+
+```seal
+verdict: fixed 12c19090
+answer: `agents/crafter.md` step 9 now says that the crafter reads every other path the prompt gives from the worktree's top (`:64-66`). The case *reads true in both launches* at `role-bundle.test.ts:152` pins "every other path" for all four definitions. The pin was seen red with `crafter.md` as it stood at `36c52a2c`, the same text as at `8fb5de99`, failing on "agents/crafter.md: every other path". A `seal mutate` run that drops the clause turned it red. Run again, `git grep -n -F 'every other path' HEAD -- apps/desktop/role-bundle apps/desktop/test` prints the clause in `crafter.md:64`, `orchestrator.md:36`, `proofer.md:31` and `sealer.md:35`, and the pin. The edits stay off the lines #236 changes, `crafter.md:24-29` and `:183-201` and `role-bundle.test.ts:168-173` and `:207-208`.
+```
 
 ## Confirmations
 
