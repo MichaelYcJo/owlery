@@ -15,7 +15,10 @@ const OLD_FILE = "work-items.json";
 export interface StoredWorkItem {
   id: number;
   title: string;
-  branch: string;
+  /** The work item's local branch, or null where it has none yet. */
+  branch: string | null;
+  /** True where Owlery made the branch, and false where the work item has none or its branch is one Owlery did not make. */
+  ownsBranch: boolean;
   worktree: string;
   createdAt: number;
   baseCommit: string | null;
@@ -64,8 +67,8 @@ export interface StoredRepository {
   accountId: number | null;
 }
 
-/** What a creation hands the store: the repository's folder, and what the work item's branch and worktree are. */
-export type Place = Pick<StoredWorkItem, "title" | "branch" | "worktree" | "baseCommit" | "baseBranch"> & { repo: string };
+/** What a creation hands the store: the repository's folder, and what the work item's branch and worktree are, and whether Owlery made the branch. */
+export type Place = Pick<StoredWorkItem, "title" | "branch" | "ownsBranch" | "worktree" | "baseCommit" | "baseBranch"> & { repo: string };
 
 /** A stored work item with the repository that holds it. */
 export interface Held {
@@ -81,8 +84,8 @@ function isGroup(value: unknown): value is Group {
   return isRecord(value) && typeof value.id === "number" && typeof value.name === "string";
 }
 
-/** A stored work item as a file holds one: one written before the setup was recorded has none, one written before a chain was kept has none of that, one written before a pull request was kept has none of that, one written before accounts were kept has no account, and one written before worktrees were measured has no size. */
-type WrittenWorkItem = Omit<StoredWorkItem, "setup" | "chain" | "pullRequest" | "accountId" | "worktreeSize"> & { setup?: WorktreeSetup | null; chain?: WrittenChain | null; pullRequest?: PullRequest | null; accountId?: number | null; worktreeSize?: WorktreeSize | null };
+/** A stored work item as a file holds one: one written before the setup was recorded has none, one written before a chain was kept has none of that, one written before a pull request was kept has none of that, one written before accounts were kept has no account, one written before worktrees were measured has no size, and one written before Owlery kept whether it made the branch says nothing of that, since Owlery then made every work item's branch. */
+type WrittenWorkItem = Omit<StoredWorkItem, "ownsBranch" | "setup" | "chain" | "pullRequest" | "accountId" | "worktreeSize"> & { ownsBranch?: boolean; setup?: WorktreeSetup | null; chain?: WrittenChain | null; pullRequest?: PullRequest | null; accountId?: number | null; worktreeSize?: WorktreeSize | null };
 
 function isWorktreeSize(value: unknown): value is WorktreeSize {
   return isRecord(value) && typeof value.kilobytes === "number" && typeof value.measuredAt === "number";
@@ -93,7 +96,8 @@ function isStoredWorkItem(value: unknown): value is WrittenWorkItem {
     isRecord(value) &&
     typeof value.id === "number" &&
     typeof value.title === "string" &&
-    typeof value.branch === "string" &&
+    isTextOrNull(value.branch) &&
+    (value.ownsBranch === undefined || typeof value.ownsBranch === "boolean") &&
     typeof value.worktree === "string" &&
     typeof value.createdAt === "number" &&
     isTextOrNull(value.baseCommit) &&
@@ -279,7 +283,7 @@ export class RepositoryStore {
         paneChain: paneChain ?? null,
         addedAt,
         groups: groups.map((group) => ({ id: group.id, name: group.name })),
-        workItems: workItems.map(({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain, pullRequest, accountId, worktreeSize }) => ({ id, title, branch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain, this.now()), pullRequest: pullRequest ? pullRequestOf(pullRequest) : null, accountId: accountId ?? null, worktreeSize: worktreeSize ? { kilobytes: worktreeSize.kilobytes, measuredAt: worktreeSize.measuredAt } : null })),
+        workItems: workItems.map(({ id, title, branch, ownsBranch, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup, chain, pullRequest, accountId, worktreeSize }) => ({ id, title, branch, ownsBranch: ownsBranch ?? true, worktree, createdAt, baseCommit, baseBranch, pinned, muted, groupId, archivedAt, setup: setupRead(setup), chain: chainRead(chain, this.now()), pullRequest: pullRequest ? pullRequestOf(pullRequest) : null, accountId: accountId ?? null, worktreeSize: worktreeSize ? { kilobytes: worktreeSize.kilobytes, measuredAt: worktreeSize.measuredAt } : null })),
         accountId: accountId ?? null,
       });
     }
@@ -327,7 +331,7 @@ export class RepositoryStore {
   addWorkItem(place: Place): Held {
     const { repository } = this.shown(place.repo);
     const id = this.counts.nextWorkItemId++;
-    const item: StoredWorkItem = { id, title: place.title, branch: place.branch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit, baseBranch: place.baseBranch, ...UNSET };
+    const item: StoredWorkItem = { id, title: place.title, branch: place.branch, ownsBranch: place.ownsBranch, worktree: place.worktree, createdAt: this.now(), baseCommit: place.baseCommit, baseBranch: place.baseBranch, ...UNSET };
     repository.workItems.push(item);
     this.write();
     return { repository, item };
@@ -446,7 +450,8 @@ export class RepositoryStore {
         repository = { id: this.held.length + 1, folder, name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, addedAt: createdAt, groups: [], workItems: [], accountId: null };
         this.held.push(repository);
       }
-      repository.workItems.push({ id, title, branch, worktree, createdAt, baseCommit: baseCommit ?? null, baseBranch: baseBranch ?? null, ...UNSET });
+      // A build before the repositories made every work item's branch.
+      repository.workItems.push({ id, title, branch, ownsBranch: true, worktree, createdAt, baseCommit: baseCommit ?? null, baseBranch: baseBranch ?? null, ...UNSET });
     }
   }
 

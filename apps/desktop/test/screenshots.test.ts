@@ -111,7 +111,7 @@ import { createWorktree } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, roundRecord, TODAY, write } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
@@ -694,7 +694,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     // The broken work item's seal: the records of a chain that sealed it, committed with git in its worktree, and one commit after them, which breaks the seal. The ledger holds no entry of it.
     const broken = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
     if (!broken?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
-    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: broken.branch, base: broken.baseCommit });
+    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(broken), base: broken.baseCommit });
     brokenBy = commitFile(broken.worktree, AFTER_THE_SEAL);
     const sealOfBroken = async (): Promise<WorkItem["seal"]> => (await listed()).workItems.find((workItem) => workItem.id === broken.id)?.seal ?? null;
     for (let deadline = Date.now() + 20_000, seal = await sealOfBroken(); seal?.state !== "broken" || seal.commit !== brokenAt; seal = await sealOfBroken()) {
@@ -706,7 +706,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const atReview = (await listed()).workItems.find((item) => item.title === AT_REVIEW);
     if (!atReview) throw new Error(`the daemon lists no work item ${AT_REVIEW}`);
     commitFile(atReview.worktree, "history.ts");
-    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, shown.branch, TODAY));
+    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
     const routed = commitAll(shown.worktree, "chore: declare the work item's routing");
     write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
     commitAll(shown.worktree, "chore: record review round 1");

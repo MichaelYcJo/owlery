@@ -23,6 +23,7 @@ import {
   asksFetch,
   backKey,
   backShown,
+  branchPlace,
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
@@ -299,6 +300,13 @@ describe("paneChoices", () => {
 describe("inboxLine", () => {
   it("says a work item's title and its branch", () => {
     expect(inboxLine(LOGIN, [], KINDS)).toEqual({ title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: null, commits: "" });
+  });
+
+  it("draws the place of the branch with the branch's name, and with No branch yet, not as a name, for a work item with none", () => {
+    expect([branchPlace(inboxLine(LOGIN, [], KINDS).branch), branchPlace(inboxLine({ ...LOGIN, branch: null, ownsBranch: false }, [], KINDS).branch)]).toEqual([
+      { text: "owlery/fix-the-login-bug", none: false },
+      { text: "No branch yet", none: true },
+    ]);
   });
 
   it("shows the state of the work item's most recent pane that reports state", () => {
@@ -588,6 +596,17 @@ describe("workItemMenu", () => {
     expect(workItemMenu({ ...LOGIN, archivedAt: 50 }, [], [], true).map((item) => item.label)).not.toContain("Account…");
   });
 
+  it("holds no Copy branch name for a work item with no branch yet, and says that Delete removes the worktree alone where Owlery did not make the branch, which a daemon of an earlier build made for every work item", () => {
+    const deletes = (workItem: WorkItem) => workItemMenu(workItem, [], []).find((entry) => entry.label === "Delete")?.description;
+    const none: WorkItem = { ...LOGIN, branch: null, ownsBranch: false };
+    expect(workItemMenu(none, [], []).map((item) => item.label)).toEqual(["Rename", "Open in", "Copy path", "Pin", "Mute notifications", "Archive", "Delete"]);
+    expect(workItemMenu({ ...none, archivedAt: 50 }, [], []).map((item) => item.label)).toEqual(["Restore", "Open in", "Copy path", "Delete"]);
+    const worktreeAlone = "Remove the work item's worktree from disk, after a dialog names what would be lost. Nothing on a remote is removed.";
+    const withBranch = "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.";
+    const { ownsBranch: _owns, ...old } = LOGIN;
+    expect([deletes(none), deletes({ ...LOGIN, ownsBranch: false }), deletes({ ...LOGIN, ownsBranch: true }), deletes(old)]).toEqual([worktreeAlone, worktreeAlone, withBranch, withBranch]);
+  });
+
   it("holds for an archived work item, in this order, Restore, Open in with its submenu of Finder and each installed app, the two copies and Delete: no rename, no pin, no mute, no group and no archive", () => {
     expect(plain(workItemMenu({ ...LOGIN, pinned: true, archivedAt: 50 }, APPS, GROUPS))).toEqual([
       { label: "Restore", action: { do: "restore", id: 1 }, divides: false },
@@ -762,6 +781,20 @@ describe("what a delete dialog says of a loss", () => {
     expect(deleteSays(HOLDS)).toBe("A delete would lose the work named below. It runs only with Force delete checked.");
     expect(deleteSays(CLEAN)).toBe("A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.");
     expect(deleteSays({ ...NOTHING, unreachable: true })).toBe("Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.");
+  });
+
+  it("says that a delete removes the worktree alone where the loss names no branch, and that a branch Owlery did not make stays, where the delete can run", () => {
+    const worktreeAlone: WorkItemLoss = { ...CLEAN, branch: null };
+    const none = { branch: null, ownsBranch: false };
+    const picked = { branch: "feature", ownsBranch: false };
+    expect([deleteSays(worktreeAlone), deleteSays(worktreeAlone, none)]).toEqual(Array(2).fill("A delete removes the work item's worktree, and takes the work item off Owlery's lists."));
+    expect(deleteSays(worktreeAlone, picked)).toBe("A delete removes the work item's worktree, and takes the work item off Owlery's lists. The branch feature stays, since Owlery did not make it.");
+    expect(deleteSays({ ...HOLDS, branch: null }, picked)).toBe("A delete would lose the work named below. It runs only with Force delete checked. The branch feature stays, since Owlery did not make it.");
+    // Where the delete cannot run, or removes nothing on disk, nothing is said of the branch.
+    expect(deleteSays({ ...worktreeAlone, blocked: "The worktree /w is locked, so git does not remove it." }, picked)).toBe("The worktree /w is locked, so git does not remove it.");
+    expect(deleteSays({ ...NOTHING, unreachable: true }, picked)).toBe("Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.");
+    // A branch Owlery made, and one a daemon of an earlier build made, which sends no such field, is the loss's to name.
+    expect([deleteSays(CLEAN, { branch: "owlery/fix-the-login-bug", ownsBranch: true }), deleteSays(CLEAN, { branch: "owlery/fix-the-login-bug" })]).toEqual(Array(2).fill("A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists."));
   });
 
   describe("removalChoice", () => {
@@ -3466,6 +3499,12 @@ describe("matchWorkItems", () => {
     expect(ids("/w/", "all")).toEqual([]);
   });
 
+  it("matches a work item with no branch yet by its title and its repository's name, and not by the words its line says in place of a branch", () => {
+    const none: WorkItem = { ...LOGIN, id: 5, title: "Draft the notes", branch: null, ownsBranch: false };
+    const found = (query: string) => matchWorkItems(workItemEntries([none, DOCS], sessions, KINDS), query, "all").map((entry) => entry.workItem.id);
+    expect([found("draft"), found("project"), found("no branch"), found("owlery/")]).toEqual([[5], [5], [], [3]]);
+  });
+
   it("leaves every work item where nothing is typed and every state is chosen", () => {
     expect(ids("", "all")).toEqual([1, 2, 3, 4]);
   });
@@ -4329,6 +4368,14 @@ describe("lineText", () => {
     expect(lineText(LOGIN, undefined, false)).toEqual(branch);
     const { commits: _commits, ...old } = LOGIN;
     expect(lineText(old as WorkItem, undefined, false)).toEqual(branch);
+  });
+
+  it("says that a work item has no branch yet, where it would say the branch, and while a search is typed", () => {
+    const none = { ...LOGIN, branch: null, ownsBranch: false };
+    expect([lineText(none, undefined, false), lineText({ ...none, newCommits: 2, commits: two.commits }, undefined, true)]).toEqual([
+      { says: "branch", text: "No branch yet" },
+      { says: "branch", text: "No branch yet" },
+    ]);
   });
 
   it("says the branch while a search is typed, whatever else it could say, so that the letters that match in it show", () => {

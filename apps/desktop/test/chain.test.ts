@@ -1498,6 +1498,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
     });
 
+    it("refuses a work item with no branch yet, with what makes one, and writes nothing", async () => {
+      const stood = await standing(cleanups, ["No branch yet"], { branchless: true });
+      const a = stood.workItems[0]!;
+      await refusedWith(stood, a.id, "The work item has no branch yet. Owlery makes one at the first commit in its worktree, or when it is renamed.", stands(a.worktree));
+    });
+
     it("refuses a worktree that is not on the work item's branch, and one with a merge under way", async () => {
       const stood = await standing(cleanups, ["Detached"]);
       const a = stood.workItems[0]!;

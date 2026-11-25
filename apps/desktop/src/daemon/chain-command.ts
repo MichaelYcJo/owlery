@@ -141,6 +141,9 @@ interface Here {
   directory: string | null;
 }
 
+/** Why the command refuses a worktree whose HEAD names no branch: a work item's branch is made at its first commit, from a read the daemon makes only while a window is connected. */
+export const NO_BRANCH_HERE = "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has.";
+
 /**
  * Reads where the command is run: the worktree's top, the branch its HEAD
  * names, and the work item's directory. It throws a `Refusal` where the
@@ -153,7 +156,7 @@ async function here(context: CommandContext): Promise<Here> {
   const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
   if (worktree === null || worktree === "") throw new Refusal(`${context.cwd} is in no worktree of a repository, and the chain command runs in a work item's worktree.`);
   const branch = await gitSays(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
-  if (branch === null || branch === "") throw new Refusal("The worktree's HEAD names no branch, and a chain's records are committed on the work item's branch.");
+  if (branch === null || branch === "") throw new Refusal(NO_BRANCH_HERE);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Refusal(`Owlery cannot commit a record in the worktree now: ${why}.`);
   const root = rootOf(worktree);

@@ -23,6 +23,7 @@ import {
   BACK_TAB,
   backKey,
   backShown,
+  branchPlace,
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
@@ -1268,7 +1269,9 @@ export function showView(): void {
   const since = lineSince(workItem, entry.session);
   const state = stateWithAge(line.state, since, now);
   viewTitle.textContent = line.title;
-  viewBranch.textContent = line.branch;
+  const branch = branchPlace(line.branch);
+  viewBranch.textContent = branch.text;
+  viewBranch.classList.toggle("none", branch.none);
   viewRepo.textContent = repoNameOf(workItem);
   viewFactsTitle.textContent = line.title;
   showState(viewState, line.state, since);

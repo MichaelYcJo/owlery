@@ -117,7 +117,7 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     typeof item.id === "number" &&
     typeof item.title === "string" &&
     typeof item.repo === "string" &&
-    typeof item.branch === "string" &&
+    (typeof item.branch === "string" || item.branch === null) &&
     typeof item.worktree === "string" &&
     typeof item.createdAt === "number" &&
     typeof item.repoName === "string" &&

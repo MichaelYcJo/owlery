@@ -17,6 +17,7 @@ import {
   withDecision,
   withQuestion,
   withReversal,
+  workItemDirectories,
   workItemDirectory,
   writeRecord,
 } from "../src/daemon/decision-record";
@@ -514,7 +515,7 @@ describe("a work item's directory", () => {
     expect(workItemDirectory(worktree({ "2-b/routing.md": declares("feature") }), "feature")).not.toBeNull();
   });
 
-  it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch", { timeout: 30_000 }, () => {
+  it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
@@ -525,6 +526,9 @@ describe("a work item's directory", () => {
 
     const rooted = worktree({ "2-b/routing.md": declares("") });
     expect(workItemDirectory(rooted, "")).toBeNull();
+    // The reader gives no branch for a routing with no `Branch` row, and none for one whose review it does not know.
+    const unnamed = worktree({ "2-b/routing.md": routing([["Review", "straight to the PR"], ["Destination", "open the pull request"]]), "3-c/routing.md": routing([["Review", "none"], ["Destination", "open the pull request"], ["Branch", "feature"]]) });
+    expect([workItemDirectories(unnamed, null), workItemDirectory(unnamed, null), workItemDirectory(rooted, null)]).toEqual([[], null, null]);
   });
 
   it("is found by a renamed branch once the `Branch` row names it: the row's name alone is rewritten, with the cell's own spaces, the cells after it, each line's end and every other line as they were, and the pull request check finds the directory by the new name", { timeout: 30_000 }, () => {

@@ -1134,7 +1134,7 @@ function showRemove(): void {
       const loss = removeLosses.get(id) ?? null;
       const says = document.createElement("p");
       says.className = "says";
-      says.textContent = deleteSays(loss);
+      says.textContent = deleteSays(loss, [...held.workItems, ...held.archived].find((known) => known.id === id));
       return [head, says, ...(loss === null ? [] : lossParts(loss))];
     }),
   );
@@ -1212,7 +1212,7 @@ function showDelete(): void {
   }
   deletion = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("delete-head").textContent = `Delete ${workItem.title}`;
-  byId("delete-says").textContent = deleteSays(deleteLoss);
+  byId("delete-says").textContent = deleteSays(deleteLoss, workItem);
   byId("delete-loss").replaceChildren(...(deleteLoss === null ? [] : lossParts(deleteLoss)));
   const section = byId("delete-sessions");
   section.hidden = deletion.sessions.length === 0;

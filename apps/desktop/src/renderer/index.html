@@ -356,6 +356,8 @@
       .preview-title { font-family: var(--font-title); font-size: var(--size-title); font-weight: var(--weight-title); line-height: 1.2; letter-spacing: var(--tracking-title); color: var(--ink-strong); overflow-wrap: anywhere; }
       .preview-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) 14px; font-size: var(--size-second); color: var(--ink-muted); }
       .preview-facts .branch { color: var(--ink); }
+      /* The place of a work item with no branch says so in the sans, muted, where a branch's name stands in the fixed-width typeface. */
+      .branch.none { font-family: var(--font-ui); color: var(--ink-muted); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
       .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }

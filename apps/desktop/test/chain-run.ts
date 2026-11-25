@@ -20,7 +20,7 @@ import { MARKER } from "../src/daemon/records-place";
 import { gateText, guaranteeText } from "../src/daemon/seal-records";
 import { createWorktree } from "../src/daemon/worktrees";
 import type { Chain, ClientMessage, LedgerEntry, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
-import { git, temporaryRepository } from "./repositories";
+import { git, temporaryRepository, unbranched, writeStore } from "./repositories";
 
 /** The token the cases' daemons take. */
 export const TOKEN = "t".repeat(64);
@@ -289,10 +289,14 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * first has a repository of its own, made the same way with a remote of its
  * own, and `made` is the first title's. With `linked: true` the daemon is
  * given each worktree by a link beside its repository's folder, as a person
- * may give a folder, while git names it by its real path.
+ * may give a folder, while git names it by its real path. With
+ * `branchless: true` each work item has no branch yet: its worktree's `HEAD`
+ * is detached at its commit, the branch its creation cut is removed, and the
+ * store the daemon reads holds no branch for it, though `workItems` still
+ * names the removed branch.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean } = {}) {
-  const { root = true, gate = "true", apart = false, linked = false, ...daemonOptions } = options;
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean; branchless?: boolean } = {}) {
+  const { root = true, gate = "true", apart = false, linked = false, branchless = false, ...daemonOptions } = options;
   const repository = (): ReturnType<typeof temporaryRepository> => {
     const repo = temporaryRepository();
     cleanups.push(repo.remove);
@@ -314,10 +318,13 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     commitAll(place.worktree, "feat: greet");
     const link = join(own.base, `linked-${String(index + 1)}`);
     if (linked) symlinkSync(place.worktree, link);
+    // A work item with no branch yet stands on the commit its creation's branch held, which is then removed.
+    if (branchless) unbranched(own.repo, place);
     workItems.push({ id: index + 1, title, createdAt: 1, ...place, worktree: linked ? link : place.worktree });
     if (own !== made) bareRemote(own.base, own.repo);
   }
-  writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
+  if (branchless) writeStore(runDir, made.repo, workItems.map((item) => ({ ...item, branch: null, ownsBranch: false })));
+  else writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
   const remote = bareRemote(made.base, made.repo);
   const gh = ghStandIn(cleanups, made.base);
   const start = async (more: Partial<DaemonOptions> = {}) => {

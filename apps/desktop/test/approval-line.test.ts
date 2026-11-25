@@ -23,7 +23,7 @@ import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitSeal } from "./chain-run";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** What a place of the line shows, as a person and a screen reader read it. */
 interface Shown {
@@ -226,7 +226,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     gamma = second.item("Gamma")!;
-    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: gamma.branch, base: gamma.baseCommit! });
+    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
     for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });
     const words = `Sealed at ${sealedAt.slice(0, 7)}`;

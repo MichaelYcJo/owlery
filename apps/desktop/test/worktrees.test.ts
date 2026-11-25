@@ -1286,6 +1286,23 @@ describe("what a delete would lose", () => {
     expect(await readLoss(made.repo, branch, worktree)).toMatchObject({ branch, worktree, commits: [{ hash: short(made.repo, detached), subject: "on no branch" }], commitCount: 1 });
   });
 
+  it("names no branch where the delete removes none: the commits of a worktree with no branch are those its HEAD holds and nothing else holds, a branch the delete leaves holds its own, and no other worktree's checkout blocks it, one with no branch either", async () => {
+    const made = repository();
+    const { branch, worktree } = await workItem(made);
+    commitFile(worktree, "second.txt");
+    const detached = join(made.root, "detached");
+    const other = join(made.root, "other");
+    for (const folder of [detached, other]) git(made.repo, "worktree", "add", "--quiet", "--detach", folder, "main");
+    const lone = commitFile(detached, "lone.txt");
+    const loss = await readLoss(made.repo, null, detached);
+    expect(loss).toEqual({ ...NOTHING, branch: null, worktree: detached, commits: [{ hash: short(made.repo, lone), subject: "add lone.txt" }], commitCount: 1, stamp: loss.stamp });
+    // The work item's own branch stays, and holds the commit its worktree made.
+    expect(await readLoss(made.repo, null, worktree)).toMatchObject({ ...NOTHING, branch: null, worktree });
+    git(worktree, "checkout", "--quiet", "--detach");
+    git(made.repo, "checkout", "--quiet", branch);
+    expect(await readLoss(made.repo, null, worktree)).toMatchObject({ ...NOTHING, branch: null, worktree });
+  });
+
   it("says why a delete cannot run: the branch is checked out in the repository's own checkout, or the worktree is locked", async () => {
     const made = repository();
     const { branch, worktree } = await workItem(made);

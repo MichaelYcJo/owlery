@@ -107,9 +107,18 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
   return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
 }
 
+/** What the place of a work item's branch says, and a line's last fact, where the work item has no branch yet. */
+export const NO_BRANCH = "No branch yet";
+
+/** What the place of a work item's branch shows, in a line's preview and a view's head: the branch's name, or `NO_BRANCH` where it has none, which `none` says is drawn in the sans and not as a name. */
+export function branchPlace(branch: string | null): { text: string; none: boolean } {
+  return branch === null ? { text: NO_BRANCH, none: true } : { text: branch, none: false };
+}
+
 export interface InboxLine {
   title: string;
-  branch: string;
+  /** The work item's branch, or null where it has none yet. */
+  branch: string | null;
   /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its seal gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
@@ -1099,13 +1108,28 @@ export function lossSections(loss: WorkItemLoss): LossSection[] {
   ];
 }
 
-/** What the delete dialog says before its lists, of the loss the daemon answered with, or of none while the answer is awaited: why the delete cannot run, that work would be lost, that the folder stays where git reads nothing in the repository's folder, or what the delete removes. */
-export function deleteSays(loss: WorkItemLoss | null): string {
+/**
+ * What the delete dialog says before its lists, of the loss the daemon
+ * answered with, or of none while the answer is awaited: why the delete
+ * cannot run, that work would be lost, that the folder stays where git reads
+ * nothing in the repository's folder, or what the delete removes, the local
+ * branch only where the loss names one. Where the delete can run, and the
+ * work item's branch is one Owlery did not make (`keptBranch`), it then says
+ * that the branch stays.
+ */
+export function deleteSays(loss: WorkItemLoss | null, workItem?: Pick<WorkItem, "branch" | "ownsBranch">): string {
   if (loss === null) return "Reading what a delete would remove.";
   if (loss.blocked !== null) return loss.blocked;
   if (loss.unreachable) return "Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.";
-  if (losesWork(loss)) return "A delete would lose the work named below. It runs only with Force delete checked.";
-  return "A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.";
+  const kept = workItem === undefined ? null : keptBranch(workItem);
+  const stays = kept === null ? "" : ` The branch ${kept} stays, since Owlery did not make it.`;
+  if (losesWork(loss)) return `A delete would lose the work named below. It runs only with Force delete checked.${stays}`;
+  return `${loss.branch === null ? "A delete removes the work item's worktree" : "A delete removes the work item's worktree and its local branch"}, and takes the work item off Owlery's lists.${stays}`;
+}
+
+/** The work item's branch where a delete leaves it, since Owlery did not make it, or null where the work item has none or Owlery made it. A daemon of an earlier build sends no `ownsBranch`, and made every work item's branch. */
+export function keptBranch(workItem: Pick<WorkItem, "branch" | "ownsBranch">): string | null {
+  return workItem.ownsBranch === false ? workItem.branch : null;
 }
 
 /**
@@ -1230,7 +1254,7 @@ export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }
     if (state === "decided") {
       if (mergedWorkItem(workItem) || !decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
     } else if (state !== "all" && (line.state ?? "none") !== state) return false;
-    return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
+    return query === "" || [workItem.title, ...(workItem.branch === null ? [] : [workItem.branch]), repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
   });
 }
 
@@ -1773,7 +1797,7 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
-  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch };
+  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch ?? NO_BRANCH };
 }
 
 /**
@@ -2294,11 +2318,14 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[], accounts = false): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
+  const { branch } = workItem;
   const copies: MenuItem[] = [
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
-    { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
+    ...(branch === null ? [] : [{ label: "Copy branch name", description: `Put ${branch} on the clipboard.`, action: { do: "copy" as const, text: branch }, divides: false }]),
   ];
-  const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  // A delete removes the branch only where Owlery made it, which a daemon of an earlier build, sending no `ownsBranch`, did for every work item.
+  const removes = branch !== null && workItem.ownsBranch !== false ? "Remove the work item's worktree and its local branch from disk" : "Remove the work item's worktree from disk";
+  const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: `${removes}, after a dialog names what would be lost. Nothing on a remote is removed.`, action: { do: "delete", id }, divides });
   const own = groups.find((group) => group.id === workItem.groupId);
   const moves: MenuItem[] = [
     ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),

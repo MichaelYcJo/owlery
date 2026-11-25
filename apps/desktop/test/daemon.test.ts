@@ -24,7 +24,7 @@ import { createWorktree, readLoss } from "../src/daemon/worktrees";
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PermissionAsk, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
-import { commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
+import { branchOf, commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin, unbranched, writeStore } from "./repositories";
 import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
 import { VIEW_FIELDS } from "../src/daemon/github";
 
@@ -34,7 +34,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a branch just cut holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "permissions", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -179,6 +179,29 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
   const workItem = { id: 1, title, createdAt: 1, ...place };
   writeFileSync(join(runDir, "work-items.json"), JSON.stringify([workItem]));
   return { runDir, workItem };
+}
+
+/**
+ * A daemon whose store lists one work item with no branch yet, number 1,
+ * written before the daemon that reads it: the worktree a creation made,
+ * its `HEAD` detached at a commit of its own that no branch holds, and the
+ * branch the creation cut removed. `branches` gives the repository's local
+ * branches as git names them.
+ */
+async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir);
+  const title = "No branch yet";
+  const { repo: _repo, ...place } = await createWorktree({ folder: made.repo, title, root: made.root });
+  unbranched(made.repo, place);
+  const lone = commitFile(place.worktree, "lone.txt");
+  writeStore(runDir, made.repo, [{ id: 1, title, createdAt: 1, ...place, branch: null, ownsBranch: false }]);
+  const { url } = await daemon({ runDir, worktreesRoot: made.root, ...options });
+  const c = await client(url);
+  await c.message("ready");
+  return { made, c, worktree: place.worktree, lone, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
 }
 
 /** A daemon whose run folder lists one work item, number 1, in which a pane starts. */
@@ -457,8 +480,8 @@ describe("work items", () => {
     const created = await c.message("workItemCreated", (m) => m.requestId === 3);
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
-    // The repository's HEAD is on `main`, and its folder is named `project`.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
+    // The repository's HEAD is on `main`, and its folder is named `project`. The creation cut the branch, so Owlery made it.
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: "owlery/fix-the-login-bug", ownsBranch: true, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW, permissions: [] });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\n`);
     expect(git(worktree, "branch", "--show-current").trim()).toBe("owlery/fix-the-login-bug");
@@ -513,8 +536,8 @@ describe("work items", () => {
       // The look keeps no account a pane was launched under, as it keeps none set on a work item.
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, and keeps the seal reading the lists carried.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait") : WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor whether Owlery made its branch, and keeps the seal reading the lists carried.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait" && key !== "ownsBranch") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -2150,10 +2173,10 @@ describe("what a person sets on a work item", () => {
   it("answers a rename of the branch with the reason, on a branch with an upstream and on one a remote holds under its name with no upstream, and the title and the branch are the ones they were", async () => {
     const made = clone();
     const { c, url, workItem } = await withWorkItem(made);
-    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    git(made.repo, "push", "--quiet", "origin", branchOf(workItem));
     c.send({ type: "renameWorkItem", requestId: 1, id: workItem.id, title: "Second name", branch: true });
     expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
-    git(made.repo, "branch", "--quiet", `--set-upstream-to=origin/${workItem.branch}`, workItem.branch);
+    git(made.repo, "branch", "--quiet", `--set-upstream-to=origin/${workItem.branch}`, branchOf(workItem));
     c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "Second name", branch: true });
     expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "The branch owlery/first-name has an upstream, origin/owlery/first-name, so it keeps its name." });
     expect(c.messages.map((m) => m.type)).toEqual(["error", "error"]);
@@ -2171,7 +2194,7 @@ describe("what a person sets on a work item", () => {
     expect(await c.message("renamePlan", (m) => m.requestId === 2)).toEqual({ type: "renamePlan", requestId: 2, branch: "owlery/second-name-2", blocked: null });
     c.send({ type: "planRename", requestId: 3, id: workItem.id, title: "First name" });
     expect(await c.message("renamePlan", (m) => m.requestId === 3)).toEqual({ type: "renamePlan", requestId: 3, branch: "owlery/first-name", blocked: "The branch is already owlery/first-name." });
-    git(made.repo, "push", "--quiet", "origin", workItem.branch);
+    git(made.repo, "push", "--quiet", "origin", branchOf(workItem));
     c.send({ type: "planRename", requestId: 4, id: workItem.id, title: "Second name" });
     expect(await c.message("renamePlan", (m) => m.requestId === 4)).toEqual({ type: "renamePlan", requestId: 4, branch: "owlery/second-name-2", blocked: "The remote origin holds a branch owlery/first-name, so the branch keeps its name." });
     c.send({ type: "planRename", requestId: 5, id: 9, title: "Second name" });
@@ -2180,6 +2203,20 @@ describe("what a person sets on a work item", () => {
     expect((await c.message("error", (m) => m.requestId === 6)).message).toBe("a rename's plan needs the work item's new name");
     expect(c.messages.map((m) => m.type)).toEqual(["renamePlan", "renamePlan", "renamePlan", "renamePlan", "error", "error"]);
     expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ title: "First name", branch: "owlery/first-name" }]);
+  });
+
+  it("answers a `planRename` and a rename of the branch of a work item with no branch yet with the reason, renames nothing, and renames its name alone", async () => {
+    const { c, branches } = await daemonWithoutBranch();
+    const before = branches();
+    const none = "The work item has no branch yet, so there is none to rename.";
+    c.send({ type: "planRename", requestId: 1, id: 1, title: "Fix the login bug" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: null, blocked: none });
+    c.send({ type: "renameWorkItem", requestId: 2, id: 1, title: "Fix the login bug", branch: true });
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(none);
+    c.send({ type: "renameWorkItem", requestId: 3, id: 1, title: "Fix the login bug", branch: false });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Fix the login bug")).workItems[0]).toMatchObject({ title: "Fix the login bug", branch: null });
+    expect(branches()).toBe(before);
   });
 
   it("sends no list read from a branch's old name while the branch is being renamed", async () => {
@@ -2195,11 +2232,11 @@ describe("what a person sets on a work item", () => {
     c.send({ type: "renameWorkItem", requestId: 2, id: workItem.id, title: "First name", branch: false });
     await c.message("done", (m) => m.requestId === 2);
     // Git's own rename takes the old name away a moment before the daemon hears that it ended. The case stretches that moment: the branch leaves its old name here, and the reads of several intervals pass.
-    git(made.repo, "branch", "-M", workItem.branch, "owlery/elsewhere");
+    git(made.repo, "branch", "-M", branchOf(workItem), "owlery/elsewhere");
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(c.messages).toEqual([{ type: "done", requestId: 2 }]);
     c.messages.length = 0;
-    git(made.repo, "branch", "-M", "owlery/elsewhere", workItem.branch);
+    git(made.repo, "branch", "-M", "owlery/elsewhere", branchOf(workItem));
     held.release();
     expect((await c.message("inbox")).workItems).toMatchObject([{ title: "Second name", branch: "owlery/second-name", newCommits: 1, commits: [{ subject: "add work.txt" }] }]);
     expect(c.messages.slice(0, 2).map((m) => m.type)).toEqual(["done", "inbox"]);
@@ -2430,7 +2467,7 @@ describe("what a person sets on a work item", () => {
     writeFileSync(join(workItem.worktree, ".gitignore"), ".env\n");
     git(workItem.worktree, "add", ".gitignore");
     git(workItem.worktree, "commit", "--quiet", "-m", "ignore the environment");
-    git(made.repo, "branch", "keeps", workItem.branch);
+    git(made.repo, "branch", "keeps", branchOf(workItem));
     writeFileSync(join(workItem.worktree, ".env"), "SECRET=1\n");
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Quick?" });
     await c.message("headless", (m) => m.headless.state === "finished");
@@ -2450,6 +2487,33 @@ describe("what a person sets on a work item", () => {
     expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextWorkItemId: 2, repositories: [{ id: 1, workItems: [] }] });
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Made after", kind: "shell", cols: 80, rows: 24 });
     expect((await c.message("workItemCreated", (m) => m.requestId === 3)).workItem).toMatchObject({ id: 2, repoId: 1, ...NOTHING_NEW });
+  });
+
+  it("deletes a work item with no branch yet and one on a branch Owlery did not make, and removes no branch: the first's loss names the commit only its worktree holds, which a forced delete loses, and the second's names none, since the branch that stays holds its commit", async () => {
+    const made = repository();
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { repo: _none, ...none } = await createWorktree({ folder: made.repo, title: "No branch yet", root: made.root });
+    unbranched(made.repo, none);
+    const lone = commitFile(none.worktree, "lone.txt");
+    const { repo: _picked, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root });
+    commitFile(picked.worktree, "picked.txt");
+    writeStore(runDir, made.repo, [
+      { id: 1, title: "No branch yet", createdAt: 1, ...none, branch: null, ownsBranch: false },
+      { id: 2, title: "Picked", createdAt: 1, ...picked, ownsBranch: false },
+    ]);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const c = await client(url);
+    await c.message("ready");
+    const loss = await lossOf(c, 1);
+    expect(loss).toMatchObject({ branch: null, worktree: none.worktree, commits: [{ hash: git(made.repo, "rev-parse", "--short", lone).trim(), subject: "add lone.txt" }], commitCount: 1 });
+    c.send({ type: "deleteWorkItem", requestId: 1, id: 1, stamp: loss.stamp, force: true, running: { panes: [], headless: [] } });
+    await c.message("done", (m) => m.requestId === 1);
+    const kept = await lossOf(c, 2);
+    expect(kept).toMatchObject({ branch: null, worktree: picked.worktree, commits: [], commitCount: 0 });
+    c.send({ type: "deleteWorkItem", requestId: 2, id: 2, stamp: kept.stamp, force: false, running: { panes: [], headless: [] } });
+    await c.message("done", (m) => m.requestId === 2);
+    expect([existsSync(none.worktree), existsSync(picked.worktree), git(made.repo, "branch", "--format=%(refname:short)").trim().split("\n").sort()]).toEqual([false, false, ["main", picked.branch]]);
   });
 
   it("refuses a delete of a work item that holds work without the force and leaves everything as it was, the pane running; and with the force removes the folder and the branch and nothing else: no ref of the remote, no remote's branch or tag of the clone, no other branch, no file of another work item or of the repository's own checkout, no path the loss did not name and no commit the loss did not name", async () => {
@@ -2559,7 +2623,7 @@ describe("what a person sets on a work item", () => {
     expect([loss.untrackedCount, loss.commitCount]).toEqual([0, 0]);
     c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [session.id], headless: [headless.id] } });
     expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
-    expect([readFileSync(join(workItem.worktree, "late.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual(["late\n", `+ ${workItem.branch}`]);
+    expect([readFileSync(join(workItem.worktree, "late.txt"), "utf8"), git(made.repo, "branch", "--list", branchOf(workItem)).trim()]).toEqual(["late\n", `+ ${workItem.branch}`]);
     const still = await (await client(url)).message("ready");
     expect([still.workItems.map((w) => w.id), still.sessions.map((s) => [s.id, s.alive]), still.headless]).toEqual([[workItem.id], [[session.id, false]], [{ ...headless, state: "failed", error: "ended when a delete of its work item began", stopped: "request" }]]);
     // The loss the person reads next names the file, and a delete with its stamp needs the force.
@@ -2636,7 +2700,7 @@ describe("what a person sets on a work item", () => {
     expect([await answer(2), await answer(3), await answer(4)]).toEqual([2, 3, 4].map((requestId) => ({ type: "error", requestId, message: DELETING })));
     expect(await answer(1)).toEqual({ type: "error", requestId: 1, message: "A session did not end in time, so nothing was deleted. Try again." });
     const still = await (await client(url)).message("ready");
-    expect([still.workItems.map((w) => w.id), still.archived, existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], [], true, `+ ${workItem.branch}`]);
+    expect([still.workItems.map((w) => w.id), still.archived, existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", branchOf(workItem)).trim()]).toEqual([[workItem.id], [], true, `+ ${workItem.branch}`]);
     // The refused delete holds the work item no longer.
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 5, workItemId: workItem.id });
     expect((await answer(5))?.type).toBe("started");
@@ -2659,7 +2723,7 @@ describe("what a person sets on a work item", () => {
     expect([await answer(2), await answer(3)]).toEqual([{ type: "error", requestId: 2, message: ARCHIVING }, { type: "error", requestId: 3, message: ARCHIVING }]);
     expect(await answer(1)).toEqual({ type: "done", requestId: 1 });
     const { inbox } = await archivedInbox(c);
-    expect([inbox.archived.map((w) => w.id), existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], true, `+ ${workItem.branch}`]);
+    expect([inbox.archived.map((w) => w.id), existsSync(join(workItem.worktree, "README.md")), git(made.repo, "branch", "--list", branchOf(workItem)).trim()]).toEqual([[workItem.id], true, `+ ${workItem.branch}`]);
   });
 
   it("leaves the removal of a changed worktree to git where the delete is not forced: git refuses to remove a file that arrived after the daemon's last read, its sentence is the answer, and the work item stays listed with its folder and its branch", async () => {
@@ -2673,7 +2737,7 @@ describe("what a person sets on a work item", () => {
     held.release();
     expect((await c.message("error", (m) => m.requestId === 1)).message).toContain("contains modified or untracked files, use --force to delete it");
     const still = await (await client(url)).message("ready");
-    expect([still.workItems.map((w) => w.id), readFileSync(join(workItem.worktree, "arrived.txt"), "utf8"), git(made.repo, "branch", "--list", workItem.branch).trim()]).toEqual([[workItem.id], "after the last read\n", `+ ${workItem.branch}`]);
+    expect([still.workItems.map((w) => w.id), readFileSync(join(workItem.worktree, "arrived.txt"), "utf8"), git(made.repo, "branch", "--list", branchOf(workItem)).trim()]).toEqual([[workItem.id], "after the last read\n", `+ ${workItem.branch}`]);
   });
 
   it("deletes an archived work item, and takes a work item whose repository's folder is gone off the lists with nothing removed on disk", async () => {
@@ -3414,7 +3478,7 @@ describe("the inbox", () => {
     git(workItem.worktree, "merge", "--quiet", "--no-ff", "-m", "merge main", "main");
     // Three commits since the cut: the branch's own, the base's and the merge. The base holds its own.
     await c.message("inbox", (m) => counts(m).join() === "2,0,3");
-    git(repo, "merge", "--quiet", "--ff-only", workItem.branch);
+    git(repo, "merge", "--quiet", "--ff-only", branchOf(workItem));
     // The branch's head and its count stay, and the inbox is for the base that moved.
     await c.message("inbox", (m) => counts(m).join() === "0,0,3");
   });
@@ -3430,7 +3494,7 @@ describe("the inbox", () => {
     const counts = (m: Inbox) => [m.workItems[0]?.baseBranch, m.workItems[0]?.aheadOfBase, m.workItems[0]?.behindBase, m.workItems[0]?.newCommits].join();
     commit(workItem.worktree, "own.txt");
     await c.message("inbox", (m) => counts(m) === "origin/main,1,0,1");
-    git(origin, "pull", "--quiet", "--ff-only", repo, workItem.branch);
+    git(origin, "pull", "--quiet", "--ff-only", repo, branchOf(workItem));
     git(repo, "fetch", "--quiet", "origin");
     await c.message("inbox", (m) => counts(m) === "origin/main,0,0,1");
     git(origin, "checkout", "--quiet", "-b", "renamed");
@@ -3481,12 +3545,29 @@ describe("the inbox", () => {
     commit(workItem.worktree, "one.txt");
     await c.message("inbox", (m) => m.workItems[0]?.commits?.length === 1);
     git(repo, "worktree", "remove", "--force", workItem.worktree);
-    git(repo, "branch", "--quiet", "-D", workItem.branch);
+    git(repo, "branch", "--quiet", "-D", branchOf(workItem));
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
     // Nor a seal: what was read of the branch went with it, so the work item carries no `seal`.
     const { seal: _seal, ...read } = workItem;
     expect(gone.workItems).toEqual([{ ...read, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
     expect("seal" in gone.workItems[0]!).toBe(false);
+  });
+
+  it("reads a work item with no branch yet at its worktree's HEAD: its commit there is one new commit, ahead of the base by one, with the file it changed and no seal, and no branch is made", async () => {
+    const { c, worktree, lone, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
+    const before = branches();
+    const read = await c.until(() => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).find((item) => item.newCommits === 1 && item.seal !== undefined));
+    expect(read).toMatchObject({
+      branch: null,
+      ownsBranch: false,
+      aheadOfBase: 1,
+      behindBase: 0,
+      newCommits: 1,
+      commits: [{ hash: git(worktree, "rev-parse", "--short", lone).trim(), subject: "add lone.txt" }],
+      changes: { files: 1, added: 1, removed: 0, list: [{ path: "lone.txt", added: 1, removed: 0 }] },
+      seal: null,
+    });
+    expect(branches()).toBe(before);
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
@@ -3626,11 +3707,11 @@ async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
 }
 
 /** Makes a work item's directory in its worktree, uncommitted: the records root with its marker, and a `routing.md` under `threads/<name>` that names the work item's branch. Gives the directory. */
-function withDirectory(workItem: { worktree: string; branch: string }, name = "1-item"): string {
+function withDirectory(workItem: { worktree: string; branch: string | null }, name = "1-item"): string {
   const directory = join(workItem.worktree, "seal", "threads", name);
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(workItem.worktree, "seal", "README.md"), `${MARKER}\n`);
-  writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
+  writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${branchOf(workItem)} |\n`);
   return directory;
 }
 
@@ -4406,6 +4487,12 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(gone.branch) });
   });
 
+  it("answers a `readSealRecords` of a work item with no branch yet with the empty value, read at its worktree's HEAD", async () => {
+    const { c, lone } = await daemonWithoutBranch();
+    c.send({ type: "readSealRecords", requestId: 1, workItemId: 1 });
+    expect(await c.message("sealRecords", (m) => m.requestId === 1)).toEqual({ type: "sealRecords", requestId: 1, workItemId: 1, records: { head: lone, record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 } });
+  });
+
   it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
     const a = workItems[0]!;
@@ -4565,7 +4652,7 @@ describe("the commit of a person's word", () => {
     git(a.worktree, "checkout", "--quiet", "-b", "theirs");
     writeFileSync(join(a.worktree, "README.md"), "theirs\n");
     git(a.worktree, "commit", "--quiet", "-am", "theirs");
-    git(a.worktree, "checkout", "--quiet", a.branch);
+    git(a.worktree, "checkout", "--quiet", branchOf(a));
     writeFileSync(join(a.worktree, "README.md"), "mine\n");
     git(a.worktree, "commit", "--quiet", "-am", "mine");
     bring(a.worktree);
@@ -4576,14 +4663,25 @@ describe("the commit of a person's word", () => {
     await settled(c);
     const before = c.messages.length;
     c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
-    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: refusal(says(a.branch)) });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: refusal(says(branchOf(a))) });
     c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "Yes, push." }] });
-    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: refusal(says(a.branch)) });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: refusal(says(branchOf(a))) });
     await settled(c);
     // The third is the refusal `settled` waits for.
     expect(c.messages.slice(before).map((m) => m.type)).toEqual(["error", "error", "error"]);
     await d.close();
     expect(said).toEqual([]);
+    expect(stands()).toEqual(stood);
+  });
+
+  it("refuses a reversal and an answer for a work item with no branch yet before anything is written, says so, and moves no branch and no HEAD", async () => {
+    const { c, worktree, branches } = await daemonWithoutBranch();
+    const stands = (): unknown[] => [branches(), git(worktree, "rev-parse", "HEAD"), status(worktree)];
+    const stood = stands();
+    c.send({ type: "reverseDecision", requestId: 1, workItemId: 1, decisionId: 1, message: "No." });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "Nothing was written: the work item has no branch yet." });
+    c.send({ type: "answerQuestions", requestId: 2, workItemId: 1, answers: [{ questionId: 2, answer: "Yes, push." }] });
+    expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: "Nothing was written: the work item has no branch yet." });
     expect(stands()).toEqual(stood);
   });
 
@@ -4807,8 +4905,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain and without the wait of a heavy command, which the look does not keep, and with its seal reading. */
-  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, ...kept }: WorkItem): WorkItem => kept;
+  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command and without whether Owlery made its branch, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, ownsBranch: _ownsBranch, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();

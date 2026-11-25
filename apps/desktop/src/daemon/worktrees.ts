@@ -600,12 +600,33 @@ export async function renameBranch(repo: string, from: string, to: string): Prom
  * commit is gone.
  */
 export async function newCommits(repo: string, branch: string, baseCommit: string): Promise<number | null> {
+  return commitsAfter(repo, baseCommit, `refs/heads/${branch}`);
+}
+
+/** How many commits `tip`, a commit or a ref, holds after `baseCommit`, read in the repository, or null where git gives no count. */
+async function commitsAfter(repo: string, baseCommit: string, tip: string): Promise<number | null> {
   try {
-    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..refs/heads/${branch}`, "--"]), 10);
+    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..${tip}`, "--"]), 10);
     return Number.isInteger(count) ? count : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * What `newCommits` and `branchHead` give of a branch, for a worktree whose
+ * work stands on no branch yet: the count after `baseCommit` and the commit,
+ * both read at the commit the worktree's `HEAD` stands at. Both null where
+ * git cannot read the worktree's `HEAD`: the folder is gone.
+ */
+export async function headCounts(repo: string, worktree: string, baseCommit: string): Promise<[count: number | null, head: string | null]> {
+  let head: string;
+  try {
+    head = await worktreeHead(worktree);
+  } catch {
+    return [null, null];
+  }
+  return [await commitsAfter(repo, baseCommit, head), head];
 }
 
 /**
@@ -763,8 +784,12 @@ function cut<T>(entries: T[]): { listed: T[]; count: number } {
  * worktree. Nothing is removed, nothing is fetched, and a remote's branches
  * are read as the clone holds them.
  *
- * The commits are those the branch or the worktree's `HEAD` holds and no
- * other local branch, no remote's branch and no tag holds. `--all` is not
+ * `branch` is the branch a delete would remove, or null where it removes
+ * none: the work item has no branch, or its branch is one Owlery did not
+ * make, which stays. The commits are those the branch or the worktree's
+ * `HEAD` holds and no other local branch, no remote's branch and no tag
+ * holds, so a branch that stays holds its own commits and they are no
+ * loss. `--all` is not
  * what they are read against: it takes the worktree's own `HEAD`, which
  * hides every one of them. The worktree's files are read only where git
  * lists a linked worktree at the folder and the folder stands: in any other
@@ -772,7 +797,7 @@ function cut<T>(entries: T[]): { listed: T[]; count: number } {
  * The untracked files are listed each by its own path, and the ignored ones
  * with a folder as one name, which takes two reads.
  */
-export async function readLoss(repo: string, branch: string, worktree: string): Promise<WorkItemLoss> {
+export async function readLoss(repo: string, branch: string | null, worktree: string): Promise<WorkItemLoss> {
   const nothing = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null };
   let listed: string;
   try {
@@ -781,12 +806,12 @@ export async function readLoss(repo: string, branch: string, worktree: string): 
     return { ...nothing, unreachable: true, stamp: createHash("sha256").update("unreachable").digest("hex") };
   }
   const own = linkedAt(listed, worktree);
-  const tip = await branchHead(repo, branch);
-  const elsewhere = listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
+  const tip = branch === null ? null : await branchHead(repo, branch);
+  const elsewhere = branch === null ? undefined : listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
   const blocked = elsewhere ? `The branch ${branch} is checked out in ${elsewhere.folder}, so it cannot be deleted.` : own?.locked ? `The worktree ${own.folder} is locked, so git does not remove it.` : null;
   const tips = [...new Set([tip, own?.head ?? null].filter((commit): commit is string => commit !== null))];
   // Every commit is read, so the stamp differs for one the list leaves out. The names of the refs reach git as patterns under their kinds, and a branch's name holds none of a pattern's characters.
-  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
+  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", ...(branch === null ? [] : [`--exclude=${branch}`]), "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
   let status = "";
   let others = "";
   if (own !== undefined && existsSync(own.folder)) {

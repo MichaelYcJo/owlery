@@ -18,8 +18,10 @@ function runDir(): string {
 }
 
 /** What a creation hands the store: the repository's folder, and the work item's own fields. */
-const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
+const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", ownsBranch: true, worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
+/** A work item's fields as a build wrote them before Owlery kept whether it made the branch. */
+const { ownsBranch: _owns, ...CUT } = PLACE;
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null, worktreeSize: null };
 /** What a repository holds of the fields a person sets, before any is set. */
@@ -27,7 +29,7 @@ const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, paneCh
 /** The setup of a work item's worktree, as the daemon records one that ended. */
 const SETUP: WorktreeSetup = { copied: [".env"], copiedCount: 1, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 /** An entry of `work-items.json`, as a build before the repositories wrote it. */
-const OLD = { id: 1, ...PLACE, createdAt: 1 };
+const OLD = { id: 1, ...CUT, createdAt: 1 };
 
 /** The repositories `repositories.json` holds, and the three counts beside them: the next id of a work item, of a repository and of a group. */
 const whole = (dir: string): { repositories: unknown; nextWorkItemId: unknown; nextRepositoryId: unknown; nextGroupId: unknown } => JSON.parse(readFileSync(join(dir, "repositories.json"), "utf8"));
@@ -402,6 +404,28 @@ describe("RepositoryStore", () => {
     expect(counts(dir)).toEqual([9, 6, 10]);
   });
 
+  it("keeps a work item with no branch and whether Owlery made a work item's branch, writes both, and reads a work item written before that was kept as one whose branch Owlery made", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    store.addWorkItem({ ...PLACE, branch: null, ownsBranch: false });
+    store.addWorkItem({ ...PLACE, branch: "feature", ownsBranch: false });
+    store.addWorkItem(PLACE);
+    expect(new RepositoryStore(dir).workItems().map(({ item }) => [item.branch, item.ownsBranch])).toEqual([
+      [null, false],
+      ["feature", false],
+      [PLACE.branch, true],
+    ]);
+    const repository = { id: 1, folder: "/r/project", ...PLAIN, addedAt: 1 };
+    const { ownsBranch: _kept, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repository, workItems: [before] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([{ ...repository, workItems: [{ ...before, ownsBranch: true }] }]);
+    // A branch that is no name and not null, and an answer that is no boolean, is no store's.
+    for (const written of [{ ...before, branch: 3 }, { ...before, ownsBranch: "yes" }]) {
+      writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...repository, workItems: [written] }] }));
+      expect(new RepositoryStore(dir).repositories()).toEqual([]);
+    }
+  });
+
   it("writes repositories.json in the run directory, readable by the user alone", () => {
     const dir = runDir();
     new RepositoryStore(dir).addWorkItem(PLACE);
@@ -486,7 +510,8 @@ describe("RepositoryStore", () => {
 describe("RepositoryStore, started from work-items.json", () => {
   const SEARCH = { ...OLD, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search", createdAt: 3 };
   const DOCS = { ...OLD, id: 5, title: "Write the guide", repo: "/r/docs", branch: "owlery/write-the-guide", worktree: "/w/docs/write-the-guide", createdAt: 2 };
-  const own = ({ repo: _folder, ...item }: typeof OLD) => ({ ...item, ...UNSET });
+  // A build before the repositories made every work item's branch.
+  const own = ({ repo: _folder, ...item }: typeof OLD) => ({ ...item, ownsBranch: true, ...UNSET });
 
   it("starts as one repository for each distinct folder, in the order of each one's first work item, every work item under its own with its id and nothing set", () => {
     const dir = runDir();
