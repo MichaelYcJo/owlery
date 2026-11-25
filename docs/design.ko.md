@@ -71,7 +71,7 @@ check: apps/desktop/test/themes.test.ts
 - `--terminal-*`: 터미널의 바탕과 잉크, 앞에 있는 탭의 이름표입니다.
 - `--seal-*`: 인장의 빈 자리의 색조, 인장에 드는 빛, 그리고 밀랍의 붉은색을 빼는 깨진 인장의 빛입니다. 다른 토큰은 붉은색을 갖지 않습니다.
 - `--radius-*`: 카드, 조작 단추, 줄, 칩, 에이전트가 한 말, 검색에 맞은 글자의 모서리입니다.
-- `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`: 페이지가 그림자로 그리는 가장자리, 에이전트가 한 말의 바탕과 가장자리, 대화 상자의 뒤와 아래에 놓이는 것입니다.
+- `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`, `--on-edge`: 페이지가 그림자로 그리는 가장자리, 켜진 아이콘 단추의 가장자리, 에이전트가 한 말의 바탕과 가장자리, 대화 상자의 뒤와 아래에 놓이는 것입니다.
 - `--approval-*`: 승인 줄에서 역할 이름과 다음 자리를 잇는 괘선, 블록의 가장자리, 두 자리 사이의 가장자리입니다.
 - `--shape-*`: 상태 표시이고, 16단위 정사각형 위의 경로입니다. 상태마다 `--shape-<state>`는 1.5px 선으로 그리고 `--shape-<state>-fill`은 채웁니다. `--shape-working-track`은 도는 부분 아래의 옅은 선이고, `--shape-working-turn`은 도는 부분입니다. `none`은 아무것도 그리지 않습니다.
 
@@ -213,6 +213,7 @@ check: apps/desktop/test/themes.test.ts
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
 | `--approval-rule` | `linear-gradient(var(--rule), var(--rule))` | `linear-gradient(var(--rule), var(--rule))` |
@@ -312,6 +313,7 @@ check: apps/desktop/test/themes.test.ts
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `inset 0 2px 0 var(--terminal-strong)` | `inset 0 2px 0 var(--terminal-strong)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `0` | `0` |
 | `--approval-rule` | `none` | `none` |
@@ -411,6 +413,7 @@ check: apps/desktop/test/themes.test.ts
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
 | `--approval-rule` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` |
@@ -437,9 +440,10 @@ check: apps/desktop/test/themes.test.ts
 |---|---|---|---|---|---|---|
 | 주 단추 | `--main` 위에 `--on-main`의 글자, `--radius-control`과 `--control-edge`입니다. 대화 상자와 아래쪽 줄에는 많아야 하나입니다. | `--main-hover` | `--main-pressed` | — | 가장자리에서 2px 바깥에, 단추 둘레의 바탕 위에 `--focus`의 2px 고리가 생깁니다. 고리가 안쪽에 있으면 단추를 채운 색에 묻힙니다. | 세기가 45%가 되고, 포인터에 답하지 않습니다. |
 | 단추 | `--control`에 `--control-edge`와 `--radius-control`입니다. | `--control-hover` | `--control-pressed` | — | 가장자리 안쪽에 `--focus`의 2px 고리입니다. 아래 행에서는 이것을 고리라고 부릅니다. | 세기가 45%가 됩니다. |
-| 아이콘 단추 | 바탕 없이 `--ink-muted`의 아이콘입니다. | `--hover` 위에 `--ink`의 아이콘입니다. | `--pressed` | 켜는 것이 켜져 있으면 아이콘이 `--ink-strong`입니다. | 고리입니다. | 세기가 45%가 됩니다. |
+| 아이콘 단추 | 바탕 없이 `--ink-muted`의 아이콘입니다. | `--hover` 위에 `--ink`의 아이콘입니다. | `--pressed` | 켜는 것이 켜져 있으면 아이콘이 `--on-edge` 안에서 `--ink-strong`입니다. 사이드바의 필터는 상태를 골랐거나 검색어를 입력한 동안 켜져 있고, 무엇을 보이는지 포인터에 말합니다. 예를 들면 "Showing: Needs you, matching "logs""입니다. | 고리입니다. | 세기가 45%가 됩니다. |
 | 작업함의 줄 | 바탕이 없고 `--radius-line`과 `--line-edge`입니다. 제목은 `--ink`이고, 사람이 마지막으로 본 뒤에 작업이 바뀌었으면 더 굵은 `--ink-strong`입니다. 지난 시간과 개수는 `--font-fact`와 `--ink-faint`입니다. | `--hover`이고, 아무것도 선택하지 않습니다. | `--pressed` | `--selected`와 `--line-edge-selected`입니다. 포인터 아래에서도 바탕을 지킵니다. 지난 시간은 `--ink-muted`입니다. 옅은 잉크는 선택한 바탕에서 도드라지지 않기 때문입니다. | 고리입니다. | — |
 | 사이드바의 항목 | 바탕이 없고 `--radius-line`입니다. | `--hover` | `--pressed` | 앞에 있는 것의 항목이 `--selected`와 `--selected-edge`입니다. 그 항목의 지난 시간과 개수는 `--ink-muted`입니다. | 고리입니다. | — |
+| 필터나 검색이 저장소를 하나도 남기지 않은 사이드바 | 저장소들의 자리에 문장 하나가 `--size-second` 크기의 `--ink-muted`로 줄을 바꿔 가며 섭니다. 그 문장은 무엇이 저장소를 하나도 남기지 않았는지 말하고, 사이드바가 그 저장소를 하나도 나열하지 않는다고 말합니다. 예를 들면 "No work item stands under "Needs you", so the sidebar lists none of its 2 repositories."입니다. 그 아래에 "Show every work item"이 섭니다. 이것은 주 단추가 아닌 단추이고, 필터에서 All을 고르고, 검색 칸을 비우고, 키보드를 첫 저장소의 행에 둡니다. 숨긴 저장소가 몇 개인지 말하는 단추는 그 아래에 섭니다. 저장소가 하나라도 남은 곳, 그리고 모든 저장소를 숨긴 곳에는 문장이 서지 않습니다. | — | — | — | — | — |
 | 묶음의 머리 | 묶음의 이름은 `--ink-muted`, 개수는 `--ink-faint`와 `--font-fact`이고, `--group-ground` 위에 `--group-edge`입니다. | — | — | — | — | — |
 | 기록 목록의 행: 커밋, 바뀐 파일, 작업 화면의 사실, 묻지 않고 내린 결정, 작업 트리 준비(Setup)가 복사했거나 복사하지 못한 경로, 인장의 뒷면에 놓이는 리뷰 회차의 지적과 체인의 단계 | 바탕이 없고 `--line-edge`입니다. 작업의 기록에서 읽지 못한 줄은 결정 아래에 `--state-failed`로 나옵니다. 복사하지 못한 경로는 잘리지 않고 다 보이고, 그 아래에 복사가 받은 오류가 고정폭 글꼴과 `--state-failed`로 잘리지 않고 줄을 바꿔 가며 놓이며, 사람이 그 오류를 선택할 수 있습니다. 지적은 번호, `--ink`의 증상, 그 오른쪽의 닫힘으로 서고, 증상 아래에 심각도와 `path:line` 꼴의 자리가 `--ink-muted`로 옵니다. 단계는 이름, 어떻게 끝났는지, 걸린 시간, 들어가고 나온 토큰, 캐시에서 읽고 쓴 토큰, 비용으로 서고, 각 칸은 뒷면 전체에서 한 자리에 서는 열에 놓이며, 열의 이름은 캡션의 잉크로 그 위에 옵니다. | — | — | — | — | — |
 | 메뉴 | `--ground-raised` 위의 카드이고 `--radius-card`, `--card-edge`, `--dialog-shadow`입니다. 항목은 `--radius-line`이고, 메뉴의 다른 부분이 시작하는 곳에 괘선이 있습니다. | 항목이 `--hover`입니다. | 항목이 `--pressed`입니다. | 하위 메뉴가 열린 항목은 포인터 아래의 항목처럼 그립니다. | 키보드가 놓인 항목은 포인터 아래의 항목처럼 그리고, 고리는 없습니다. | — |

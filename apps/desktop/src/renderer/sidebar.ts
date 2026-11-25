@@ -4,7 +4,7 @@
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
 import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, bellSays, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
+import { ageOf, bellSays, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -23,6 +23,8 @@ export interface SidebarActions {
   filter(state: StateFilter): void;
   /** Returns the keyboard to the list, after Escape emptied the search field. */
   leaveSearch(): void;
+  /** Chooses All in the filter and takes the emptied search, and draws the sidebar and the list in front at once. */
+  showEvery(): void;
 }
 
 const searchField = byId<HTMLInputElement>("search-field");
@@ -124,9 +126,12 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
  * in each list. A repository's row holds the button that folds it,
  * with the repository's icon before its name where it has one, a "+" button
  * that opens the "New work item" form on its folder, and a "…" button that
- * opens its menu. Under the repositories a button says how many are hidden,
- * where any is, and opens their list. The search field is the person's and
- * is left as it is.
+ * opens its menu. Where a search or a filter leaves no repository, a
+ * sentence says so in their place, with a button that shows every work item
+ * again (./view, `emptySidebar`). Under the repositories a button says how
+ * many are hidden, where any is, and opens their list. The filter's control
+ * is on while a search or a filter narrows the sidebar (./view,
+ * `filterMark`). The search field is the person's and is left as it is.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
@@ -145,12 +150,13 @@ export function showSidebar(inFront: Front = front): void {
   bell.title = bellSays(waiting);
   bell.setAttribute("aria-label", bell.title);
   filter.value = held.filter;
-  const chosen = filterChoices().find((choice) => choice.value === held.filter);
-  filterControl.title = `Showing: ${chosen ? chosen.label : held.filter}`;
-  filterControl.classList.toggle("on", held.filter !== "all");
+  const mark = filterMark(held.query, held.filter);
+  filterControl.title = mark.says;
+  filterControl.classList.toggle("on", mark.on);
   searchCount.textContent = held.query === "" ? "" : matchCount(left.length, all.length);
+  const tree = sidebarTree(held.repositories, held.workItems, held.sessions, held.paneKinds, held.query, held.filter);
   repositories.replaceChildren(
-    ...sidebarTree(held.repositories, held.workItems, held.sessions, held.paneKinds, held.query, held.filter).map((repository) => {
+    ...tree.map((repository) => {
       const isFolded = folded.has(repository.id);
       const section = document.createElement("section");
       section.className = "repository";
@@ -199,6 +205,23 @@ export function showSidebar(inFront: Front = front): void {
       return section;
     }),
   );
+  const empty = emptySidebar(held.repositories, tree.length, held.query, held.filter);
+  if (empty !== "") {
+    const sentence = document.createElement("p");
+    sentence.id = "sidebar-empty";
+    sentence.textContent = empty;
+    const every = document.createElement("button");
+    every.id = "show-every";
+    every.className = "quiet";
+    every.textContent = SHOW_EVERY_WORK_ITEM;
+    every.addEventListener("click", () => {
+      searchField.value = "";
+      actions.showEvery();
+      // The button leaves the page with the draw, so the keyboard goes to the first thing the press brought back.
+      repositories.querySelector<HTMLElement>("button.fold")?.focus();
+    });
+    repositories.append(sentence, every);
+  }
   const { says } = hiddenRepositories(held.repositories);
   if (says !== "") {
     const hidden = document.createElement("button");

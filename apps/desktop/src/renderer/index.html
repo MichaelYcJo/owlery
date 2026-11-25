@@ -105,7 +105,8 @@
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
-      .icon-button.on { color: var(--ink-strong); }
+      /* On is a shape as well as an ink, so it is not told by colour alone. */
+      .icon-button.on { color: var(--ink-strong); box-shadow: var(--on-edge); }
       /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
       svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
@@ -261,6 +262,9 @@
       .repository-icon { flex: none; }
       /* The button under the repositories that says how many are hidden. */
       #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
+      /* What the sidebar says where a search or a filter leaves no repository, and the button under it that shows them all again. */
+      #sidebar-empty { flex: none; margin: 0; padding: var(--space-3) var(--space-4) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      #show-every { align-self: flex-start; margin: var(--space-2) var(--space-4); }
       .repository li .side-item { padding-left: 26px; }
       /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
       .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }

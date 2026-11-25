@@ -71,7 +71,7 @@ What the names say.
 - `--terminal-*`: the terminal's ground and ink, and the label of the tab in front.
 - `--seal-*`: the tones of the seal's blank place, the light on a seal, and the light on a broken seal, which takes the wax's red out. No other token holds a red.
 - `--radius-*`: the corners of a card, a control, a line, a chip, what an agent says and a search's mark.
-- `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`: the edges the page draws as a shadow, the ground and edges of what an agent says, and what stands behind and under a dialog.
+- `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`, `--on-edge`: the edges the page draws as a shadow, the edge of an icon's button that is on, the ground and edges of what an agent says, and what stands behind and under a dialog.
 - `--approval-*`: the approval line's rule that joins a role's name to the next place, the edge of its block and the edge between two of its places.
 - `--shape-*`: a state's mark, as paths on a square of 16 units. For each state `--shape-<state>` is drawn as a line of 1.5px and `--shape-<state>-fill` is filled. `--shape-working-track` is the faint line under the part that turns, and `--shape-working-turn` is the part that turns. `none` draws nothing.
 
@@ -213,6 +213,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
 | `--approval-rule` | `linear-gradient(var(--rule), var(--rule))` | `linear-gradient(var(--rule), var(--rule))` |
@@ -312,6 +313,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `inset 0 2px 0 var(--terminal-strong)` | `inset 0 2px 0 var(--terminal-strong)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `0` | `0` |
 | `--approval-rule` | `none` | `none` |
@@ -411,6 +413,7 @@ No theme changes these. They stand in the page's `:root`.
 | `--field-edge` | `inset 0 0 0 1px var(--rule)` | `inset 0 0 0 1px var(--rule)` |
 | `--tab-edge` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` | `1px 0 0 var(--rule), -1px 0 0 var(--rule)` |
 | `--dot-edge` | `0 0 0 1.5px var(--ground-side)` | `0 0 0 1.5px var(--ground-side)` |
+| `--on-edge` | `inset 0 0 0 1px var(--ink-muted)` | `inset 0 0 0 1px var(--ink-muted)` |
 | `--mark-edge` | `0 0 0 1px var(--mark)` | `0 0 0 1px var(--mark)` |
 | `--radius-mark` | `2px` | `2px` |
 | `--approval-rule` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` | `linear-gradient(to right, transparent 25%, var(--rule) 25%, var(--rule) 75%, transparent 75%)` |
@@ -437,9 +440,10 @@ Each part's form is the same in every theme, drawn with the theme's tokens. A gr
 |---|---|---|---|---|---|---|
 | The main button | `--main` under words in `--on-main`, with `--radius-control` and `--control-edge`. A dialog and a foot hold one at most. | `--main-hover` | `--main-pressed` | — | A ring of 2px in `--focus`, 2px outside its edge, on the ground around the button: its fill would hide a ring inside it. | 45% of its strength, and no answer to the pointer. |
 | A button | `--control` with `--control-edge` and `--radius-control`. | `--control-hover` | `--control-pressed` | — | A ring of 2px in `--focus`, inside its edge. The rows below call it the ring. | 45% of its strength. |
-| An icon's button | The icon in `--ink-muted` on no ground. | `--hover` under the icon in `--ink`. | `--pressed` | The icon in `--ink-strong` where what it turns on is on. | The ring. | 45% of its strength. |
+| An icon's button | The icon in `--ink-muted` on no ground. | `--hover` under the icon in `--ink`. | `--pressed` | The icon in `--ink-strong` inside `--on-edge`, where what it turns on is on. The sidebar's filter is on while a state is chosen or a search is typed, and says what it shows to a pointer: "Showing: Needs you, matching "logs"". | The ring. | 45% of its strength. |
 | A line of the inbox | No ground, `--radius-line` and `--line-edge`. The title is in `--ink`, and in `--ink-strong` at the heavier weight where the work item changed since the person last looked. An age and a count are in `--font-fact` and `--ink-faint`. | `--hover`, and nothing is selected. | `--pressed` | `--selected` with `--line-edge-selected`. It keeps its ground under the pointer, and its age is in `--ink-muted`, since the faint ink does not stand apart from a selected ground. | The ring. | — |
 | An item of the sidebar | No ground and `--radius-line`. | `--hover` | `--pressed` | `--selected` with `--selected-edge`, on the item of what is in front. Its age and its count are in `--ink-muted`. | The ring. | — |
+| The sidebar where a filter or a search leaves no repository | In the repositories' place stands one sentence, in `--ink-muted` at `--size-second` and wrapped, that names what left no repository and says that the sidebar lists none of them: "No work item stands under "Needs you", so the sidebar lists none of its 2 repositories." Under it stands "Show every work item", a button and not the main button, which chooses All in the filter, empties the search field and puts the keyboard on the first repository's row. The button that says how many repositories are hidden stands under them. No sentence stands where a repository is left, or where every repository is hidden. | — | — | — | — | — |
 | A group's head | The group's name in `--ink-muted` and its count in `--ink-faint` and `--font-fact`, on `--group-ground` with `--group-edge`. | — | — | — | — | — |
 | A row of a list of records: a commit, a changed file, a fact of a view, a decision made without asking, a path the setup copied or could not copy, a finding of a review round and a stage of a chain on the back of the seal | No ground, with `--line-edge`. A line of the work item's record that was not read stands under the decisions in `--state-failed`. A path the setup could not copy stands whole, and under it the error the copy was given, whole and wrapped, in the fixed-width face and `--state-failed`, and the person can select it. A finding stands as its number, its symptom in `--ink` and its close at its right, with its severity and its places as `path:line` under the symptom in `--ink-muted`. A stage stands as its name, how it ended, its time, its tokens in and out, its cache read and written and its cost, each in a column that stands at one place down the whole back, under the columns' words in the caption's ink. | — | — | — | — | — |
 | A menu | A card on `--ground-raised` with `--radius-card`, `--card-edge` and `--dialog-shadow`. An item has `--radius-line`, and a rule stands where another part of the menu begins. | `--hover` on the item. | `--pressed` on the item. | An item whose submenu is open is drawn as the one under the pointer. | The item the keyboard is on is drawn as the one under the pointer, with no ring. | — |

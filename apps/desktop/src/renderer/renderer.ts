@@ -2082,6 +2082,12 @@ initSidebar(
       // Where no list is in front the keyboard leaves the field for the page.
       if (document.activeElement === byId("search-field")) byId("search-field").blur();
     },
+    // The person's own press, so the sidebar and the list in front draw at once.
+    showEvery() {
+      held.query = "";
+      held.filter = "all";
+      showNarrowed();
+    },
   },
   MAC,
 );
