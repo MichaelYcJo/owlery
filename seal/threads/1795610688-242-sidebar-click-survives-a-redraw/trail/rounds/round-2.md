@@ -78,6 +78,11 @@ A built-app case in `apps/desktop/test/theme-controls.test.ts`, after the case a
 
 The *Not verified* row of `gaps.md` line 9 is closed by that case. Where the orchestrator judges a built-app case not worth its cost, the fix pass closes this finding `deferred <home>` instead, and line 9 stays open with that home named.
 
+```seal
+verdict: fixed 3c63fb64
+answer: The pasted case was read against `renderer.ts#showAccounts` and applied as written, as the last case of `apps/desktop/test/theme-controls.test.ts`, at `8cf3e6d2`. That commit also adds one sentence to the file's header naming the case. `showAccounts` keeps an open rename field across its draws through `renamingAccount`, so the deferred draw after the click redraws the field and does not take it away. The case was seen red with `seal mutate src/renderer/renderer.ts --replace "      draws.draw(drawAccountsDialog);" "      if (accountsDialog.open) showAccounts();" --tests "node scripts/test-in-electron.mjs test/theme-controls.test.ts"`. It failed at `theme-controls.test.ts:363`, "the window never showed the rename field of the account Work", and the other 7 cases passed. `3c63fb64` closes `gaps.md` line 9 by naming this case for the Accounts dialog and this round's reading for the Machine dialog. It also adds `test/theme-controls.test.ts` to the files that line 7 names as run. The proposal for `frame/design.md` line 67 is a frame statement: the fix pass does not write it, and the hand-back names it for the orchestrator to fold. The evidence's first `git grep`, rerun at `3c63fb64`, still prints no file under `test/` that names `drawAccountsDialog`, since the case reaches it through the window. Among the `mousePressed` lines it now also prints `theme-controls.test.ts:357`, the new case's press. The second `git grep` prints `screenshots.test.ts` and `theme-controls.test.ts`. The fix pass's set passed in one command: `press.test.ts`, `themes.test.ts`, `seal-back-view.test.ts`, `approval-line.test.ts`, `machine-dialog.test.ts` and `theme-controls.test.ts`, 6 files and 51 cases.
+```
+
 ## Confirmations
 
 ```seal
