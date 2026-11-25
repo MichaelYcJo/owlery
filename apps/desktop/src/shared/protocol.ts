@@ -942,7 +942,7 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
-  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1 and a cap on panes over 16, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16 and a limit on heavy commands over the machine's cores where it read them, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
   | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
@@ -985,7 +985,7 @@ export type ServerMessage =
   | { type: "accounts"; accounts: Account[]; defaultAccountId: number; refreshesUsage?: boolean }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
-  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap or the count of agents changes, and to the client that sent a `readMachine`.
+  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap, the count of agents or the queue of heavy commands changes, and to the client that sent a `readMachine`.
   | { type: "machine"; machine: Machine }
   // What each heavy command of each repository took, one row for each, in the order the runs' file first names them, sent to the client that sent a `readHeavyRuns`.
   | { type: "heavyRuns"; runs: HeavyRan[] }
