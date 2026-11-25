@@ -11,10 +11,11 @@
 | The real `du -sk` call of `daemon/machine.ts`. The cases give the reader's `du`, and a built-app start reads `OWLERY_MACHINE`, under which nothing is measured. No case ran `/usr/bin/du` against a worktree. | Nobody before the release: a call that prints no size keeps no size, the next start measures again, and the worktree cap then proposes nothing |
 | The real `sysctl` call of `daemon/machine.ts`. The cases give their own; one probe ran the real one once on the owner's Mac, an Apple silicon Mac. An Intel Mac, where `hw.perflevel0.physicalcpu` does not exist, was not run. | Nobody before the release: the fallback is tested on a `sysctl` that fails as it fails there |
 | How the Machine dialog looks in each theme and appearance. No screenshot of it is taken before phase 5. | Phase 5's screenshot run, and the owner |
+| The rules between the tiles of "Side by side" in three and four columns. Each tile draws the rule at its left and the one above it (`renderer/index.html`, the rules on `#stage[data-columns]`). The built-app case of scenario 14 reads the tiles' rectangles, and no case reads where a rule is drawn. *Scope* item 15 gives the screenshot run the Machine dialog and a line that waits for the machine, and no view of more than four panes. | The owner, by a look at a view of five panes or more side by side |
 
 ## Not done
 
-Phases 4 and 5 are not built yet.
+Phase 5 is not built yet.
 
 **A worktree is read at its first size.** The daemon measures a worktree once: after its setup, or at the first start of a daemon that measures worktrees. A worktree that grows afterwards, through an install or a build, is still counted at that size, in the worktree cap's proposal and in what a plan says the repository's next worktree needs. A worktree whose files were removed is counted at its first size as well (`frame/design.md` *Scope*, the item on measuring a worktree again in its list of what is out).
 
