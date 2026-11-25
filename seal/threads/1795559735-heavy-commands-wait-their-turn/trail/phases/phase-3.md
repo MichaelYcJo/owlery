@@ -12,7 +12,7 @@
 - The sentence of `frame/design.md` *The gate record's sentence* names an exit code. A first run that a signal ended is named "ended with the signal <name>". Where no load was read the parenthesis reads "no load average read". One other command is "1 other heavy command". The commit is the full hash, as the run block below it names it.
 - A run's line in `heavy-runs.jsonl` also holds the folder it ran in, and holds null for the repository and the work item where that folder is no work item's worktree.
 - A connection that closes while it holds its turn, before it says `ended`, ends the run with no exit code and no peak memory, and its line is kept with both null. *Scope* item 11 asks for one line for each run.
-- Peak memory is read over the tree of the command's process and its descendants, with `/bin/ps -axo pid=,ppid=,rss=`, and not over a process group as `frame/plan.md` *Technical context* has it. The runner starts its command with the session's own input and output, so the command stays in the pane's process group, which holds the runner's own process too. *Scope* item 11 names the command's process and its descendants.
+- Peak memory is read over the tree of the command's process and its descendants, with `/bin/ps -axo pid=,ppid=,rss=`, and not over a process group, which the probe in `frame/design.md` *Grounding* timed as `/bin/ps -axo pgid=,rss=`. The runner starts its command with the session's own input and output, so the command stays in the pane's process group, which holds the runner's own process too. *Scope* item 11 names the command's process and its descendants.
 
 **Decisions made while building, each judged against the document named.**
 
