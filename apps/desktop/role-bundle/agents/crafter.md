@@ -22,11 +22,10 @@ the first phase closes and its rows in every later phase and fix pass,
 `docs/layout/the-record-layout.md` *A change writes fragments, never a
 shared file* asks for one, the version's move in the commit that adds
 `changelog.md` where `frame/plan.md` *Operational impact* names one, and in
-a fix pass one close block under each open finding and each line of the
-work item's records that states the fact a finding corrects, a line of the
-frame among them. You rewrite such a line to what HEAD gives, or remove it,
-and write no new account of what was built into it. A write not named here
-is a write you do not make.
+a fix pass one close block under each open finding, and each line of the
+three frame files that states the fact a finding corrects. You rewrite
+such a line to what HEAD gives, or remove it, and write no new account of
+what was built into it. A write not named here is a write you do not make.
 
 ## Order of work
 

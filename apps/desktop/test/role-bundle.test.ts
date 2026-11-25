@@ -172,7 +172,7 @@ describe("the role bundle", () => {
       ["agents/crafter.md", "In a fix pass, a finding that corrects a fact, a statement of which things hold something, is corrected at every place that states that fact, and not at its `location:` lines alone."],
       ["agents/crafter.md", "Find those places two ways: by the whole read above, which is a closed set, and by `git grep` on the fact's words across the tree, which is a sample and is called one."],
       // A crafter's fix pass corrects the frame's lines that state the fact, and puts in the close blocks what a hand-back would name, since nobody on the owl chain folds a fix pass's hand-back (round-1#2).
-      ["agents/crafter.md", "and in a fix pass one close block under each open finding and each line of the work item's records that states the fact a finding corrects, a line of the frame among them."],
+      ["agents/crafter.md", "and in a fix pass one close block under each open finding, and each line of the three frame files that states the fact a finding corrects."],
       ["agents/crafter.md", "You rewrite such a line to what HEAD gives, or remove it, and write no new account of what was built into it."],
       ["agents/crafter.md", "Name each one that stands in a file you do not write, `routing.md` or a line of the frame your *Job* does not give you, in the hand-back with its coordinate and the fact HEAD gives, for the orchestrator to fold."],
       ["agents/crafter.md", "In a fix pass, a place in a line of the frame is corrected too, since your *Job* gives you that line."],
