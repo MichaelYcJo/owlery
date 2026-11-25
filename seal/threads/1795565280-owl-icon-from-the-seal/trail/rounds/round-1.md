@@ -31,6 +31,11 @@ import { basename, join, relative } from "node:path";
 
 The snippet has no precondition beyond `readdirSync` listing dotfiles, which it does on macOS and Linux. It changes only the archive's side. A `.DS_Store` under `dist/` matches no archived file's bytes, so the search of `dist/` needs no change.
 
+```seal
+verdict: fixed 47d916ad
+answer: The paste-ready fix was read against frame/design.md *Data & interfaces* and applied as written: the archive's listing leaves out a name that opens with a dot, so an emptied archive still gives an empty list and a moved one still throws. Red first, executed: with a .DS_Store planted in assets/icon/earlier-2026-11-19/ and the case unchanged, the case failed at emblem.test.ts:36, "expected [ '.DS_Store', …(3) ] to deeply equal [ 'app-icon-small.svg', …(2) ]". With the fix and the .DS_Store still there, the case passed, and the planted file was then removed. At 47d916ad, with no .DS_Store, the case passed once more, run alone with OWLERY_BACKGROUND=1.
+```
+
 ### 2. `pr.md` cuts two *Scope* quotes mid-sentence and quotes neither default the build took for Q1 and Q2
 
 ```seal
@@ -58,6 +63,11 @@ The quotes below are word for word at their coordinates. No other record quotes 
 - "Taken as yes." (`frame/questions.md` Q2, *Default until answered*)
 ```
 
+```seal
+verdict: fixed 766649d4
+answer: `766649d4` puts this record's replacement quotes into `pr.md` word for word: *Scope* items 2 and 3 are quoted whole, and Q1 and Q2 are each quoted with the sentence of their row that says what the tree now holds, Q1's that the owner has seen no small drawing and that nothing in the app reads the file, Q2's "Taken as yes.". Each quote was found at its coordinate with `grep -F` before the commit.
+```
+
 ### 3. Following `TRADEMARKS.md`'s way to put the earlier emblem back turns the emblem case red, and nothing says so
 
 ```seal
@@ -73,6 +83,11 @@ Why it matters: `TRADEMARKS.md:37-38` tells a person that copying the archive's 
   puts the earlier emblem back. The case of `apps/desktop/test/emblem.test.ts`
   then fails, because the build ships a file with the archive's bytes, so the
   change that puts the emblem back also rewrites that case and this list.
+```
+
+```seal
+verdict: fixed 47d916ad
+answer: TRADEMARKS.md:38-40 now carries the record's sentence word for word, after "puts the earlier emblem back". The two frame lines this finding names, frame/design.md:49 and :100, are the framer's and not the crafter's to write. The orchestrator folded them at 4c951add, and both now state the same thing, as does plan.md row 5a. A git grep for "earlier emblem back" across the tree finds no other statement of the restore.
 ```
 
 ## Confirmations
