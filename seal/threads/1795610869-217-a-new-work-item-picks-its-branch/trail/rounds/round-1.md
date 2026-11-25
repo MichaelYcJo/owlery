@@ -55,6 +55,11 @@ export async function headStands(worktree: string, baseCommit: string | null): P
 
 The fix pass owes the other statements too: `frame/design.md:46` "where `HEAD` is detached at a commit no local branch, no remote's branch and no tag holds, and that is not the work item's `baseCommit` (probe 2)"; `frame/questions.md:7` "a commit no local branch, no remote's branch and no tag holds, other than the commit the worktree was checked out at"; the Verdict cell of `frame/plan.md:37`, "Rejected as the only test; taken with the test of probe 2, so a base branch deleted or rewritten after the creation makes no branch"; and the case name at `worktrees.test.ts:1087`. The regression cases belong in `apps/desktop/test/worktrees.test.ts` (`headStands` gives null for a worktree detached at a base branch since deleted) and in `apps/desktop/test/daemon.test.ts` (a work item with no branch whose base branch is deleted gets no branch at the next read, and gets one at a commit made after).
 
+```seal
+verdict: fixed 56963cd0
+answer: `headStands(worktree, baseCommit)` gives no commit where the unheld commit is `baseCommit`, as the paste-ready fix writes it, and `readBranch` and `branchUp` each pass the work item's base commit. The second half of the round's fix, `readBranch` asking `headStands` only where its head differs from `baseCommit`, was not built: a `HEAD` at the base commit can name a branch the worktree took up before any commit, and that guard leaves it untaken until the first commit. The new case "takes up the branch its worktree's HEAD names at the base commit, before any commit is made there" in `daemon.test.ts` went red with that guard added by `seal mutate`, and `gaps.md` *Not done* holds the rev-list it would have spared. New cases, each seen red against the source before `56963cd0` and again with the `baseCommit` check of `headStands` removed by `seal mutate`: "gives no commit for a worktree detached at a base branch since deleted or rewritten, …" in `worktrees.test.ts`, and "makes no branch at the base commit of a work item whose base branch was deleted, …" in `daemon.test.ts`, which makes the branch at a commit made after. The case at `worktrees.test.ts:1087` is renamed to name the checked-out commit as none. `seal mutate` of `branchUp`'s base commit to null SURVIVED, since `readBranch` applies the same test before it queues the turn; `gaps.md` *Not verified* holds it for the proofer. The round's search, run again after the last fix commit, prints the docstring and the case name, both rewritten here, the frame's three statements, which the framer's fold `94945fa4` rewrote, `trail/phases/phase-2.md:16`, which stays as the round says, this record, and the delete dialog's caption of a loss, `view.ts:1104`, `protocol.ts:155`, `view.test.ts:763` and `work-item-menu.test.ts:855`, which state what a delete loses and not what a first commit is.
+```
+
 ### 2. The repository's removal dialog and the work item menu's Rename still say that Owlery deletes and renames every work item's branch
 
 ```seal
@@ -87,6 +92,11 @@ The three searches printed `view.ts:1170-1171`, `index.html:1073`, `view.ts:1151
 
 The fix pass owes the label's quotation in the docstring at `view.ts:1150-1152`, and the two sentences pinned at `view.test.ts:820` and `:822` and at `work-item-menu.test.ts:963`, rewritten to the same words.
 
+```seal
+verdict: fixed ba5f82df
+answer: The paste-ready fix applied as written, after reading it against `deleteSays`, `removedBranch` and `planBranchRename`: `removalChoice`'s two sentences, the removal's label in `index.html` and its quotation in `removalChoice`'s docstring now say "the local branch Owlery made", and the menu's Rename description says that a rename makes the branch of a work item with no branch yet, keeps the name of a branch Owlery did not make, and renames a branch Owlery made where it was never pushed. These three readers of the branch stand in no row of `frame/design.md` *The readers of a work item's branch*: `view.ts#removalChoice`, the label `#remove-delete-label` of `index.html`, and `view.ts#workItemMenu`'s Rename description. The pins at `view.test.ts` and `work-item-menu.test.ts` carry the new words, and the new case "says that Rename makes the branch of a work item with no branch yet, …" in `view.test.ts` pins the three Rename descriptions; both `view.test.ts` cases were seen red against the old words, and `seal mutate` of each removal sentence and of each Rename branch went red. `work-item-menu.test.ts` passed whole in the built app after the fix, 30 cases. The round's three searches, run again after the last fix commit, print `docs/product.md:170`, which the round leaves to the settle, the Rename description of a branch Owlery made at `view.ts:2330` and its pin at `view.test.ts:614`, both now said of that branch alone.
+```
+
 ### 3. The closing memo says the screenshots are not committed, and the branch commits them
 
 ```seal
@@ -100,6 +110,11 @@ Why it matters: the sealer reads `## Not done` as what the work left undone, and
 ```diff
 --- seal/threads/1795610869-217-a-new-work-item-picks-its-branch/gaps.md
 -- **The screenshots are not committed.** `docs/design.md` *A pull request that changes the window carries its screenshots* puts them in the pull request's records under `seal/threads/`, and `agents/crafter.md` *Job* names no such write for the crafter. Phase 4 made them in its scratch folder (`trail/phases/phase-4.md` *Screenshots*), for the orchestrator to commit with the pull request's body.
+```
+
+```seal
+verdict: fixed c57fbc5f
+answer: The bullet is removed from `gaps.md` *Not done*, as the diff gives it. The same commit marks closed the five rows of `## Not verified` this round's *Confirmations* answered by reading, each with what the round read, and the row of the downgrade, which the orchestrator's row of `frame/plan.md` *Judgments of the run* answers: the copy of `repositories.json` is the one way round. It also adds this fix pass's rows: `branchUp`'s base commit, which no case reaches, and the guard of `readBranch` not built (finding 1's close).
 ```
 
 ## Confirmations
