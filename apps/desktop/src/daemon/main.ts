@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the caps a person set on the machine, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the runner of heavy commands every pane names and the turn socket it asks on, the settings file of each pane that carries it under the person's choice, and under `chain/` what the chain command hands a pane's session.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the caps a person set on the machine, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the runner of heavy commands that a shell, a Claude Code pane and a worktree setup pane name and the turn socket it asks on, the settings file of each pane that carries it under the person's choice, and under `chain/` what the chain command hands a pane's session.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -46,7 +46,7 @@ async function main(): Promise<void> {
   // The build put the role bundle and the chain command beside this script. The launcher runs the command with the Node this process runs on, which is Electron's.
   const beside = process.argv[1] === undefined ? undefined : dirname(process.argv[1]);
   const paneChain = beside === undefined ? undefined : writePaneChain(runDir, { node: process.execPath, script: join(beside, "chain.js"), bundleDir: join(beside, "bundle") });
-  // The runner of heavy commands, which every pane's environment names in OWLERY_RUN, runs the chain command's `run` the same way.
+  // The runner of heavy commands, which the environment of a shell, a Claude Code pane and a worktree setup pane names in OWLERY_RUN, and a sign-in pane's does not, runs the chain command's `run` the same way.
   const runner = beside === undefined ? null : writeRunner(runDir, { node: process.execPath, script: join(beside, "chain.js") });
   const hooks = await HookServer.listen(join(runDir, "hooks.sock"));
 

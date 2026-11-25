@@ -3314,7 +3314,7 @@ export class Daemon {
    */
   private async runConvergence({ item }: Held, directory: string, standing: Standing, round: number): Promise<boolean> {
     const record = join(directory, RECORD_FILE);
-    const prompt = convergencePrompt({ round, directory: standing.directory, rounds: standing.rounds.map((each) => each.round), decisions: existsSync(record) });
+    const prompt = convergencePrompt({ round, worktree: item.worktree, directory: standing.directory, rounds: standing.rounds.map((each) => each.round), decisions: existsSync(record) });
     return this.runStage(item.id, "judgment", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
       const { converging, grounds } = convergenceOf(answer);
       if (this.decided(item.id, { kind: "route", says: convergenceDecided(round, converging), grounds, by: ORCHESTRATOR.role }) === undefined) throw new ChainStop("its judgment was not written into the work item's record of decisions");
@@ -3339,7 +3339,7 @@ export class Daemon {
    */
   private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass" | "seal", round: number, by: "proofer" | "crafter" | "sealer", asks: Ask[], subject = `chore: record the orchestrator's judgment after round ${String(round)}`): Promise<void> {
     const record = join(directory, RECORD_FILE);
-    const prompt = rulingPrompt({ round, directory: inside, by, asked, asks, decisions: existsSync(record) });
+    const prompt = rulingPrompt({ round, worktree: item.worktree, directory: inside, by, asked, asks, decisions: existsSync(record) });
     await this.runStage(item.id, "ruling", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
       const rulings = rulingsOf(answer, asks.length);
       const unwritten = new ChainStop("its rulings were not written into the work item's record of decisions");
