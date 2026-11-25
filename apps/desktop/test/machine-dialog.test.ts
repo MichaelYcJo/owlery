@@ -284,17 +284,8 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
 
   it("lays out six panes in three columns where the cap on panes side by side is 6, five with the last spanning two columns where it is 5, and two where it is 2, the rest staying tabs (scenario 14)", async () => {
     await capPanes(6);
-    // The sidebar is drawn again at each message, so the click is made again until the view shows.
-    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`;
-    for (const deadline = Date.now() + 15_000; ; ) {
-      await app.click(`#repositories button[data-work-item="1"]`);
-      try {
-        await app.until(shown, "the view of Measured", 2_000);
-        break;
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-      }
-    }
+    await app.click(`#repositories button[data-work-item="1"]`);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`, "the view of Measured");
     const tabs = `document.querySelectorAll("#tabs .tab").length`;
     for (let count = 1; count <= 6; count += 1) {
       const button = (await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-buttons button")].map((button) => button.textContent)`)).indexOf("+ Shell");
