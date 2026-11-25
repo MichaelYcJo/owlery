@@ -101,15 +101,42 @@ converging, and one of them is enough for `no`:
   of the frame.
 - A finding was closed `rejected` and a later round raises it again.
 
+**A finding located in the work item's records alone counts toward none of
+the first four signals.** A finding is located in the records where every
+path its `location:` lines name stands in the work item's directory. Such a
+finding holds no signal by its `reopens:` line or its `regression:` line,
+is counted neither among the last round's open findings nor among those of
+the round before it, and is not one of two findings at one location or on
+one rule of the frame two rounds in a row. So the third signal compares the
+findings of the two rounds that are located outside the records. Where the
+last round has no open finding located outside the records, the third
+signal does not hold. The last signal, a finding closed `rejected` and
+raised again, holds for every finding, wherever it is located. A finding in the records corrects
+text of the records, and the fix pass that closes it reads the work item's
+records whole and corrects the fact at every place that states it
+(`skills/implement/fix-pass.md` *The narrow set, then the read of the
+range*). Where the daemon runs the chain, its ceiling of rounds bounds such
+findings as well.
+
 Where none holds, the answer is `yes`. A new finding in the last fix's diff
 is what a verifying round is for, and by itself it is no signal. Your
 `grounds:` line names the rounds and the findings the answer stands on, as
 `round-<N>#<n>`.
 
 **A `yes` starts the fix pass, and a `no` stops the chain for the person.**
-The daemon records either as a decision made without asking. After a `no`
-the person reads your grounds, and the next start of the chain runs the fix
-pass all the same, so a `no` costs one stop and no work.
+The daemon records either as a decision made without asking. A stop is the
+most expensive step of the chain, as `skills/core/SKILL.md` *Asking a
+person is the most expensive step* says: it costs the person's attention,
+and while nobody watches it costs the hours until somebody does. So a `no`
+argues for its stop by what it buys: the person's decision at the stop,
+which no fix pass makes, such as a reframe, a split of the work, dropping
+the work or a fix by hand, and the rounds that a chain which does not
+converge would spend before anything else stops it. The `grounds:` line of
+a `no` names the signal that holds and the findings that hold it. A reopen
+or a regression located in the work item's records alone buys no such
+decision, since the person's next start would only run the same fix pass.
+That is why such a finding counts toward none of the first four signals
+above, and the chain goes on.
 
 **A question is first decided from the code and the policy.** For each
 question your prompt gives, read what could answer it before you rule: the

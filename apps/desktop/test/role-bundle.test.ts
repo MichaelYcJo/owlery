@@ -160,6 +160,29 @@ describe("the role bundle", () => {
     for (const file of ["README.md", "skills/seal/SKILL.md", "agents/orchestrator.md", "agents/sealer.md"]) expect(read(file), file).toContain("the owl chain");
   });
 
+  it("binds whoever makes a fix pass to the read of its range and the work item's records whole, a pane's session as well as the crafter, has a fix pass correct a fact at every place that states it, and has the close block name the search and the places it corrected", () => {
+    // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
+    const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
+    for (const [file, said] of [
+      // The read binds a pane's session that makes the pass itself, and the text says what the crafter's Job and hand-back stand for there (issue #236).
+      ["skills/implement/fix-pass.md", "**Then whoever makes the pass makes the reading `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for: the crafter, and a pane's session that makes the pass itself and records it with `--by the session`.**"],
+      ["skills/implement/fix-pass.md", "Where a pane's session makes the pass, that rule's *Job* stands for the work item: a pane's session built the work and wrote the work item's records, so it corrects every statement HEAD contradicts in its range and in each file of the work item's directory that the rule names."],
+      ["skills/implement/fix-pass.md", "That rule's hand-back stands for the close blocks: each item the rule has the crafter name in its hand-back, a pane's session names in the `answer:` of the close block of the finding the item concerns, and otherwise in the `answer:` of the last close block it appends."],
+      // A fact a finding corrects is corrected wherever it is stated, and the close block says how the places were found.
+      ["agents/crafter.md", "In a fix pass, a finding that corrects a fact, a statement of which things hold something, is corrected at every place that states that fact, and not at its `location:` lines alone."],
+      ["agents/crafter.md", "Find those places two ways: by the whole read above, which is a closed set, and by `git grep` on the fact's words across the tree, which is a sample and is called one."],
+      // A crafter's fix pass corrects the frame's lines that state the fact, and puts in the close blocks what a hand-back would name, since nobody on the owl chain folds a fix pass's hand-back (round-1#2).
+      ["agents/crafter.md", "and in a fix pass one close block under each open finding, and each line of the three frame files that states the fact a finding corrects."],
+      ["agents/crafter.md", "You rewrite such a line to what HEAD gives, or remove it, and write no new account of what was built into it."],
+      ["agents/crafter.md", "Name each one that stands in a file you do not write, `routing.md` or a line of the frame your *Job* does not give you, in the hand-back with its coordinate and the fact HEAD gives, for the orchestrator to fold."],
+      ["agents/crafter.md", "In a fix pass, a place in a line of the frame is corrected too, since your *Job* gives you that line."],
+      ["agents/crafter.md", "In a fix pass, each item this rule has you name in the hand-back goes instead into the `answer:` of the close block of the finding the item concerns, and otherwise into the `answer:` of the last close block you append, since no party of the owl chain folds a fix pass's hand-back."],
+      ["skills/implement/fix-pass.md", "Where the finding corrects a fact, the `answer:` also names the search the pass ran for the other places that state the fact, and each place beyond the finding's `location:` lines that the pass corrected, or says that the search found none."],
+      ["skills/implement/fix-pass.md", "The search is the `git grep` on the fact's words that `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for, and the `answer:` calls it a sample."],
+    ] as const)
+      expect(flat(file), `${file}: ${said}`).toContain(said);
+  });
+
   it("leaves the rules to a role's rules file: no definition's frontmatter holds a skills key", () => {
     for (const { role } of ROLE_STAGES) {
       const frontmatter = frontmatterOf(read(`agents/${role}.md`));
@@ -168,7 +191,7 @@ describe("the role bundle", () => {
     }
   });
 
-  it("holds the orchestrator's definition for its two judgments: the signals that say the rounds are not converging, how a question is decided from the code and the policy, what alone parks a work item, and the blocks of its answer by the keys the daemon reads", () => {
+  it("holds the orchestrator's definition for its two judgments: the signals that say the rounds are not converging, none of the first four held by a finding located in the work item's records alone, what a no buys for the stop it costs, how a question is decided from the code and the policy, what alone parks a work item, and the blocks of its answer by the keys the daemon reads", () => {
     const definition = read("agents/orchestrator.md");
     for (const named of [
       "whether the review rounds are converging",
@@ -182,6 +205,23 @@ describe("the role bundle", () => {
       "`grounds:`",
       "You write no file and run no command",
     ]) expect(definition, named).toContain(named);
+    // A finding located in the work item's records alone holds none of the first four signals, and a `no` argues for the stop it costs (issue #236).
+    const flat = definition.replace(/\s+/gu, " ");
+    for (const said of [
+      "**A finding located in the work item's records alone counts toward none of the first four signals.**",
+      "A finding is located in the records where every path its `location:` lines name stands in the work item's directory.",
+      "Such a finding holds no signal by its `reopens:` line or its `regression:` line, is counted neither among the last round's open findings nor among those of the round before it, and is not one of two findings at one location or on one rule of the frame two rounds in a row.",
+      "So the third signal compares the findings of the two rounds that are located outside the records.",
+      "Where the last round has no open finding located outside the records, the third signal does not hold.",
+      "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
+      "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
+      "Where the daemon runs the chain, its ceiling of rounds bounds such findings as well.",
+      "A stop is the most expensive step of the chain, as `skills/core/SKILL.md` *Asking a person is the most expensive step* says: it costs the person's attention, and while nobody watches it costs the hours until somebody does.",
+      "So a `no` argues for its stop by what it buys: the person's decision at the stop, which no fix pass makes, such as a reframe, a split of the work, dropping the work or a fix by hand, and the rounds that a chain which does not converge would spend before anything else stops it.",
+      "The `grounds:` line of a `no` names the signal that holds and the findings that hold it.",
+      "A reopen or a regression located in the work item's records alone buys no such decision, since the person's next start would only run the same fix pass.",
+      "That is why such a finding counts toward none of the first four signals above, and the chain goes on.",
+    ]) expect(flat, said).toContain(said);
     for (const ruling of ["answered", "default", "scope", "park"]) expect(definition, ruling).toContain(`- \`${ruling}\`: `);
     // The words of a ruling are the ones the daemon's reader takes.
     expect(RULING_BLOCK.keys.get("rules:")?.shape.source).toContain("default|scope|answered|park");
