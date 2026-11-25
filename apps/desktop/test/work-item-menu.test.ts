@@ -1132,6 +1132,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // The inbox is the list in front, which the search and the filter narrow with the sidebar.
     await app.click("#nav-inbox");
     await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");
+    const lines = (await order(INBOX)).length;
     await typeOver("search-field", "Filtered away");
     // The state is chosen as a person's choice arrives at the select.
     await value(`void (() => { const filter = document.getElementById("sidebar-filter"); filter.value = "none"; filter.dispatchEvent(new Event("change")); })()`);
@@ -1158,7 +1159,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#show-every");
     await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === ${listed}`, "every repository in the sidebar again");
     expect((await rowWords(loneId)).at(-1)).toBe("0");
-    expect(await order(INBOX)).toHaveLength(1);
+    // The press widens the list in front too: every line but the deleted one's.
+    expect(await order(INBOX)).toHaveLength(lines - 1);
     expect(await mark()).toEqual([false, "Showing: All", false]);
     expect(await value<[string, string, boolean, boolean]>(`[document.getElementById("sidebar-filter").value, document.getElementById("search-field").value, document.getElementById("sidebar-empty") === null, document.activeElement === document.querySelector('${SIDEBAR} button.fold')]`)).toEqual(["all", "", true, true]);
   });
