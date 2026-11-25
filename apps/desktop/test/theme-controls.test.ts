@@ -4,6 +4,9 @@
 // once, in the background, on a temporary repository with one work item and
 // one shell pane, so a case reads a terminal's colours too. The pane's
 // process is the receiver, so no shell of the person's and no agent starts.
+// The last case presses an account's Rename button and holds it while a
+// second client of the daemon adds an account, and then releases on the
+// same point.
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -318,6 +321,51 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["Work", folder, "Sign-in not read yet", REFRESH_SAYS, "Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
     expect(existsSync(folder)).toBe(true);
     expect(await app.evaluate<string>(`document.getElementById("accounts-name").value`)).toBe("");
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
+  it("opens the rename field of an account whose Rename button is pressed while another client adds an account, and draws the added account after the release", async () => {
+    await app.click("#accounts-button");
+    await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account Work");
+    // The window's own socket is found from outside, as in seal-back-view.test.ts, and notes the `accounts` message that lists the account Home.
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const prototype = await app.cdp<{ result: { objectId: string } }>("Runtime.evaluate", { expression: "WebSocket.prototype" });
+    const found = await app.cdp<{ objects: { objectId: string } }>("Runtime.queryObjects", { prototypeObjectId: prototype.result.objectId });
+    const listened = await app.cdp<{ result: { value: number } }>("Runtime.callFunctionOn", {
+      objectId: found.objects.objectId,
+      functionDeclaration: `function () {
+        const daemon = this.filter((socket) => socket.readyState === WebSocket.OPEN && socket.url === ${JSON.stringify(`ws://127.0.0.1:${String(port)}/`)});
+        window.tookHome = false;
+        for (const socket of daemon) socket.addEventListener("message", (event) => { const message = JSON.parse(event.data); if (message.type === "accounts" && message.accounts.some((account) => account.name === "Home")) window.tookHome = true; });
+        return daemon.length;
+      }`,
+      returnByValue: true,
+    });
+    expect(listened.result.value).toBe(1);
+    const homeDrawn = `[...document.querySelectorAll("#accounts-list li")].some((row) => row.textContent.includes("Home"))`;
+    await app.evaluate(`(() => { for (const button of document.querySelectorAll('#accounts-list li[data-account="1"] button')) button.toggleAttribute("data-pressed-here", button.textContent === "Rename"); })()`);
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector("#accounts-list button[data-pressed-here]").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    const other = new WebSocket(`ws://127.0.0.1:${String(port)}`);
+    await new Promise<void>((resolve) => {
+      other.addEventListener("open", () => other.send(JSON.stringify({ type: "hello", token })));
+      other.addEventListener("message", (event) => {
+        if ((JSON.parse(String(event.data)) as { type: string }).type === "ready") resolve();
+      });
+    });
+    try {
+      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 });
+      other.send(JSON.stringify({ type: "addAccount", requestId: 1, name: "Home" }));
+      await app.until("window.tookHome", "the window's socket taking the accounts message that lists Home");
+      // The window took the accounts, and holds the dialog's drawing while the button is down.
+      const drawnWhilePressed = await app.evaluate<boolean>(homeDrawn);
+      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
+      await app.until(`document.querySelector('#accounts-list li[data-account="1"] input') !== null`, "the rename field of the account Work");
+      expect(drawnWhilePressed).toBe(false);
+      await app.until(homeDrawn, "the account Home in the dialog after the release");
+    } finally {
+      other.close();
+    }
     await app.click("#accounts-close");
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });

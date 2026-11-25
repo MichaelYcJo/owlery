@@ -75,6 +75,8 @@ const B = "b".repeat(40);
 const HEAD = "c".repeat(40);
 const NAME = "1795388700-sealed-work";
 const DIRECTORY = `seal/threads/${NAME}`;
+/** The top of the work item's worktree, which a stage's prompt names by its absolute path. */
+const WORKTREE = "/repos/owlery-wt-2";
 const TRAILER = `Seal-Routing: ${NAME}`;
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
 
@@ -373,9 +375,9 @@ describe("the record a fix pass left", () => {
 
 describe("a stage's prompt", () => {
   it("gives a round its number, the directory, the heading and the target its record carries, the earlier records, the record of decisions where one stands, the changed paths and their diff", () => {
-    const prompt = roundPrompt({ round: 3, directory: DIRECTORY, target: `${HEAD}, fixes ${A}..${HEAD}`, earlier: [1, 2], decisions: true, paths: ["src/a.ts", "docs/b.md"], diff: "diff --git a/src/a.ts b/src/a.ts\n" });
+    const prompt = roundPrompt({ round: 3, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD}, fixes ${A}..${HEAD}`, earlier: [1, 2], decisions: true, paths: ["src/a.ts", "docs/b.md"], diff: "diff --git a/src/a.ts b/src/a.ts\n" });
     expect(prompt.shown.split("\n")).toEqual([
-      `Review round 3 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      `Review round 3 of the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The work item's directory: \`${DIRECTORY}\``,
       `- Your record's heading: \`${HEADING(3)}\``,
@@ -383,7 +385,7 @@ describe("a stage's prompt", () => {
       `- Earlier round records: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${DIRECTORY}/trail/rounds/round-3.md\` and commits it. Write no file and run no command: read the files of this folder.`,
+      `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${DIRECTORY}/trail/rounds/round-3.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
       "",
       "The reviewed commits changed these paths:",
       "- `src/a.ts`",
@@ -392,7 +394,7 @@ describe("a stage's prompt", () => {
     ]);
     expect(prompt.diff).toBe("Their diff:\n\ndiff --git a/src/a.ts b/src/a.ts\n");
     expect(promptText(prompt)).toBe(`${prompt.shown}\n${prompt.diff}`);
-    const first = roundPrompt({ round: 1, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: [], diff: "" });
+    const first = roundPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: [], diff: "" });
     expect(first.shown).toContain("- Earlier round records: none, this is the first round\n\nYour answer");
     expect(first.shown).toContain("The reviewed commits changed no path.\n");
     expect(first.shown).not.toContain("decisions.md");
@@ -401,15 +403,15 @@ describe("a stage's prompt", () => {
 
   it("cuts a diff longer than the bound at the bound, and says how much of it the prompt holds", () => {
     const diff = "x".repeat(PROMPT_DIFF_CHARS + 5);
-    const prompt = roundPrompt({ round: 1, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: ["a"], diff });
+    const prompt = roundPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: ["a"], diff });
     expect(prompt.diff).toBe(`Their diff, its first ${String(PROMPT_DIFF_CHARS)} characters of ${String(PROMPT_DIFF_CHARS + 5)}. Read the files for the rest.\n\n${"x".repeat(PROMPT_DIFF_CHARS)}`);
-    expect(roundPrompt({ round: 1, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: ["a"], diff: "x".repeat(PROMPT_DIFF_CHARS) }).diff).toBe(`Their diff:\n\n${"x".repeat(PROMPT_DIFF_CHARS)}`);
+    expect(roundPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: ["a"], diff: "x".repeat(PROMPT_DIFF_CHARS) }).diff).toBe(`Their diff:\n\n${"x".repeat(PROMPT_DIFF_CHARS)}`);
   });
 
   it("gives a fix pass the round record's path, the numbers of its open findings, each reversed decision with the person's message, and the path of the record of decisions", () => {
-    const prompt = fixPassPrompt({ round: 2, directory: DIRECTORY, open: [1, 3, 4], reversals: [REVERSAL] });
+    const prompt = fixPassPrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, open: [1, 3, 4], reversals: [REVERSAL] });
     expect(prompt.shown.split("\n")).toEqual([
-      `The fix pass of review round 2 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      `The fix pass of review round 2 of the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The round record: \`${DIRECTORY}/trail/rounds/round-2.md\``,
       "- Its open findings: 1, 3 and 4",
@@ -417,12 +419,15 @@ describe("a stage's prompt", () => {
       '  - decision 3, "Start from main.": the person says "Start from the release branch."',
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      "Commit each fix yourself. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.",
+      `Make each fix in that worktree, and commit it yourself there with \`git -C '${WORKTREE}'\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
       "",
     ]);
     expect(prompt.diff).toBe("");
-    const alone = fixPassPrompt({ round: 1, directory: DIRECTORY, open: [], reversals: [] }).shown;
+    const alone = fixPassPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, open: [], reversals: [] }).shown;
     expect(alone).toContain("- Its open findings: none\n- The decisions and the answers");
+    // A path with a space and a quote stays one word of the command a shell reads.
+    const spaced = fixPassPrompt({ round: 1, worktree: "/repos/my repo's wt", directory: DIRECTORY, open: [1], reversals: [] }).shown;
+    expect(spaced).toContain("commit it yourself there with `git -C '/repos/my repo'\\''s wt'`. Then append");
   });
 });
 
@@ -582,9 +587,9 @@ describe("the orchestrator's answer", () => {
 
 describe("a judgment's prompt", () => {
   it("gives the judgment of convergence its round, the directory, every round record, the record of decisions where one stands, and the block its answer holds", () => {
-    const prompt = convergencePrompt({ round: 2, directory: DIRECTORY, rounds: [1, 2], decisions: true });
+    const prompt = convergencePrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, rounds: [1, 2], decisions: true });
     expect(prompt.shown.split("\n")).toEqual([
-      `The judgment after review round 2 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      `The judgment after review round 2 of the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The work item's directory: \`${DIRECTORY}\``,
       `- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
@@ -597,11 +602,11 @@ describe("a judgment's prompt", () => {
       "grounds: <why, on one line>",
       "```",
       "",
-      "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of this folder.",
+      "Owlery records the answer as a decision made without asking. `yes` starts the fix pass, and `no` stops the chain for the person. Write no file and run no command: read the files of that worktree.",
       "",
     ]);
     expect(prompt.diff).toBe("");
-    expect(convergencePrompt({ round: 3, directory: DIRECTORY, rounds: [1, 2, 3], decisions: false }).shown).not.toContain("decisions.md");
+    expect(convergencePrompt({ round: 3, worktree: WORKTREE, directory: DIRECTORY, rounds: [1, 2, 3], decisions: false }).shown).not.toContain("decisions.md");
     expect(givenQuestions(prompt.shown)).toBe(0);
   });
 
@@ -610,9 +615,9 @@ describe("a judgment's prompt", () => {
       { asks: "Which base does the fix start from?", grounds: "No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release", implies: "" }], default: "main" },
       { asks: "May the pass change the protocol?", grounds: "The frame names no such change.", options: [], default: null },
     ];
-    const prompt = rulingPrompt({ round: 1, directory: DIRECTORY, by: "crafter", asked: "fix-pass", asks, decisions: true });
+    const prompt = rulingPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, by: "crafter", asked: "fix-pass", asks, decisions: true });
     expect(prompt.shown.split("\n")).toEqual([
-      `The judgment after review round 1 of the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      `The judgment after review round 1 of the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The work item's directory: \`${DIRECTORY}\``,
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
@@ -636,11 +641,11 @@ describe("a judgment's prompt", () => {
       "grounds: <why, on one line>",
       "```",
       "",
-      "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of this folder.",
+      "Owlery records each decision as one made without asking, and parks the work item with each question you park. Write no file and run no command: read the files of that worktree.",
       "",
     ]);
     expect(prompt.diff).toBe("");
-    const one = rulingPrompt({ round: 2, directory: DIRECTORY, by: "proofer", asked: "round", asks: asks.slice(1), decisions: false }).shown;
+    const one = rulingPrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, by: "proofer", asked: "round", asks: asks.slice(1), decisions: false }).shown;
     expect(one).toContain("- Who asks: the proofer, in review round 2\n\nIts question:\n\n1. May the pass");
     expect(one).not.toContain("decisions.md");
     expect([givenQuestions(prompt.shown), givenQuestions(one)]).toEqual([2, 1]);
@@ -648,12 +653,12 @@ describe("a judgment's prompt", () => {
 });
 
 describe("the seal's prompt", () => {
-  const given = { run: 2, directory: DIRECTORY, target: `${A} against main`, rounds: [1, 2], decisions: true, frame: true, phases: true, changelog: true, earlier: null, paths: ["feature.txt", `${DIRECTORY}/routing.md`], diff: "diff --git a/feature.txt b/feature.txt\n" };
+  const given = { run: 2, worktree: WORKTREE, directory: DIRECTORY, target: `${A} against main`, rounds: [1, 2], decisions: true, frame: true, phases: true, changelog: true, earlier: null, paths: ["feature.txt", `${DIRECTORY}/routing.md`], diff: "diff --git a/feature.txt b/feature.txt\n" };
 
   it("gives a sealer its run, the directory, the heading and the target line its verdict carries, the routing, every round record, the gate's record, the decisions, the frame, the phase records and the changelog where each stands, that no issue is named, the paths the branch changed and their diff", () => {
     const prompt = sealPrompt(given);
     expect(prompt.shown.split("\n")).toEqual([
-      `Run 2 of the sealer on the work item \`${NAME}\`, in this folder, which is the work item's worktree.`,
+      `Run 2 of the sealer on the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The work item's directory: \`${DIRECTORY}\``,
       "- Your section's heading: `## Run 2`",
@@ -667,7 +672,7 @@ describe("the seal's prompt", () => {
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of this folder.`,
+      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
       "",
       "The branch changed these paths since it left its base:",
       "- `feature.txt`",
@@ -702,7 +707,7 @@ describe("the seal's prompt", () => {
       "- The issue: the work item names none, so no issue's text is among what you read",
       `- The seal this run follows: run 2 of \`${DIRECTORY}/guarantee.md\` sealed \`${B}\`, and a commit after it broke that seal`,
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of \`templates/records/sdd-guarantee.md\`. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of this folder.`,
+      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
     ]);
     expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 sealed:", "- `later.txt`", ""]);
     expect(after.diff).toBe("Their diff:\n\ndiff --git a/later.txt b/later.txt\n");
@@ -711,7 +716,7 @@ describe("the seal's prompt", () => {
   });
 
   it("gives the ruling on a sealer's question who asks and in which stage, and the question with the run it stands in and no option", () => {
-    const prompt = rulingPrompt({ round: 2, directory: DIRECTORY, by: "sealer", asked: "seal", asks: [undecidedAsk(3, "Does the frame's item 4 cover a renamed branch?")], decisions: false }).shown;
+    const prompt = rulingPrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, by: "sealer", asked: "seal", asks: [undecidedAsk(3, "Does the frame's item 4 cover a renamed branch?")], decisions: false }).shown;
     expect(prompt).toContain("- Who asks: the sealer, in the sealer's session\n\nIts question:\n\n1. Does the frame's item 4 cover a renamed branch?\n   - Why the sealer cannot answer it: The sealer asked it in place of a verdict, in run 3 of guarantee.md.\n\nDecide each question");
     expect(undecidedAsk(3, "Does it?")).toEqual({ asks: "Does it?", grounds: "The sealer asked it in place of a verdict, in run 3 of guarantee.md.", options: [], default: null });
   });
@@ -1120,6 +1125,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     expect(started.map(({ cwd, role }) => [cwd, role])).toEqual([[a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "crafter", stage: "fix-pass" }], [a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "sealer", stage: "seal" }]]);
+    // Each prompt names the worktree the session was launched in, the session's own folder.
+    for (const { cwd, prompt } of started) expect(prompt.split("\n")[0]).toContain(`, in its worktree \`${cwd}\`. Every path below is from that worktree's top.`);
     const sessions = c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "finished" ? [m.headless] : []));
     expect(sessions.map(({ id, workItemId, role }) => [id, workItemId, role?.role])).toEqual([[1, a.id, "proofer"], [2, a.id, "crafter"], [3, a.id, "proofer"], [4, a.id, "sealer"]]);
     // The agent was given the diff of the reviewed commits, and the listed prompt is the same text up to it.
@@ -1886,6 +1893,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "orchestrator", stage: "judgment" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "sealer", stage: "seal" }]);
       expect(started[3]?.cwd).toBe(a.worktree);
+      expect(started[3]?.prompt.split("\n")[0]).toBe(`The judgment after review round 2 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
       expect(started[3]?.prompt).toContain(`- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\`\n`);
       expect(recorded(a.worktree)).toMatchObject({
         decisions: [{ id: 1, kind: "route", decided: "The review rounds are converging after round 2, so the fix pass on its record runs.", grounds: "Round 2 confirms round 1's fix.", by: "orchestrator", state: { is: "decided" } }],
@@ -2963,6 +2971,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const chain = await c.chain(a.id, "rested");
     expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["gate", 1, "finished"], ["seal", 1, "finished"], ["ruling", 1, "finished"], ["gate", 1, "finished"], ["seal", 1, "finished"], ["pull-request", 1, "finished"]]);
     expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "sealer", stage: "seal" }, { role: "orchestrator", stage: "judgment" }, { role: "sealer", stage: "seal" }]);
+    expect(started[2]?.prompt.split("\n")[0]).toBe(`The judgment after review round 1 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
     expect(started[2]?.prompt).toContain(`- Who asks: the sealer, in the sealer's session\n\nIts question:\n\n1. ${QUESTION}\n   - Why the sealer cannot answer it: The sealer asked it in place of a verdict, in run 1 of guarantee.md.\n`);
     expect(commitsAfterMain(a.worktree).slice(3)).toEqual([
       { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },

@@ -83,22 +83,10 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
-  /**
-   * Opens a work item's view by a click on its line of the sidebar. The
-   * sidebar replaces its buttons each time it is drawn, so a press and a
-   * release with a draw between them land on two buttons and make no click.
-   * The click is made again until the view shows.
-   */
+  /** Opens a work item's view by one click on its line of the sidebar. */
   const openView = async ({ id, title }: WorkItem): Promise<void> => {
-    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`;
-    for (const deadline = Date.now() + 15_000; ; ) {
-      await app.click(`#repositories button[data-work-item="${id}"]`);
-      try {
-        return await app.until(shown, `the view of ${title}`, 2_000);
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-      }
-    }
+    await app.click(`#repositories button[data-work-item="${id}"]`);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
   };
 
   beforeAll(async () => {

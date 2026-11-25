@@ -1,0 +1,76 @@
+# Guarantee: 1795610688-242-sidebar-click-survives-a-redraw
+
+The audit read the branch at `3cfbe2d3`. The base is `release/v0.0.5`, which resolved through `release/v0.0.5@{upstream}` to `f5ee5ba7` after a fetch. Its merge base with HEAD is `5f58752b`, the base commit the broad run measured. The base commits after `5f58752b` (#252) change no file this branch changes (executed: `comm -12` over the two `git diff --name-only` lists printed nothing), and `git merge-tree --write-tree HEAD f5ee5ba7` exited 0. The broad run did not run the tree that merge would give.
+
+`trail/gate.md` names the run `47b6aa8c against 5f58752b`. `47b6aa8c` resolves, and it is an ancestor of HEAD. `git log --no-merges --name-only 47b6aa8c..HEAD ^f5ee5ba7` lists one commit, `3cfbe2d3`, and one path, `trail/gate.md` of this work item (executed). `seal pr-body <item> --body <pr-body.md> --check` exited 0 (executed).
+
+Each re-run took place in `<scratchpad>/1795610688-242-sidebar-click-survives-a-redraw/at-base/`, a `git clone --no-local` of the branch worktree checked out at `3cfbe2d3`, with `pnpm install --frozen-lockfile --prefer-offline` and with `ELECTRON_OVERRIDE_DIST_PATH` set to the main checkout's Electron 45.3.3 binary. "Base code" below means `apps/desktop/src/renderer/` restored from `f5ee5ba7` with `git restore --source`, so that `renderer.ts` is the base's and `press.ts` is gone. The test files stayed at HEAD. The tree under audit was not touched. The outputs are under `<scratchpad>/1795610688-242-sidebar-click-survives-a-redraw/sealer/`.
+
+## Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The new built-app case goes red with every draw at once, at the view's wait | `trail/phases/phase-1.md:27` (seen red) | `node scripts/test-in-electron.mjs test/seal-back-view.test.ts -t "pressed"`, from `apps/desktop`, against base code | Holds. The test failed at `test/seal-back-view.test.ts:230:5` with "the window never showed the view of the work item whose line was pressed", and the earlier case was skipped. That is the `until` for the pressed work item's view, the line the claim names. Executed |
+| The Accounts dialog case goes red with `case "accounts"` drawing the dialog at once | `trail/rounds/round-2.md`, the close of finding 1 (seen red) | `node scripts/test-in-electron.mjs test/theme-controls.test.ts`, against base code, where `case "accounts"` runs `if (accountsDialog.open) showAccounts();` at once | Holds. 1 failed and 7 passed. The failure was at `test/theme-controls.test.ts:363:7`, "the window never showed the rename field of the account Work", the line the close names. Executed |
+| Both built-app files pass at HEAD | `trail/phases/phase-1.md:29`, `trail/rounds/round-3.md` (executed) | `node scripts/test-in-electron.mjs test/seal-back-view.test.ts test/theme-controls.test.ts`, at `3cfbe2d3` | Holds. 2 files and 10 cases passed, at a load average near 5. Executed |
+| The unit cases pass at HEAD | `trail/phases/phase-1.md:23`, `trail/rounds/round-2.md` (11 cases) | `node scripts/test-in-electron.mjs test/press.test.ts`, at `3cfbe2d3` | Holds. 1 file and 11 cases passed. Executed |
+| "Holds nothing at a press of another button" pins the `button === 0` guard of the wiring | `trail/rounds/round-1.md`, the close of finding 1 (seen red with the guard removed) | `press.ts:73` changed to `hold.press()` with the `Edit` tool in the clone, then `node scripts/test-in-electron.mjs test/press.test.ts`, then `git checkout` of the file | Holds. 1 failed and 10 passed. The failure was at `press.test.ts:134:19`, `expect(drawn).toEqual(["at once"])` after a `pointerdown` of button 2, which is the guard the case names. Executed |
+| A press and a release with no draw between them schedule nothing (the row that first survived) | `trail/phases/phase-1.md:21` and the mutation table's fifth row (red at `press.test.ts:59`) | `press.ts:45` changed to `if (scheduled) return;` with the `Edit` tool in the clone, the same run, then `git checkout` | Holds. 1 failed and 10 passed, at `press.test.ts:59:27`, `expect(later.count()).toBe(0)`, the line the record names. Executed |
+| The guards of the main button, the empty kept set, the `buttons` test of `pointermove` and the `if (pressed)` of `draw` each go red when removed alone | `trail/phases/phase-1.md`, the mutation table; `trail/rounds/round-1.md`, the close of finding 1 | `seal mutate src/renderer/press.ts` with four `--replace` pairs and `--tests "node scripts/test-in-electron.mjs test/press.test.ts"` | Holds. The baseline passed, and 4 mutants of 4 went red. Executed. `seal mutate` prints no failing line, so the two rows above read those lines for the two guards whose cases assert that nothing happens |
+| `## Removes` rows 1 to 3 and *Scope* item 3: no sidebar line is clicked again until a view shows, and the comments that stated the defect are gone | `frame/design.md` *Removes* rows 1 to 3, *User scenarios & acceptance*, the last row | `git grep -n -A1 'for (const deadline' -- apps/desktop/test \| grep 'app.click('`; `git grep -n -e 'replaces its buttons' -e 'made again until the view shows' -- apps/desktop`; `git grep -n 'repositories button\[data-work-item' -- apps/desktop/test` | Holds. The first two print nothing. The third lists every click on a sidebar line in the suite: `approval-line.test.ts:88`, `machine-dialog.test.ts:287`, `seal-back-view.test.ts:63` and `screenshots.test.ts:470` and `:476`. Each is one `app.click` followed by one `until`. Executed and read |
+| `## Removes` row 4: the copies of the lists' draws are gone from `takeLists` and the two message cases | `frame/design.md` *Removes* row 4 | `git grep -n 'listInFront()?.show()' -- apps/desktop/src`; `git grep -n 'showSidebar(' -- apps/desktop/src` | Holds. The first prints `renderer.ts:347` (`showNarrowed`) and `:1547` (`drawLists`). The second prints `renderer.ts:301` (`bringToFront`), `:346` (`showNarrowed`) and `:1544` (`drawLists`), and `sidebar.ts:167` (the fold head's click). Executed |
+| `## Removes` row 5: the dialogs are no longer drawn at once at `accounts` and `machine` | `frame/design.md` *Removes* row 5 | `git grep -n -e 'if (accountsDialog.open) showAccounts' -e 'if (MACHINE.dialog.open) showMachine' -- apps/desktop/src` | Holds. It prints `renderer.ts:848` (`takeAccountsAnswer`) and `:1846` (`heavyRuns`), which *Scope* item 2 keeps at once, and `:1562` and `:1567`, inside `drawAccountsDialog` and `drawMachineDialog`. `case "accounts"` (`renderer.ts:1833`) and `case "machine"` (`:1852`) hand both dialogs to `draws.draw`. Executed and read |
+| `## Removes` rows 6 and 7: the wiring's `pointerup` test of `button === 0` and the old other-button case are gone | `frame/design.md` *Removes* rows 6 and 7 | `grep -n 'button === 0' apps/desktop/src/renderer/press.ts`; `grep -n 'release of another button' apps/desktop/test/press.test.ts` | Holds. The first prints only line 73, which is the `pointerdown` listener. The second prints nothing. Executed |
+| The changelog names no removal | `changelog.md` | read | Nothing to check. Read |
+| Each quote of `pr.md` stands word for word at the coordinate it names | `pr.md` | `grep -l -F` of each of the six quotes over `frame/design.md` and `frame/questions.md` | Holds. The four *Scope* quotes are in `frame/design.md`, and the two Q1 quotes are in `frame/questions.md`. Executed |
+
+## The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| The design | While the main button is held, the draws of `inbox`, `accounts` and `machine` wait. They run once, in a task after the release. One function holds the lists' draws, and the Accounts and Machine dialogs go through the hold as draws of their own. The three cases click once. `ready`, the "Ask" section and the keyboard's place are out of scope, with grounds (`frame/design.md` *Scope*, *Out of scope*, *Removes*) | The issue's two *Done when* items, read against its stated cause, "whenever a running work item redraws the sidebar while they click". Every daemon message that carries a work item's change and draws the sidebar goes through the hold. `#repositories` is replaced only in `sidebar.ts#showSidebar` (`sidebar.ts:152`, executed `grep replaceChildren`), and its other callers run at the person's own acts, at `ready` and at `workItemCreated`. `ready` reopens the summary or the inbox (`renderer.ts:1817-1818`, read), and `workItemCreated` goes to the asking socket only (`daemon.ts:937`, read). Both are named in *Out of scope* or in round 1's confirmations. The code: `press.ts`, `renderer.ts#drawLists`, the two dialog functions and the three message cases do what *Scope* items 1 and 2 and *Data & interfaces* say (read). | None. The issue's "whatever draws the sidebar in between", taken word for word, also covers a draw at `ready` and at `workItemCreated`. The design holds both out, and gives each a reason the tree bears out. This audit reads the issue as the cause it names, and that is a judgment (read). |
+| The build | Phase 1 built *Scope* items 1 to 6. It saw the unit cases red against an at-once hold and with each guard removed. It saw the new built-app case red at line 230. The phase-boundary set passed. Q2 is answered with one socket (`trail/phases/phase-1.md`) | The design. `frame/plan.md` *Phases* names `6a423a33` and `trail/phases/phase-1.md`, which stands, as `routing.md`'s `crafter` row requires. The reds and greens re-run above hold. | None |
+| The last round (round 3, `a28eabde`) | Opens no finding. Confirms round 2's finding 1: the Accounts case stands and goes red at line 363. Reads the `beforeAll` timeouts as load (`trail/rounds/round-3.md`) | The build and the design. The red and green of `theme-controls.test.ts` re-run above. No commit after `a28eabde` touches a path outside this work item's records, except the base merge `47b6aa8c` (executed: `git log --no-merges --name-only a28eabde..HEAD ^f5ee5ba7` lists `c71dedda` with `round-3.md` and `3cfbe2d3` with `gate.md`). | None |
+| The changelog | A click survives the daemon's lists arriving during the press. This covers the sidebar, the list screens, the summary, the view and the dialogs, the Accounts and Machine dialogs among them. `accounts` and `machine` now draw as `inbox` does. The three cases click once, and one new case holds a press across an `inbox` (`changelog.md`) | The diff. `drawLists` (`renderer.ts:1543-1558`) holds the summary, the archived fallback and the six dialogs, and both message cases call it. The wiring's endings match `press.ts:73-77`. | None |
+| The orchestrator's part of the pull request body | `Closes #242`, four *Scope* quotes and Q1 with its default A (`pr.md`, the part above `## From the records` in the body file) | The design, word for word. Q1 stands open at default A in `frame/questions.md` and is disclosed in `gaps.md`. That is consistent with `routing.md`'s `Automation yes`, since the framer gave the default. `pr.<lang>.md` is not owed, because both language keys of `seal/config.json` read English. | None |
+| `routing.md` *Why this way* (the orchestrator's rows, under agentic) | Framer, crafter, the review chain, automation yes. The grounds are "the sidebar's redraw and the cases that stop clicking again" | The diff. It changes when the renderer's draws run, adds `press.ts` and changes test cases. It touches no hook, gate or check script. | None |
+
+## Not verified
+
+| Item | Who answers |
+|---|---|
+| The tree that merging HEAD with `f5ee5ba7` gives. The broad run measured `47b6aa8c`, which holds `5f58752b`, and #252's daemon changes came after it. The two change disjoint files (executed) | the orchestrator, if the merge into `release/v0.0.5` is to run that suite again |
+| Whether a release that a system popup takes on real hardware reaches the window (`gaps.md`) | the owner, in a walk of the built app |
+| `frame/questions.md` Q1. The build stands on default A, under `Automation yes` | the owner, at review of the pull request |
+| `approval-line.test.ts` and `machine-dialog.test.ts`. They were not re-run here, and the broad run at `47b6aa8c` passed them (read: `trail/gate.md`) | the broad gate, as recorded |
+
+```seal
+target: 3cfbe2d3 against f5ee5ba7
+Verdict: sealed
+```
+
+## Re-audit at `c7a7663c`
+
+The pull request's `records` check refused the block above, because the base had moved to `f5ee5ba7` after `3cfbe2d3`. The base still resolves through `release/v0.0.5@{upstream}` to `f5ee5ba7` after a fetch (executed).
+
+The commits since `3cfbe2d3` are `1eb6d803`, which commits this file, then the merge `f93485fd` of `f5ee5ba7`, then `c7a7663c`, which adds a `trail/gate.md` run (executed: `git log --oneline 3cfbe2d3..HEAD`). `trail/gate.md`'s newest run is `f93485fd against f5ee5ba7`, and `f93485fd` is an ancestor of HEAD. `git log --no-merges --name-only f93485fd..HEAD ^f5ee5ba7` lists only `c7a7663c` with `trail/gate.md` of this work item (executed). `seal pr-body <item> --body <pr-body.md> --check` exited 0 on the rewritten body file (executed).
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The merge brings only the base's files, and the branch's change stands as audited above | `f93485fd` | `git diff --quiet f5ee5ba7 f93485fd -- <every path git diff --name-only 5f58752b f5ee5ba7 lists>`; `git patch-id --stable` of `git diff f5ee5ba7...3cfbe2d3 -- apps` against that of `git diff f5ee5ba7 HEAD -- apps`; `git diff --quiet 3cfbe2d3 HEAD -- <this work item> ':!guarantee.md' ':!trail/gate.md'` | Holds. Each path the base changed is the base's at the merge. The patch ids of the branch's code change are equal, and the work item's records are unchanged. So every coordinate of the claims and the parties above stands, and none was re-run except the files below. Executed |
+| The unit cases and both built-app files pass with #252's daemon beside the branch's renderer | The block above, its rows that ran at HEAD; `trail/gate.md` (`f93485fd`) | `node scripts/test-in-electron.mjs test/press.test.ts test/seal-back-view.test.ts test/theme-controls.test.ts`, from `apps/desktop` of a new `git clone --no-local` at `c7a7663c` under `<scratchpad>/1795610688-242-sidebar-click-survives-a-redraw/at-base/` | Holds. 3 files and 21 cases passed, at a load average near 4. Executed |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| The design, the build, the last round, the changelog and the orchestrator's part of the pull request body | As above. No record of the work item changed (executed above), and `pr.md` stands above `## From the records` in the rewritten body (executed: `--check`) | The diff, which is the same patch as the one audited above | None |
+
+The earlier *Not verified* row on the merged tree is closed by the broad run at `f93485fd` (read: `trail/gate.md`) and by the run above. The rows on the system popup and on Q1 still stand, as above.
+
+```seal
+target: c7a7663c against f5ee5ba7
+Verdict: sealed
+```
