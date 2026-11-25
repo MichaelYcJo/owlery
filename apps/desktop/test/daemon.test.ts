@@ -3561,10 +3561,11 @@ describe("the inbox", () => {
     return newest && { sessions: newest.sessions, repositories: newest.repositories, workItems: newest.workItems, archived: newest.archived };
   };
 
-  it("answers a `readLists` with the four lists in an inbox to the client that asked alone, though nothing changed, and then `done`", async () => {
+  it("answers a `readLists` with the four lists in an inbox to the client that asked alone, though nothing changed, and then `done`, with no wait where no pull request is watched", async () => {
     const made = repository();
     const { runDir } = await runFolderWithWorkItem(made, "Asked again");
-    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000 });
+    // A wait on the pull requests would outlast the case.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, listsWaitMs: 60_000 });
     const c = await client(url);
     const other = await client(url);
     await other.message("ready");
@@ -7557,8 +7558,9 @@ describe("the watch of an open pull request", () => {
     return { before: inbox?.type === "inbox" ? inbox.workItems[0]?.pullRequest : inbox?.type, last };
   };
 
-  it("reads the pull request again at a `readLists` with one call of gh, though its next read is a minute off, and answers with what that call gave", async () => {
-    const w = await watched();
+  it("reads the pull request again at a `readLists` with one call of gh, though its next read is a minute off, and answers with what that call gave once it ended", async () => {
+    // The answer waits for the call's end and not for the bound, which would outlast the case.
+    const w = await watched({ listsWaitMs: 60_000 });
     w.answer([run("seal", "COMPLETED", "SUCCESS")]);
     const c = await client(w.url);
     await c.until(() => (pullRequestIn(c)?.checks === "passed" ? true : undefined));
