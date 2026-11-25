@@ -6719,6 +6719,8 @@ describe("the caps on the machine", () => {
       },
       // No process of an agent is read: the fake adapter starts none, and a pane's measure is the case's own.
       memoryOf: () => Promise.resolve(new Map()),
+      // No worktree is measured: a measure is the case's own.
+      sizeOf: () => Promise.resolve(null),
     };
     return { machine, reads };
   }
@@ -6849,7 +6851,7 @@ describe("the caps on the machine", () => {
     for (const each of both) expect(told(each).map((m) => m.agents.running)).toEqual([1, 0]);
   });
 
-  it("sends no `machine` in `ready`, takes no cap, reads nothing and writes no file where it is given no reader (scenario 10)", async () => {
+  it("sends no `machine` in `ready` nor a disk with a plan, takes no cap, reads nothing and writes no file where it is given no reader (scenario 10)", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     const { runDir } = await runFolderWithWorkItem(made, "Pane work");
@@ -6861,6 +6863,8 @@ describe("the caps on the machine", () => {
     expect((await c.message("error", (m) => m.requestId === 1)).message).toBe("This daemon keeps no cap on the machine.");
     expect(told(c)).toEqual([]);
     expect(existsSync(join(runDir, "limits.json"))).toBe(false);
+    c.send({ type: "planWorkItem", requestId: 2, repo: made.repo, title: "Next" });
+    expect("disk" in (await c.message("workItemPlan", (m) => m.requestId === 2))).toBe(false);
   });
 
   /** An adapter that answers as the fake does, each event `delayMs` after the one before, and notes the prompt of each run it starts. */
@@ -6979,7 +6983,7 @@ describe("the caps on the machine", () => {
     const asked: number[][] = [];
     const fake = fakeAdapter({ delayMs: 400 });
     const roleAdapter: RoleAdapter = { ...fake, start: async (options, listener) => ({ ...(await fake.start(options, listener)), pid: 4242 }) };
-    const machine: MachineReader = { read: () => READING, memoryOf: async (pids) => (asked.push([...pids]), new Map(pids.map((pid) => [pid, 700 * 1024]))) };
+    const machine: MachineReader = { read: () => READING, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => (asked.push([...pids]), new Map(pids.map((pid) => [pid, 700 * 1024]))) };
     const { c } = await machined({ roleAdapter, machine, measureMs: 50 });
     c.send({ type: "ask", requestId: 1, workItemId: 1, prompt: "Which file?" });
     await c.message("asked", (m) => m.requestId === 1);
@@ -6990,7 +6994,7 @@ describe("the caps on the machine", () => {
   it("starts a queued session where a measure raises the proposal above the agents that run", async () => {
     // 2 GB of memory and 6 performance cores: 1,024 MB at 679 MB an agent proposes 1, and at 100 MB, once five are measured, 6.
     const small: MachineReading = { ...READING, memoryBytes: 2 * 1024 ** 3 };
-    const machine: MachineReader = { read: () => small, memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 100 * 1024])) };
+    const machine: MachineReader = { read: () => small, sizeOf: () => Promise.resolve(null), memoryOf: async (pids) => new Map(pids.map((pid) => [pid, 100 * 1024])) };
     const made = temporaryRepository();
     cleanups.push(made.remove);
     const { runDir } = await runFolderWithWorkItem(made, "Pane work");
@@ -7024,6 +7028,7 @@ describe("the caps on the machine", () => {
     const readings = [600, 700, 650];
     const machine: MachineReader = {
       read: () => READING,
+      sizeOf: () => Promise.resolve(null),
       memoryOf: async (pids) => {
         asked.push([...pids]);
         const kilobytes = (readings.shift() ?? 650) * 1024;
@@ -7054,6 +7059,115 @@ describe("the caps on the machine", () => {
     expect(asked.length).toBe(after);
     expect(JSON.parse(readFileSync(join(runDir, "agent-memory.json"), "utf8"))).toEqual([500 * 1024, 520 * 1024, 540 * 1024, 560 * 1024, 700 * 1024]);
     expect(statSync(join(runDir, "agent-memory.json")).mode & 0o777).toBe(0o600);
+  });
+
+  /** The size of a worktree a daemon of the case stored: 440 MB, at 1,024 bytes a kilobyte. */
+  const MEASURED_KB = 429_688;
+  /** The stored work item of a place a case made, measured at `kilobytes` or not at all. */
+  const storedAt = (id: number, title: string, place: Awaited<ReturnType<typeof createWorktree>>, kilobytes: number | null) => ({ id, title, branch: place.branch, worktree: place.worktree, createdAt: 1, baseCommit: place.baseCommit, baseBranch: place.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null, worktreeSize: kilobytes === null ? null : { kilobytes, measuredAt: 1 } });
+  /** The stored repository of a folder a case made, holding the work items given. */
+  const storedIn = (id: number, folder: string, workItems: unknown[]) => ({ id, folder, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems });
+
+  it("measures a new work item's worktree with one `sizeOf` when its setup's pane exits, keeps the size with the work item, proposes the worktree cap from it, and measures it no more when its setup runs again nor after a restart (scenario 13)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    writeFileSync(join(made.repo, ".worktreesetup"), "read line; exit 0");
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const sized: string[] = [];
+    const machine: MachineReader = { ...reader().machine, sizeOf: (folder) => (sized.push(folder), Promise.resolve(MEASURED_KB)) };
+    const setupCommandFor = (command: string, id: number) => ({ command: "/bin/sh", args: ["-c", command], env: { OWLERY_PANE_ID: String(id) } });
+    const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, machine, setupCommandFor, now: () => 1234 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Set up", kind: "claude", cols: 80, rows: 24, setupCommand: "read line; exit 0" });
+    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 1);
+    await pause(150);
+    // The setup still runs, so nothing is measured yet.
+    expect(sized).toEqual([]);
+    c.send({ type: "input", id: workItem.setup!.paneId!, data: "\n" });
+    const measured = await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes !== null);
+    // The 15.1 GB free past the 10 GB kept free holds 34 more worktrees at 440 MB.
+    expect(measured.machine.worktrees).toEqual({ proposed: 35, set: null, standing: 1, perWorktreeBytes: MEASURED_KB * 1024, keepFreeBytes: 10_000_000_000 });
+    expect(sized).toEqual([workItem.worktree]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems[0].worktreeSize).toEqual({ kilobytes: MEASURED_KB, measuredAt: 1234 });
+    // A client is not sent the size with the work item.
+    const inbox = c.messages.filter((m) => m.type === "inbox").at(-1) as Extract<ServerMessage, { type: "inbox" }>;
+    expect(Object.keys(inbox.workItems[0]!)).not.toContain("worktreeSize");
+    // The setup run again measures nothing.
+    c.send({ type: "runSetup", requestId: 2, workItemId: workItem.id, cols: 80, rows: 24, setupCommand: "read line; exit 0" });
+    const rerun = (await c.message("started", (m) => m.requestId === 2)).session;
+    c.send({ type: "input", id: rerun.id, data: "\n" });
+    await c.message("inbox", (m) => m.workItems.some((w) => w.setup?.paneId === rerun.id && w.setup.state !== "running"));
+    await pause(150);
+    expect(sized).toEqual([workItem.worktree]);
+    await d.close();
+    const again: string[] = [];
+    const { url: next } = await daemon({ runDir, worktreesRoot: made.root, machine: { ...machine, sizeOf: (folder) => (again.push(folder), Promise.resolve(1)) } });
+    expect((await (await client(next)).message("ready")).machine?.worktrees.perWorktreeBytes).toBe(MEASURED_KB * 1024);
+    await pause(150);
+    expect(again).toEqual([]);
+  });
+
+  it("measures at its start each standing worktree that has no size, one at a time, keeps none where `sizeOf` gives none, and measures at once a new work item whose repository names no setup (scenario 13)", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const first = await createWorktree({ folder: made.repo, title: "First", root: made.root });
+    const second = await createWorktree({ folder: made.repo, title: "Second", root: made.root });
+    const kept = await createWorktree({ folder: made.repo, title: "Kept", root: made.root });
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 2, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "First", first, null), storedAt(2, "Second", second, null), storedAt(3, "Kept", kept, 100)])] }));
+    const asked: { folder: string; answer: (kilobytes: number | null) => void }[] = [];
+    const machine: MachineReader = { ...reader().machine, sizeOf: (folder) => new Promise((answer) => asked.push({ folder, answer })) };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine });
+    const c = await client(url);
+    await c.message("ready");
+    await pause(100);
+    // The second waits for the first, and the one measured before is measured no more.
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree]);
+    asked[0]!.answer(1000);
+    await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes === 1000 * 1024);
+    await pause(50);
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree, second.worktree]);
+    asked[1]!.answer(null);
+    await pause(50);
+    const stored = () => JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0].workItems.map((item: { worktreeSize: unknown }) => item.worktreeSize);
+    expect(stored()).toEqual([{ kilobytes: 1000, measuredAt: expect.any(Number) }, null, { kilobytes: 100, measuredAt: 1 }]);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "No setup", kind: "claude", cols: 80, rows: 24, setupCommand: null });
+    const { workItem } = await c.message("workItemCreated", (m) => m.requestId === 1);
+    expect(workItem.setup).toBeNull();
+    await pause(100);
+    expect(asked.map((each) => each.folder)).toEqual([first.worktree, second.worktree, workItem.worktree]);
+    asked[2]!.answer(3000);
+    expect((await c.message("machine", (m) => m.machine.worktrees.perWorktreeBytes === 3000 * 1024)).machine.worktrees.standing).toBe(4);
+  });
+
+  it("answers a plan with the free disk it reads then, the 10 GB kept free, the largest worktree measured in the plan's repository, the worktrees that stand and the cap (scenario 11)", async () => {
+    const made = temporaryRepository();
+    const other = temporaryRepository("other");
+    const unmeasured = temporaryRepository("unmeasured");
+    cleanups.push(made.remove, other.remove, unmeasured.remove);
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const one = await createWorktree({ folder: made.repo, title: "One", root: made.root });
+    const two = await createWorktree({ folder: made.repo, title: "Two", root: made.root });
+    const elsewhere = await createWorktree({ folder: other.repo, title: "Elsewhere", root: other.root });
+    writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 4, nextRepositoryId: 3, nextGroupId: 1, repositories: [storedIn(1, made.repo, [storedAt(1, "One", one, 300_000), storedAt(2, "Two", two, MEASURED_KB)]), storedIn(2, other.repo, [storedAt(3, "Elsewhere", elsewhere, 2_000_000)])] }));
+    const { machine, reads } = reader();
+    const low = { ...READING, disk: { freeBytes: 10_200_000_000, totalBytes: 494_384_795_648 } };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, machine: { ...machine, read: (folder) => (machine.read(folder), low) } });
+    const c = await client(url);
+    await c.message("ready");
+    const before = reads.length;
+    c.send({ type: "planWorkItem", requestId: 1, repo: made.repo, title: "Next" });
+    // The 0.2 GB past the 10 GB kept free holds no more worktree at the 2 GB of the largest measured anywhere, so the cap is the 3 that stand.
+    expect((await c.message("workItemPlan", (m) => m.requestId === 1)).disk).toEqual({ freeBytes: 10_200_000_000, keepFreeBytes: 10_000_000_000, needsBytes: MEASURED_KB * 1024, standing: 3, cap: 3 });
+    expect(reads.length).toBe(before + 1);
+    c.send({ type: "setCaps", requestId: 2, worktrees: 5 });
+    await c.message("done", (m) => m.requestId === 2);
+    c.send({ type: "planWorkItem", requestId: 3, repo: unmeasured.repo, title: "Next" });
+    expect((await c.message("workItemPlan", (m) => m.requestId === 3)).disk).toEqual({ freeBytes: 10_200_000_000, keepFreeBytes: 10_000_000_000, needsBytes: null, standing: 3, cap: 5 });
   });
 });
 

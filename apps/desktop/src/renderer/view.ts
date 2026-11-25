@@ -3,8 +3,8 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, panesSays, readingSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { agentsSays, CAP_NAMES, capRefusal, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
@@ -2691,8 +2691,8 @@ export function registerFields(repo: string): { folder: string } | { error: stri
   return folder ? { folder } : { error: "Choose the repository folder." };
 }
 
-/** What the daemon answered a plan with: what a `workItemPlan` carries, or the error it refused the plan with. */
-export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean } | { error: string };
+/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, or the error it refused the plan with. */
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
 
 /**
  * What the "New work item" form holds of its latest plan: the daemon's
@@ -2720,16 +2720,18 @@ function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
  * What the form shows under the name: the branch and the folder the work item
  * will get, and the setup its repository names, before the person creates
  * it: the copy where `.worktreeinclude` stands, and the command
- * `.worktreesetup` holds. Where the daemon refused the plan, `failed`, its
+ * `.worktreesetup` holds; and the warning of the room the worktree would
+ * take, where the daemon sent its disk (`shared/machine.ts#planWarning`).
+ * Where the daemon refused the plan, `failed`, its
  * message stands in the branch's place. Nothing where the form holds no
  * answer for the repository field's text.
  */
-export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; failed: boolean } {
+export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; warning: string; failed: boolean } {
   const shown = planOf(plan, repo);
-  if (shown === null) return { branch: "", worktree: "", setup: "", failed: false };
-  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", failed: true };
+  if (shown === null) return { branch: "", worktree: "", setup: "", warning: "", failed: false };
+  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", warning: "", failed: true };
   const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
-  return { branch: shown.branch, worktree: shown.worktree, setup, failed: false };
+  return { branch: shown.branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
 }
 
 /** What the form says where Create is pressed before it shows the plan of the repository field's text. */

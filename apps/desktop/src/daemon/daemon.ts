@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -425,6 +425,8 @@ export class Daemon {
   // What the daemon measured of the agents' memory, where it was given a reader, and the timer of its readings.
   private readonly memory: AgentMemoryStore | undefined;
   private measureTimer: NodeJS.Timeout | undefined;
+  /** The measures of worktrees, one at a time: each waits for the one before it. */
+  private measuring: Promise<void> = Promise.resolve();
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
   // The cost ledger: one entry for each headless session that ended and for each run of a broad gate that ended. Between two reads it holds in memory only the entries whose append failed.
@@ -500,6 +502,8 @@ export class Daemon {
     // The timer reads nothing while no agent lives (`measureAgents`), and holds no process open by itself.
     if (this.memory) this.measureTimer = setInterval(() => void this.measureAgents(), options.measureMs ?? MEASURE_MS).unref();
     this.readMachineNow();
+    // A worktree that stood before the daemon measured worktrees, or whose measure gave none, is measured once now.
+    for (const { item } of this.store.workItems()) if (item.worktreeSize === null) this.measureWorktree(item.id);
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
     // No pass reads an archived work item, so its record is read here, at the daemon's start, and at its archive.
@@ -881,8 +885,8 @@ export class Daemon {
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
             this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
-            // The setup pane starts first, and the answer carries the pane the creation named.
-            this.startSetup(socket, message, stored.item.id, place.worktree, setup);
+            // The setup pane starts first, and the answer carries the pane the creation named. A worktree whose setup runs no pane is measured now, and one whose setup runs at that pane's exit.
+            if (this.startSetup(socket, message, stored.item.id, place.worktree, setup)?.state !== "running") this.measureWorktree(stored.item.id);
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
@@ -900,8 +904,10 @@ export class Daemon {
             checkNaming(message);
             const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
             // The files are read from the main checkout, as a creation reads them. One that cannot be read names nothing here, and a creation says why.
-            const named = await repositoryOf(message.repo).then(readSetup).catch(() => ({ include: false, command: null }));
-            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned, setupCommand: named.command, includes: named.include });
+            const repo = await repositoryOf(message.repo).catch(() => null);
+            const named = repo === null ? { include: false, command: null } : await readSetup(repo).catch(() => ({ include: false, command: null }));
+            const disk = this.planDisk(repo);
+            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned, setupCommand: named.command, includes: named.include, ...(disk === undefined ? {} : { disk }) });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -2494,7 +2500,51 @@ export class Daemon {
     } catch (error) {
       console.error(`the end of a setup was not written: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.measureWorktree(workItemId);
     return true;
+  }
+
+  /**
+   * Measures a work item's worktree with the reader's `sizeOf`, after the
+   * measures asked before it, where the daemon was given a reader and the
+   * work item has no size, and keeps the size with the work item and tells
+   * every client the machine. A measure that gives none keeps none, and the
+   * next daemon measures the worktree again. A daemon that closed measures
+   * and keeps nothing. The store holds the size whether or not its file was
+   * written: a measure has no request to answer with the error.
+   */
+  private measureWorktree(workItemId: number): void {
+    const { machine } = this.options;
+    if (!machine) return;
+    this.measuring = this.measuring
+      .then(async () => {
+        const held = this.store.workItem(workItemId);
+        if (this.closed || !held || held.item.worktreeSize !== null) return;
+        const kilobytes = await machine.sizeOf(held.item.worktree);
+        if (this.closed || kilobytes === null) return;
+        try {
+          this.store.setWorkItem(workItemId, { worktreeSize: { kilobytes, measuredAt: (this.options.now ?? Date.now)() } });
+        } catch (error) {
+          console.error(`the size of a worktree was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        this.broadcastMachine();
+      })
+      .catch((error: unknown) => console.error(`a worktree was not measured: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /** The largest worktree measured, in bytes, of the repository whose main checkout is `folder`, or of every repository where none is named; null where none is measured. */
+  private largestWorktree(folder?: string): number | null {
+    const sizes = this.store.workItems().flatMap(({ repository, item }) => (item.worktreeSize === null || (folder !== undefined && repository.folder !== folder) ? [] : [item.worktreeSize.kilobytes * 1024]));
+    return sizes.length === 0 ? null : Math.max(...sizes);
+  }
+
+  /** What a plan in the repository whose main checkout is `repo` carries of the room its worktree would take, with the disk read anew; none where the daemon was given no reader or read no disk. */
+  private planDisk(repo: string | null): PlanDisk | undefined {
+    this.readMachineNow();
+    const machine = this.machineNow();
+    if (!machine?.reading.disk) return undefined;
+    const { standing, set, proposed } = machine.worktrees;
+    return { freeBytes: machine.reading.disk.freeBytes, keepFreeBytes: KEEP_FREE_BYTES, needsBytes: repo === null ? null : this.largestWorktree(repo), standing, cap: set ?? proposed };
   }
 
   /**
@@ -2633,8 +2683,10 @@ export class Daemon {
   /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; and with the requests of its headless sessions that wait for the person, the oldest first. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
+    // The size of its worktree is the daemon's, which a plan carries as what the repository's next worktree needs.
+    const { worktreeSize: _size, ...shown } = item;
     return {
-      ...item,
+      ...shown,
       repoId: repository.id,
       repo: repository.folder,
       repoName: repository.name ?? basename(repository.folder),
@@ -3675,10 +3727,11 @@ export class Daemon {
     if (reading === undefined) return undefined;
     const set = this.limits.get();
     const standing = this.store.workItems().length;
+    const perWorktreeBytes = this.largestWorktree();
     return {
       reading,
       agents: { ...agentsProposal(reading, this.measuredBytes()), set: set.agents, running: this.agentsRunning(), queue: this.queueNow() },
-      worktrees: { proposed: worktreesProposal(reading, standing, null), set: set.worktrees, standing, perWorktreeBytes: null, keepFreeBytes: KEEP_FREE_BYTES },
+      worktrees: { proposed: worktreesProposal(reading, standing, perWorktreeBytes), set: set.worktrees, standing, perWorktreeBytes, keepFreeBytes: KEEP_FREE_BYTES },
       panes: { proposed: panesProposal(reading), set: set.panes },
     };
   }

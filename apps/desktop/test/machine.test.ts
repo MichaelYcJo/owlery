@@ -31,8 +31,9 @@ function probes(sysctl: (key: string) => string, more: Partial<MachineProbes> = 
     load: () => (calls.load++, 1.5),
     sysctl: (key) => (calls.sysctl.push(key), sysctl(key)),
     statfs: (at) => (calls.statfs.push(at), { freeBytes: 1, totalBytes: 2 }),
-    // No process stands for a case that gives no `ps`.
+    // No process stands for a case that gives no `ps`, and `du` prints no size for a case that gives none.
     ps: () => Promise.resolve(""),
+    du: () => Promise.resolve(""),
     ...more,
   };
   return { given, calls };
@@ -292,6 +293,22 @@ describe("the memory of the agents, measured", () => {
     const held = readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0 }) }, given);
     expect(await held.memoryOf([101])).toEqual(new Map());
     expect(asked).toHaveLength(1);
+  });
+});
+
+describe("the size of a worktree, measured", () => {
+  it("measures a folder with one `du -sk`, in kilobytes, gives none where `du` prints no size, and measures nothing under `OWLERY_MACHINE` (scenario 13)", async () => {
+    const asked: string[] = [];
+    const printed = ["429688\t/w/project/one\n", ""];
+    const { given } = probes(() => "4", { du: (at) => (asked.push(at), Promise.resolve(printed.shift() ?? "")) });
+    const reader = readMachine({}, given);
+    expect(await reader.sizeOf("/w/project/one")).toBe(429_688);
+    // A folder that is gone: `du` prints its error on stderr, and no size.
+    expect(await reader.sizeOf("/w/project/gone")).toBeNull();
+    expect(asked).toEqual(["/w/project/one", "/w/project/gone"]);
+    const held = readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: 1, cores: 1, performanceCores: 1, freeBytes: 0, totalBytes: 0 }) }, given);
+    expect(await held.sizeOf("/w/project/one")).toBeNull();
+    expect(asked).toHaveLength(2);
   });
 });
 

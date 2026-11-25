@@ -2,7 +2,7 @@
 // worked out from what the daemon read of the machine and what it measured
 // there, the sentence that states each proposal with its numbers, and which
 // value a person may set. The daemon and the window read the same functions.
-import type { Cap, Machine, MachineReading } from "./protocol";
+import type { Cap, Machine, MachineReading, PlanDisk } from "./protocol";
 
 export const MIB = 1024 ** 2;
 export const GIB = 1024 ** 3;
@@ -111,6 +111,19 @@ export function worktreesSays(reading: MachineReading, worktrees: Pick<Machine["
   if (worktrees.perWorktreeBytes === null) return "Nothing is proposed until a worktree is measured on this Mac.";
   if (reading.disk === null || worktrees.proposed === null) return "Nothing is proposed: the disk of the worktrees' folder could not be read.";
   return `The default is ${String(worktrees.proposed)}: the ${String(worktrees.standing)} that stand, and ${String(more(reading.disk.freeBytes, worktrees.perWorktreeBytes))} more that ${diskWords(reading.disk.freeBytes)} free holds at ${String(Math.round(worktrees.perWorktreeBytes / 1e6))} MB a worktree, with ${diskWords(KEEP_FREE_BYTES)} kept free.`;
+}
+
+/**
+ * What the form warns of under its plan, or nothing: that the disk may not
+ * hold the worktree, where the free disk less what a worktree of the
+ * repository needs falls under what is kept free, and that the worktrees are
+ * at their cap, where as many stand as the cap or more. A person may know
+ * what they are about to remove, so neither refuses the creation.
+ */
+export function planWarning(disk: PlanDisk): string {
+  const room = disk.needsBytes !== null && disk.freeBytes - disk.needsBytes < disk.keepFreeBytes ? `The disk may not hold this worktree: ${diskWords(disk.freeBytes)} free, ${diskWords(disk.keepFreeBytes)} kept free, and a worktree of this repository takes ${String(Math.round(disk.needsBytes / 1e6))} MB.` : null;
+  const cap = disk.cap !== null && disk.standing >= disk.cap ? `This is worktree ${String(disk.standing + 1)} of a cap of ${String(disk.cap)}.` : null;
+  return [room, cap].filter((sentence) => sentence !== null).join(" ");
 }
 
 /** What the daemon read of the machine, in one sentence. */

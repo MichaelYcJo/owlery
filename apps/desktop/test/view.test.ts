@@ -174,7 +174,7 @@ import {
   unanswered,
   unreadLines,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -890,7 +890,7 @@ describe("archivedHead", () => {
 });
 
 describe("settingsBases", () => {
-  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false };
+  const PLAN = { branch: "owlery/x", worktree: "/w/project/x", localBases: ["main", "develop"], remoteBases: ["origin/main"], defaultBase: "develop", setupCommand: null, includes: false, disk: null };
 
   it("lists the repository's local and remote bases whole, under a first choice that stores none, and chooses the base the repository has where the plan lists it", () => {
     expect(settingsBases(PLAN, "develop")).toEqual({ local: ["main", "develop"], remote: ["origin/main"], value: "develop" });
@@ -2736,6 +2736,7 @@ const PLAN: FormPlan = {
   defaultBase: "origin/main",
   setupCommand: null,
   includes: false,
+  disk: null,
 };
 
 describe("planAnswer", () => {
@@ -2756,7 +2757,7 @@ describe("planAnswer", () => {
 
 describe("planLine", () => {
   it("shows the branch and the folder the plan's answer gave, and no setup where the repository names none", () => {
-    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", failed: false });
+    expect(planLine(PLAN, " /r/project ")).toEqual({ branch: "owlery/amber-heron", worktree: "/w/project/amber-heron", setup: "", warning: "", failed: false });
   });
 
   it("names the setup the repository's two files name: the copy where .worktreeinclude stands, and the command .worktreesetup holds", () => {
@@ -2766,11 +2767,33 @@ describe("planLine", () => {
   });
 
   it("shows the error's message in the place of the branch where the daemon refused the plan", () => {
-    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", failed: true });
+    expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/nowhere")).toEqual({ branch: "/r/nowhere is not inside a git repository", worktree: "", setup: "", warning: "", failed: true });
+  });
+
+  /** What a daemon that reads the machine sends with a plan: 25.1 GB free and nothing measured, one worktree standing and no cap. */
+  const ROOM: PlanDisk = { freeBytes: 25_088_950_272, keepFreeBytes: 10_000_000_000, needsBytes: null, standing: 1, cap: null };
+
+  it("warns where the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and not where it holds it (scenario 11)", () => {
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB.");
+    // Exactly the 10 GB stays free.
+    expect(warning({ freeBytes: 10_440_000_512, needsBytes: 440_000_512 })).toBe("");
+    expect(warning({ freeBytes: 10_440_000_511, needsBytes: 440_000_512 })).not.toBe("");
+    // No worktree of the repository was measured, so nothing says what this one takes, though less than the 10 GB is free.
+    expect(warning({ freeBytes: 9_900_000_000 })).toBe("");
+  });
+
+  it("warns where the worktrees that stand are at their cap or over it, after the disk's warning, and says nothing where the daemon sent no disk (scenario 12)", () => {
+    const warning = (disk: Partial<PlanDisk>) => planLine({ ...PLAN, disk: { ...ROOM, ...disk } }, "/r/project").warning;
+    expect(warning({ standing: 2, cap: 2 })).toBe("This is worktree 3 of a cap of 2.");
+    expect(warning({ standing: 4, cap: 2 })).toBe("This is worktree 5 of a cap of 2.");
+    expect(warning({ standing: 1, cap: 2 })).toBe("");
+    expect(warning({ freeBytes: 10_200_000_000, needsBytes: 440_000_512, standing: 2, cap: 2 })).toBe("The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB. This is worktree 3 of a cap of 2.");
+    expect(planLine({ ...PLAN, disk: null }, "/r/project").warning).toBe("");
   });
 
   it("shows nothing where the form holds no answer, and where the answer is of another repository's text", () => {
-    const nothing = { branch: "", worktree: "", setup: "", failed: false };
+    const nothing = { branch: "", worktree: "", setup: "", warning: "", failed: false };
     expect(planLine(null, "/r/project")).toEqual(nothing);
     expect(planLine(PLAN, "/r/other")).toEqual(nothing);
     expect(planLine({ repo: "/r/nowhere", error: "/r/nowhere is not inside a git repository" }, "/r/project")).toEqual(nothing);

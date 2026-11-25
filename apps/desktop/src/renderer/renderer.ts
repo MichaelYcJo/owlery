@@ -157,6 +157,7 @@ const titleField = byId<HTMLInputElement>("work-item-title");
 const planPlace = byId("work-item-plan");
 const branchPlace = byId("work-item-branch");
 const worktreePlace = byId("work-item-worktree");
+const warningPlace = byId("work-item-warning");
 const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
@@ -1595,12 +1596,13 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch, the folder and the setup under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** Draws what the form holds of its plan: the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
 function showPlan(): void {
   if (registerOnly.checked) {
     branchPlace.textContent = "";
     worktreePlace.textContent = "";
     setupPlace.textContent = "";
+    warningPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
     baseStatePlace.textContent = "";
@@ -1610,6 +1612,7 @@ function showPlan(): void {
   branchPlace.textContent = line.branch;
   worktreePlace.textContent = line.worktree;
   setupPlace.textContent = line.setup;
+  warningPlace.textContent = line.warning;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
@@ -1846,8 +1849,8 @@ function onMessage(message: ServerMessage): void {
       return;
     }
     case "workItemPlan": {
-      // A daemon of an earlier build names no setup.
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false };
+      // A daemon of an earlier build names no setup, and no disk.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }

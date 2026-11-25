@@ -24,6 +24,9 @@ const PERFORMANCE_CORES = "hw.perflevel0.physicalcpu";
 /** The program that gives a process's resident memory. It ships with macOS. */
 const PS = "/bin/ps";
 
+/** The program that measures a folder. It ships with macOS. */
+const DU = "/usr/bin/du";
+
 const MEMORY_FILE = "agent-memory.json";
 
 /** How many agents' measures the daemon keeps, the last it read. */
@@ -40,6 +43,8 @@ export interface MachineProbes {
   statfs(folder: string): { freeBytes: number; totalBytes: number };
   /** What `ps -o pid=,rss= -p <pids>` prints: a line for each process that stands, its id and its resident memory in kilobytes. A process that is gone has no line. */
   ps(pids: readonly number[]): Promise<string>;
+  /** What `du -sk <folder>` prints: the folder's size in kilobytes, a tab and the folder. A folder that is gone prints nothing on stdout. */
+  du(folder: string): Promise<string>;
 }
 
 const SYSTEM: MachineProbes = {
@@ -53,12 +58,15 @@ const SYSTEM: MachineProbes = {
   },
   // `ps` exits 1 where one of the processes is gone, and prints the others all the same.
   ps: (pids) => new Promise((resolve) => execFile(PS, ["-o", "pid=,rss=", "-p", pids.join(",")], { encoding: "utf8", timeout: 5000 }, (_, stdout) => resolve(stdout ?? ""))),
+  // `du` exits 1 where a file under the folder cannot be read, and prints the size of the others all the same.
+  du: (folder) => new Promise((resolve) => execFile(DU, ["-sk", folder], { encoding: "utf8", timeout: 120_000 }, (_, stdout) => resolve(stdout ?? ""))),
 };
 
-/** How the daemon reads the machine: the reading, with the load and the disk of `folder`, the worktrees' folder, read at this call, and the resident memory in kilobytes of each of the processes named that stands. */
+/** How the daemon reads the machine: the reading, with the load and the disk of `folder`, the worktrees' folder, read at this call, the resident memory in kilobytes of each of the processes named that stands, and the size of a folder in kilobytes, or null where none was measured. */
 export interface MachineReader {
   read(folder: string): MachineReading;
   memoryOf(pids: readonly number[]): Promise<Map<number, number>>;
+  sizeOf(folder: string): Promise<number | null>;
 }
 
 /**
@@ -66,17 +74,17 @@ export interface MachineReader {
  * it holds the reading, the text of a JSON object with `memoryBytes`, `cores`,
  * `performanceCores`, `freeBytes` and `totalBytes`, and `load` where it is
  * given, 0 where not; the reader then asks the machine nothing, and reads
- * no process's memory, so a case reads the same proposals on every machine. A value that is no such object
+ * no process's memory and no folder's size, so a case reads the same proposals on every machine. A value that is no such object
  * throws the sentence that says so. Otherwise the memory, the cores and the
  * performance cores are read here, once, the load and the disk at each
- * read, and the memory of the processes named with one `ps` at each
- * `memoryOf`.
+ * read, the memory of the processes named with one `ps` at each
+ * `memoryOf`, and a folder with one `du` at each `sizeOf`.
  */
 export function readMachine(env: NodeJS.ProcessEnv, given: Partial<MachineProbes> = {}): MachineReader {
   const text = env.OWLERY_MACHINE;
   if (text !== undefined && text !== "") {
     const reading = givenReading(text);
-    return { read: () => reading, memoryOf: () => Promise.resolve(new Map()) };
+    return { read: () => reading, memoryOf: () => Promise.resolve(new Map()), sizeOf: () => Promise.resolve(null) };
   }
   const probes: MachineProbes = {
     memoryBytes: given.memoryBytes ?? SYSTEM.memoryBytes,
@@ -85,6 +93,7 @@ export function readMachine(env: NodeJS.ProcessEnv, given: Partial<MachineProbes
     sysctl: given.sysctl ?? SYSTEM.sysctl,
     statfs: given.statfs ?? SYSTEM.statfs,
     ps: given.ps ?? SYSTEM.ps,
+    du: given.du ?? SYSTEM.du,
   };
   const memoryBytes = probes.memoryBytes();
   const cores = probes.cores();
@@ -92,7 +101,14 @@ export function readMachine(env: NodeJS.ProcessEnv, given: Partial<MachineProbes
   return {
     read: (folder) => ({ memoryBytes, cores, performanceCores, load: probes.load(), disk: diskOf(folder, probes.statfs) }),
     memoryOf: async (pids) => (pids.length === 0 ? new Map() : residentOf(await probes.ps(pids))),
+    sizeOf: async (folder) => sizeIn(await probes.du(folder)),
   };
+}
+
+/** The kilobytes a `du -sk` printed, or null where it printed no size. */
+function sizeIn(printed: string): number | null {
+  const [, kilobytes] = /^(\d+)\s/u.exec(printed) ?? [];
+  return kilobytes === undefined ? null : Number(kilobytes);
 }
 
 /** The performance cores `sysctl` gives, or all the cores where it gives no whole number above 0, exits with an error or cannot start, as on an Intel Mac and off macOS. */

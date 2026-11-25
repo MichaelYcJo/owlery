@@ -975,7 +975,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const { adapter, started } = noted(roles());
     let starts = 0;
     const roleAdapter: RoleAdapter = { ...adapter, start: async (options, listener) => (await holds[starts++]?.promise, adapter.start(options, listener)) };
-    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), memoryOf: () => Promise.resolve(new Map()) };
+    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), sizeOf: () => Promise.resolve(null), memoryOf: () => Promise.resolve(new Map()) };
     const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter, machine, now: () => clock });
     // A case that fails lets its runs go before the daemon closes, which waits for its chains.
     cleanups.push(() => holds.forEach(({ resolve }) => resolve()));
@@ -1017,7 +1017,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("waits as a chain's first stage again where the chain is started anew after it stopped, behind a first stage that joined before it", async () => {
-    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), memoryOf: () => Promise.resolve(new Map()) };
+    const machine: MachineReader = { read: () => ({ memoryBytes: 36 * 1024 ** 3, cores: 12, performanceCores: 6, load: 0, disk: null }), sizeOf: () => Promise.resolve(null), memoryOf: () => Promise.resolve(new Map()) };
     const { c, workItems } = await standing(cleanups, ["First", "Second"], { roleAdapter: roles(), machine });
     const [a, b] = workItems as [(typeof workItems)[number], (typeof workItems)[number]];
     expect(await c.asked({ type: "setCaps", requestId: 1, agents: 1 })).toMatchObject({ type: "done" });

@@ -767,6 +767,22 @@ export interface KeepAwake {
 }
 
 /**
+ * What a plan of a work item carries of the room its worktree would take:
+ * the free bytes of the worktrees' disk as the daemon read them for the plan,
+ * the bytes it keeps free, what a worktree of the repository needs, which is
+ * the largest worktree of that repository measured, or null where none is,
+ * the worktrees that stand, and the cap on them, the one a person set or the
+ * proposal, or null where neither is.
+ */
+export interface PlanDisk {
+  freeBytes: number;
+  keepFreeBytes: number;
+  needsBytes: number | null;
+  standing: number;
+  cap: number | null;
+}
+
+/**
  * What the daemon reads of the machine it runs on. `memoryBytes`, `cores` and
  * `performanceCores` are read once, at the daemon's start: `os.totalmem()`,
  * `os.availableParallelism()`, and what macOS gives under
@@ -904,8 +920,8 @@ export type ServerMessage =
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane the creation named, whose output the creating client receives. The setup pane, where the repository names a command, is listed in the inbox and named by `workItem.setup`, and the creating client receives its output too.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
-  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none. `setupCommand` is the command the main checkout's `.worktreesetup` holds, whole, or null where it names none, and `includes` whether its `.worktreeinclude` stands. A daemon of an earlier build sends neither, and a client reads their absence as null and false.
-  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean }
+  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none. `setupCommand` is the command the main checkout's `.worktreesetup` holds, whole, or null where it names none, and `includes` whether its `.worktreeinclude` stands. A daemon of an earlier build sends neither, and a client reads their absence as null and false. `disk` is what the form warns from, read as the plan is asked; a daemon given no reader of the machine, one whose reading holds no disk, and one of an earlier build send none.
+  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk?: PlanDisk }
   // Answers a `fetchBase` with what the fetch gave.
   | ({ type: "baseFetched"; requestId: number } & BaseFetch)
   // Answers a `planRename`. `branch` is the branch a rename would give the work item, `owlery/<slug of the name>` with -2, -3 and so on while another local branch bears the name, or null where the name leaves no slug. `blocked` is why the branch cannot be renamed, as a sentence the window shows as it is, or null where it can: it can where the branch exists, has another name than `branch` and no upstream, and no remote of the clone holds a branch of its name.

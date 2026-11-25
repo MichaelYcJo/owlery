@@ -607,6 +607,9 @@
       /* The setup the repository names: its command is plain text, with its line breaks kept. */
       #work-item-setup { color: var(--ink-muted); white-space: pre-wrap; }
       #work-item-setup:empty { display: none; }
+      /* The disk may not hold the worktree, or the worktrees are at their cap: the form warns, and Create stays enabled. */
+      #work-item-warning { color: var(--state-waiting); }
+      #work-item-warning:empty { display: none; }
       #work-item-base-state { min-height: 1.4em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
       #work-item-error { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
 
@@ -816,7 +819,7 @@
           Name
           <span class="row"><input id="work-item-title" autocomplete="off" /></span>
         </label>
-        <p id="work-item-plan" aria-live="polite"><span id="work-item-branch"></span><span id="work-item-worktree"></span><span id="work-item-setup"></span></p>
+        <p id="work-item-plan" aria-live="polite"><span id="work-item-branch"></span><span id="work-item-worktree"></span><span id="work-item-setup"></span><span id="work-item-warning"></span></p>
         <label>
           Starts from
           <span class="row">

@@ -1,9 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { readDiscovery } from "../src/daemon/discovery";
 import { BuiltApp, buildApp } from "./built-app";
+import { git, temporaryRepository } from "./repositories";
 
 /** What the Machine dialog shows of each cap: its name, its field, its default's sentence, and whether "Use the default" is offered. */
 type Shown = { cap: string; label: string; value: string; says: string; offersDefault: boolean }[];
@@ -124,5 +125,50 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
     expect(limits()).toBe("{}");
     await app.click("#machine-cancel");
     await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+  });
+});
+
+// A second start, on a disk nearly full: 10.2 GB free, and a worktree of the repository measured at 440 MB in the run folder.
+describe.skipIf(process.platform !== "darwin")("the new work item form on a disk nearly full, in the built app", { timeout: 120_000 }, () => {
+  let app: BuiltApp;
+  let made: ReturnType<typeof temporaryRepository>;
+  // No person set a cap on worktrees, so the cap is the proposal: the one that stands, and none more that the 0.2 GB past the 10 GB kept free holds at 440 MB.
+  const WARNING = "The disk may not hold this worktree: 10.2 GB free, 10 GB kept free, and a worktree of this repository takes 440 MB. This is worktree 2 of a cap of 1.";
+
+  beforeAll(async () => {
+    buildApp();
+    made = temporaryRepository();
+    const worktree = join(made.root, "measured");
+    git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/measured", worktree);
+    // 429,688 kilobytes of 1,024 bytes are 440 MB.
+    const stored = { id: 1, title: "Measured", branch: "owlery/measured", worktree, createdAt: Date.now() - 60_000, baseCommit: null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null, worktreeSize: { kilobytes: 429_688, measuredAt: Date.now() - 60_000 } };
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60_000, groups: [], workItems: [stored] };
+    const machine = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, freeBytes: 10_200_000_000, totalBytes: 494_384_795_648 };
+    app = await BuiltApp.start(
+      { SHELL: "/usr/bin/true", OWLERY_WORKTREES: made.root, OWLERY_MACHINE: JSON.stringify(machine) },
+      { writeRun: (runDir) => writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] })) },
+    );
+    await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
+  });
+
+  afterAll(async () => {
+    expect(await app?.stop()).toEqual([]);
+    made?.remove();
+  });
+
+  it("warns under the plan that the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and that the worktrees are at the cap the same disk proposes, and keeps Create enabled (scenarios 11 and 12)", async () => {
+    await app.click("#new-work-item");
+    await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
+    await app.click("#work-item-repo");
+    await app.evaluate(`document.getElementById("work-item-repo").select()`);
+    await app.cdp("Input.insertText", { text: made.repo });
+    try {
+      await app.until(`document.getElementById("work-item-warning").textContent === ${JSON.stringify(WARNING)}`, "the warnings under the plan");
+    } catch (error) {
+      const plan = await app.evaluate<string>(`JSON.stringify({ repo: document.getElementById("work-item-repo").value, plan: document.getElementById("work-item-plan").textContent })`);
+      throw new Error(`${(error as Error).message}; the form holds ${plan}`);
+    }
+    expect(await app.evaluate<boolean>(`document.getElementById("work-item-create").disabled`)).toBe(false);
+    expect(await app.evaluate<boolean>(`getComputedStyle(document.getElementById("work-item-warning")).display !== "none"`)).toBe(true);
   });
 });
