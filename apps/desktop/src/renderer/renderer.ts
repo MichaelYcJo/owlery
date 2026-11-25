@@ -13,7 +13,8 @@
 // application menu. How a menu is drawn is ./menu. The theme, the appearance
 // and their two controls are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. Who raises a notification, the system or,
-// in an app started in the background, the page itself, is ./notifier. The sidebar, the list with its preview, a
+// in an app started in the background, the page itself, is ./notifier. Why a
+// daemon message's draw waits while the mouse's main button is held is ./press. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
@@ -24,6 +25,7 @@ import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
+import { holdDraws } from "./press";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
 import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
@@ -112,6 +114,9 @@ declare global {
 // Who raises the page's notifications: the system, or in an app started in the background the page itself, which keeps them (./notifier). Every notification the page raises goes through `notifier.raise`, and this is the page's one construction of the system's.
 const notifier = chooseNotifier(window.owlery.background, (title, body) => new Notification(title, { body }));
 if (window.owlery.background) window.__notifications = notifier.kept;
+
+// While the mouse's main button is held down in the window, what a daemon message changed in the lists waits to be drawn until the release (./press), so a click whose press and release fall on one line still reaches that line.
+const draws = holdDraws(window);
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -1525,7 +1530,34 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/**
+ * Draws what the daemon's lists change: the sidebar, the screen in front,
+ * with the inbox in place of an archived screen whose repository the
+ * daemon no longer keeps, and each open dialog that names what the daemon
+ * lists. A daemon message that changes the lists takes them at once and
+ * draws through the hold, as `draws.draw(drawLists)`, so a press held in
+ * the window delays the drawing until its release and the click still
+ * reaches the line or the button that was pressed. A draw the person's own
+ * act asks for, such as the view a click opens, does not go through it.
+ */
+function drawLists(): void {
+  showSidebar();
+  // The archived screen lists the archived work items of a repository the daemon keeps.
+  if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
+  else listInFront()?.show();
+  if (front === "view") showView();
+  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
+  if (front === "summary") redrawSummary();
+  // A dialog that names what the daemon lists says the lists as they are now.
+  if (hiddenDialog.open) showHidden();
+  if (removeDialog.open) showRemove();
+  if (sessionsDialog.open) showArchive();
+  if (deleteDialog.open) showDelete();
+  if (daemonDialog.open) showDaemonEnding();
+  if (recordsPlaceDialog.open) showRecords();
+}
+
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
@@ -1550,20 +1582,7 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     };
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
-  showSidebar();
-  // The archived screen lists the archived work items of a repository the daemon keeps.
-  if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
-  else listInFront()?.show();
-  if (front === "view") showView();
-  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
-  if (front === "summary") redrawSummary();
-  // A dialog that names what the daemon lists says the lists as they are now.
-  if (hiddenDialog.open) showHidden();
-  if (removeDialog.open) showRemove();
-  if (sessionsDialog.open) showArchive();
-  if (deleteDialog.open) showDelete();
-  if (daemonDialog.open) showDaemonEnding();
-  if (recordsPlaceDialog.open) showRecords();
+  draws.draw(drawLists);
   // The repository a registration added is in these lists, and not in the ones its answer found.
   const late = registeredLate;
   registeredLate = undefined;
@@ -1803,9 +1822,7 @@ function onMessage(message: ServerMessage): void {
       // What a person typed in the dialog stays: a change another client made closes no field of this one.
       if (accountsDialog.open) showAccounts();
       // The lists stand as they were: each screen draws the names again.
-      showSidebar();
-      listInFront()?.show();
-      if (front === "view") showView();
+      draws.draw(drawLists);
       return;
     case "keepAwake":
       // The daemon's choice changed, here or in another client, or its hold began or ended.
@@ -1824,9 +1841,7 @@ function onMessage(message: ServerMessage): void {
       showMachineEntry();
       if (MACHINE.dialog.open) showMachine();
       // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
-      showSidebar();
-      listInFront()?.show();
-      if (front === "view") showView();
+      draws.draw(drawLists);
       return;
     case "agentNotice":
       // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
