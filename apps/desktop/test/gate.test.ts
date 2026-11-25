@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Daemon } from "../src/daemon/daemon";
 import { GATE_KILL_AFTER_MS, GATE_LIMIT_MS, GATE_OUTPUT_CHARS, PATH_SCRIPT, gateEnvironment, loginPath, outputCut, startGate } from "../src/daemon/gate";
+import { paneCommands, setupPaneCommand } from "../src/daemon/hooks";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
 import { alive, untilGone } from "./built-app";
@@ -135,6 +136,21 @@ describe("a broad gate's environment", { timeout: 30_000 }, () => {
   it("holds none of the chain's variables of the pane it was started from, and keeps the run folder and every other variable of Owlery's", () => {
     const pane = { PATH: "/own/bin", HOME: "/home/me", OWLERY_CHAIN: "/run/owl-chain", OWLERY_BASE: "release/v0.0.4", OWLERY_PANE_ID: "19", OWLERY_HOOK_SOCKET: "/run/hooks.sock", OWLERY_RUN_DIR: "/run", OWLERY_BACKGROUND: "1" };
     expect(gateEnvironment(pane, null)).toEqual({ PATH: "/own/bin", HOME: "/home/me", OWLERY_RUN_DIR: "/run", OWLERY_BACKGROUND: "1", LANG: "en_US.UTF-8" });
+  });
+
+  it("holds no variable that the command of a shell, of a Claude Code pane on the owl chain or off it, or of a worktree setup pane sets for that pane, the runner of heavy commands among them", () => {
+    // Every key the pane commands set, read off what they return rather than listed here, so a variable a later change adds to a pane's command is held too.
+    const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? { chain, enabledPlugins: null } : null), "/run/owl-run");
+    const start = { continueLatest: false, base: "release/v0.0.4", checkout: "/r/project", chosen: null, accountDir: null, configDir: null };
+    const panes = [commandFor("shell", 1, { ...start, folder: "/w/other" }), commandFor("claude", 2, { ...start, folder: "/w/other" }), commandFor("claude", 3, { ...start, folder: "/w/owl" }), setupPaneCommand({ SHELL: "/bin/zsh" }, "pnpm install", 4, "/run/owl-run")];
+    const set = panes.flatMap((pane) => Object.keys(pane.env));
+    expect(new Set(set)).toEqual(new Set(["OWLERY_PANE_ID", "OWLERY_HOOK_SOCKET", "OWLERY_RUN", "OWLERY_CHAIN", "OWLERY_BASE"]));
+    for (const pane of panes) {
+      const env = gateEnvironment({ PATH: "/own/bin", OWLERY_RUN_DIR: "/run", ...pane.env }, null);
+      expect(Object.keys(env).filter((name) => set.includes(name))).toEqual([]);
+      expect(env.OWLERY_RUN_DIR).toBe("/run");
+    }
   });
 
 

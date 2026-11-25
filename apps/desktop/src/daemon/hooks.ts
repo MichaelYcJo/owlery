@@ -156,20 +156,25 @@ export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, 
 }
 
 /**
- * The variables a pane's command sets for that one pane (`paneCommands`):
- * its id and the hook socket it reports to, and, on the owl chain, the
- * chain command and the work item's base. A process started in an Owlery
- * pane holds the pane's, so a daemon, and the broad gate's command, started
- * there takes none of them from its own environment: a pane holds a chain's
- * variables only where its own command sets them. The run folder is the
- * daemon's, set by the app that starts it, and stays.
+ * The names of the variables a pane's command sets for that one pane, which
+ * `paneCommands` and `setupPaneCommand` read here and nowhere else: its id,
+ * the hook socket it reports to, the runner of heavy commands where the
+ * daemon wrote one, and, on the owl chain, the chain command and the work
+ * item's base. A process started in an Owlery pane holds the pane's, so a
+ * daemon, and the broad gate's command, started there takes none of them
+ * from its own environment (`withoutPaneVariables`): a pane holds them only
+ * where its own command sets them. The run folder is the daemon's, set by
+ * the app that starts it, and stays. So does `CONFIG_DIR_VARIABLE`, which a
+ * shell's command sets where the pane's account names a folder: a person may
+ * set it in their own environment, and under System default Owlery leaves
+ * it as they set it.
  */
-export const PANE_VARIABLES = ["OWLERY_PANE_ID", "OWLERY_HOOK_SOCKET", "OWLERY_CHAIN", "OWLERY_BASE"] as const;
+export const PANE_VARIABLES = { id: "OWLERY_PANE_ID", hookSocket: "OWLERY_HOOK_SOCKET", runner: "OWLERY_RUN", chain: "OWLERY_CHAIN", base: "OWLERY_BASE" } as const;
 
 /** `env` without the variables of the pane a process was started from (`PANE_VARIABLES`). */
 export function withoutPaneVariables<T extends NodeJS.ProcessEnv | Record<string, string>>(env: T): T {
   const kept = { ...env };
-  for (const name of PANE_VARIABLES) delete kept[name];
+  for (const name of Object.values(PANE_VARIABLES)) delete kept[name];
   return kept;
 }
 
@@ -201,7 +206,7 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
     const account: Record<string, string> = kind === "claude" || start.accountDir === null ? {} : { [CONFIG_DIR_VARIABLE]: start.accountDir };
     return {
       ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain, start.accountDir, start.resume ?? null) : loginShell(env)),
-      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...runnerEnv(runner), ...account, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
+      env: { [PANE_VARIABLES.id]: String(id), [PANE_VARIABLES.hookSocket]: socketPath, ...runnerEnv(runner), ...account, ...(chain === null ? {} : { [PANE_VARIABLES.chain]: chain.launcher, ...(start.base === null ? {} : { [PANE_VARIABLES.base]: start.base }) }) },
     };
   };
 }
@@ -215,12 +220,12 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
  * the daemon wrote one, so a repository's setup can wait its turn.
  */
 export function setupPaneCommand(env: NodeJS.ProcessEnv, command: string, id: number, runner: string | null = null): PaneCommand {
-  return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command], env: { OWLERY_PANE_ID: String(id), ...runnerEnv(runner) } };
+  return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command], env: { [PANE_VARIABLES.id]: String(id), ...runnerEnv(runner) } };
 }
 
 /** What a pane's environment holds of the runner of heavy commands: its path in `OWLERY_RUN`, or nothing where the daemon wrote none. */
 function runnerEnv(runner: string | null): Record<string, string> {
-  return runner === null ? {} : { OWLERY_RUN: runner };
+  return runner === null ? {} : { [PANE_VARIABLES.runner]: runner };
 }
 
 /** Reads the pane's id on the first line and the hook's JSON after it; anything else is no event. */
