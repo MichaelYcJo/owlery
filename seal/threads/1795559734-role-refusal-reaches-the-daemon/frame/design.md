@@ -54,7 +54,7 @@ In:
 8. **The file's text says what each case is.** The comment that opens `role-session.test.ts`, the `describe` title and the hand check's `it` title say that the first case is a real session on the person's login and that the second runs the real CLI against a stand-in model and costs nothing.
 9. **The hand check is run three times in a row for each pair**, `pnpm run role:refusal` and `pnpm run role:refusal:sealer`, and the phase record names each run's result and the CLI's version each run printed.
 10. **The two scripts print what the case prints, whoever runs them.** `role:refusal` and `role:refusal:sealer` of `apps/desktop/package.json` pass `--reporter=default` to the runner after the test file. With no reporter named, Vitest 4.1.12 picks its reporter `agent` where the environment is an agent's, as `std-env` reads `AI_AGENT` and `CLAUDECODE` (read in the installed `vitest`), and that reporter hides a passing case's `console.log`: the plain script printed neither the kept folder nor the version (`trail/phases/phase-1.md`, executed there). The record of *Scope* item 9 is written by an agent from those lines.
-11. **The stand-in model answers what a run showed the CLI asks, and refuses the rest by name.** It holds no answer for `POST /v1/messages/count_tokens`: no run of 2.1.331 sent it (`trail/phases/phase-1.md`). Such a request takes the 404 row of *Data & interfaces*, which stays, because the server owes every request an answer and the case prints each request it received.
+11. **The stand-in model answers what a run showed the CLI asks, and refuses the rest by name.** It holds no answer for `POST /v1/messages/count_tokens` and none for a `POST /v1/messages` that is not streamed: no run of 2.1.331 sent either (`trail/phases/phase-1.md`, `trail/phases/phase-2.md`). Such a request takes the 404 row of *Data & interfaces*, which stays, because the server owes every request an answer and the case prints each request it received.
 
 Out:
 
@@ -86,12 +86,12 @@ No schema, protocol message or endpoint of the app changes. The work adds one he
 
 | Request | Answer |
 |---|---|
-| `POST /v1/messages…` whose `tools` name `Bash` and whose `messages` hold no `tool_result` | One assistant message with one `tool_use` block: `name` `Bash`, `input` `{ command, description }`, and `stop_reason` `tool_use` |
-| `POST /v1/messages…` whose `messages` hold a `tool_result` | One assistant message with one line of text and `stop_reason` `end_turn` |
-| Any other `POST /v1/messages…`, such as one whose `tools` name no `Bash` | The same line of text |
-| Anything else | Status 404 with an error body that names the method and the path |
+| `POST /v1/messages`, with any query, whose body holds `stream: true`, whose `tools` name `Bash` and whose `messages` hold no `tool_result` | One assistant message with one `tool_use` block: `name` `Bash`, `input` `{ command, description }`, and `stop_reason` `tool_use` |
+| `POST /v1/messages` with `stream: true` whose `messages` hold a `tool_result` | One assistant message with one line of text and `stop_reason` `end_turn` |
+| Any other `POST /v1/messages` with `stream: true`, such as one whose `tools` name no `Bash` | The same line of text |
+| Anything else, a `POST /v1/messages` without `stream: true` among it | Status 404 with an error body that names the method and the path, and for that messages request says that it is not streamed |
 
-A request with `stream: true` is answered as server-sent events, in the order the probe sent them: `message_start`, `content_block_start`, `content_block_delta` (an `input_json_delta` holding the whole input for the call, a `text_delta` for text), `content_block_stop`, `message_delta` with the `stop_reason`, `message_stop`. A request without it is answered with the message as one JSON body. Each answer names the model the request named. The server keeps, for each request, its method, its path and its parsed body.
+Each answer that is no 404 is sent as server-sent events, in the order the probe sent them: `message_start`, `content_block_start`, `content_block_delta` (an `input_json_delta` holding the whole input for the call, a `text_delta` for text), `content_block_stop`, `message_delta` with the `stop_reason`, `message_stop`. Each names the model the request named. The server keeps, for each request, its method, its path and its parsed body.
 
 **`apps/desktop/test/role-session.test.ts#launched`.** It gains an optional third argument, the stand-in model's address. With it, the wrapper script opens with one `export` line for each variable *Scope* item 2 has it set, and the stand-in shell prints the `__owlery_config` line. Without it, both scripts are unchanged. What it returns gains the case's config folder, null without the address, which scenario 5's assertion reads.
 
