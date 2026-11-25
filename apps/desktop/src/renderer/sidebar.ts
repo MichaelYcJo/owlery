@@ -131,7 +131,8 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
  * again (./view, `emptySidebar`). Under the repositories a button says how
  * many are hidden, where any is, and opens their list. The filter's control
  * is on while a search or a filter narrows the sidebar (./view,
- * `filterMark`). The search field is the person's and is left as it is.
+ * `filterMark`). The search field is the person's: a draw leaves it as it
+ * is, and the press of the button that shows every work item empties it.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
