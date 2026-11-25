@@ -2252,6 +2252,24 @@ describe("what a person sets on a work item", () => {
     expect(branches()).toBe("main\nowlery/fix-the-login-bug\n");
   });
 
+  it("makes no branch for a work item archived while a read's turn to give it one waited behind a creation", async () => {
+    const { c, made, worktree, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
+    const held = heldGit(made.base);
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Beside it", kind: "shell", cols: 80, rows: 24 });
+    await c.until(() => (held.waiting() ? true : undefined));
+    // The creation waits in `git worktree add`, and the reads' turns to give work item 1 a branch at this commit wait behind it.
+    commitFile(worktree, "first.txt");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    c.send({ type: "archiveWorkItem", requestId: 2, id: 1, running: NONE_RUNNING });
+    await c.message("done", (m) => m.requestId === 2);
+    held.release();
+    await c.message("workItemCreated", (m) => m.requestId === 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(branches()).toBe("main\nowlery/beside-it\n");
+    expect(git(worktree, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("HEAD");
+    expect((await c.message("inbox", (m) => m.archived.length > 0)).archived).toMatchObject([{ id: 1, branch: null }]);
+  });
+
   it("answers a `planRename` and a rename of the branch of a work item on a branch Owlery did not make with the reason, renames nothing, and renames its name alone", async () => {
     const made = repository();
     const runDir = join(made.base, "run");

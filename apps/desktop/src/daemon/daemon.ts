@@ -4235,8 +4235,9 @@ export class Daemon {
    * commit made there (`worktrees.ts#makeBranch`), named from the work item's
    * title as `worktrees.ts#branchName` names it, with the worktree then on
    * it. What the worktree holds is read again in that turn, and nothing is
-   * done where the daemon has closed, or the work item is gone or has a
-   * branch by then, as a rename that waited ahead of the turn gives it.
+   * done where the daemon has closed, or the work item is gone, is archived,
+   * since git is read for no archived work item, or has a branch by then, as
+   * a rename that waited ahead of the turn gives it.
    * Where git refuses, for a rebase under way or any other reason, nothing
    * is stored, the log says why, and the next read tries again. Every client
    * is told of the branch.
@@ -4245,7 +4246,7 @@ export class Daemon {
     const up = async (): Promise<void> => {
       try {
         const held = this.store.workItem(workItemId);
-        if (this.closed || !held || held.item.branch !== null) return;
+        if (this.closed || !held || held.item.archivedAt !== null || held.item.branch !== null) return;
         const { worktree, title } = held.item;
         const stands = await headStands(worktree);
         if (stands === null) return;

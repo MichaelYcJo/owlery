@@ -640,11 +640,11 @@ export async function headStands(worktree: string): Promise<{ branch: string } |
  * untouched. Git's switch reads `HEAD`, makes the branch at it, and points
  * `HEAD` at the branch without checking that `HEAD` still names the commit
  * it read, so a commit made in the worktree in between is left off the
- * branch, its files standing as changes staged on it, as git 2.54 does. The
- * switch's entry in `HEAD`'s reflog holds that commit as `HEAD`'s old value,
- * so the branch is moved on to it where it descends from the commit the
- * branch was made at and the branch still stands there. Where git keeps no
- * reflog of `HEAD`, the branch stays where the switch made it.
+ * branch, its files standing as changes staged on it, as git 2.54 does.
+ * `HEAD@{1}`, where `HEAD`'s reflog says it stood before the switch, then
+ * names that commit, so the branch is moved on to it where it descends from
+ * the commit the branch was made at and the branch still stands there. Where
+ * git keeps no reflog of `HEAD`, the branch stays where the switch made it.
  */
 export async function makeBranch(worktree: string, name: string): Promise<void> {
   await git(worktree, ["switch", "--quiet", "-c", name]);
