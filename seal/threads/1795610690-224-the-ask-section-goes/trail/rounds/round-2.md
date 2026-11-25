@@ -27,6 +27,11 @@ function drawMachineDialog(): void {
 }
 ```
 
+```seal
+verdict: fixed 39302f3c
+answer: Applied the paste-ready doc comment: `drawMachineDialog` now says it draws at a `machine` message and at an `inbox`, which carries the chain's stage that names a session that waits. Run again after the commit, `git grep -n 'drawMachineDialog' -- apps/desktop/src` prints the definition (`renderer.ts:1565`) and its two calls (`renderer.ts:1596` in `takeLists`, `1853` at `machine`), which the comment now names both of (executed). `tsc --noEmit` exited 0 (executed); no case reads `renderer.ts`'s comment, so none ran.
+```
+
 ### 2. The judgment that no built-app case of a stage session's line is owed says `headlessLines` draws the line, and leaves its memo row open
 
 ```seal
@@ -52,6 +57,11 @@ So a defect in `showChainList`'s branch for a session's line, such as a "Stop" t
 ```
 
 The second snippet is the row at `gaps.md:12` whole, with its Item cell opened by `closed` as `skills/implement/SKILL.md` *4. The closing memo* marks a closed row, and its answerer's cell naming the judgment that answered it.
+
+```seal
+verdict: fixed 39302f3c
+answer: Closed the row at `gaps.md:12` with the round's paste-ready text: its Item cell opens with `closed`, and its answerer is the orchestrator, who owes no case, `frame/plan.md` *Judgments of the run*, 2026-11-26. `seal unverified` reads the memo with 5 open and 1 closed (executed). The finding's other part, the grounds cell at `frame/plan.md:62`, is the orchestrator's row and was rewritten in its commit `c8bb5a4e`; this pass made no change to it.
+```
 
 ## Confirmations
 
