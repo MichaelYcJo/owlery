@@ -1,0 +1,53 @@
+# Phase 1: 1795632147-216-the-window-reads-the-lists-again
+
+## What this phase found
+
+**The frame holds against the tree the build started from.** The build started at `f6151c0e`, which merges `release/v0.0.5` at `943b1bfd` into the frame's commit `92a2163a`. The merge moved no line the frame names in `apps/desktop/src/daemon/daemon.ts`. The hello's reads still stood at lines 838 to 842 inside `accept`, `greet` raced `readCommitsNow()` against `readyWaitMs` at line 871, the `readMachine` case stood at line 1685 and the `default: return` of `handle` at line 1701. Read.
+
+**After the build, the plan's two searches print what its *Verified by* cell asks.** At `2b7f2ef9`, `git grep -n 'pullRequestDue.clear()' -- apps/desktop/src` prints one line, `daemon.ts:871`, inside `readOutside`. `git grep -n 'readAgentNotice()' -- apps/desktop/src` prints line 575 (the daemon's start), line 869 (inside `readOutside`) and line 4285 (the definition). Executed.
+
+**The method of *Scope* item 2 is `Daemon#readOutside`.** It holds the three reads that `accept` held, in the same order, and gives the read of git and a promise of the watch's next turn. `accept` passes the read of git to `greet`, which races it against `readyWaitMs` as before. The name avoids "look", as `frame/design.md` *Data & interfaces* asks. Read.
+
+**The answer waits for a read of git under way before it calls `readOutside`.** `answerReadLists` awaits `readingCommits` and then calls the method, so every read it asks for starts after the message arrived. That covers *Scope* item 3 for git. It also means the notice and the pull requests start after the read under way ends, a few hundred milliseconds at most here. `listsWaitMs` counts from the call of `readOutside`, as the option's comment says. A read under way that throws is not this request's to report: the read that follows reads the same and reports why. Judged against `frame/design.md` *Scope* items 3 and 4. Read.
+
+**Departure: the daemon counts how often every pull request was made due at once (`pullRequestAsks`), and keeps what waits on the watch's next turn (`turnWaits`).** The frame named neither. *Scope* item 4 has the answer wait for "the reads of the pull requests that the press started". Without the count, a turn of the watch under way at the press ends by setting that pull request's next read a rest interval away (`PR_REST_POLL_MS`, 5 minutes). The press then starts no read of it, and the answer waits the whole `listsWaitMs` for a turn that does not come. With the count, a read that began before the latest `readOutside` leaves its pull request due, and the next turn reads it at once. The case "reads the pull request again after the read under way where a `readLists` arrives while gh is asked" pins it. One consequence reaches the hello, since the hello calls the same method. A hello that arrives while the watch asks `gh` now has that pull request read once more after the turn ends, where at `8c7eb798` it was not. The hello reads the same list as before, so `frame/design.md` scenario "The hello reads as before" holds for what it reads. It costs one more call of `gh` only where a read was under way. Judged against `frame/design.md` *Scope* items 2 and 4, and `frame/plan.md` *Technical context*, "What breaks in six months", whose bound of one round of calls for each answer still holds. Read.
+
+**The refusal's sentence is "The work items were not read again: <the read's sentence>."** `frame/design.md` *Scope* item 1 asks for an `error` that carries the read's sentence. The thrown error's message carries no subject, so the daemon wraps it in a whole sentence, with the trailing full stops cut as `readPullRequest` cuts them. Judged against `docs/design.md` *The voice of the window's words*. The case "answers a `readLists` whose read throws" pins the whole text. Executed.
+
+**The refusal's case throws from the `pluginEnabled` option, which `readRecords` calls, once `ready` has gone.** The git helpers that `readBranch` calls each catch their own failure and give null (`worktrees.ts#newCommits`, `#branchHead`, `#baseDistance`), and `readRecord` catches a record file it cannot read, so neither gives a case a throw to reach. Read.
+
+**A client that left meanwhile is sent nothing, and no case pins it.** `answerReadLists` checks `this.clients.has(socket)` before each send, and the socket's `close` handler deletes it from `clients`. A client that has closed cannot receive anything for a case to read. Read.
+
+**The stand-in for `gh` in `apps/desktop/test/chain-run.ts` gained `GhAnswer.seconds`, a wait before it answers.** The first run of the break that removes the wait on the pull requests (`Promise.race([pullRequests, waited])` replaced by `Promise.resolve()`) survived. The stand-in answered before git had been read, so the answer held the new read with no wait. Commit `f3255043` has the case's second call answer after one second, and the rerun went red on the line that reads the answer's checks. The option writes a file only where a case passes it, and every other call of the stand-in runs the script as before. Executed for the cases of `daemon.test.ts`; read for the other files that call the stand-in.
+
+**Two cases set `listsWaitMs` to a minute.** The first runs of two breaks survived: the one that leaves `turnWaits` unsettled where no pull request is watched, and the one that leaves the waits unsettled at the turn's end. Each answer then came at the default bound of 5 s, inside the case's own 5 s wait for `done`. Commit `2b7f2ef9` sets a minute in the case of the four lists and in the case of one call of `gh`, so an answer that waits for the bound outlasts the case. Both reruns went red. Executed.
+
+**A call of the stand-in for `gh` took longer than 0.4 s on this machine while another work item's suite ran.** The case of the read under way first gave `gh` a limit of 400 ms. The daemon, instrumented for one run, showed the second call starting at 76770 and ending at 77171, in milliseconds of the clock modulo 100 000, with the limit's failure, though the stand-in no longer hung. At that moment a process of `owlery-wt-236` ran `node scripts/test-in-electron.mjs`. The case now gives `gh` 1000 ms, and the instrumentation was taken out before any commit. Executed.
+
+**Each new case was seen red against the tree before *Scope* item 1.** Before the daemon gained the `readLists` case, `node scripts/test-in-electron.mjs test/daemon.test.ts -t readLists` failed all 7 new cases, each at its wait for `done` or `error`. Executed.
+
+**Each unit that adds behaviour goes red when it is broken alone.** Each row is one `seal mutate src/daemon/daemon.ts --replace … --tests "node scripts/test-in-electron.mjs test/daemon.test.ts -t <case>"` run from `apps/desktop`, after the commit that holds the unit. Executed.
+
+| Unit | Break | Cases run | Verdict |
+|---|---|---|---|
+| `handle`, the `readLists` case | the call of `answerReadLists` removed | `-t readLists` | red: all 7 |
+| `answerReadLists` | the wait for the read of git under way removed | the case of the read under way | red: the answer held `newCommits` 1, not 2 |
+| `answerReadLists` | the wait on the pull requests unbounded | the case of `listsWaitMs` | red: no `done` |
+| `answerReadLists` | no wait on the pull requests | the case of one call of `gh` | survived, then red after `f3255043`: the answer held `passed`, not `failed` |
+| `answerReadLists` | the `error` never sent | the refusal's case | red: no `error` |
+| `answerReadLists` | the full stops not cut | the refusal's case | red: the sentence differs |
+| `answerReadLists` | the answer's `inbox` not sent | the case of the four lists | red: `[done]` |
+| `scheduleWatch` | `turnWaits` unsettled where no pull request is watched | the case of the four lists | survived, then red after `2b7f2ef9`: no `done` |
+| `scheduleWatch` | the turn's waits unsettled at its end | the case of one call of `gh` | survived, then red after `2b7f2ef9`: no `done` |
+| `readPullRequest` | the next read set though `readOutside` came after the read began | the case of the read under way | red: one call of `gh`, not 2 |
+| `readOutside` | `pullRequestAsks` not counted | the case of the read under way | red: one call of `gh`, not 2 |
+| `readOutside` | the pull requests not made due | the case of one call of `gh` | red: no `done` |
+| `readOutside` | the notice not read again | the case of the notice | red, at the hello's ask (`daemon.test.ts:6175`) |
+
+The last row's break also removes the hello's read of the notice, since one method holds both. No break can remove the press's read alone, so the case's red shows the shared list, and the press's ask stands on the same line. Read.
+
+**The phase-boundary runs passed at `2b7f2ef9`, one of them after a rerun alone.** `node scripts/test-in-electron.mjs test/daemon.test.ts -t "readLists|hello|the watch of an open pull request|the agent's notice"` passed 24 cases: the 7 new ones, the 7 whose names hold "hello" at `8c7eb798`, and the other cases of the two describes whose code the phase changed. The plan's built-app batch, `node scripts/test-in-electron.mjs test/notification-click.test.ts test/daemon-restart.test.ts`, passed 7 of its 9 cases. The other two, in `daemon-restart.test.ts`, failed where the app's process still stood 10 s after a quit (`daemon-restart.test.ts:174` and `:211`), while `owlery-wt-236`'s suite ran on the machine. `node scripts/test-in-electron.mjs test/daemon-restart.test.ts` alone then passed all 4 of its cases. Commit `692f3eab` then rewrote two comments in `daemon.test.ts`, and at it `tsc --noEmit` and `node scripts/test-in-electron.mjs test/daemon.test.ts -t readLists` passed, the 7 cases. The runs are executed. That the phase's code does not run in the app's main process, the process that stood, is read: `build.mjs` bundles `src/main/main.ts` apart from `src/daemon/main.ts`, and no file under `src/main` imports `src/daemon/daemon.ts`.
+
+**What the phase does not write.** The work item's subject is the code, so the rule *Scope* items 1 to 4 state stays in `frame/design.md` `## Rule changes`, for the settle to write into `docs/architecture.md` and `docs/architecture.ko.md`. Judged against the plugin's `skills/implement/SKILL.md` *Document layout — two roots, three lifetimes*, the row of `docs/`. Read.
+
+**For phase 2.** The window sends `{ type: "readLists", requestId }`. The daemon answers it with an `inbox` and then a `done`, or with an `error` whose `message` is the sentence above and no `inbox`. A daemon of an earlier build answers nothing. The `inbox` comes before the `done`, so `takeLists` has drawn the answer by the time the `done` ends the button's work. Read.
