@@ -1,8 +1,0 @@
-# Changelog: an agent's run of the built app no longer raises a macOS notification over yours
-
-Issue #154. Release 0.0.2 made a start with `OWLERY_BACKGROUND=1` draw no window on your screen (#148). The page's notifications were left out of that work, because macOS draws them and not the window. So while an agent ran the desktop suite or the screenshot command on your Mac, a case that made a work item need you could still put a banner over your screen.
-
-- **A start with `OWLERY_BACKGROUND=1` raises no system notification.** The page keeps the title and the body of each notification it would have raised, in `window.__notifications`, and constructs nothing of the system's. The page learns that the app started in the background from its preload, at each load, so a page loaded again holds its notifications back too.
-- **The cases read what the page kept.** Six test files replaced the page's `Notification` after the app had started, three of them with a recorder and three with a class that did nothing. Five of them replace nothing now. The sixth, the case of a click on a notification, puts in its place a stand-in that counts its constructions, and holds that it counts none. The files that check a notification read its title and its body from the page's own list, and a call of the handler the page set on an entry stands for a click.
-- **A person's start is unchanged.** An app started without the variable raises the system's notification as before, with the same title, body and click.
-- **For a client of the app's preload:** `window.owlery` gains `background`, true where the app was started with `OWLERY_BACKGROUND=1`.
