@@ -64,7 +64,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     await stood.c.until(() => (stood.c.workItem(item.id)?.machineWait === null ? true : undefined));
   });
 
-  it("asks in the place the committed records give: a work item whose branch holds a review round's record goes before one still being built, and that before a folder no work item's records name", async () => {
+  it("asks in the place the committed records give: a work item whose branch holds a review round's record goes before one still being built, and that before a folder no work item's records name, and tells each that waits its count again only when it changes", async () => {
     const stood = await standing(cleanups, ["Reviewed work", "Built work"]);
     const [reviewed, built] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     const loose = temporaryRepository();
@@ -97,9 +97,15 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
       [waitingSays("mark", 0), waitingSays("mark", 1)],
       [waitingSays("mark", 0)],
     ]);
+    // An ask of the last place moves none of those that wait, and none of them says its count again.
+    const later = runner(loose.repo, stood.runDir, out, ["mark"]);
+    await until(() => (later.said.length > 0 ? true : undefined));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect([...asked, later].map(({ said }) => said.length)).toEqual([3, 2, 1, 1]);
+    expect(later.said).toEqual([waitingSays("mark", 3)]);
     (await held.turn)?.end();
-    for (const run of asked) expect((await run.end).code).toBe(0);
-    expect(readFileSync(join(out, "order"), "utf8")).toBe(`${[reviewed.worktree, built.worktree, loose.repo].map((folder) => basename(folder)).join("\n")}\n`);
+    for (const run of [...asked, later]) expect((await run.end).code).toBe(0);
+    expect(readFileSync(join(out, "order"), "utf8")).toBe(`${[reviewed.worktree, built.worktree, loose.repo, loose.repo].map((folder) => basename(folder)).join("\n")}\n`);
   });
 
   it("runs a named command at once where no daemon answers, and says so in one sentence (scenario D)", async () => {
