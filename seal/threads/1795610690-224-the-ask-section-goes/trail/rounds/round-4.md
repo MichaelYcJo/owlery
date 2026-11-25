@@ -29,6 +29,11 @@ No record of this work item says any of it. The merge's message lists only the t
 | #214, the delete dialog | `apps/desktop/src/renderer/view.ts` (#214's delete dialog against this work's `archivalOf`, `removalOf`, `runningSessions` and `daemonEnding` words, phase 3), `apps/desktop/src/renderer/index.html` (#214's dialog markup against `#ask`, phase 2), and the screenshot run (`apps/desktop/test/screenshots.test.ts`, `screenshots.ts`), whose view `delete` #214 adds on the work item this work stores parked on a question and has the daemon resume | #214 | #214 merged first (`943b1bfd`). The merge at `4517e474` conflicted in the two screenshot files, and its resolution changed the scene: the untracked file and `.env` are written into that work item's worktree once its stage waits, since `daemon.ts#whyNoChain` refuses to resume a chain in a worktree that holds a change no commit holds, and the delete view waits for a commit head that counts the branch's commits no other ref holds (`queuedHeads`), since the branch also holds the commits of its records. |
 ```
 
+```seal
+verdict: fixed 0149ac5f
+answer: The orchestrator's commit `0149ac5f` replaced the *Overlap with the release* row of #214 in `frame/plan.md` with this finding's paste-ready row, which says what the merge's resolution changed in the screenshot scene. The repair is located in the work item's records alone, `frame/plan.md`, and touches no code; this pass made no change for it.
+```
+
 ## Confirmations
 
 ```seal
