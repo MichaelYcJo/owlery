@@ -639,7 +639,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await dialogClosed("delete-dialog");
     },
     narrowed: async () => {
-      // The next theme's views click lines of the sidebar and count the inbox's lines, so the filter shows every work item again.
+      // The shots after this one click lines of the sidebar and count the inbox's lines, so the filter shows every work item again.
       await filterSidebar("all");
       await app.until(`!document.getElementById("sidebar-empty") && document.querySelectorAll("#repositories section").length === 1 && !document.getElementById("sidebar-filter-control").classList.contains("on")`, "the sidebar listing its repository again, the filter at All");
     },
