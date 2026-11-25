@@ -687,16 +687,19 @@ export async function renameBranch(repo: string, from: string, to: string): Prom
  * What the worktree of a work item with no branch yet holds for one: the
  * branch its `HEAD` names, where it names one, which the work item takes up;
  * the commit `HEAD` is detached at, where no local branch, no remote's branch
- * and no tag holds it, which is a commit made in the worktree and the one
- * Owlery makes the branch at; and null where `HEAD` stands at a commit one of
- * those holds, as the base it was detached at, and where git cannot say.
+ * and no tag holds it and it is not `baseCommit`, the commit the worktree was
+ * checked out at, which is a commit made in the worktree and the one Owlery
+ * makes the branch at; and null where `HEAD` stands at a commit one of those
+ * holds, where it stands at `baseCommit` though its base branch was deleted
+ * or rewritten since, and where git cannot say.
  */
-export async function headStands(worktree: string): Promise<{ branch: string } | { commit: string } | null> {
+export async function headStands(worktree: string, baseCommit: string | null): Promise<{ branch: string } | { commit: string } | null> {
   const branch = await branchOfHead(worktree);
   if (branch !== null) return { branch };
   try {
-    const unheld = await git(worktree, ["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes", "--tags", "--"]);
-    return unheld.trim() === "" ? null : { commit: await worktreeHead(worktree) };
+    // `rev-list -1 HEAD` prints HEAD itself where nothing named after `--not` holds it.
+    const unheld = (await git(worktree, ["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes", "--tags", "--"])).trim();
+    return unheld === "" || unheld === baseCommit ? null : { commit: unheld };
   } catch {
     return null;
   }

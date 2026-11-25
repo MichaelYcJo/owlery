@@ -1084,23 +1084,39 @@ describe("making the branch of a work item with no branch yet", () => {
     expect(await branchName(repo, "Fix the login bug", folder)).toBe("owlery/fix-the-login-bug-3");
   });
 
-  it("says what a worktree with no branch holds for one: the branch its HEAD names, or a commit no local branch, no remote's branch and no tag holds, and nothing where HEAD stands at a commit one of them holds or git cannot say", async () => {
+  it("says what a worktree with no branch holds for one: the branch its HEAD names, or a commit no local branch, no remote's branch and no tag holds other than the commit it was checked out at, and nothing where HEAD stands at a commit one of them holds or git cannot say", async () => {
     const made = clone();
-    const worktree = await detached(made, "Standing");
-    expect(await headStands(worktree)).toBeNull();
+    const { worktree, baseCommit } = await createWorktree({ folder: made.repo, title: "Standing", root: made.root });
+    expect(await headStands(worktree, baseCommit)).toBeNull();
     const lone = commitFile(worktree, "lone.txt");
-    expect(await headStands(worktree)).toEqual({ commit: lone });
+    expect(await headStands(worktree, baseCommit)).toEqual({ commit: lone });
     git(made.repo, "tag", "kept", lone);
-    expect(await headStands(worktree)).toBeNull();
+    expect(await headStands(worktree, baseCommit)).toBeNull();
     git(made.repo, "tag", "--delete", "kept");
     git(made.repo, "branch", "--quiet", "other", lone);
-    expect(await headStands(worktree)).toBeNull();
+    expect(await headStands(worktree, baseCommit)).toBeNull();
     git(made.repo, "branch", "--quiet", "-D", "other");
     git(worktree, "push", "--quiet", "origin", "HEAD:refs/heads/elsewhere");
-    expect(await headStands(worktree)).toBeNull();
+    expect(await headStands(worktree, baseCommit)).toBeNull();
     git(worktree, "switch", "--quiet", "-c", "fix/x");
-    expect(await headStands(worktree)).toEqual({ branch: "fix/x" });
-    expect(await headStands(join(made.base, "missing"))).toBeNull();
+    expect(await headStands(worktree, baseCommit)).toEqual({ branch: "fix/x" });
+    expect(await headStands(join(made.base, "missing"), baseCommit)).toBeNull();
+  });
+
+  it("gives no commit for a worktree detached at a base branch since deleted or rewritten, which no ref holds then, and gives the commit made there after", async () => {
+    const made = repository();
+    git(made.repo, "branch", "--quiet", "feature");
+    const featureTip = commitFile(made.repo, "feature.txt");
+    git(made.repo, "branch", "--quiet", "--force", "feature", featureTip);
+    git(made.repo, "reset", "--quiet", "--hard", "HEAD~1");
+    const { worktree, baseCommit } = await createWorktree({ folder: made.repo, title: "Gone base", root: made.root, base: "feature" });
+    expect(baseCommit).toBe(featureTip);
+    git(made.repo, "branch", "--quiet", "-D", "feature");
+    // No ref holds the base commit now, and it is still no commit made in the worktree.
+    expect(git(worktree, "rev-list", "-1", "HEAD", "--not", "--branches", "--remotes", "--tags", "--").trim()).toBe(baseCommit);
+    expect(await headStands(worktree, baseCommit)).toBeNull();
+    const first = commitFile(worktree, "first.txt");
+    expect(await headStands(worktree, baseCommit)).toEqual({ commit: first });
   });
 
   it("makes the branch at the commit the worktree's HEAD is detached at and puts the worktree on it, with the worktree's files as they were", async () => {

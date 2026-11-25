@@ -206,6 +206,30 @@ async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}, title =
   return { made, runDir, c, worktree: place.worktree, lone, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
 }
 
+/**
+ * A daemon whose one work item has no branch yet and a worktree detached at
+ * its base, the branch `feature`, one commit past `main`, with no commit made
+ * in the worktree. Where `deleted`, the base branch is deleted before the
+ * daemon starts, as after a squash merge, so no ref holds the base commit.
+ */
+async function daemonAtBase(deleted: boolean) {
+  const made = temporaryRepository();
+  cleanups.push(made.remove);
+  const runDir = join(made.base, "run");
+  mkdirSync(runDir);
+  git(made.repo, "branch", "--quiet", "feature");
+  const tip = commitFile(made.repo, "feature.txt");
+  git(made.repo, "branch", "--quiet", "--force", "feature", tip);
+  git(made.repo, "reset", "--quiet", "--hard", "HEAD~1");
+  const { repo: _repo, ...place } = await createWorktree({ folder: made.repo, title: "No branch yet", root: made.root, base: "feature" });
+  if (deleted) git(made.repo, "branch", "--quiet", "-D", "feature");
+  writeStore(runDir, made.repo, [{ id: 1, title: "No branch yet", createdAt: 1, ...place }]);
+  const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 20 });
+  const c = await client(url);
+  await c.message("ready");
+  return { made, c, worktree: place.worktree, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
+}
+
 type Client = Awaited<ReturnType<typeof client>>;
 
 /**
@@ -3759,6 +3783,25 @@ describe("the inbox", () => {
     git(worktree, "switch", "--quiet", "-c", "fix/x");
     expect(await branched(c)).toMatchObject({ branch: "fix/x", ownsBranch: false });
     expect(branches()).toBe("fix/x\nmain\n");
+  });
+
+  it("takes up the branch its worktree's HEAD names at the base commit, before any commit is made there", async () => {
+    const { c, worktree, branches } = await daemonAtBase(false);
+    git(worktree, "switch", "--quiet", "-c", "fix/x");
+    expect(await branched(c)).toMatchObject({ branch: "fix/x", ownsBranch: false });
+    expect(branches()).toBe("feature\nfix/x\nmain\n");
+  });
+
+  it("makes no branch at the base commit of a work item whose base branch was deleted, though no ref holds that commit then, and makes it at a commit made in the worktree after", async () => {
+    const { c, made, worktree, branches } = await daemonAtBase(true);
+    expect(branches()).toBe("main\n");
+    // A read comes every 20 ms, so this wait holds a dozen of them.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(branches()).toBe("main\n");
+    expect(c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems.map((w) => w.branch) : []))).not.toContainEqual(expect.any(String));
+    const first = commitFile(worktree, "first.txt");
+    expect(await branched(c)).toMatchObject({ branch: "owlery/no-branch-yet", ownsBranch: true });
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/no-branch-yet").trim()).toBe(first);
   });
 
   it("makes no branch while a rebase is under way in the worktree and says why in the log, and makes it at a read after the rebase has ended", async () => {

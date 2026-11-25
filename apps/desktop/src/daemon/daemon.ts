@@ -4209,7 +4209,8 @@ export class Daemon {
     const [count, head] = branch === null ? await headCounts(repo, item.worktree, baseCommit) : await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
     // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
     if (this.renaming.has(item.id) || item.branch !== branch) return false;
-    if (branch === null && head !== null && (await headStands(item.worktree)) !== null) this.branchUp(item.id);
+    // A `HEAD` at the base commit can still name a branch the worktree took up, so `headStands` is asked there too.
+    if (branch === null && head !== null && (await headStands(item.worktree, baseCommit)) !== null) this.branchUp(item.id);
     if (count !== (this.commitCounts.get(item.id) ?? null)) {
       this.commitCounts.set(item.id, count);
       changed = true;
@@ -4254,7 +4255,7 @@ export class Daemon {
         const held = this.store.workItem(workItemId);
         if (this.closed || !held || held.item.archivedAt !== null || held.item.branch !== null) return;
         const { worktree, title } = held.item;
-        const stands = await headStands(worktree);
+        const stands = await headStands(worktree, held.item.baseCommit);
         if (stands === null) return;
         const taken = "branch" in stands;
         const branch = taken ? stands.branch : await branchName(held.repository.folder, title, worktree);
