@@ -34,6 +34,11 @@ Phase 2 and phase 3 each listed this class with a search on a few wordings (`tra
     // The stage works, and a session of the work item that no stage of its chain names waits: the foot keeps the stage's sentence.
 ```
 
+```seal
+verdict: fixed 450a5619
+answer: Applied the three lines of the paste-ready fix, which match HEAD: `headlessKey`'s comment names no request, and the `stageAhead` case's title and comment name a session of the work item that no stage of its chain names. A second search of the class in other words (`git grep -n -i -E` over `apps/desktop/src`, `test` and `scripts` on "person asked", "request of", "call to allow", "allow or refuse", "Asks to use", "role-less", "with no role", "without a role" and "by hand", among others) found one more member, the `approvalPlaces` case in `view.test.ts` (title at line 1402, comment at 1409), which named a headless session without a role as one the window still meets; both now name a pane's or a headless session. That search is a sample under contract rule 12: it reaches the wordings it names. Run again after the commit, the finding's own search prints `renderer.ts:430` and `683`, which name a pane a person asked for, and `view.ts:1681`, `asksToUse`, which names a pane's agent that waits for a call in its terminal; each stands, outside this class. `test/view.test.ts` passed whole (543) and `tsc --noEmit` exited 0 (executed).
+```
+
 ### 2. The closing memo says the frame names none of the permission request's text, and the frame names it and gives it to issue #254
 
 ```seal
@@ -48,6 +53,11 @@ The first search printed this line and `trail/phases/phase-3.md:35`. The phase r
 
 ```markdown
 The text a permission request carries for a person has no reader left since phase 3: `RoleEvent`'s `text` on a `permission` event, and `adapters/claude.ts#firstOf` with `PERMISSION_TEXT_CHARS` and `PERMISSION_CUT_MARK`, which cut it. The daemon now reads a request's action and path for the grant, and its tool and action for a refusal's row. Taking the text out changes the adapter's event, which the fake adapter, its cases and the Claude adapter's cases share. `frame/design.md` *Scope*, the list *Out*, leaves it to issue #254.
+```
+
+```seal
+verdict: fixed 7b027cdd
+answer: Rewrote the paragraph's last sentence as the paste-ready fix gives it: `frame/design.md` *Scope*, the list *Out*, leaves the text to issue #254. Run again after the commit, `grep -rn -F 'names none of'` prints `trail/phases/phase-3.md:35`, which states what the frame held when phase 3 closed and stands, and this round's own record; `grep -rn -F '#254'` prints `frame/design.md:59`, `gaps.md:18` and this record (executed).
 ```
 
 ### 3. The changelog says every session the daemon starts has a role, and the refresh of an account's usage has none
@@ -66,6 +76,11 @@ The search printed only this line. It is a sample under contract rule 12.
 - **No session waits for the person to allow a call.** Every session of a chain's stage has a role, and its role's grant allows or refuses each call; the refresh of an account's usage, which has no role, holds no tool. The card with "Allow" and "Refuse", the line in the inbox that waited on a call, and the notification of a call are gone.
 ```
 
+```seal
+verdict: fixed 7b027cdd
+answer: Applied the paste-ready fix: the bullet now says that every session of a chain's stage has a role whose grant answers each call, and that the refresh of an account's usage, which has no role, holds no tool. Run again after the commit, `grep -rn -F 'Every session the daemon starts'` prints only this round's record (executed). `pr.md` holds no copy of the sentence (executed, `grep -n -i 'every session'`).
+```
+
 ### 4. An acceptance row names `view.test.ts` cases on `sessionName`, and no case calls it
 
 ```seal
@@ -78,6 +93,11 @@ Why it matters: the *Verifiable how* cell of the row "The window says no "Asked"
 
 ```markdown
 `view.test.ts` cases on `archivalOf`, `removalOf`, `runningSessions`, `daemonEnding` and `machineQueue`, which read the names `sessionName` gives (no case calls `sessionName` itself), and the `accounts.test.ts` cases of the refusals that read `daemon.ts#runningUnder` (lines 769 and 1018 at `f5a6c07f`).
+```
+
+```seal
+verdict: fixed 3ff6e835
+answer: The orchestrator's fold at `3ff6e835` rewrote the *Verifiable how* cell of the row "The window says no "Asked"" in `frame/design.md`; this pass made no change for it, as the coordinator's message routes it.
 ```
 
 ## Confirmations
