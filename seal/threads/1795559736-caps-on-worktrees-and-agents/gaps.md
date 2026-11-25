@@ -15,8 +15,6 @@
 
 ## Not done
 
-**The status line wraps across six lines at the sidebar's foot.** With the cap, the agents that wait and the Mac kept awake, it reads "Daemon running, 4 agents of 4, 1 waiting, keeping the Mac awake", and the foot, beside its five buttons, wraps it across six lines in both appearances of Night watch (`screenshots/`). No row of the plan builds the foot's layout, so the build leaves it; how the foot holds a longer status line is the review's, against `docs/design.md`.
-
 **A worktree is read at its first size.** The daemon measures a worktree once: after its setup, or at the first start of a daemon that measures worktrees. A worktree that grows afterwards, through an install or a build, is still counted at that size, in the worktree cap's proposal and in what a plan says the repository's next worktree needs. A worktree whose files were removed is counted at its first size as well (`frame/design.md` *Scope*, the item on measuring a worktree again in its list of what is out).
 
 **An agent's memory is its resident size.** The daemon reads `ps -o pid=,rss=`, the resident set of the agent's own process, and not the footprint Activity Monitor shows. A resident size can read under the footprint while macOS compresses memory, so on a Mac under pressure the proposal can allow more agents than the memory holds (`frame/plan.md` *Alternatives considered*, the row on `footprint`). The process measured is the pane's own and the Claude Code CLI a headless session runs, not their children.
