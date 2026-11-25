@@ -55,7 +55,7 @@ async function main(): Promise<void> {
 
   const daemon = new Daemon({
     token,
-    // The repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at and the cost ledger sit beside the discovery file, and outlive this process.
+    // The repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger and the runs of heavy commands sit beside the discovery file, and outlive this process.
     runDir,
     // The workflow a setup of the records place writes fetches the pull request check at this version's tag.
     version: OWLERY_VERSION,

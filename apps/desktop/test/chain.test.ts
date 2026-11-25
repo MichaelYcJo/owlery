@@ -968,7 +968,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(c.messages.flatMap((m) => (m.type === "headless" ? [m.headless.id] : [])).every((id) => id <= 4)).toBe(true);
   });
 
-  it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest in one hold, and a client that connects later is sent the chain in its ready", async () => {
+  it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest with no gap, the display too while the broad gate holds its turn, and a client that connects later is sent the chain in its ready", async () => {
     let idle = 0;
     const holds: string[] = [];
     const { c, url, workItems } = await standing(cleanups, ["Left alone"], {
@@ -978,8 +978,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         idle += 1;
         holds.push("asked to exit");
       },
-      holdAwake: () => {
-        holds.push("held");
+      holdAwake: (_lost, display) => {
+        holds.push(display ? "held with the display" : "held");
         return { release: () => void holds.push("released") };
       },
     });
@@ -995,8 +995,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(Date.now()).toBeLessThan(end);
       await new Promise((r) => setTimeout(r, 20));
     }
-    // One hold from the chain's start to its rest, and no exit asked before it: between two stages no session works, git runs for longer than the idle wait of 1 ms, and the hold and the daemon both stood.
-    expect(holds).toEqual(["held", "released", "asked to exit"]);
+    // A hold from the chain's start to its rest, and no exit asked before it: between two stages no session works, git runs for longer than the idle wait of 1 ms, and the hold and the daemon both stood. The broad gate is a heavy command, so for its turn the hold is replaced by one that holds the display too, each release followed at once by the next hold.
+    expect(holds).toEqual(["held", "released", "held with the display", "released", "held", "released", "asked to exit"]);
     const later = await client(url, cleanups);
     const ready = await later.message("ready");
     expect(ready.workItems[0]?.chain).toMatchObject({ state: "rested", says: "Pull request #1 is open." });

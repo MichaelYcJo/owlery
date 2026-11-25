@@ -255,7 +255,7 @@ export interface DaemonOptions {
   pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, and what each work item's newest broad gate printed, in `gate-output/`; without it all seven are in memory alone. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`; without it the first seven are in memory alone, and no heavy command's run is kept. */
   runDir?: string;
   /** The load average of the last minute, read at each call, or null where none is read. A daemon given none reads no load, and reads no broad gate's run as over the machine's load by its load. */
   load?: () => number | null;
