@@ -30,6 +30,11 @@ The round built its list of statements by taking apart into sentences the three 
     // Every key these pane commands set, read off what they return. Their starts name no account folder, so no command here sets `CLAUDE_CONFIG_DIR`, which the frame keeps out of the cut. The set is pinned below, so a variable a later change adds to a pane's command fails this case there, and that change decides whether the variable is a pane variable.
 ```
 
+```seal
+verdict: fixed 3016a2e2
+answer: The finding holds: the case's title and comment claimed every variable a pane's command sets, and a pane whose account names a folder sets `CLAUDE_CONFIG_DIR` (`hooks.ts:152`, `:206`), which the frame keeps. The paste-ready title and comment read true against `hooks.ts`, `gate.ts:54-60`, `frame/design.md:20` and the case's own starts, which all name no account folder, so they are applied as given. Whole read of every sentence that names what a pane's command sets or what the gate takes, in `frame/design.md`, `gaps.md`, `changelog.md`, the `hooks.ts#PANE_VARIABLES` comment, `daemon.test.ts:7688-7708` and `gate.test.ts:136-154`: each names the five variables or the constant, and the ones that mention `CLAUDE_CONFIG_DIR` (`hooks.ts` comment, `design.md` *Out*) say it stays. No other sentence needed a change.
+```
+
 ## Confirmations
 
 ```seal
