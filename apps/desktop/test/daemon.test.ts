@@ -6906,22 +6906,34 @@ describe("the caps on the machine", () => {
     expect(two.waits).toBe(false);
     one?.end();
     (await two.turn)?.end();
+    await again.close();
+
+    // A value over the machine's cores, written by hand, is read as none, and the daemon follows the default of 1.
+    writeFileSync(join(runDir, "limits.json"), '{"heavyCommands":13}');
+    const { daemon: third, url: thirdUrl } = await daemon({ runDir, machine: reader().machine });
+    expect((await (await client(thirdUrl)).message("ready")).machine?.heavy).toMatchObject({ proposed: 1, set: null });
+    const held = await third.turnGiver().ask({ folder: "/a", name: "test", place: "outside", alone: false }).turn;
+    expect(third.turnGiver().ask({ folder: "/b", name: "test", place: "outside", alone: false }).waits).toBe(true);
+    held?.end();
   });
 
   it("answers a `readHeavyRuns` with one row for each command of each repository the runs' file holds, to the client that asked alone (scenario I)", async () => {
     const { runDir, c, bystander, ready } = await machined();
     const item = ready.workItems[0];
     const run = { askedAt: 0, beside: false, alone: false, load: 2, exitCode: 0 };
+    // The longest run comes first, the most memory and the highest load in different runs, and a folder no work item names is a row of its own for each folder.
     const lines = [
-      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 60_000, peakMemory: 2 * 1024 ** 3, highestLoad: 9.5 },
       { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 180_000, peakMemory: 1024 ** 3, highestLoad: 13.1 },
+      { ...run, repo: item?.repo, workItemId: 1, folder: item?.worktree, name: "Broad gate", startedAt: 0, endedAt: 60_000, peakMemory: 2 * 1024 ** 3, highestLoad: 9.5 },
       { ...run, repo: null, workItemId: null, folder: "/Users/someone/scratch", name: "test", startedAt: 0, endedAt: 5_000, peakMemory: null, highestLoad: null, exitCode: null },
+      { ...run, repo: null, workItemId: null, folder: "/Users/someone/other", name: "test", startedAt: 0, endedAt: 7_000, peakMemory: null, highestLoad: 4, exitCode: 1 },
     ];
     writeFileSync(join(runDir, "heavy-runs.jsonl"), lines.map((line) => `${JSON.stringify(line)}\n`).join(""));
     c.send({ type: "readHeavyRuns" });
     expect((await c.message("heavyRuns")).runs).toEqual([
       { repo: item?.repo, repoName: item?.repoName, name: "Broad gate", runs: 2, longestMs: 180_000, mostMemory: 2 * 1024 ** 3, highestLoad: 13.1 },
       { repo: null, repoName: "scratch", name: "test", runs: 1, longestMs: 5_000, mostMemory: null, highestLoad: null },
+      { repo: null, repoName: "other", name: "test", runs: 1, longestMs: 7_000, mostMemory: null, highestLoad: 4 },
     ]);
     expect(bystander.messages.some((m) => m.type === "heavyRuns")).toBe(false);
   });
