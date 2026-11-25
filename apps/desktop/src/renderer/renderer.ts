@@ -92,6 +92,7 @@ import {
   type BaseAnswer,
   type BaseChoice,
   type FormPlan,
+  type LossRow,
   type MenuAction,
   type PlanAnswered,
   type RecordsPlanned,
@@ -458,14 +459,36 @@ function namedLines(lines: readonly string[], whole = false): HTMLUListElement {
   return list;
 }
 
-/** What a dialog draws of a loss: a section for each kind of thing it names, with its heading, its lines, each read whole, and how many more there are where the list is cut. */
+/** A loss list's row: a commit's hash and its subject as two parts, or a path as one, with the whole subject or path in its tooltip. */
+function lossRow(row: LossRow): HTMLLIElement {
+  const item = document.createElement("li");
+  const part = (className: string, text: string): HTMLSpanElement => {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  };
+  if ("hash" in row) {
+    item.title = row.subject;
+    item.append(part("hash", row.hash), part("subject", row.subject));
+  } else {
+    item.title = row.path;
+    item.append(part("path", row.path));
+  }
+  return item;
+}
+
+/** What a dialog draws of a loss: a section for each kind of thing it names, with its heading, a list of its rows, each on one line, and how many more there are where the daemon cut the list. */
 function lossParts(loss: WorkItemLoss): HTMLElement[] {
-  return lossSections(loss).map(({ caption, lines, more }) => {
+  return lossSections(loss).map(({ caption, rows, more }) => {
     const section = document.createElement("section");
     const head = document.createElement("h3");
     head.className = "caption";
     head.textContent = caption;
-    section.append(head, namedLines(lines, true));
+    const list = document.createElement("ul");
+    list.className = "loss";
+    list.append(...rows.map(lossRow));
+    section.append(head, list);
     if (more !== "") {
       const rest = document.createElement("p");
       rest.className = "more";

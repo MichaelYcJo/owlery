@@ -559,14 +559,22 @@
       #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
       /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */
       dialog .says { margin-bottom: var(--space-5); color: var(--ink-muted); }
+      /* The delete dialog's first sentence says what the delete does or would lose, so it is the dialog's lead, in the ink of what is read, and not a note. */
+      #delete-says { font-size: var(--size-text); color: var(--ink); }
       dialog section { margin-bottom: var(--space-5); }
       dialog section h3 { margin-bottom: var(--space-2); }
       dialog .named { max-height: var(--said-height); margin-bottom: var(--space-5); overflow: auto; }
       dialog section .named { margin-bottom: 0; }
       dialog .named li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--control-height); }
       dialog .named li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* What a delete would remove is read whole: a long path or subject takes the lines it needs. */
+      /* The Accounts list and what the records place holds, in the records dialog, are read whole: a long name or path takes the lines it needs. */
       dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+      /* A list of what a delete would remove or lose: each entry on one row of one height, with no gap between rows. A commit's short hash stands in a column as wide as the list's widest hash, then its subject cut to one line; a path stands in the fixed-width face, cut to one line. Each row's tooltip holds the whole text. Ten rows show at once, and a longer list scrolls and comes to rest on whole rows. */
+      dialog .loss { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-auto-rows: var(--detail-line); column-gap: var(--space-4); max-height: calc(10 * var(--detail-line)); overflow-x: hidden; overflow-y: auto; scroll-snap-type: y mandatory; }
+      dialog .loss li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; height: var(--detail-line); scroll-snap-align: start; }
+      dialog .loss .hash { color: var(--ink-muted); }
+      dialog .loss .subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink); }
+      dialog .loss .path { grid-column: 1 / -1; color: var(--ink); }
       dialog .more { margin-top: var(--space-2); font-size: var(--size-second); color: var(--ink-faint); }
       dialog h3.work-item { margin-bottom: var(--space-3); }
       /* The dialog of the records place: a file the setup would write is read whole, in the letters a file is read in, and a long one scrolls inside its own box. */
