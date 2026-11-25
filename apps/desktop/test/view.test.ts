@@ -1399,14 +1399,14 @@ describe("the approval line", () => {
     expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
   });
 
-  it("is composed from the work item alone, so no pane's state and no headless session without a role changes it", () => {
+  it("is composed from the work item alone, so no pane's state and no headless session changes it", () => {
     expect(approvalPlaces.length).toBe(1);
     const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
     const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
     // The two lists give the line of the inbox two states, and the places one.
     expect(quiet[0]?.line.state).toBe("finished");
     expect(busy[0]?.line.state).toBe("waiting");
-    // The function takes no session, a headless one with no role among them, so the places are the work item's alone: a pane that waits marks no place.
+    // The function takes no session, a pane's or a headless one's, so the places are the work item's alone: a pane that waits marks no place.
     expect(approvalPlaces(busy[0]!.workItem)).toEqual(approvalPlaces(quiet[0]!.workItem));
     expect(read(busy[0]!.workItem)).toEqual(read(RECORDED));
     expect(read(busy[0]!.workItem)?.map(([, state]) => state)).not.toContain("waiting");
@@ -1666,13 +1666,13 @@ describe("a work item's chain", () => {
     expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
 
-  it("says at the view's foot that a running chain waits for the machine while the session of the stage it begins is queued, with how many go before it, and keeps the stage's sentence while only a session a person asked waits (scenario 4)", () => {
+  it("says at the view's foot that a running chain waits for the machine while the session of the stage it begins is queued, with how many go before it, and keeps the stage's sentence while only a session of the work item that no stage of its chain names waits (scenario 4)", () => {
     const queue = (ids: number[]): Machine => ({ ...MACHINE, agents: { ...MACHINE.agents, queue: ids } });
     // The running chain's stage is session 3.
     expect(stageAhead(RUNNING, queue([9, 3]))).toBe(1);
     expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9, 3])))).toBe("Waiting for the machine (1 ahead)");
     expect(chainSays(RUNNING, stageAhead(RUNNING, queue([3])))).toBe("Waiting for the machine");
-    // The stage works, and a question a person asked in the work item waits: the foot keeps the stage's sentence.
+    // The stage works, and a session of the work item that no stage of its chain names waits: the foot keeps the stage's sentence.
     expect(stageAhead(RUNNING, queue([9]))).toBeNull();
     expect(chainSays(RUNNING, stageAhead(RUNNING, queue([9])))).toBe("Review round 1 is running.");
     expect(stageAhead(RUNNING, null)).toBeNull();

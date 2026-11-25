@@ -3351,7 +3351,7 @@ export function chainList(held: readonly HeadlessInfo[], workItem: WorkItem, rea
   return { gate, lines, drawn: gate !== null || lines.length > 0 };
 }
 
-/** What tells one drawing of a work item's list of the daemon's chain from the next: it differs where the broad gate's line, a session's line or a request of it differs, and between two work items. The list is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the list shows. */
+/** What tells one drawing of a work item's list of the daemon's chain from the next: it differs where the broad gate's line or a session's line differs, and between two work items. The list is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the list shows. */
 export function headlessKey(workItemId: number, lines: readonly HeadlessLine[], gate: GateLine | null = null): string {
   return JSON.stringify([workItemId, lines, gate]);
 }
