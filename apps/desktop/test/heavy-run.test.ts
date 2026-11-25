@@ -32,10 +32,10 @@ function naming(folder: string, heavy: unknown): void {
   commitAll(folder, "chore: name the heavy commands");
 }
 
-/** Runs the runner in a folder, with the run folder and `$OUT` in its environment, and keeps each line it says on its error output while it runs. */
-function runner(folder: string, runDir: string, out: string, args: string[]): { end: Promise<CommandEnd>; said: string[] } {
+/** Runs the runner in a folder, with the run folder, `$OUT` and the variables given in its environment, hands each reading of its command's memory to `memoryRead`, and keeps each line it says on its error output while it runs. */
+function runner(folder: string, runDir: string, out: string, args: string[], env: Record<string, string> = {}, memoryRead?: (bytes: number) => void): { end: Promise<CommandEnd>; said: string[] } {
   const said: string[] = [];
-  const end = chainCommand(["run", ...args], { cwd: folder, env: { PATH: process.env.PATH, OWLERY_RUN_DIR: runDir, OUT: out }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, say: (line) => said.push(line) });
+  const end = chainCommand(["run", ...args], { cwd: folder, env: { PATH: process.env.PATH, OWLERY_RUN_DIR: runDir, OUT: out, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, say: (line) => said.push(line), memoryRead });
   return { end, said };
 }
 
@@ -110,16 +110,21 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     expect(readFileSync(join(out, "order"), "utf8")).toBe(`${[reviewed.worktree, built.worktree, loose.repo, loose.repo].map((folder) => basename(folder)).join("\n")}\n`);
   });
 
-  it("keeps one line for the run in the run folder's file: its repository, work item and name, when it asked, started and ended, its exit code and the peak memory of the command and what it started, read after the command's first moment (scenario I)", async () => {
+  it("keeps one line for the run in the run folder's file: its repository, work item and name, when it asked, started and ended, its exit code and the peak memory of the command and what it started, read while the command holds it (scenario I)", async () => {
     const stood = await standing(cleanups, ["Measured work"], { now: Date.now });
     const [item] = stood.workItems as [(typeof stood.workItems)[number]];
     const out = stood.made.base;
-    // The shell starts a child that holds 64 MiB for longer than one reading of the memory, which comes 5 seconds after the first.
-    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(6.5)"; exit 4` });
+    // The shell starts a child that holds 64 MiB until the case has seen a reading of the memory find it, so no reading's time decides the case.
+    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(600)" & while [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
     const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
     cleanups.push(() => server.close());
     const asked = Date.now();
-    expect(await runner(item.worktree, stood.runDir, out, ["hold"]).end).toEqual({ code: 4, out: "", err: "" });
+    const readings: number[] = [];
+    const holding = runner(item.worktree, stood.runDir, out, ["hold"], {}, (bytes) => readings.push(bytes));
+    await until(() => (readings.some((bytes) => bytes > 64 * 1024 * 1024) ? true : undefined), 50_000);
+    const released = Date.now();
+    writeFileSync(join(out, "hold.go"), "");
+    expect(await holding.end).toEqual({ code: 4, out: "", err: "" });
     const runs = await until(() => {
       const kept = readHeavyRuns(stood.runDir);
       return kept.length > 0 ? kept : undefined;
@@ -144,7 +149,8 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const [run] = runs as [HeavyRun];
     expect(run.askedAt).toBeGreaterThanOrEqual(asked);
     expect(run.startedAt).toBeGreaterThanOrEqual(run.askedAt);
-    expect(run.endedAt - run.startedAt).toBeGreaterThanOrEqual(6_000);
+    expect(run.startedAt).toBeLessThanOrEqual(released);
+    expect(run.endedAt).toBeGreaterThanOrEqual(released);
     expect(run.peakMemory).toBeGreaterThan(64 * 1024 * 1024);
 
     // A command whose connection closes while it holds its turn, before it says how it ended, is kept with no exit code and no peak memory.
@@ -185,6 +191,14 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     expect(await run.end).toEqual({ code: 5, out: "", err: "" });
     expect(run.said).toEqual([noDaemonSays("test")]);
     expect(readFileSync(join(on.folder, "test.args"), "utf8")).toBe("one|");
+  });
+
+  it("runs the command without the variable its launcher sets for Electron's Node, as a pane gives the session's environment", async () => {
+    const on = commandOn(cleanups);
+    naming(on.repo, { test: 'printf "%s" "${ELECTRON_RUN_AS_NODE-unset}" > "$OUT/test.env"' });
+    const run = runner(on.repo, on.runDir, on.folder, ["test"], { ELECTRON_RUN_AS_NODE: "1" });
+    expect((await run.end).code).toBe(0);
+    expect(readFileSync(join(on.folder, "test.env"), "utf8")).toBe("unset");
   });
 
   it("runs the command at once where the daemon ends while the runner waits, and says that it waited and that the daemon ended", async () => {

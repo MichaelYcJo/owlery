@@ -105,18 +105,21 @@ export function treeMemory(listed: string, pid: number): number {
 
 /**
  * Reads the resident memory of the process and its descendants at once and
- * every `everyMs` after, with `/bin/ps`, and keeps the highest. `stop` ends
- * the reading and gives the highest, or null where no reading found the
- * process.
+ * every `everyMs` after, with `/bin/ps`, and keeps the highest, handing
+ * each reading that found the process to `onRead` once it is kept. `stop`
+ * ends the reading and gives the highest, or null where no reading found
+ * the process.
  */
-export function watchMemory(pid: number | undefined, everyMs = LOAD_EVERY_MS): { stop(): number | null } {
+export function watchMemory(pid: number | undefined, everyMs = LOAD_EVERY_MS, onRead?: (memory: number) => void): { stop(): number | null } {
   let peak: number | null = null;
   if (pid === undefined) return { stop: () => null };
   const read = (): void => {
     execFile("/bin/ps", ["-axo", "pid=,ppid=,rss="], (error, listed) => {
       if (error !== null) return;
       const memory = treeMemory(listed, pid);
-      if (memory > 0) peak = Math.max(peak ?? 0, memory);
+      if (memory <= 0) return;
+      peak = Math.max(peak ?? 0, memory);
+      onRead?.(memory);
     });
   };
   read();

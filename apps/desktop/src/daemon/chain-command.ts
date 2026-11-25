@@ -59,6 +59,8 @@ export interface CommandContext {
   input?: () => Promise<string>;
   /** Writes one line to the command's error output at once, while the command still runs, as a wait for the machine is said. */
   say: (line: string) => void;
+  /** Called with each reading of the memory of the command `run` runs, once the reading is kept. A case waits on it, so no reading's time decides what it reads. */
+  memoryRead?: (bytes: number) => void;
 }
 
 /** How a run of the command ended: its exit code, and what it prints on each stream. */
@@ -565,10 +567,10 @@ async function turnPlace(worktree: string): Promise<TurnPlace> {
 }
 
 /** Runs a command line with `/bin/sh -c` in the folder, with this process's input and output, and gives its exit code, 128 and the signal's number where a signal ended it, and 127 where it did not start, with the peak memory of its process and its descendants (`heavy-runs.ts#watchMemory`). */
-function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv): Promise<{ code: number; peakMemory: number | null }> {
+function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv, memoryRead?: (bytes: number) => void): Promise<{ code: number; peakMemory: number | null }> {
   return new Promise((done) => {
     const child = spawn("/bin/sh", ["-c", command], { cwd, env, stdio: "inherit" });
-    const memory = watchMemory(child.pid);
+    const memory = watchMemory(child.pid, undefined, memoryRead);
     child.once("error", () => done({ code: 127, peakMemory: memory.stop() }));
     child.once("close", (code, signal) => done({ code: code ?? 128 + (signal === null ? 0 : constants.signals[signal]), peakMemory: memory.stop() }));
   });
@@ -595,9 +597,12 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   const names = Object.keys(commands);
   if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${rootOf(worktree) ?? "seal"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
   const turn = await inTurn(context, { folder: worktree, name, place: await turnPlace(worktree), alone: false });
+  // The launcher sets ELECTRON_RUN_AS_NODE for the Node it runs this script with (`pane-chain.ts`). The command runs in the session's environment, which a pane gives without it (`pty.ts#terminalEnv`), so an Electron program it starts runs as Electron.
+  const env: NodeJS.ProcessEnv = { ...context.env };
+  delete env.ELECTRON_RUN_AS_NODE;
   let ran: { code: number; peakMemory: number | null } | undefined;
   try {
-    ran = await runLine([line, ...words.map(shellQuote)].join(" "), worktree, context.env as NodeJS.ProcessEnv);
+    ran = await runLine([line, ...words.map(shellQuote)].join(" "), worktree, env, context.memoryRead);
     return { code: ran.code, out: "", err: "" };
   } finally {
     await turn.end(ran === undefined ? undefined : { exitCode: ran.code, peakMemory: ran.peakMemory });
