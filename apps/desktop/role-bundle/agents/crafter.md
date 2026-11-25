@@ -61,8 +61,9 @@ is a write you do not make.
    of step 7's run and of the phase record steps 5 and 8 write; steps 5 and
    6 otherwise hold for each fix. The pass runs in the work item's
    worktree, which the first line of its prompt names by the absolute path
-   of its top, and the folder your session starts in may be another
-   worktree of the repository. The prompt names the round record, the
+   of its top, and you read every other path the prompt gives from that
+   top. The folder your session starts in may be another worktree of the
+   repository. The prompt names the round record, the
    numbers of its open findings, each decision the person reversed with the
    person's message, and `decisions.md` where one stands: take each
    reversal in, and hold to each decision and each answer that file

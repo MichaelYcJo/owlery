@@ -149,7 +149,7 @@ describe("the role bundle", () => {
 
     // A pane's subagent starts in its session's folder, which may be another worktree: each role works in the worktree its prompt names, and no definition takes the folder it starts in for that worktree.
     for (const file of ["agents/proofer.md", "agents/sealer.md", "agents/crafter.md", "agents/orchestrator.md"]) {
-      for (const named of ["prompt names by the absolute path of its top", "may be another worktree of the repository"]) expect(flat(file), `${file}: ${named}`).toContain(named);
+      for (const named of ["prompt names by the absolute path of its top", "every other path", "may be another worktree of the repository"]) expect(flat(file), `${file}: ${named}`).toContain(named);
       expect(flat(file), file).not.toContain("the folder the session starts in");
     }
 

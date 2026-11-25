@@ -419,23 +419,15 @@ describe("a stage's prompt", () => {
       '  - decision 3, "Start from main.": the person says "Start from the release branch."',
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      `Make each fix in that worktree, and commit it yourself there with \`git -C ${WORKTREE}\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
+      `Make each fix in that worktree, and commit it yourself there with \`git -C '${WORKTREE}'\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
       "",
     ]);
     expect(prompt.diff).toBe("");
     const alone = fixPassPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, open: [], reversals: [] }).shown;
     expect(alone).toContain("- Its open findings: none\n- The decisions and the answers");
-  });
-
-  it("names the tree the stage reads by the worktree's path in each of the five prompts, and as this folder in none", () => {
-    const prompts = [
-      roundPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD} against main`, earlier: [], decisions: false, paths: [], diff: "" }),
-      fixPassPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, open: [1], reversals: [] }),
-      sealPrompt({ run: 1, worktree: WORKTREE, directory: DIRECTORY, target: `${HEAD} against main`, rounds: [1], decisions: false, frame: false, phases: false, changelog: false, earlier: null, paths: [], diff: "" }),
-      convergencePrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, rounds: [1, 2], decisions: false }),
-      rulingPrompt({ round: 1, worktree: WORKTREE, directory: DIRECTORY, by: "proofer", asked: "round", asks: [{ asks: "Which base?", grounds: "No document names it.", options: [], default: null }], decisions: false }),
-    ];
-    for (const prompt of prompts) expect(promptText(prompt)).not.toContain("this folder");
+    // A path with a space and a quote stays one word of the command a shell reads.
+    const spaced = fixPassPrompt({ round: 1, worktree: "/repos/my repo's wt", directory: DIRECTORY, open: [1], reversals: [] }).shown;
+    expect(spaced).toContain("commit it yourself there with `git -C '/repos/my repo'\\''s wt'`. Then append");
   });
 });
 

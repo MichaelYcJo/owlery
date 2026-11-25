@@ -35,6 +35,7 @@ import type { Chain, ChainStage, ChainStageKind, GateRun, PullRequest, RoleStage
 import { CHAIN_STAGE_KINDS } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
+import { shellQuote } from "./hooks";
 import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, type Kind, field, gfmLines, read, stripped } from "./record-blocks";
 import { repositoryFileText } from "./repository-file";
 import { REFUSAL_RULES, type RefusalRule } from "./role-grants";
@@ -656,7 +657,8 @@ export function roundPrompt(given: { round: number; worktree: string; directory:
  * record, the numbers of its open findings, the decisions the person
  * reversed with the person's message for each, the path of the record of
  * decisions, and that each fix is made and committed in that worktree, with
- * `git -C` and its path.
+ * `git -C` and its path quoted for a POSIX shell (`hooks.ts#shellQuote`), so
+ * a path that holds a space or a quote stays one word of the command.
  */
 export function fixPassPrompt(given: { round: number; worktree: string; directory: string; open: readonly number[]; reversals: readonly Reversal[] }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
@@ -668,7 +670,7 @@ export function fixPassPrompt(given: { round: number; worktree: string; director
     ...(given.reversals.length === 0 ? [] : ["- The decisions the person reversed, each to take in:", ...given.reversals.map((reversal) => `  - decision ${String(reversal.id)}, ${JSON.stringify(reversal.decided)}: the person says ${JSON.stringify(reversal.message)}`)]),
     `- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``,
     "",
-    `Make each fix in that worktree, and commit it yourself there with \`git -C ${given.worktree}\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
+    `Make each fix in that worktree, and commit it yourself there with \`git -C ${shellQuote(given.worktree)}\`. Then append one close block under each finding you answer, and commit no change to the round record: Owlery commits the record after the pass.`,
     "",
   ].join("\n");
   return { shown, diff: "" };
