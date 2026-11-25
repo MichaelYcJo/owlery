@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { holdAwakeFor, wakeDisplayFor } from "../src/daemon/keep-awake";
+import { holdAwakeFor, wakeDisplayFor, wantsAwake } from "../src/daemon/keep-awake";
+import type { HeadlessInfo } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 
 const cleanups: (() => void)[] = [];
@@ -57,6 +58,17 @@ function holdsOf(watchedPid: number, parent = process.pid): number[] {
   for (const pid of pids) cleanups.push(() => end(pid));
   return pids;
 }
+
+describe("when the daemon wants the Mac awake", () => {
+  const headless = (state: HeadlessInfo["state"]): HeadlessInfo => ({ id: 1, workItemId: 1, prompt: "Which file?", state, answer: "", error: null, usage: null, startedAt: 1, errorOutput: "", stopped: null, role: null, queuedAt: 1 });
+
+  it("holds nothing under `working` for a headless session that waits for the machine alone, which runs no process, and holds for one that works (scenario 9)", () => {
+    expect(wantsAwake("working", [], [headless("queued")])).toBe(false);
+    expect(wantsAwake("working", [], [headless("queued"), headless("working")])).toBe(true);
+    // A chain whose stage waits is a chain that runs, and is held across its wait as across the time between two stages.
+    expect(wantsAwake("working", [], [headless("queued")], true)).toBe(true);
+  });
+});
 
 // The program ships with macOS, and the daemon is given this holder on macOS alone (src/daemon/main.ts).
 describe.skipIf(process.platform !== "darwin")("the hold on the Mac's idle sleep", () => {

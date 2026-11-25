@@ -590,7 +590,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
           listener(event);
         }
       });
-      return { stop, answer };
+      // The CLI's own process, whose resident memory the daemon reads as the agent's.
+      return { stop, answer, ...(child.pid === undefined ? {} : { pid: child.pid }) };
     },
     async notice() {
       try {

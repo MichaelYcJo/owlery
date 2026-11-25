@@ -9,7 +9,10 @@
 // opened in Finder or in one of them, the Trash a removed repository's
 // folder moves to where the person chose it (src/main/openers.ts), the
 // clipboard, which a start in the background keeps to itself
-// (src/main/clipboard.ts), and the window's coming forward, which a
+// (src/main/clipboard.ts), whether the app started in the background, which
+// the page reads before its first script runs so that such a start raises no
+// notification of the system's (src/renderer/notifier.ts), and the window's
+// coming forward, which a
 // sandboxed page cannot do itself, which of the menu's two entries that end
 // the daemon a person chose, which the main process tells the window, and
 // the end of the daemon the window then asks for, since the main process is
@@ -23,6 +26,8 @@ export const Channel = {
   /** Answered at once, not by a promise: the preload reads the saved choice before the page is drawn. */
   appearance: "owlery:appearance",
   saveAppearance: "owlery:save-appearance",
+  /** Answered at once, not by a promise: the preload reads whether the app started in the background before the page's first script runs. */
+  background: "owlery:background",
   installedApps: "owlery:installed-apps",
   openFolder: "owlery:open-folder",
   trashFolder: "owlery:trash-folder",
@@ -75,6 +80,8 @@ export interface OwleryApi {
   appearance: LookChoice;
   /** Has the main process keep a new choice, so the next window opens in it. */
   saveAppearance(choice: LookChoice): Promise<void>;
+  /** True where the app was started with `OWLERY_BACKGROUND=1`, as the main process held it when this page loaded. The page then raises no notification of the system's and keeps each one it would have raised (src/renderer/notifier.ts). */
+  background: boolean;
   /** The editors and the terminals the Mac holds, of those the main process knows, the editors first. */
   installedApps(): Promise<InstalledApp[]>;
   /** Opens a folder in Finder, where `app` is null, or in the installed app of that name. The folder is a work item's worktree or a repository's folder, and the main process opens no other path. It answers null, or why nothing was opened, as a sentence the window shows as it is. */

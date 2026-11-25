@@ -6,9 +6,9 @@
 // the inbox, a work item's view, the view of the parked work item, the view
 // of the finished work item, the view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings and the Accounts dialog) in each appearance of the
-// theme a first run opens in. The daemon keeps one account beside System
-// default, handed over by an empty folder of the run's own, and the parked
+// repository's settings, the Accounts dialog and the Machine dialog) in each
+// appearance of the theme a first run opens in. The daemon keeps one account
+// beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
 // account's field. The parked work item's shell pane runs under it, so its
 // row in the Accounts dialog offers no refresh. The repository is on the owl chain, and the Claude Code config
@@ -28,7 +28,14 @@
 // "Ask" section shows its card. The run waits until the section shows that
 // request before its first shot. That work item carries no decision made
 // without asking and no setup's words on its line, so the line's second row
-// gives its whole width to the request. No chain runs and the run starts
+// gives its whole width to the request. The run then sets the cap on agents
+// to the agents that run, as a person sets it in the Machine dialog, and
+// asks a prompt in one more work item, whose session waits for the machine
+// and never starts: that work item's line says "Waiting for the machine",
+// the status line counts the agents against the cap and the session that
+// waits, and the Machine dialog lists the session under its cap on agents.
+// The daemon reads the machine `BuiltApp` gives every start, so the dialog
+// says the same numbers on any Mac. No chain runs and the run starts
 // none: it commits with git, in a work item's worktree, the records a
 // chain's stages write there, and it stores two chains in the daemon's run
 // folder before the app starts, as a daemon that ran them stored them. The
@@ -95,7 +102,7 @@ import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
 import { createWorktree } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
-import { type Chain, type ChainStage, type ClientMessage, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
+import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, roundRecord, TODAY, write } from "./chain-run";
@@ -213,6 +220,9 @@ const OWL_CHAIN = "owlery";
 const ASKED = "Which file holds the redirect?";
 /** The prompt the run asks second there. The stand-in holds it, and its session asks the person to allow a command (fixtures/sample-cli.sh). */
 const ASKED_TO_ALLOW = "Run the tests of the redirect.";
+/** The work item whose asked session waits for the machine, and the prompt it waits to run. The run sets the cap on agents to the agents that run before it asks, so the session waits and never starts. */
+const QUEUED = "Rename the settings file";
+const ASKED_TO_WAIT = "Which keys does the settings file hold?";
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -244,6 +254,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
+      "night-watch-dark-machine.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -255,11 +266,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
+      "night-watch-light-machine.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(66);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(66);
-    expect(all[65]).toEqual({ theme: "desk", appearance: "light", view: "accounts", file: "desk-light-accounts.png" });
+    expect(all).toHaveLength(72);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(72);
+    expect(all[71]).toEqual({ theme: "desk", appearance: "light", view: "machine", file: "desk-light-machine.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -312,6 +324,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   let handedFolder = "";
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
   const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
+  const QUEUED_ID = WORK_ITEMS.findIndex(({ title }) => title === QUEUED) + 1;
   /** The commit the broken work item's seal names, and the commit after it that broke it, once the run has committed them. */
   let brokenAt = "";
   let brokenBy = "";
@@ -356,8 +369,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     }
   };
 
-  /** The work items and the sessions the daemon lists, read as a second client of it, which then hands the daemon `told` where it is given. */
-  async function listed(told?: ClientMessage): Promise<{ workItems: WorkItem[]; sessions: SessionInfo[] }> {
+  /** The work items, the sessions and the machine the daemon lists, read as a second client of it, which then hands the daemon `told` where it is given. */
+  async function listed(told?: ClientMessage): Promise<{ workItems: WorkItem[]; sessions: SessionInfo[]; machine: Machine | undefined }> {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
     try {
@@ -368,7 +381,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
           const message = JSON.parse(String(event.data)) as ServerMessage;
           if (message.type !== "ready") return;
           if (told) socket.send(JSON.stringify(told));
-          resolve({ workItems: message.workItems, sessions: message.sessions });
+          resolve({ workItems: message.workItems, sessions: message.sessions, machine: message.machine });
         });
       });
     } finally {
@@ -430,7 +443,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)}`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -486,6 +499,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click("#accounts-button");
       await app.until(`document.getElementById("accounts-dialog").open && [...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join() === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
     },
+    machine: async () => {
+      await show.inbox();
+      await app.click("#machine-button");
+      await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)}`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents`);
+    },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
@@ -511,6 +529,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     accounts: async () => {
       await app.click("#accounts-close");
       await dialogClosed("accounts-dialog");
+    },
+    machine: async () => {
+      // A cancel keeps every cap as the run set it.
+      await app.click("#machine-cancel");
+      await dialogClosed("machine-dialog");
     },
   };
 
@@ -586,8 +609,6 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     );
     // The app starts in the background, and the page of a window without the system's focus draws as one a person has left.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-    // A pane that comes to wait or to finish behind another raises a notification, and none of this run reaches the system's.
-    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
     for (const { title, kind, events, setup } of WORK_ITEMS) {
       if (STORED.includes(title)) {
@@ -684,8 +705,19 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await app.click("#ask-submit");
     await app.until(`document.querySelector("#headless li .permission .call")?.textContent === "pnpm test -- redirect.test.ts"`, "the second prompt's request in the view", 15_000);
 
-    // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document: its `Notification` is replaced before its first script runs, and its focus is emulated again.
-    await app.cdp("Page.addScriptToEvaluateOnNewDocument", { source: `window.Notification = class { static permission = "granted"; }` });
+    // The cap on agents, set as a person sets it to the agents that run, and a prompt asked in one more work item, whose session then waits for the machine.
+    const running = (await listed()).machine?.agents.running;
+    if (running === undefined) throw new Error("the daemon sends no machine");
+    await listed({ type: "setCaps", requestId: 1, agents: running });
+    for (const deadline = Date.now() + 10_000; (await listed()).machine?.agents.set !== running; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the daemon never kept the cap on agents at ${String(running)}`);
+    }
+    await listed({ type: "ask", requestId: 2, workItemId: QUEUED_ID, prompt: ASKED_TO_WAIT });
+    for (const deadline = Date.now() + 10_000; (await listed()).machine?.agents.queue.length !== 1; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the session asked in ${QUEUED} never waited for the machine: ${JSON.stringify((await listed()).machine?.agents)}`);
+    }
+
+    // The page loads again, and opens on the summary of the look taken before the seals. The new page is a new document, and its focus is emulated again. Its preload tells it again that the app started in the background, so it keeps its notifications and raises none of the system's.
     await app.cdp("Page.reload");
     await app.until(`document.getElementById("summary-screen")?.hidden === false`, "the summary in front of the page loaded again", 20_000);
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });

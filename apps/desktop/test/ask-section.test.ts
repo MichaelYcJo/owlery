@@ -5,8 +5,9 @@
 // prints there and exits 3 at once. While a second flag file stands, it asks
 // the host to allow two commands, as Claude Code asks with
 // `--permission-prompt-tool stdio`, writes the two answers it reads into a
-// file, and then gives its result. The page's `Notification` is replaced by
-// a recorder, so nothing reaches the system's notifications.
+// file, and then gives its result. In the background the page raises nothing
+// of the system's and keeps each notification in `window.__notifications`
+// (src/renderer/notifier.ts), which the cases read.
 import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -67,19 +68,6 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
     // The login shell: it names the stand-in, and a pane it starts ends at once.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root });
-    // The recorder stands before any session starts, so no notification of this run reaches the system.
-    await app.evaluate(`(() => {
-      window.__notifications = [];
-      window.Notification = class {
-        static permission = "granted";
-        constructor(title, options) {
-          this.title = title;
-          this.body = options?.body;
-          this.onclick = null;
-          window.__notifications.push(this);
-        }
-      };
-    })()`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -163,8 +151,8 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
 
   it("notifies of each call a session asks the person to allow and opens the view at a click, shows the calls there with Allow and Refuse on the keyboard, keeps the keyboard where an inbox changes nothing the section shows and on the same button where a change draws the section again, and sends the answer a press gives", async () => {
     writeFileSync(join(made.base, "asks"), "");
-    // Only the notifications of this case's requests are read.
-    await app.evaluate(`window.__notifications = []`);
+    // Only the notifications of this case's requests are read: the page's list keeps whatever a case before this one raised, and this case reads the entries after it.
+    const before = await app.evaluate<number>(`window.__notifications.length`);
     // The app starts in the background, and the page of a window without the system's focus moves no keyboard.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await app.click("#nav-inbox");
@@ -182,8 +170,8 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
     try {
       const workItemId = alpha().id;
       second.send({ type: "ask", requestId: 1, workItemId, prompt: "Push the branch, then run the tests." });
-      await app.until(`window.__notifications.length === 2`, "a notification for each request");
-      expect(await app.evaluate(`window.__notifications.map(({ title, body }) => ({ title, body }))`)).toEqual([
+      await app.until(`window.__notifications.length === ${before + 2}`, "a notification for each request");
+      expect(await app.evaluate(`window.__notifications.slice(${before}).map(({ title, body }) => ({ title, body }))`)).toEqual([
         { title: "Alpha", body: "Needs you" },
         { title: "Alpha", body: "Needs you" },
       ]);
@@ -191,7 +179,7 @@ describe("the Ask section in the built app", { timeout: 60_000 }, () => {
       const line = `#inbox-lines button[data-work-item="${workItemId}"]`;
       expect(await app.evaluate(`[document.querySelector('${line} .state-icon').classList.contains("waiting"), document.querySelector('${line} .says').textContent]`)).toEqual([true, `Asks to use Bash: ${COMMANDS[0]} (and 1 more)`]);
 
-      await app.evaluate(`window.__notifications[0].onclick()`);
+      await app.evaluate(`window.__notifications[${before}].onclick()`);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Alpha"`, "the view of Alpha at the click");
       await app.until(`document.querySelectorAll("#headless .permission").length === 2`, "the two calls in the view");
       expect(

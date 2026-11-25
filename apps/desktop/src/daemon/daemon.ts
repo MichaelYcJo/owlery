@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -82,6 +82,9 @@ import { LastLook } from "./last-look";
 import { addHeavyRun, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
 import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
+import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
+import { AgentMemoryStore, LimitsStore, type MachineReader } from "./machine";
+import { agentsProposal, capRefusal, KEEP_FREE_BYTES, panesProposal, worktreesProposal } from "../shared/machine";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -255,7 +258,7 @@ export interface DaemonOptions {
   pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`; without it the first seven are in memory alone, and no heavy command's run is kept. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the caps a person set on the machine, in `limits.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`; without it the first eight are in memory alone, and no heavy command's run is kept. */
   runDir?: string;
   /** The load average of the last minute, read at each call, or null where none is read. A daemon given none reads no load, and reads no broad gate's run as over the machine's load by its load. */
   load?: () => number | null;
@@ -269,6 +272,8 @@ export interface DaemonOptions {
   holdAwake?: HoldAwake;
   /** How the daemon turns the display on at a heavy command's start, under every choice but `never`. A daemon given none wakes nothing. */
   wakeDisplay?: WakeDisplay;
+  /** How the daemon reads the machine it runs on. A daemon given none keeps no cap, sends no `machine` and takes no `setCaps`. */
+  machine?: MachineReader;
   /** The version of Owlery this daemon is, which the workflow a setup of the records place writes fetches the check at, and which a verdict block names as the version of the rules. A daemon given none plans and sets up no records place, and writes no verdict. */
   version?: string;
   /** Where worktrees are made; `worktreesRoot` of the daemon's environment when absent. */
@@ -291,8 +296,10 @@ export interface DaemonOptions {
   sessionLogWaitMs?: number;
   /** How long the daemon waits for the processes of the panes it ended to exit, and for the headless runs it stopped to end, before it refuses what ended them where a pane's has not; 3 seconds when absent. */
   endWaitMs?: number;
-  /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. */
+  /** How long a headless session may work, from its start, before the daemon stops it; `HEADLESS_LIMIT_MS` when absent. A session that waits for the machine runs no limit until it starts. */
   headlessLimitMs?: number;
+  /** How often the daemon reads the resident memory of the agents while one lives, where it was given a reader of the machine; `MEASURE_MS` when absent. */
+  measureMs?: number;
   /** How long a refresh of an account's usage may run, from its start, before the daemon stops it; `REFRESH_LIMIT_MS` when absent. */
   refreshLimitMs?: number;
   /** How many of the headless sessions that ended the daemon keeps, apart from the ones still working; `HEADLESS_KEPT` when absent. */
@@ -379,8 +386,18 @@ interface HeadlessSession {
   chain: LedgerEntry["chain"];
   /** The account the session was launched under, by its id and its name as they stood at its start, which its entry of the ledger names, or null for a session launched under none, through an adapter that declares no accounts. */
   account: { id: number; name: string } | null;
-  /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, so that nothing ran. A session gets one entry at most. */
+  /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, and one that ended while it waited for the machine, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
+}
+
+/** How often the daemon reads the resident memory of the agents while one lives. */
+const MEASURE_MS = 60_000;
+
+/** A headless session that waits for a place under the cap on agents: what it waits as, the order it joined in, and what starts it. */
+interface QueuedSession {
+  rank: QueueRank;
+  joined: number;
+  start: () => void;
 }
 
 /** A broad gate that asked for its turn on the machine: its process once the command started, what ends its ask before then, the wait for its time limit, and what stopped it before it ended by itself, once something did, with the second half of the sentence that says so. */
@@ -424,6 +441,21 @@ export class Daemon {
   private readonly accounts: AccountStore;
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
+  // The caps a person set on the machine, what the daemon last read of the machine, where it was given a reader, and the count of the agents that run as every client was last told it.
+  private readonly limits: LimitsStore;
+  private reading: MachineReading | undefined;
+  private agentsTold = agentsKey(0, []);
+  // The headless sessions that wait for a place under the cap on agents, by their ids, how many have joined the queue in the daemon's life, which orders two that joined in one millisecond, and whether the queue is being drained, so a start the drain makes drains nothing again.
+  private readonly queued = new Map<number, QueuedSession>();
+  private queueJoins = 0;
+  private draining = false;
+  // The work items whose chain started a stage in its run, which a later stage of the run waits for the machine as.
+  private readonly chainStaged = new Set<number>();
+  // What the daemon measured of the agents' memory, where it was given a reader, and the timer of its readings.
+  private readonly memory: AgentMemoryStore | undefined;
+  private measureTimer: NodeJS.Timeout | undefined;
+  /** The measures of worktrees, one at a time: each waits for the one before it. */
+  private measuring: Promise<void> = Promise.resolve();
   // When the daemon first read each block of each work item's record in its state. The record holds no clock.
   private readonly times: RecordTimes;
   // The cost ledger: one entry for each headless session that ended and for each run of a broad gate that ended. Between two reads it holds in memory only the entries whose append failed.
@@ -500,6 +532,13 @@ export class Daemon {
     this.lastLook = new LastLook(options.runDir);
     this.fetches = new BaseFetches({ waitMs: options.baseFetchMs, freshMs: options.baseFreshMs, now: options.now });
     this.keepAwake = new KeepAwakeStore(options.runDir);
+    this.limits = new LimitsStore(options.runDir);
+    this.memory = options.machine ? new AgentMemoryStore(options.runDir) : undefined;
+    // The timer reads nothing while no agent lives (`measureAgents`), and holds no process open by itself.
+    if (this.memory) this.measureTimer = setInterval(() => void this.measureAgents(), options.measureMs ?? MEASURE_MS).unref();
+    this.readMachineNow();
+    // A worktree that stood before the daemon measured worktrees, or whose measure gave none, is measured once now.
+    for (const { item } of this.store.workItems()) if (item.worktreeSize === null) this.measureWorktree(item.id);
     this.times = new RecordTimes(options.runDir);
     this.ledger = new Ledger(options.runDir);
     // A change of the queue changes what a work item's `machineWait` says.
@@ -740,6 +779,8 @@ export class Daemon {
     clearTimeout(this.commitTimer);
     clearTimeout(this.watchTimer);
     clearTimeout(this.idleTimer);
+    clearInterval(this.measureTimer);
+    this.queued.clear();
     for (const session of this.sessions.values()) {
       clearTimeout(session.silentStart);
       this.endLog(session);
@@ -830,7 +871,10 @@ export class Daemon {
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage() });
+    // A client that connects reads the load and the free disk as they are now.
+    this.readMachineNow();
+    const machine = this.machineNow();
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}) });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -885,8 +929,8 @@ export class Daemon {
             this.commitCounts.set(stored.item.id, 0);
             if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
             this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
-            // The setup pane starts first, and the answer carries the pane the creation named.
-            this.startSetup(socket, message, stored.item.id, place.worktree, setup);
+            // The setup pane starts first, and the answer carries the pane the creation named. A worktree whose setup runs no pane is measured now, and one whose setup runs at that pane's exit.
+            if (this.startSetup(socket, message, stored.item.id, place.worktree, setup)?.state !== "running") this.measureWorktree(stored.item.id);
             const workItem = this.workItemOf(stored);
             const session = this.startSession(socket, message, workItem.worktree, workItem.id);
             this.send(socket, { type: "workItemCreated", requestId: message.requestId, workItem, session });
@@ -904,8 +948,10 @@ export class Daemon {
             checkNaming(message);
             const planned = await planWorktree({ folder: message.repo, title: message.title, name: message.name, root: this.options.worktreesRoot ?? worktreesRoot(process.env), random: this.options.random, chosenBase: this.chosenBase });
             // The files are read from the main checkout, as a creation reads them. One that cannot be read names nothing here, and a creation says why.
-            const named = await repositoryOf(message.repo).then(readSetup).catch(() => ({ include: false, command: null }));
-            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned, setupCommand: named.command, includes: named.include });
+            const repo = await repositoryOf(message.repo).catch(() => null);
+            const named = repo === null ? { include: false, command: null } : await readSetup(repo).catch(() => ({ include: false, command: null }));
+            const disk = this.planDisk(repo);
+            this.send(socket, { type: "workItemPlan", requestId: message.requestId, ...planned, setupCommand: named.command, includes: named.include, ...(disk === undefined ? {} : { disk }) });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -1480,7 +1526,7 @@ export class Daemon {
         const held = this.store.workItem(message.workItemId);
         if (worktree === undefined || held === undefined) return;
         // The answer first, so the client that asked knows the session as its own when every client is told of it.
-        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, own, (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
+        this.beginHeadless(held, { shown: message.prompt, given: message.prompt }, role, null, worktree, own, "asked", (headless) => this.send(socket, { type: "asked", requestId: message.requestId, headless }));
         return;
       }
       case "stopHeadless": {
@@ -1491,7 +1537,7 @@ export class Daemon {
         }
         // The answer first, so the client that asked knows its request was carried out when every client is told of the session.
         this.send(socket, { type: "done", requestId: message.requestId });
-        if (session.info.state === "working") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
+        if (session.info.state === "working" || session.info.state === "queued") void this.stopHeadless(session, "the session was stopped at a request before it finished", "request");
         return;
       }
       case "stopGate": {
@@ -1593,6 +1639,46 @@ export class Daemon {
         if (!this.settleHold()) this.broadcastKeepAwake();
         return;
       }
+      case "setCaps": {
+        if (!this.options.machine) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: "This daemon keeps no cap on the machine." });
+          return;
+        }
+        // Every value is read before any is taken, so a refusal changes nothing.
+        const changes: Partial<Record<Cap, number | null>> = {};
+        const before = this.limits.get();
+        for (const cap of ["agents", "worktrees", "panes"] as const) {
+          const value: unknown = message[cap];
+          if (value === undefined) continue;
+          const refusal = value === null ? null : capRefusal(cap, value);
+          if (refusal !== null) {
+            this.send(socket, { type: "error", requestId: message.requestId, message: refusal });
+            return;
+          }
+          if (value !== before[cap]) changes[cap] = value as number | null;
+        }
+        if (Object.keys(changes).length > 0) {
+          try {
+            this.limits.set(changes);
+          } catch (error) {
+            // The caps are held in memory whether or not they were written.
+            console.error(`the caps on the machine were not written: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        this.send(socket, { type: "done", requestId: message.requestId });
+        if (Object.keys(changes).length > 0) {
+          // A cap that rose starts the sessions that waited for it first, so the machine every client is told holds them as running.
+          this.drainQueue();
+          this.broadcastMachine();
+        }
+        return;
+      }
+      case "readMachine": {
+        this.readMachineNow();
+        const machine = this.machineNow();
+        if (machine) this.send(socket, { type: "machine", machine });
+        return;
+      }
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -1658,13 +1744,13 @@ export class Daemon {
     return this.accounts.setLogin(account.id, status);
   }
 
-  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a working headless session, and a refresh of its usage. */
+  /** What runs under an account now, each as a person reads it: a live pane, its sign-in pane among them, a headless session that works or waits for the machine, and a refresh of its usage. */
   private runningUnder(id: number): string[] {
     const titleOf = (workItemId: number | null): string => (workItemId === null ? "" : (this.store.workItem(workItemId)?.item.title ?? ""));
     const panes = [...this.sessions.values()]
       .filter(({ info }) => info.alive && info.accountId === id)
       .map(({ info }) => (info.signsIn === id ? "its sign-in pane" : `the ${this.options.paneKinds.find((offered) => offered.kind === info.kind)?.label ?? info.kind} pane in "${titleOf(info.workItemId)}"`));
-    const headless = [...this.headless.values()].filter(({ info }) => info.state === "working" && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
+    const headless = [...this.headless.values()].filter(({ info }) => (info.state === "working" || info.state === "queued") && info.accountId === id).map(({ info }) => `a session asked in "${titleOf(info.workItemId)}"`);
     return [...panes, ...headless, ...(this.refreshes.get(id)?.state === "running" ? ["a refresh of its usage"] : [])];
   }
 
@@ -1936,11 +2022,11 @@ export class Daemon {
   /** The base a person chose for the new work items of the repository a folder names, or null where the daemon keeps no such repository or the person chose none. */
   private readonly chosenBase = (repo: string): string | null => this.store.repositories().find((repository) => repository.folder === repo)?.defaultBase ?? null;
 
-  /** The running sessions of the work items given: the panes whose process is alive, and the headless sessions that are working. */
+  /** The running sessions of the work items given: the panes whose process is alive, and the headless sessions that are working or wait for the machine. */
   private runningIn(workItemIds: ReadonlySet<number>): { panes: Session[]; headless: HeadlessSession[] } {
     return {
       panes: [...this.sessions.values()].filter(({ info }) => info.alive && info.workItemId !== null && workItemIds.has(info.workItemId)),
-      headless: [...this.headless.values()].filter(({ info }) => info.state === "working" && workItemIds.has(info.workItemId)),
+      headless: [...this.headless.values()].filter(({ info }) => (info.state === "working" || info.state === "queued") && workItemIds.has(info.workItemId)),
     };
   }
 
@@ -2030,7 +2116,9 @@ export class Daemon {
    * Ends the running sessions of the work items given, for a request that
    * carries the sessions the person was told of. Where a session runs that
    * `told` does not name, it refuses and ends none. Otherwise it kills each
-   * pane's process and stops each headless run, which is then `failed` with
+   * pane's process and stops each headless session, those that wait for the
+   * machine first, so a place one that works frees starts none of them, and
+   * each is then `failed` with
    * the error `why` and stopped at a request, ends the command of a broad
    * gate that runs for one of them, whose stage then fails with `why`, and
    * waits until each pane's process has exited and each headless run and
@@ -2042,7 +2130,9 @@ export class Daemon {
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
-    const stops = headless.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
+    // The queued sessions leave the queue first, so a place a working one frees never goes to a session this end is about to stop.
+    const ordered = [...headless].sort((a, b) => Number(b.info.state === "queued") - Number(a.info.state === "queued"));
+    const stops = ordered.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
     // A broad gate is no session the person was told of by its id: it is the chain's, and it ends with the work item's sessions.
     for (const id of workItemIds) {
       const stopping = this.stopGate(id, "request", `the command was ${why}`);
@@ -2063,12 +2153,15 @@ export class Daemon {
   }
 
   /**
-   * Stops a working headless session: it stops its run, and the session is
+   * Stops a headless session that works or waits for the machine: it stops its run, and the session is
    * `failed` with the error `why` and says what stopped it. It gives the
    * promise of the run's end, and nothing where the adapter is still
-   * starting, whose run is stopped once it has started.
+   * starting, whose run is stopped once it has started. A session that
+   * waits for the machine leaves the queue with no run to stop, and gets no
+   * entry in the ledger, since nothing ran.
    */
   private stopHeadless(session: HeadlessSession, why: string, stopped: "limit" | "request"): Promise<void> | undefined {
+    if (session.info.state === "queued") session.entered = true;
     const stopping = session.run?.stop();
     session.info.state = "failed";
     session.info.error = why;
@@ -2168,7 +2261,11 @@ export class Daemon {
    * grant are one for both. `prompt.given` is what the agent is given and
    * `prompt.shown` what the session lists as its prompt. `first` is called
    * with the session before any client is told of it, for the answer to the
-   * client that asked. The session keeps the repository's folder and the
+   * client that asked. Where the daemon keeps a cap on agents and the
+   * agents that run are at it or over it, the session is listed `queued`
+   * as `rank`, with no limit and no run, and `started` is called with it
+   * once a place frees and it starts (`drainQueue`): its limit and its
+   * `startedAt` count from there. The session keeps the repository's folder and the
    * branch as the store holds them now, and `chain`, the kind and the round
    * of the chain's stage it begins for or null for an `ask`, which its entry
    * of the ledger names. It runs under the account `accountFor` gives now
@@ -2179,7 +2276,7 @@ export class Daemon {
    * account and names none in its entry, and its limit values are kept as
    * System default's.
    */
-  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, own: number | null, first?: (info: HeadlessInfo) => void): HeadlessSession {
+  private beginHeadless({ item, repository }: Held, prompt: { shown: string; given: string }, role: RoleStage | null, chain: LedgerEntry["chain"], worktree: string, own: number | null, rank: QueueRank, first?: (info: HeadlessInfo) => void, started?: (info: HeadlessInfo) => void): HeadlessSession {
     let end = (): void => {};
     const ended = new Promise<void>((resolve) => {
       end = resolve;
@@ -2207,11 +2304,35 @@ export class Daemon {
       account: accountId === null ? null : { id: accountId, name: account?.name ?? SYSTEM_DEFAULT_NAME },
       entered: false,
     };
-    session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
+    const start = (): void => {
+      session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
+      this.startHeadless(session, worktree, accountDir);
+    };
+    const cap = this.agentsCap();
+    // The count is read before the session is listed: it is listed as working, and would count itself.
+    const full = cap !== null && this.agentsRunning() >= cap;
     this.headless.set(session.info.id, session);
+    if (full) {
+      session.info.state = "queued";
+      session.info.queuedAt = session.info.startedAt;
+      this.queued.set(session.info.id, {
+        rank,
+        joined: this.queueJoins++,
+        start: () => {
+          session.info.state = "working";
+          session.info.startedAt = (this.options.now ?? Date.now)();
+          start();
+          this.headlessChanged(session);
+          started?.(session.info);
+        },
+      });
+      first?.(session.info);
+      this.headlessChanged(session);
+      return session;
+    }
     first?.(session.info);
     this.headlessChanged(session);
-    this.startHeadless(session, worktree, accountDir);
+    start();
     return session;
   }
 
@@ -2219,19 +2340,24 @@ export class Daemon {
    * Sends every client one headless session whole, after it changed. A
    * session that has just ended no longer waits for its limit and gets its
    * entry in the ledger, and where more sessions have ended than the daemon
-   * keeps, the one that ended first leaves the list and every client is told. A session that is no longer
-   * working waits for no answer, so the requests it held end unanswered, and
-   * every client is sent the lists without them.
+   * keeps, the one that ended first leaves the list and every client is told. A session that ended
+   * waits for no answer, so the requests it held end unanswered, and every
+   * client is sent the lists without them. A session that waits for the
+   * machine has not ended. The count and the queue are told after it.
    */
   private headlessChanged(session: HeadlessSession): void {
     this.broadcast({ type: "headless", headless: session.info });
-    if (session.info.state !== "working" && session.asks.size > 0) {
+    // A session that works or waits for the machine has not ended.
+    const { state } = session.info;
+    const ended = state === "finished" || state === "failed";
+    if (ended && session.asks.size > 0) {
       session.asks.clear();
       this.broadcastInbox();
     }
-    if (session.info.state !== "working" && !this.endedHeadless.has(session.info.id)) {
+    if (ended && !this.endedHeadless.has(session.info.id)) {
+      this.queued.delete(session.info.id);
       clearTimeout(session.limit);
-      this.enter(session, session.info.state, session.info.stopped);
+      this.enter(session, state, session.info.stopped);
       session.end();
       this.endedHeadless.add(session.info.id);
       const kept = this.options.keptHeadless ?? HEADLESS_KEPT;
@@ -2243,6 +2369,7 @@ export class Daemon {
       }
     }
     this.settleHold();
+    this.agentsCounted();
     this.checkIdle();
   }
 
@@ -2423,7 +2550,51 @@ export class Daemon {
     } catch (error) {
       console.error(`the end of a setup was not written: ${error instanceof Error ? error.message : String(error)}`);
     }
+    this.measureWorktree(workItemId);
     return true;
+  }
+
+  /**
+   * Measures a work item's worktree with the reader's `sizeOf`, after the
+   * measures asked before it, where the daemon was given a reader and the
+   * work item has no size, and keeps the size with the work item and tells
+   * every client the machine. A measure that gives none keeps none, and the
+   * next daemon measures the worktree again. A daemon that closed measures
+   * and keeps nothing. The store holds the size whether or not its file was
+   * written: a measure has no request to answer with the error.
+   */
+  private measureWorktree(workItemId: number): void {
+    const { machine } = this.options;
+    if (!machine) return;
+    this.measuring = this.measuring
+      .then(async () => {
+        const held = this.store.workItem(workItemId);
+        if (this.closed || !held || held.item.worktreeSize !== null) return;
+        const kilobytes = await machine.sizeOf(held.item.worktree);
+        if (this.closed || kilobytes === null) return;
+        try {
+          this.store.setWorkItem(workItemId, { worktreeSize: { kilobytes, measuredAt: (this.options.now ?? Date.now)() } });
+        } catch (error) {
+          console.error(`the size of a worktree was not written: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        this.broadcastMachine();
+      })
+      .catch((error: unknown) => console.error(`a worktree was not measured: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /** The largest worktree measured, in bytes, of the repository whose main checkout is `folder`, or of every repository where none is named; null where none is measured. */
+  private largestWorktree(folder?: string): number | null {
+    const sizes = this.store.workItems().flatMap(({ repository, item }) => (item.worktreeSize === null || (folder !== undefined && repository.folder !== folder) ? [] : [item.worktreeSize.kilobytes * 1024]));
+    return sizes.length === 0 ? null : Math.max(...sizes);
+  }
+
+  /** What a plan in the repository whose main checkout is `repo` carries of the room its worktree would take, with the disk read anew; none where the daemon was given no reader or read no disk. */
+  private planDisk(repo: string | null): PlanDisk | undefined {
+    this.readMachineNow();
+    const machine = this.machineNow();
+    if (!machine?.reading.disk) return undefined;
+    const { standing, set, proposed } = machine.worktrees;
+    return { freeBytes: machine.reading.disk.freeBytes, keepFreeBytes: KEEP_FREE_BYTES, needsBytes: repo === null ? null : this.largestWorktree(repo), standing, cap: set ?? proposed };
   }
 
   /**
@@ -2604,8 +2775,10 @@ export class Daemon {
   /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
+    // The size of its worktree is the daemon's, which a plan carries as what the repository's next worktree needs.
+    const { worktreeSize: _size, ...shown } = item;
     return {
-      ...item,
+      ...shown,
       repoId: repository.id,
       repo: repository.folder,
       repoName: repository.name ?? basename(repository.folder),
@@ -2965,6 +3138,7 @@ export class Daemon {
       rest("stopped", error instanceof StageStopped ? said : chainStoppedSays(said));
     } finally {
       this.chains.delete(workItemId);
+      this.chainStaged.delete(workItemId);
       if (!this.closed) {
         this.settleHold();
         this.checkIdle();
@@ -3029,8 +3203,18 @@ export class Daemon {
     const held = this.store.workItem(workItemId);
     const before = held?.item.chain;
     if (!held || !before) throw new ChainStop("the daemon no longer keeps the work item");
-    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null);
-    const working: ChainStage = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
+    // A chain's first stage waits for the machine after a stage of a chain that already ran one in its run.
+    const rank: QueueRank = this.chainStaged.has(workItemId) ? "running-chain" : "first-stage";
+    this.chainStaged.add(workItemId);
+    // The stage as the chain lists it. Where the session waited for the machine, its start replaces the stage with one whose `startedAt` is the start's.
+    let working!: ChainStage;
+    const session = this.beginHeadless(held, { shown: prompt.shown, given: promptText(prompt) }, role, { kind, round }, worktree, null, rank, undefined, (info) => {
+      const chain = this.store.workItem(workItemId)?.item.chain;
+      const was = working;
+      working = { ...was, startedAt: info.startedAt };
+      if (chain) this.chainSet(workItemId, { ...chain, stages: chain.stages.map((stage) => (stage === was ? working : stage)) });
+    });
+    working = { kind, round, state: "working", failure: null, startedAt: session.info.startedAt, endedAt: null, headlessId: session.info.id, refusals: 0, gate: null };
     this.chainSet(workItemId, { ...before, says: runningSays(kind, round), stages: [...before.stages, working].slice(-CHAIN_STAGES_KEPT) });
     await Promise.race([session.ended, this.closes]);
     // The stage's process is ended before the next stage starts, and before the daemon reads or commits what the stage left.
@@ -3047,9 +3231,10 @@ export class Daemon {
         failure = (error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "");
       }
     }
-    const ended: ChainStage = { ...working, state: failure === null ? "finished" : "failed", failure, endedAt: (this.options.now ?? Date.now)(), refusals: session.refusals.length };
+    const listed = working;
+    const ended: ChainStage = { ...listed, state: failure === null ? "finished" : "failed", failure, endedAt: (this.options.now ?? Date.now)(), refusals: session.refusals.length };
     const chain = this.store.workItem(workItemId)?.item.chain;
-    if (chain) this.chainSet(workItemId, { ...chain, stages: chain.stages.map((stage) => (stage === working ? ended : stage)) });
+    if (chain) this.chainSet(workItemId, { ...chain, stages: chain.stages.map((stage) => (stage === listed ? ended : stage)) });
     if (left === undefined) throw new StageStopped(stoppedSays(kind, round, failure ?? "the session failed"));
     return left.gave;
   }
@@ -3614,6 +3799,7 @@ export class Daemon {
     this.broadcast({ type: "inbox", ...this.lists() });
     // Every change of a pane's `alive` or `state` ends here.
     this.settleHold();
+    this.agentsCounted();
   }
 
   private keepAwakeNow(): KeepAwake {
@@ -3622,6 +3808,135 @@ export class Daemon {
 
   private broadcastKeepAwake(): void {
     this.broadcast({ type: "keepAwake", keepAwake: this.keepAwakeNow() });
+  }
+
+  /** Reads the machine, the disk of the worktrees' folder among it, where the daemon was given a reader. */
+  private readMachineNow(): void {
+    this.reading = this.options.machine?.read(this.options.worktreesRoot ?? worktreesRoot(process.env));
+  }
+
+  /** The agents that run: the live panes of a kind that reports its state, and the headless sessions that are working. */
+  private agentsRunning(): number {
+    const reports = (kind: string): boolean => this.options.paneKinds.some((offered) => offered.kind === kind && offered.reportsState);
+    return [...this.sessions.values()].filter(({ info }) => info.alive && reports(info.kind)).length + [...this.headless.values()].filter(({ info }) => info.state === "working").length;
+  }
+
+  /** The measures of the agents' memory the proposal reads, in bytes. */
+  private measuredBytes(): number[] {
+    return (this.memory?.kilobytes() ?? []).map((kilobytes) => kilobytes * 1024);
+  }
+
+  /** The cap on agents: the one a person set, or else its proposal, and none where the daemon was given no reader. */
+  private agentsCap(): number | null {
+    const reading = this.reading;
+    if (reading === undefined) return null;
+    return this.limits.get().agents ?? agentsProposal(reading, this.measuredBytes()).proposed;
+  }
+
+  /** The ids of the sessions that wait for the machine, in the order they start (`agent-queue.ts#queueOrder`). */
+  private queueNow(): number[] {
+    return queueOrder([...this.queued].map(([id, { rank, joined }]) => ({ id, rank, joined })));
+  }
+
+  /** Starts the sessions that wait for the machine, the first in the queue first, while the agents that run leave a place under the cap. A start drains nothing again. */
+  private drainQueue(): void {
+    const cap = this.agentsCap();
+    if (this.draining || cap === null || this.closed) return;
+    this.draining = true;
+    try {
+      for (;;) {
+        const [next] = this.queueNow();
+        const waiting = next === undefined ? undefined : this.queued.get(next);
+        if (next === undefined || waiting === undefined || placesFree(this.agentsRunning(), cap) === 0) break;
+        this.queued.delete(next);
+        waiting.start();
+      }
+    } finally {
+      this.draining = false;
+    }
+  }
+
+  /**
+   * Reads the resident memory of each agent's own process, with one call of
+   * the reader for all of them: a live pane of a kind that reports its
+   * state, by its process, and a working headless session whose adapter
+   * handed over its process. The store forgets every agent that no longer
+   * lives. Where no agent lives it reads nothing. The store keeps each agent's highest. Where
+   * the measures changed, every client is told the machine, and a proposal
+   * that rose starts the sessions that waited for it.
+   */
+  private async measureAgents(): Promise<void> {
+    const reader = this.options.machine;
+    const memory = this.memory;
+    if (!reader || !memory) return;
+    const reports = (kind: string): boolean => this.options.paneKinds.some((offered) => offered.kind === kind && offered.reportsState);
+    const agents = new Map<number, string>();
+    for (const { info, terminal } of this.sessions.values()) if (info.alive && reports(info.kind)) agents.set(terminal.pid, `pane-${String(info.id)}`);
+    for (const { info, run } of this.headless.values()) if (info.state === "working" && run?.pid !== undefined) agents.set(run.pid, `headless-${String(info.id)}`);
+    // The agents that no longer live are forgotten before the early return, so the last one is forgotten once none lives.
+    memory.keepLiving(new Set(agents.values()));
+    if (agents.size === 0) return;
+    let read: Map<number, number>;
+    try {
+      read = await reader.memoryOf([...agents.keys()]);
+    } catch (error) {
+      console.error(`the agents' memory was not read: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (this.closed) return;
+    let changed = false;
+    for (const [pid, kilobytes] of read) {
+      const agent = agents.get(pid);
+      if (agent === undefined || kilobytes <= 0) continue;
+      try {
+        if (memory.note(agent, kilobytes)) changed = true;
+      } catch (error) {
+        // The measure is held in memory whether or not it was written.
+        changed = true;
+        console.error(`the agents' memory was not written: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    if (!changed) return;
+    this.broadcastMachine();
+    this.agentsCounted();
+  }
+
+  /**
+   * The machine as the daemon last read it, with each cap's proposal and the
+   * value a person set, or nothing where the daemon was given no reader. A
+   * worktree stands for each work item the daemon keeps, the archived among
+   * them, whose folder an archive leaves in place.
+   */
+  private machineNow(): Machine | undefined {
+    const reading = this.reading;
+    if (reading === undefined) return undefined;
+    const set = this.limits.get();
+    const standing = this.store.workItems().length;
+    const perWorktreeBytes = this.largestWorktree();
+    return {
+      reading,
+      agents: { ...agentsProposal(reading, this.measuredBytes()), set: set.agents, running: this.agentsRunning(), queue: this.queueNow() },
+      worktrees: { proposed: worktreesProposal(reading, standing, perWorktreeBytes), set: set.worktrees, standing, perWorktreeBytes, keepFreeBytes: KEEP_FREE_BYTES },
+      panes: { proposed: panesProposal(reading), set: set.panes },
+    };
+  }
+
+  private broadcastMachine(): void {
+    const machine = this.machineNow();
+    if (!machine) return;
+    this.agentsTold = agentsKey(machine.agents.running, machine.agents.queue);
+    this.broadcast({ type: "machine", machine });
+  }
+
+  /**
+   * After the agents that run or wait may have changed: starts the sessions
+   * the cap now has a place for, and tells every client the machine where the count of the agents that
+   * run, or the queue, is not the one they were last told.
+   */
+  private agentsCounted(): void {
+    if (this.reading === undefined) return;
+    this.drainQueue();
+    if (agentsKey(this.agentsRunning(), this.queueNow()) !== this.agentsTold) this.broadcastMachine();
   }
 
   /**
@@ -3907,4 +4222,9 @@ export class Daemon {
     if (busy || !this.options.onIdle) return;
     this.idleTimer = setTimeout(() => this.options.onIdle?.(), this.options.idleExitMs ?? 60_000);
   }
+}
+
+/** What every client was last told of the agents: how many run, and the queue in its order. */
+function agentsKey(running: number, queue: readonly number[]): string {
+  return `${String(running)}|${queue.join(",")}`;
 }

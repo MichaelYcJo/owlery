@@ -13,6 +13,7 @@ import { carriedIn, writePaneChain, writeRunner } from "./pane-chain";
 import { Daemon } from "./daemon";
 import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
 import { holdAwakeFor, wakeDisplayFor } from "./keep-awake";
+import { type MachineReader, readMachine } from "./machine";
 import { TURN_SOCKET, TurnServer } from "./turn-socket";
 import { PANE_KINDS } from "./pane-kinds";
 
@@ -25,8 +26,16 @@ async function main(): Promise<void> {
     console.error("OWLERY_RUN_DIR is not set");
     process.exit(2);
   }
+  // The machine is read once here, before anything is made, and a reading `OWLERY_MACHINE` holds that is none stops the start.
+  let machine: MachineReader;
+  try {
+    machine = readMachine(process.env);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
+  }
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
-  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the runner of heavy commands every pane names and the turn socket it asks on, the settings file of each pane that carries it under the person's choice, and under `chain/` what the chain command hands a pane's session.
+  // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the caps a person set on the machine, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the runner of heavy commands every pane names and the turn socket it asks on, the settings file of each pane that carries it under the person's choice, and under `chain/` what the chain command hands a pane's session.
   // ~/.claude is never written.
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
   const token = randomBytes(32).toString("hex");
@@ -56,7 +65,7 @@ async function main(): Promise<void> {
 
   const daemon = new Daemon({
     token,
-    // The repositories with their work items, the last look, the choice of when to keep the Mac awake, the times each block of a work item's record was first read at, the cost ledger and the runs of heavy commands sit beside the discovery file, and outlive this process.
+    // The repositories with their work items, the last look, the choice of when to keep the Mac awake, the caps a person set on the machine, the times each block of a work item's record was first read at, the cost ledger and the runs of heavy commands sit beside the discovery file, and outlive this process.
     runDir,
     // The workflow a setup of the records place writes fetches the pull request check at this version's tag.
     version: OWLERY_VERSION,
@@ -64,6 +73,8 @@ async function main(): Promise<void> {
     holdAwake: process.platform === "darwin" ? holdAwakeFor(process.pid) : undefined,
     // A heavy command's start turns the display on, through the same program.
     wakeDisplay: process.platform === "darwin" ? wakeDisplayFor() : undefined,
+    // The machine's memory, cores and disk, from which the daemon proposes its caps, or the reading `OWLERY_MACHINE` holds in their place.
+    machine,
     // The kinds a client may open; `commandFor` gives each its command.
     paneKinds: PANE_KINDS,
     // A Claude Code pane carries the owl chain where the folder it opens in holds Owlery's workflow, read at each launch. Where the pane's Claude Code enables the AgenticSeal plugin there, under the config folder of the pane's account, it carries the chain under the person's answer for the repository alone, with a settings file of its own that keeps the plugin out.

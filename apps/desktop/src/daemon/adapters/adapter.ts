@@ -30,6 +30,8 @@ export interface RoleRun {
    * the process has exited, and a second call returns the same promise.
    */
   stop(): Promise<void>;
+  /** The id of the agent's own process, which the daemon reads the resident memory of, or none where the adapter runs no process of its own, as the fake adapter does. */
+  readonly pid?: number;
   /** Answers the request `id`: the call runs, or the agent is told `reason`. An id the run does not wait on is ignored. */
   answer(id: string, answer: { allow: true } | { allow: false; reason: string }): void;
 }
