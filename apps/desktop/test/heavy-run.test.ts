@@ -115,7 +115,8 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const [item] = stood.workItems as [(typeof stood.workItems)[number]];
     const out = stood.made.base;
     // The shell starts a child that holds 64 MiB until the case has seen a reading of the memory find it, so no reading's time decides the case. A case that fails before then removes `$OUT` at its cleanup, which ends the hold.
-    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(600)" & while [ -d "$OUT" ] && [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
+    // The 64 MiB are random and the child writes a byte of each page every 50 ms, so memory pressure finds them neither compressible nor idle, and the resident size the runner reads stays above 64 MiB. Zeroed pages left idle were compressed away within a second on such a machine (#245).
+    naming(item.worktree, { hold: `python3 -c "import os, time; b = bytearray(os.urandom(64 * 1024 * 1024)); n = len(b[::4096])\nwhile True: b[::4096] = os.urandom(n); time.sleep(0.05)" & while [ -d "$OUT" ] && [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
     const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
     cleanups.push(() => server.close());
     const asked = Date.now();
