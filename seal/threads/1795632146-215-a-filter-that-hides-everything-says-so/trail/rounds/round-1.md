@@ -45,6 +45,11 @@ The fix registers a third repository in the last case and hides it before the ca
     expect(await value<string[]>(`[...document.querySelectorAll('${SIDEBAR} > *')].map((element) => element.id)`)).toEqual(["sidebar-empty", "show-every", "hidden-repositories"]);
 ```
 
+```seal
+verdict: fixed 47b92bd1
+answer: The paste-ready fix was read against `frame/design.md` *Scope* item 3 and `sidebar.ts#showSidebar`, and was applied as written: the last case registers `aside`, hides it from its menu before it counts the rows, and reads `["sidebar-empty", "show-every", "hidden-repositories"]`. It adds no unit, since `aside` and `asideId` are read by the tests alone. The file's header comment now says that the sentence stands above the button of a repository the sidebar hides. The comment over `kept` and `lone` and the case's name stay true, so neither changed. The case was seen red with the order swapped: `seal mutate src/renderer/sidebar.ts --replace "    repositories.append(hidden);" "    repositories.prepend(hidden);" --tests "node scripts/test-in-electron.mjs test/work-item-menu.test.ts -t 'says in the sidebar, after a delete'"` gave `red`, failing at `work-item-menu.test.ts:1167` with `expected [ 'hidden-repositories', …(2) ] to deeply equal [ 'sidebar-empty', 'show-every', …(1) ]`. After that, `node scripts/test-in-electron.mjs test/work-item-menu.test.ts` ran the file whole once at `47b92bd1`: 31 passed. `de6f3416` puts back one space that the edit lost in `const rows = (`. `git diff -w` of that commit prints nothing, so the run was not repeated. `0d3f65da` closes the row of `gaps.md` *Not verified* on the file's whole run.
+```
+
 ## Confirmations
 
 What matched: *Scope* item 1. `view.ts#filterMark` answers `{ on, says }`: on where a search is typed or a state other than All is chosen, saying `Showing: <label>` and `, matching "<query>"` where a search is typed. `sidebar.ts#showSidebar` takes the class and the title from it, and `git grep -n -F -e 'toggle("on", held.filter' -e 'Showing: ${' -- apps/desktop/src/renderer/sidebar.ts` prints nothing, as the scenario "The colour-only mark is gone" asks (executed).
