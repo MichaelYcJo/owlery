@@ -719,7 +719,7 @@ export interface HeadlessInfo {
   usage: Usage | null;
   /** When the session started its run, by the daemon's clock. While it is `queued` it is the time it joined the queue, and its start sets it again. */
   startedAt: number;
-  /** When the session joined the queue of the agents, or null for one that never waited. A daemon of an earlier build sends no such field. */
+  /** When the session joined the queue of the agents. The daemon sends it only on a session that waited, and leaves it out of one that never waited, as a daemon of an earlier build leaves it out of every session. */
   queuedAt?: number | null;
   /** The last of what the agent's process printed on its error stream, once the process has exited; empty until then and where it printed nothing there. */
   errorOutput: string;
