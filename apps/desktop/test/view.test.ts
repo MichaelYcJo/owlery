@@ -2919,6 +2919,8 @@ describe("planLine", () => {
   it("says that a picked local branch is checked out, and a remote's branch as a local branch of its name that tracks it, or as the local branch of that name where one stands", () => {
     const words = (picked: string) => planLine(PLAN, "/r/project", picked).branch.map(({ text, fact }) => (fact ? `[${text}]` : text)).join("");
     expect(words("main")).toBe("Checks out [main].");
+    // A local branch's name may hold a slash, as a remote's branch's does.
+    expect(words("owlery/fix-the-login-bug")).toBe("Checks out [owlery/fix-the-login-bug].");
     expect(words("origin/release")).toBe("Checks out [release], tracking [origin/release].");
     expect(words("origin/main")).toBe("Checks out [main].");
   });

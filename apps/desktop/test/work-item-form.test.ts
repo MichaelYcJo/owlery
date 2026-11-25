@@ -2,12 +2,15 @@
 // background, on a temporary clone, and drives the form through Electron's
 // debugging port: the name the window generates, the branch and the base the
 // daemon's plan gives, what the form says of the fetch of a remote's branch,
-// a creation from a base the person chose, the setup a repository names,
+// a creation from a base the person chose, which adds no branch, and how the
+// window draws the work item it made with no branch, a creation on a local
+// branch the person picked, and a branch a worktree holds, which the form
+// offers disabled with that worktree's folder, the setup a repository names,
 // from the form to the work item's view, and the folder the Browse button
 // asks for, which a background start answers with none. Its remote is a
 // folder beside the clone, and then a stand-in that never answers, so nothing
 // reaches the network.
-import { renameSync, rmSync, writeFileSync } from "node:fs";
+import { realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FIRST_WORDS, SECOND_WORDS } from "../src/shared/names";
@@ -31,6 +34,18 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
 
   const text = (id: string): Promise<string> => app.evaluate<string>(`document.getElementById(${JSON.stringify(id)}).textContent`);
   const shows = (branch: string): Promise<void> => app.until(`document.getElementById("work-item-branch").textContent === ${JSON.stringify(branch)}`, `the branch ${branch} in the form`);
+  /** What the form says under the name of a creation with no branch picked, whose branch the plan names. */
+  const later = (branch: string): string => `No branch yet. The first commit or a rename makes ${branch}.`;
+  /** The options of the "Branch" menu, each as its value, its label and whether it is disabled, under its group's label. */
+  const branchOptions = (): Promise<string[]> =>
+    app.evaluate<string[]>(`[...document.getElementById("work-item-branch-menu").children].flatMap((child) => child.tagName === "OPTGROUP" ? [...child.children].map((option) => child.label + ": " + option.value + " | " + option.label + (option.disabled ? " | disabled" : "")) : [child.value + " | " + child.label])`);
+  /** Picks a branch in the "Branch" menu, as the system's menu sets it. */
+  const pick = (branch: string): Promise<unknown> => app.evaluate(`(() => { const menu = document.getElementById("work-item-branch-menu"); menu.value = ${JSON.stringify(branch)}; menu.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+  /** The local branches of the clone, each with the commit it is at. */
+  const branches = (): string => git(clone.repo, "for-each-ref", "refs/heads");
+  /** The typeface an element is drawn in, and the one the theme's sans and fixed-width faces give, read from the page. */
+  const faceOf = (selector: string): Promise<string> => app.evaluate<string>(`getComputedStyle(document.querySelector(${JSON.stringify(selector)})).fontFamily`);
+  const face = (token: "--font-ui" | "--font-mono"): Promise<string> => app.evaluate<string>(`(() => { const probe = document.createElement("span"); probe.style.fontFamily = "var(${token})"; document.body.append(probe); const family = getComputedStyle(probe).fontFamily; probe.remove(); return family; })()`);
   /** Waits until the paragraph under "Starts from" reads `sentence`. */
   const says = (sentence: string, ms?: number): Promise<void> => app.until(`document.getElementById("work-item-base-state").textContent === ${JSON.stringify(sentence)}`, `"${sentence}" under "Starts from"`, ms);
   const remoteMain = (): string => git(clone.repo, "rev-parse", "refs/remotes/origin/main").trim();
@@ -39,7 +54,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     const name = await app.evaluate<string>(`document.getElementById("work-item-title").placeholder`);
-    await app.until(`[${JSON.stringify(`owlery/${name}`)}, ${JSON.stringify(`owlery/${name}-2`)}].includes(document.getElementById("work-item-branch").textContent)`, "the branch of the new opening's name");
+    await app.until(`[${JSON.stringify(later(`owlery/${name}`))}, ${JSON.stringify(later(`owlery/${name}-2`))}].includes(document.getElementById("work-item-branch").textContent)`, "the branch of the new opening's name");
     return { name, worktree: await text("work-item-worktree") };
   };
   /** The commit a worktree's HEAD stands at. A creation with no branch picked leaves it detached at the base. */
@@ -74,7 +89,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     clone?.remove();
   }, 30_000);
 
-  it("offers a generated name, and shows the branch it gives and the remote's default branch as the base", async () => {
+  it("offers a generated name, and shows the branch it gives, the remote's default branch as the base, and no branch picked in the Branch menu, which disables the branch the main checkout holds", async () => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     expect(await app.evaluate<string>(`document.getElementById("work-item-title").labels[0].firstChild.textContent.trim()`)).toBe("Name");
@@ -97,8 +112,10 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
 
     await app.evaluate(`document.getElementById("work-item-repo").select()`);
     await app.cdp("Input.insertText", { text: clone.repo });
-    await shows(`owlery/${generated}`);
+    await shows(later(`owlery/${generated}`));
     expect(await app.evaluate<boolean>(`document.getElementById("work-item-plan").classList.contains("failed")`)).toBe(false);
+    // The branch's name is set apart from the words around it.
+    expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#work-item-branch .fact")].map((name) => name.textContent)`)).toEqual([`owlery/${generated}`]);
     expect(await text("work-item-worktree")).toBe(join(clone.root, "project", generated));
     // The checkout stands on `feature`, and the work item starts from the remote's `main`.
     expect(await app.evaluate<string>(`document.getElementById("work-item-base").value`)).toBe("origin/main");
@@ -107,6 +124,11 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
       "origin/main",
       "Local: feature main",
     ]);
+    // The Branch menu stands under the base, with no branch picked.
+    expect(await app.evaluate<string>(`document.getElementById("work-item-branch-menu").labels[0].firstChild.textContent.trim()`)).toBe("Branch");
+    expect(await app.evaluate<boolean[]>(`[document.getElementById("work-item-branch-field").hidden, document.getElementById("work-item-branch-menu").disabled]`)).toEqual([false, false]);
+    expect(await app.evaluate<string>(`document.getElementById("work-item-branch-menu").value`)).toBe("");
+    expect(await branchOptions()).toEqual([" | No branch yet", `Local: feature | feature, checked out in ${realpathSync(clone.repo)} | disabled`, "Local: main | main", "Remote: origin/main | origin/main"]);
   });
 
   it("fetches the remote's branch the menu holds, and says the commit it is at", async () => {
@@ -125,28 +147,68 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     laterCommit = commitFile(clone.origin, "later.txt");
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Fix login" });
-    await shows("owlery/fix-login");
+    await shows(later("owlery/fix-login"));
     expect(await text("work-item-worktree")).toBe(join(clone.root, "project", "fix-login"));
     // The plan of the new name lists the same base, which the form asked for once since it opened.
     expect(await text("work-item-base-state")).toBe(`Fetched: origin/main is at ${remoteCommit.slice(0, 7)}.`);
     expect(remoteMain()).toBe(remoteCommit);
   });
 
-  it("creates a work item named by the generated name, from the base the person chose", async () => {
+  it("creates a work item named by the generated name, from the base the person chose, with no branch: the clone gains none, and the window says No branch yet in the sans in the preview and the view's head, with no seal and no pull request section", async () => {
     // The name is emptied with a key, as a person empties it.
     await app.evaluate(`document.getElementById("work-item-title").select()`);
     await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: 8, code: "Backspace", key: "Backspace" });
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: 8, code: "Backspace", key: "Backspace" });
     expect(await app.evaluate<string>(`document.getElementById("work-item-title").value`)).toBe("");
-    await shows(`owlery/${generated}`);
+    await shows(later(`owlery/${generated}`));
     // The two menus are the system's own, which the debugging port does not reach, so each choice is set on its field.
     await app.evaluate(`(() => { const menu = document.getElementById("work-item-base"); menu.value = "feature"; menu.dispatchEvent(new Event("change", { bubbles: true })); })()`);
     // A local branch is fetched from nowhere, so the form says nothing under the menu.
     expect(await text("work-item-base-state")).toBe("");
+    const before = branches();
     await create(generated);
     await app.until(`document.querySelectorAll(".xterm-helper-textarea").length === 1`, "the work item's view with one terminal");
     expect(headOf(join(clone.root, "project", generated))).toBe(featureCommit);
     expect(featureCommit).not.toBe(remoteMain());
+    expect(branches()).toBe(before);
+    expect(git(join(clone.root, "project", generated), "branch", "--show-current").trim()).toBe("");
+
+    // The window draws the work item with no branch: the words in the sans and the muted ink where a branch's name stands in the fixed-width face, no seal, and no pull request section.
+    const sans = await face("--font-ui");
+    expect(sans).not.toBe(await face("--font-mono"));
+    expect(await app.evaluate<(string | boolean)[]>(`[document.getElementById("view-branch").textContent, document.getElementById("view-branch").classList.contains("none")]`)).toEqual(["No branch yet", true]);
+    expect(await faceOf("#view-branch")).toBe(sans);
+    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector("#view-seal [data-seal]").dataset.seal, document.getElementById("view-seal-head").textContent, document.getElementById("view-pull-request").hidden]`)).toEqual(["none", "No seal yet", true]);
+    await app.click("#nav-inbox");
+    const PREVIEW_BRANCH = '#inbox-screen [data-part="preview-branch"]';
+    await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(generated)}`, `the preview of ${generated}`);
+    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).textContent, document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).classList.contains("none")]`)).toEqual(["No branch yet", true]);
+    expect(await faceOf(PREVIEW_BRANCH)).toBe(sans);
+    expect(await app.evaluate<string>(`document.querySelector('#inbox-screen .seal-slot [data-seal]').dataset.seal`)).toBe("none");
+  });
+
+  it("checks out a local branch the person picked, says so under the name and adds no branch, and offers that branch disabled with the worktree's folder at the next opening", async () => {
+    const { name, worktree } = await openForm();
+    await pick("main");
+    await shows("Checks out main.");
+    // A remote's branch whose local branch of its name stands checks that one out.
+    await pick("origin/main");
+    await shows("Checks out main.");
+    await pick("main");
+    const before = branches();
+    await create(name);
+    expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/main");
+    expect(branches()).toBe(before);
+    await app.until(`document.getElementById("view-branch").textContent === "main" && !document.getElementById("view-branch").classList.contains("none")`, "the branch main in the view's head");
+
+    await openForm();
+    const held = realpathSync(worktree);
+    expect(await branchOptions()).toEqual([" | No branch yet", `Local: feature | feature, checked out in ${realpathSync(clone.repo)} | disabled`, `Local: main | main, checked out in ${held} | disabled`, `Remote: origin/main | origin/main, checked out in ${held} | disabled`]);
+    // A held branch cannot be picked, so the form keeps no branch picked.
+    await pick("main");
+    expect(await app.evaluate<string>(`document.getElementById("work-item-branch-menu").value`)).toBe("");
+    await app.click("#work-item-cancel");
+    await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
   });
 
   it("opens again on the same repository with the default base, and not with the base chosen the last time, and fetches that base again", async () => {

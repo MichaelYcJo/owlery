@@ -425,7 +425,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
-  /** Opens the "New work item" form with a name typed in it, and waits for the branch the name gets. */
+  /** Opens the "New work item" form with a name typed in it, and waits for the branch the first commit or a rename would make for the name, with no branch picked. */
   const openForm = async (name: string): Promise<void> => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -434,11 +434,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.cdp("Input.insertText", { text: made.repo });
     }
     const branch = `document.getElementById("work-item-branch").textContent`;
-    await app.until(`${branch}.startsWith("owlery/") && !document.getElementById("work-item-base").disabled`, "the branch and the base of the name the form generated");
+    const later = `${branch}.startsWith("No branch yet. The first commit or a rename makes owlery/")`;
+    await app.until(`${later} && !document.getElementById("work-item-base").disabled && !document.getElementById("work-item-branch-menu").disabled`, "the branch, the base and the Branch menu of the name the form generated");
     const generated = await app.evaluate<string>(branch);
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: name });
-    await app.until(`${branch}.startsWith("owlery/") && ${branch} !== ${JSON.stringify(generated)}`, `the branch of ${name}`);
+    await app.until(`${later} && ${branch} !== ${JSON.stringify(generated)}`, `the branch of ${name}`);
   };
 
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
