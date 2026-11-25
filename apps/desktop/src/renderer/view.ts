@@ -2323,8 +2323,8 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
     ...(branch === null ? [] : [{ label: "Copy branch name", description: `Put ${branch} on the clipboard.`, action: { do: "copy" as const, text: branch }, divides: false }]),
   ];
-  // A delete removes the branch only where Owlery made it, which a daemon of an earlier build, sending no `ownsBranch`, did for every work item.
-  const removes = branch !== null && workItem.ownsBranch !== false ? "Remove the work item's worktree and its local branch from disk" : "Remove the work item's worktree from disk";
+  // A delete removes the branch only where Owlery made it, which a daemon of an earlier build, sending no `ownsBranch`, did for every work item. A work item with no branch has none Owlery made.
+  const removes = workItem.ownsBranch !== false ? "Remove the work item's worktree and its local branch from disk" : "Remove the work item's worktree from disk";
   const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: `${removes}, after a dialog names what would be lost. Nothing on a remote is removed.`, action: { do: "delete", id }, divides });
   const own = groups.find((group) => group.id === workItem.groupId);
   const moves: MenuItem[] = [
