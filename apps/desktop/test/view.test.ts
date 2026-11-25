@@ -3521,8 +3521,9 @@ describe("daemonStatus", () => {
     expect(daemonStatus([], KINDS, false, agents(6, [7, 8]))).toBe("Daemon running, 6 agents of 6, 2 waiting");
     expect(daemonStatus([session(1)], KINDS, false, agents(1, [7], 1))).toBe("Daemon running, 1 agent of 1, 1 waiting");
     expect(daemonStatus([session(1), session(2)], KINDS, true, agents(2, [], 1))).toBe("Daemon running, 2 agents of 1, keeping the Mac awake");
-    // Where nothing runs and nothing waits, the line says so as a daemon without a cap does.
+    // Where nothing runs and nothing waits, the line says so as a daemon without a cap does, and a session that waits is counted where none runs.
     expect(daemonStatus([], KINDS, false, agents(0, []))).toBe("Daemon running, no agent");
+    expect(daemonStatus([], KINDS, false, agents(0, [7]))).toBe("Daemon running, 0 agents of 6, 1 waiting");
   });
 });
 

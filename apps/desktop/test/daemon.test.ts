@@ -6962,6 +6962,19 @@ describe("the caps on the machine", () => {
     expect((await c.message("ledger", (m) => m.requestId === 6)).entries).toEqual([]);
   });
 
+  it("refuses to remove an account a queued session would run under, naming the session (scenario 9)", async () => {
+    const { roleAdapter } = noting();
+    const { c } = await atCap({ roleAdapter });
+    const folder = mkdtempSync(join(tmpdir(), "owlery-account-"));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    c.send({ type: "addAccount", requestId: 1, name: "Work", folder });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Which file?", accountId: 1 });
+    expect((await c.message("asked", (m) => m.requestId === 2)).headless).toMatchObject({ state: "queued", accountId: 1 });
+    c.send({ type: "removeAccount", requestId: 3, id: 1 });
+    expect((await c.message("error", (m) => m.requestId === 3)).message).toBe('"Work" is not removed while something runs under it: a session asked in "Pane work".');
+  });
+
   it("queues nothing where it is given no reader of the machine", async () => {
     const { roleAdapter, starts } = noting();
     const { c } = await daemonWithWorkItem({ roleAdapter }).then(async ({ url }) => ({ c: await client(url) }));

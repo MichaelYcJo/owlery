@@ -262,6 +262,12 @@ describe("the memory of the agents, measured", () => {
     expect(new AgentMemoryStore(runDir).kilobytes()).toEqual(text.startsWith("[") ? [700] : []);
   });
 
+  it("reads the last twenty of a file that holds more", () => {
+    const runDir = folder();
+    writeFileSync(join(runDir, "agent-memory.json"), JSON.stringify(Array.from({ length: 25 }, (_, index) => index + 1)));
+    expect(new AgentMemoryStore(runDir).kilobytes()).toEqual(Array.from({ length: 20 }, (_, index) => index + 6));
+  });
+
   it("keeps the measures in memory alone where it is given no run folder", () => {
     const store = new AgentMemoryStore(undefined);
     store.note("pane-1", 700);

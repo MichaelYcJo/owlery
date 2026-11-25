@@ -3977,7 +3977,7 @@ export class Daemon {
   private checkIdle(): void {
     clearTimeout(this.idleTimer);
     // A running chain keeps the daemon between two stages too, when no session of it works.
-    const busy = this.clients.size > 0 || [...this.sessions.values()].some((s) => s.info.alive) || [...this.headless.values()].some((s) => s.info.state === "working" || s.info.state === "queued") || this.chains.size > 0;
+    const busy = this.clients.size > 0 || [...this.sessions.values()].some((s) => s.info.alive) || [...this.headless.values()].some((s) => s.info.state === "working") || this.chains.size > 0;
     if (busy || !this.options.onIdle) return;
     this.idleTimer = setTimeout(() => this.options.onIdle?.(), this.options.idleExitMs ?? 60_000);
   }
