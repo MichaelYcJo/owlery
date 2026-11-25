@@ -134,7 +134,7 @@ describe.skipIf(MEASURE)("the launch measurement, without the app", () => {
       "| The open app, before its first reset | 462.3 |",
       "| The open app, after its last reset | 461.0 |",
       "",
-      'Ready is the status line reading "Daemon running, no agent". 1 MB is 1,048,576 bytes. The app itself is the main process, every process below it and the daemon.',
+      'Ready is the status line reading "Daemon running, no agent", read every 10 ms. The start asks the debugging port every 200 ms, and the stop and part 2 of a reset look for the process\'s end every 50 ms, so each holds up to one such step. 1 MB is 1,048,576 bytes. The app itself is the main process, every process below it and the daemon.',
     ]);
   });
 });

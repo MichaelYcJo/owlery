@@ -7,11 +7,12 @@
 | | |
 |---|---|
 | Date | 2026-11-25 |
-| Commit | `def06e3f` for the launches and the resets, and `0654d8d1` for the batch. Nothing under `apps/desktop` differs between the two, and neither run had changes under `apps/desktop` that its commit does not hold |
+| Commit | `def06e3f` for the launches and the resets, and `0654d8d1` for the batch. Nothing under `apps/desktop` differs between the two, and neither run had changes under `apps/desktop` that its commit does not hold. Both are commits of the branch of issue #149's pull request, which is squashed into its base, so neither stands in the base's history; GitHub keeps them under that pull request after the merge |
 | Machine | MacBook Pro, Apple M3 Pro, 36 GB |
 | Versions | macOS 26.5, Electron 45.3.3, xterm.js 6.0.0 |
 | The app | started in the background with `OWLERY_BACKGROUND=1`, with `SHELL` set to `/usr/bin/true` and no pane opened, so no shell and no `claude` started |
 | Ready | the page's status line reading "Daemon running, no agent", read every 10 ms |
+| Waits | `BuiltApp.start` asks the debugging port for the page every 200 ms, and the stop and part 2 of a reset look for the process's end every 50 ms, as `test/built-app.ts` does at every start and stop of the built app in the suite. So the start holds up to 200 ms, and the stop and part 2 up to 50 ms, of the wait's own step. Part 2's 50 and 51 ms are one step each, and the daemon's own end lies within it |
 | The app itself | the Electron main process, every process below it, and the daemon, summed as macOS's `phys_footprint` |
 | 1 MB | 1,048,576 bytes, as Activity Monitor counts it |
 
@@ -28,14 +29,14 @@ OWLERY_BACKGROUND=1 pnpm run test:app
 
 ## The load on the machine
 
-Other worktrees of this repository did other work on the same Mac during both runs. Neither run was made again on a quieter machine. Each row gives the 1-minute load average, read with `sysctl -n vm.loadavg` just before and just after the run.
+Neither run was made again on a quieter machine, and what raised the load during the measurement is not known. Each row gives the 1-minute load average, read with `sysctl -n vm.loadavg` just before and just after the run.
 
 | Run | Before | After |
 |---|---|---|
 | `measure:launch` | 3.29 | 16.92 |
 | `test:app` | 4.24 | 4.62 |
 
-The measurement's highest start (656 ms) and highest stop (1460 ms) are each one run of ten, and the medians are the numbers this file decides on. A busy machine makes a launch slower, and so makes the saving larger.
+The measurement's highest start (656 ms) and highest stop (1460 ms) are each one run of ten, and the medians are the numbers this file decides on. The two readings do not say whether the load fell on the launches or on the resets. Either way, on a quieter machine the saving stays under 688 ms, the median launch without its build, since a quieter machine makes no launch slower and no reset costs less than nothing. That is under the 1 s at which the work would have built no further.
 
 ## A launch
 
