@@ -3,7 +3,7 @@
 // showed before stands in the tree as an archive, and the build ships none of
 // it (TRADEMARKS.md).
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+import { basename, join, relative } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "./built-app";
 
@@ -32,7 +32,8 @@ describe("the built app's icon", () => {
   it("is the emblem's PNG at dist/app-icon.png, and no file of the build has the bytes of a file of the earlier emblem", () => {
     expect(readFileSync(join(DIST, "app-icon.png")).equals(readFileSync(join(ICON, "app-icon.png"))), "dist/app-icon.png is assets/icon/app-icon.png").toBe(true);
     // The archive holds the three files of the earlier emblem, so the search below has something to find.
-    const earlier = filesOf(EARLIER);
+    // A name that opens with a dot, such as the .DS_Store Finder writes into a folder a person opened, is no file of the archive.
+    const earlier = filesOf(EARLIER).filter((file) => !basename(file).startsWith("."));
     expect(earlier).toEqual(["app-icon-small.svg", "app-icon.png", "app-icon.svg"]);
     const earlierBytes = earlier.map((file) => readFileSync(join(EARLIER, file)));
     const shipped = filesOf(DIST).filter((file) => {

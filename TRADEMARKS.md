@@ -35,7 +35,9 @@ this repository are:
   emblem as releases 0.0.1 through 0.0.3 showed it, whose owl is the owl of
   `owl-icon-cream.svg` taken out of its wax. The build copies none of them.
   Copying them over the files of the same names in `apps/desktop/assets/icon/`
-  puts the earlier emblem back.
+  puts the earlier emblem back. The case of `apps/desktop/test/emblem.test.ts`
+  then fails, because the build ships a file with the archive's bytes, so the
+  change that puts the emblem back also rewrites that case and this list.
 
 Each of the two seal drawings is the file of the same name from the
 AgenticSeal plugin 0.38.2, unchanged. The emblem's owl is drawn from
