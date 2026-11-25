@@ -1,0 +1,107 @@
+# Design: 1795610687-235-stage-prompts-name-the-worktree
+
+## Grounding
+
+The tree as read at `4da28143b1fcee9d2acda69192a79ab890ca1d2d` (`release/v0.0.5` at `ab7a5730` plus the routing commit).
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/architecture.md` *Code runs the order, the orchestrator judges*, the paragraph **In a pane the session runs each stage, and the chain command keeps the order and writes each record.** (read) | The chain command reads the worktree it is run in, writes the stage's prompt and the role's rules file, and the session starts the role as a subagent with them. The paragraph says nothing of where the subagent starts. This work adds that sentence (`## Rule changes`). |
+| The same section, the paragraph **The daemon runs a work item's review rounds and fix passes one stage at a time** (read) | The daemon's chain uses the same prompt builders. Its role sessions start in the work item's worktree: `adapters/claude.ts:484` spawns `claude` with `cwd`, and `Daemon#runStage` is given `item.worktree` as that folder (`daemon.ts:3266`, `:3293`, `:3318`, `:3343`, `:3408`). So a prompt that names the worktree by its absolute path names that session's own folder, and nothing changes in what a daemon's role reads. |
+| `docs/architecture.md` *What each session loads* (read) | The rules file the chain command writes for a pane's subagent stands in the daemon's run folder, and its head names the bundle's root by an absolute path. A pane's subagent already reads two files outside its session's folder at every stage: the rules file and the prompt file, under `OWLERY_RUN_DIR/chain/<work item>/` (`chain-command.ts#handed`). Naming the worktree adds a third place of the same kind, and no new kind of read. Whether such a read asks the person is Q1 of `questions.md`. |
+| `docs/roadmap.md`, the row of release 0.0.5 (read) | 0.0.5 is the owner's walk of the owl chain in the built app (#184), and what the owner found using the app on 2026-11-25 is fixed before milestone 3. #235 came out of that walk, as the issue's first paragraph says. |
+| `apps/desktop/role-bundle/skills/seal/SKILL.md` *A role is a subagent of the bundle* (read) | The session tells the subagent to read the rules file and do what the prompt file says, and gives it nothing else. So the prompt file is the one place where the worktree can reach the role. A sentence the session adds breaks that rule, as the issue's walk shows. |
+| `apps/desktop/role-bundle/skills/agent-contract/SKILL.md` rule 6 and `apps/desktop/role-bundle/skills/implement/SKILL.md:206` (read) | A crafter's commit names the repository's absolute path after `git -C`. In a pane the crafter can take that path only from its prompt. Today the fix pass's prompt names none, so a crafter whose session stands in another worktree commits there. |
+| `apps/desktop/role-bundle/docs/forms/the-round-record.md`, the paragraph on `location:` (read), and `chain.ts#underPlace` at `chain.ts:1075` (read) | A finding's `location:` is matched literally against the paths git prints, which are from the worktree's top. So the paths a prompt lists stay from the worktree's top. A proofer handed absolute paths may write absolute locations, and `fix-pass` would then refuse every `fixed` close block. |
+| The issue's coordinates, opened at the grounding commit (executed: `git grep -n -e 'this folder' -e "the session's folder" HEAD -- apps/desktop/src/daemon apps/desktop/role-bundle docs`) | The five prompts open at `chain.ts:625` (round), `:650` (fix pass), `:686` (seal), `:721` (convergence) and `:750` (ruling), each with "in this folder, which is the work item's worktree". Four end with "read the files of this folder" (`:633`, `:701`, `:734`, `:773`). Two docstrings say that the paths are "from the worktree's top, which is the session's folder" (`:619`, `:674`). The issue's line numbers (`:592`, `:617`, `:653`, `:688`, `:717`) are from an earlier commit. The search's other lines are `role-bundle/README.md:7` and `:23`, which mean the bundle's own folder, and `worktree-setup.ts:230` and `:306`, which mean a worktree being set up. None of those four locates a role's tree. |
+| The release triage's claim, checked (read) | `chain-command.ts:153` reads the worktree's top with `git rev-parse --show-toplevel` from the command's own folder, and `:163` returns it as `Here.worktree`. `stage-records.ts#Place` carries it as `worktree` into `roundStage`, `fixPassStage` and `sealStage` (`stage-records.ts:159`, `:191`, `:300`). |
+| What a pane's environment names (executed: `git grep -n -o 'OWLERY_[A-Z_]*' -- apps/desktop/src`; `hooks.ts:172` read) | `PANE_VARIABLES` holds the pane's id, its hook socket, the runner, the chain's launcher and the base. No variable names the pane's worktree, so nothing in the environment tells the chain command which folder the session's subagents start in. The issue's "a pane's environment naming another" has no Owlery variable to stand on. The case reads it as a shell's `PWD` and `OLDPWD` naming the pane's worktree while the command runs in another (`plan.md` Phase 1). |
+| Where a subagent's shell starts (executed: `pwd` and `env` in this framer, a subagent whose task names `/Users/yc/Documents/GitHub/owlery-wt-235`) | `pwd` printed `/Users/yc/Documents/GitHub/owlery`, the session's folder, and `PWD` named the same. A subagent starts in its session's folder and not in the folder its task names, as the issue says. This is one run, under Claude Code 2.1.331 from the CLI. |
+| What git gives as the top from a linked worktree (executed in the scratch directory: `git worktree add -b other <scratch>/b`, then `cd <scratch>/b/sub && PWD=<scratch>/a OLDPWD=<scratch>/a git rev-parse --show-toplevel`; and `git rev-parse --show-toplevel` in a repository under `mktemp -d`) | The first printed `<scratch>/b`: the command's own folder decides, whatever `PWD` names. The second printed `/private/var/folders/…` for a `mktemp -d` path of `/var/folders/…`. Git gives the resolved path, so a case compares the prompt's path with git's answer or with `realpathSync`, and never with the path `mkdtemp` returned. |
+| Comments on the issue (executed: `gh issue view 235 --json title,body,comments`, 2026-11-25) | None. |
+| `seal/follow-up.md` (executed: `ls seal/`) | The records root holds no `follow-up.md`. |
+| Earlier work items (executed: `ls seal/threads/`) | Only this work item stands. Release 0.0.4's settle (`f131e16b`) removed its records. |
+| Unsettled designs' `## Rule changes` (executed: `git fetch origin`, `git branch -r`) | No other branch of 0.0.5 is pushed, so no other frame stands. The policy in force is `docs/` as the grounding commit holds it. |
+| The latest GitHub Release, `v0.0.3` (executed: `gh release view --json body`) | Its body holds no `### Process changes` heading. |
+| `seal/parity.json` | Not declared. No original stands between the ticket and the code. |
+
+## Scope
+
+In:
+
+1. Each stage prompt names the work item's worktree by its absolute path on its first line, in place of "in this folder, which is the work item's worktree". That covers the round, the fix pass, the seal, the judgment of convergence and the ruling (`chain.ts#roundPrompt`, `#fixPassPrompt`, `#sealPrompt`, `#convergencePrompt`, `#rulingPrompt`). The same line says that every path the prompt lists is from that worktree's top. The listed paths stay as they are, from the worktree's top (*Grounding*, the `location:` row).
+2. The prompts that end with "read the files of this folder" end with "read the files of that worktree": the round, the seal, the convergence and the ruling.
+3. The fix pass's prompt says that the crafter makes each fix and its commit in that worktree, with `git -C` and the worktree's path. A crafter whose session stands in another worktree then commits on the work item's branch, as the bundle's agent contract rule 6 asks.
+4. Each prompt builder takes the worktree as an argument, `worktree`, and its callers pass the worktree they already hold. `stage-records.ts#roundStage`, `#fixPassStage` and `#sealStage` pass `place.worktree`, and `Daemon#runConvergence` and `Daemon#runRuling` pass `item.worktree`. The docstrings at `chain.ts:619` and `:674` say that the paths are from the top of the worktree the prompt names, and no longer that it is the session's folder.
+5. A case of the chain command runs `owed` with its folder in one linked worktree, below its top, while the environment's `PWD` and `OLDPWD` name the repository's other worktree, where the pane stands. It reads the round's prompt file and finds the first worktree's top as git gives it, and no path of the other worktree.
+6. The cases of `chain.test.ts` that pin the five prompts' texts pin the new texts, and one assertion there says that no prompt holds "this folder".
+7. The rule change of `## Rule changes`, for the settle.
+
+Out:
+
+- **A refusal where the chain command's folder is not the pane's worktree.** The issue offers it as the other way. `plan.md` *Alternatives considered* weighs it and rejects it: nothing in a pane's environment names the pane's worktree, and the refusal would forbid the work across worktrees that the issue calls frequent.
+- **A setting that lets a pane's subagent read the worktree without a permission question.** Whether such a question comes at all is Q1, which only a real run answers. A setting written before that answer would be a mechanism that has caught nothing. *What the daemon could do beyond the issue* names it for the orchestrator.
+- **The sidebar showing a worktree made outside Owlery.** That is #227, open in this release.
+- **The bundle's `skills/seal/SKILL.md`.** Its rule "give it nothing else" stays. With the worktree in the prompt, the session has nothing to add.
+
+## User scenarios & acceptance *(mandatory)*
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| A pane's session runs a round in another worktree | Given a pane that stands in worktree A of a repository, and a session that made worktree B and committed a branch there. When the session runs `owed` in B, below B's top, with `PWD` and `OLDPWD` naming A. Then the round's prompt file opens with B's top as git gives it, says that every path it lists is from that top, and holds no path of A. | The new case of `apps/desktop/test/chain-command.test.ts` (`plan.md` Phase 1). It is shown red against the grounding commit's `chain.ts`, where the prompt says "in this folder" and names no path. |
+| A crafter of a fix pass commits on the work item's branch | Given a fix pass owed in B. When the session hands its crafter the fix pass's prompt. Then the prompt names B's top and tells the crafter to make each fix and commit it there with `git -C` and that path. | The pinned text of the fix pass's prompt in `apps/desktop/test/chain.test.ts`. Whether a real crafter in a pane does so is Q2 of `questions.md`: not verified in this run, and the owner's walk (#184) answers it. |
+| Every stage prompt names its worktree | Given each of the five prompt builders. When it is called with a worktree's absolute path. Then the first line of what it gives names that path, and no line of it holds "this folder". | The cases of `apps/desktop/test/chain.test.ts` that pin each prompt's text, and its assertion over all five. After the build, `git grep -n -e 'this folder' -e "the session's folder" -- apps/desktop/src/daemon/chain.ts apps/desktop/test/chain.test.ts` prints nothing. That search was run at the grounding commit (*Grounding*, the issue's coordinates row). Each line it printed in the two files is one that *Scope* items 1, 2, 4 and 6 change. Its pathspec keeps out the files where the words mean another folder, and this work item's directory, which quotes the patterns. |
+| The daemon's own chain reads what it read before | Given a role session the daemon launches in the work item's worktree. When it is given a prompt. Then the path the prompt names is the session's own folder, and the chain's records come out as before. | The existing chain cases of `apps/desktop/test/chain.test.ts` and `apps/desktop/test/chain-records.test.ts`, which read the prompts through `givenRound`, `givenFix` and `givenSeal` (`apps/desktop/test/chain-run.ts:352`, `:359`, `:366`). Those parsers read the lines below the first, so they pass unchanged. The suite is the orchestrator's broad gate. |
+| A subagent's read of the named worktree | Given a pane's subagent whose session stands in another worktree. When it reads the files of the worktree the prompt names. Then the person's own permission settings answer the read, as the rules file's head says of every call. | Not verified in this run, since only a real `claude` run shows it. Q1 of `questions.md`, answered by the owner's walk (#184). |
+
+## Data & interfaces
+
+- `chain.ts#roundPrompt`, `#fixPassPrompt`, `#sealPrompt`, `#convergencePrompt` and `#rulingPrompt`: each `given` gains `worktree: string`, the absolute path of the worktree's top. No other field changes, and `directory` stays the work item's directory from the worktree's top.
+- `stage-records.ts#roundStage`, `#fixPassStage` and `#sealStage` pass `place.worktree`. `Daemon#runConvergence` (`daemon.ts:3317`) and `Daemon#runRuling` (`daemon.ts:3342`) pass `item.worktree`.
+- `StagePrompt`, `promptText` and the JSON that `owed` prints do not change.
+- The new opening line, in words the build may refine and the cases then pin: "Review round 3 of the work item `<id>`, in its worktree `<absolute path>`. Every path below is from that worktree's top." The other four prompts open the same way after their own first words.
+
+## Rule changes
+
+- change
+  file: docs/architecture.md
+  section: Code runs the order, the orchestrator judges
+  from: The command reads the worktree it is run in and keeps what it hands a session under `chain/<work item>/` of the run folder.
+  to: The command reads the worktree it is run in and keeps what it hands a session under `chain/<work item>/` of the run folder. Each stage's prompt names that worktree by its absolute path and gives every other path from its top, because a subagent starts in its session's folder, which may be another worktree of the repository.
+- change
+  file: docs/architecture.md
+  section: Code runs the order, the orchestrator judges
+  from: check: apps/desktop/test/chain-command.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/pr-check.test.ts
+  to: check: apps/desktop/test/chain-command.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/chain.test.ts
+- change
+  file: docs/architecture.ko.md
+  section: 순서는 코드가, 판단은 orchestrator가
+  from: 체인 명령은 자기가 실행된 워크트리를 읽고, 세션에 건네는 것을 실행 폴더의 `chain/<work item>/` 아래에 둡니다.
+  to: 체인 명령은 자기가 실행된 워크트리를 읽고, 세션에 건네는 것을 실행 폴더의 `chain/<work item>/` 아래에 둡니다. 단계마다 프롬프트는 그 워크트리를 절대 경로로 밝히고, 다른 경로는 모두 그 꼭대기에서부터 씁니다. 서브에이전트는 자기 세션의 폴더에서 시작하는데, 그 폴더가 저장소의 다른 워크트리일 수 있기 때문입니다.
+- change
+  file: docs/architecture.ko.md
+  section: 순서는 코드가, 판단은 orchestrator가
+  from: check: apps/desktop/test/chain-command.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/pr-check.test.ts
+  to: check: apps/desktop/test/chain-command.test.ts apps/desktop/test/pane-chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/chain.test.ts
+
+## Removes
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| "in this folder, which is the work item's worktree" in the first line of each of the five prompts | `apps/desktop/src/daemon/chain.ts#roundPrompt`, `#fixPassPrompt`, `#sealPrompt`, `#convergencePrompt`, `#rulingPrompt` | The worktree's absolute path takes its place on the same line (*Scope* item 1). |
+| "read the files of this folder" at the end of four prompts | `apps/desktop/src/daemon/chain.ts#roundPrompt`, `#sealPrompt`, `#convergencePrompt`, `#rulingPrompt` | "read the files of that worktree" takes its place (*Scope* item 2). |
+| The docstrings' claim that the worktree's top "is the session's folder" | `apps/desktop/src/daemon/chain.ts#roundPrompt`, `#sealPrompt` | The claim is false in a pane whose session stands in another worktree. The docstrings say that the paths are from the top of the worktree the prompt names (*Scope* item 4). |
+| The pins of the old opening and closing lines | `apps/desktop/test/chain.test.ts`, the cases of the five prompts | The same cases pin the new lines (*Scope* item 6). |
+
+The work adds no mechanism: no gate, check, hook, mark or rule a script reads. It changes the text that five prompts hand a role, and one argument of each builder.
+
+## What the daemon could do beyond the issue
+
+Owlery's daemon runs all the time and knows each pane's folder, each work item's worktree and each chain. The issue asks only that a prompt say where the work is. The daemon could also do the four things below. The first is cheap and in scope. The orchestrator files issues for the rest.
+
+- **Name the worktree in `owed`'s JSON as well** (cheap, in scope if the orchestrator takes it). `owed` already prints `agent`, `prompt` and `rules`. A `worktree` field would let the session check, before it starts a role, that the chain read the tree it means. It adds a field and no rule, so the frame leaves the choice to the orchestrator and does not plan it.
+- **Show a pane's chain on the work item it seals.** A pane's session that runs the chain in another worktree commits that work item's records, and the daemon could see the commits on that branch. The inbox could then show the stage on that work item's line and name the pane that runs it. This needs the daemon to know the worktree, which is #227's work, so it belongs with #227 or after it.
+- **Let a pane's subagents read the worktree they are sent to.** Where Q1 shows that a subagent's read of another worktree asks the person, the daemon could add the worktree to the folders the pane may read. It could do that in the pane's own settings file (`claude-pane-<id>.json`) or when `owed` runs. That waits on the walk's answer, so it goes in an issue.
+- **Say when the session's folder and the chain's worktree differ.** The chain command could print, beside the step, that its folder is not the one the pane opened in. It would be a notice and refuse nothing. This needs a pane variable that names the pane's folder, and no such variable exists today. It belongs in an issue if the walk shows that people need it.
+
+Framed 2026-11-25 by framer, before the build.
