@@ -1125,8 +1125,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // The rows the sidebar lists before anything narrows it, which the sentence counts. Earlier cases remove repositories, and the case may run alone, so it counts them.
     const listed = await rows();
     expect(listed).toBeGreaterThan(1);
-    const mark = (): Promise<[boolean, string]> => value(`(() => { const control = document.getElementById("sidebar-filter-control"); return [control.classList.contains("on"), control.title]; })()`);
-    expect(await mark()).toEqual([false, "Showing: All"]);
+    // Whether the filter's control is on, what it says to a pointer, and whether it stands inside the edge: on is a shape as well as an ink.
+    const mark = (): Promise<[boolean, string, boolean]> =>
+      value(`(() => { const control = document.getElementById("sidebar-filter-control"); return [control.classList.contains("on"), control.title, getComputedStyle(control).boxShadow === ${RESOLVED}("box-shadow", "--on-edge")]; })()`);
+    expect(await mark()).toEqual([false, "Showing: All", false]);
     // The inbox is the list in front, which the search and the filter narrow with the sidebar.
     await app.click("#nav-inbox");
     await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");
@@ -1134,7 +1136,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // The state is chosen as a person's choice arrives at the select.
     await value(`void (() => { const filter = document.getElementById("sidebar-filter"); filter.value = "none"; filter.dispatchEvent(new Event("change")); })()`);
     await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === 1`, "one repository under the search and the state");
-    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"']);
+    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"', true]);
     const loneId = await value<number>(`Number(document.querySelector('${SIDEBAR} section.repository').dataset.repository)`);
     const workItem = await value<number>(`Number(document.querySelector('${SIDEBAR} button[data-work-item]').dataset.workItem)`);
     await rightPress(line(SIDEBAR, workItem));
@@ -1148,14 +1150,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     const sentence = `No work item under "Asleep" matches "Filtered away", so the sidebar lists none of its ${listed} repositories.`;
     await app.until(`document.getElementById("sidebar-empty")?.textContent === ${JSON.stringify(sentence)}`, `"${sentence}" in the sidebar`);
     expect(await rows()).toBe(0);
-    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"']);
+    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"', true]);
+    // The sentence in the muted ink at the second size, and the button in the form of a button that is not the main one.
+    expect(await value<boolean[]>(`(() => { const resolved = ${RESOLVED}; const words = getComputedStyle(document.getElementById("sidebar-empty")); return [words.color === resolved("color", "--ink-muted"), words.fontSize === resolved("font-size", "--size-second")]; })()`)).toEqual([true, true]);
     expect(await value<string[]>(`[...document.querySelectorAll('${SIDEBAR} > *')].map((element) => element.id)`)).toEqual(["sidebar-empty", "show-every"]);
     expect(await value<[string, boolean]>(`(() => { const every = document.getElementById("show-every"); return [every.textContent, every.classList.contains("quiet")]; })()`)).toEqual(["Show every work item", true]);
     await app.click("#show-every");
     await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === ${listed}`, "every repository in the sidebar again");
     expect((await rowWords(loneId)).at(-1)).toBe("0");
     expect(await order(INBOX)).toHaveLength(1);
-    expect(await mark()).toEqual([false, "Showing: All"]);
+    expect(await mark()).toEqual([false, "Showing: All", false]);
     expect(await value<[string, string, boolean, boolean]>(`[document.getElementById("sidebar-filter").value, document.getElementById("search-field").value, document.getElementById("sidebar-empty") === null, document.activeElement === document.querySelector('${SIDEBAR} button.fold')]`)).toEqual(["all", "", true, true]);
   });
 });
