@@ -4,11 +4,11 @@
 
 | Item | Who must answer |
 |---|---|
-| The suite, the typecheck and the rest of the broad gate at the branch's head | the orchestrator, at the broad gate |
+| closed The suite, the typecheck and the rest of the broad gate at the branch's head | answered: the broad gate passed at `350baa41`, the one run of this work item's `trail/gate.md`, after which only the work item's records changed; the `check` workflow passed on pull request #203 at the head it merged from |
 | closed that `pnpm run test:app` runs the `app` project's files, one at a time, and no file of the `unit` project | executed by the crafter in phase 2 at `0654d8d1`: the run passed 20 files, and `vitest list --project app` named the same 20, each of project `app` (`trail/phases/phase-2.md`) |
 | closed which two of the 20 files the batch skipped: its output names none | read by the proofer in round 1 and by the crafter in its fix pass: `test/pane-session.test.ts` and `test/role-session.test.ts`, each of which holds every case under one top-level `describe.skipIf` of its own variables (`pane-session.test.ts:75`, `role-session.test.ts:56`), while every other built-app file holds a case that runs without a variable |
 | closed whether the medians of `pnpm run measure:launch` move on a machine that stays quiet: the 1-minute load average read 3.29 before the one run of phase 1 and 16.92 after it | decided by the framer's fold at `0654d8d1`: no run is made again for a quieter machine. The grounds are the bound review round 1 gave: the saving is under the launch's median without its build, 688 ms, which a quieter machine does not raise, and so under the 1 s of `frame/plan.md` *Phases* row 1. `apps/desktop/measurements/built-app-launch.md` names the load read before and after each run |
-| Whether the open app's memory goes on growing past ten resets: it read 163.2 MB before the first reset and 220.8 MB after the tenth, one sample each | the owner, who weighs it in answering `frame/questions.md` row Q1; where the answer is (b), the framer plans its measurement |
+| closed Whether the open app's memory goes on growing past ten resets: it read 163.2 MB before the first reset and 220.8 MB after the tenth, one sample each | a measurement no record asks for: the answer would weigh in building one open app the files share, which `frame/questions.md` Q1 left unbuilt at its default (a); `apps/desktop/measurements/built-app-launch.md` *The app's memory* publishes the two samples and says they do not show whether the growth levels off, and no failure, report or decision on record waits on it. Nothing is opened |
 
 ## Not done
 
