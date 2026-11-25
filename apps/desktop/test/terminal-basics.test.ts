@@ -16,7 +16,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
@@ -43,7 +43,11 @@ const TAB_IN_FRONT = `document.querySelector("#tabs .tab.active .label")?.textCo
 const PANE_HAS_KEYBOARD = `document.activeElement === document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea")`;
 const DIALOG_OPEN = `document.getElementById("close-pane-dialog")?.open === true`;
 const CARD_SHOWN = `document.getElementById("link-card")?.hidden === false`;
-const OVER_LINK = `document.querySelector("#stage .pane:not([hidden]) .xterm-cursor-pointer") !== null`;
+/** The first tile of the stage that is not hidden: the pane in front, where the stage shows one pane. */
+const FIRST_TILE = `document.querySelector("#stage .pane:not([hidden])")`;
+/** Whether the terminal of a tile, which an expression of the page gives, has the pointer over a link. */
+const overLink = (tile: string): string => `(${tile}).querySelector(".xterm-cursor-pointer") !== null`;
+const OVER_LINK = overLink(FIRST_TILE);
 /** The keys a card's row names for a click with the key that opens a link, and for one with the Shift key as well. */
 const KEY_CLICK = process.platform === "darwin" ? "\u2318 Click" : "Ctrl Click";
 const SHIFT_KEY_CLICK = process.platform === "darwin" ? "\u21e7 \u2318 Click" : "Shift Ctrl Click";
@@ -78,6 +82,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   let linesFile: string;
   /** The panes the cases opened so far. A daemon numbers the panes it starts from 1. */
   let panes = 0;
+  /** The panes `openPane` opened so far. */
+  const openedPanes: number[] = [];
 
   /** The file the shell pane with a number writes its process id to. */
   const pidFile = (pane: number): string => `${receivedFile}-${pane}.pid`;
@@ -122,6 +128,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click(`#pane-buttons button:nth-child(${button + 1})`);
     await app.until(`${TABS}.length === ${before.length + 1}`, `a tab more than ${before.join(", ") || "none"}`);
     panes += 1;
+    openedPanes.push(panes);
     return panes;
   }
 
@@ -132,19 +139,30 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
 
-  /** Has a client of the daemon other than the window close a pane, as a second window of the app would. */
-  async function closeFromElsewhere(pane: number): Promise<void> {
+  /** Has a client of the daemon other than the window close the panes among `asked` that the daemon holds, as a second window of the app would, and answers with the panes it closed. */
+  async function closeFromElsewhere(...asked: number[]): Promise<number[]> {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
-    await new Promise<void>((resolve, reject) => {
+    const ready = await new Promise<{ sessions: { id: number }[] }>((resolve, reject) => {
       socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")), { once: true });
-      // The daemon answers a hello it takes with `ready`, and a close sent before that is no client's.
-      socket.addEventListener("message", () => resolve(), { once: true });
+      // The daemon answers a hello it takes with `ready`, which lists the panes it holds, and a close sent before that is no client's.
+      socket.addEventListener("message", (event) => resolve(JSON.parse(String(event.data)) as { sessions: { id: number }[] }), { once: true });
       socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })), { once: true });
     });
-    socket.send(JSON.stringify({ type: "close", id: pane }));
+    const held = asked.filter((pane) => ready.sessions.some((session) => session.id === pane));
+    for (const pane of held) socket.send(JSON.stringify({ type: "close", id: pane }));
     socket.close();
+    return held;
   }
+
+  // A case that fails stops at its failing line, and leaves the panes it opened and "Side by side" as they were there. The cases after it start from one tab, the first pane's, with "Side by side" off. A case that passes leaves what the case after it reads: it closes its panes itself, or hands its pane on, as the case "makes a path a pane printed a link…" hands its pane to the case after it. So this acts after a case that failed alone. It is bounded as a case is, since its wait for one tab is the 15 seconds of `BuiltApp.until`, past Vitest's 10-second bound for a hook.
+  afterEach(async ({ task }) => {
+    if (task.result?.state !== "fail") return;
+    const left = await closeFromElsewhere(...openedPanes);
+    if (left.length > 0) await app.until(`${TABS}.length === 1`, "one tab, once the panes the failed case left are closed");
+    // The button is pressed from the page, since a case that failed may have left another screen in front of the view that holds it.
+    await app.evaluate(`void (document.getElementById("side-by-side").getAttribute("aria-pressed") === "true" && document.getElementById("side-by-side").click())`);
+  }, 30_000);
 
   /** Puts the one work item's view in front from another screen, by its line in the sidebar. */
   async function openView(): Promise<void> {
@@ -318,31 +336,32 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
 
   // The cases below read the first pane, which is the one tab, in front, with the keyboard.
 
-  /** The middle of a cell of the screen of the pane in front, by its column and its row, each from 0. The strip says how many of each the screen holds. */
-  function cell(column: number, row: number): Promise<{ x: number; y: number }> {
+  /** The middle of a cell of the screen of a tile, the first tile not hidden where none is named, by its column and its row, each from 0. The strip says how many of each the screen of the pane in front holds, and two tiles side by side are of one size. */
+  function cell(column: number, row: number, tile = FIRST_TILE): Promise<{ x: number; y: number }> {
     return app.evaluate(`(() => {
-      const box = document.querySelector("#stage .pane:not([hidden]) .xterm-screen").getBoundingClientRect();
+      const box = (${tile}).querySelector(".xterm-screen").getBoundingClientRect();
       const [columns, rows] = document.getElementById("strip-size").textContent.split("×").map(Number);
       return { x: box.x + (box.width / columns) * ${column + 0.5}, y: box.y + (box.height / rows) * ${row + 0.5} };
     })()`);
   }
 
-  /** Brings the pointer to a cell of the pane in front, as a person's pointer arrives there. */
-  async function pointAt(column: number, row: number, modifiers = 0): Promise<{ x: number; y: number }> {
-    const at = await cell(column, row);
+  /** Brings the pointer to a cell of a tile, the first tile not hidden where none is named, as a person's pointer arrives there. */
+  async function pointAt(column: number, row: number, modifiers = 0, tile = FIRST_TILE): Promise<{ x: number; y: number }> {
+    const at = await cell(column, row, tile);
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at, modifiers });
     return at;
   }
 
-  /** Takes the pointer to a row of the pane in front that holds no link, and waits until the terminal has it over none and the card of the link it was on is gone: a card stands over the rows under its link, and the pointer would come onto it and not onto a link there. */
-  async function pointAway(): Promise<void> {
-    await pointAt(9, EMPTY_ROW);
-    await app.until(`!(${OVER_LINK}) && !(${CARD_SHOWN})`, "no link under the pointer, and no card");
+  /** Takes the pointer to a row of a tile, the first tile not hidden where none is named, that holds no link, and waits until the terminal has it over none and the card of the link it was on is gone: a card stands over the rows under its link, and the pointer would come onto it and not onto a link there. */
+  async function pointAway(tile = FIRST_TILE): Promise<void> {
+    await pointAt(9, EMPTY_ROW, 0, tile);
+    await app.until(`!(${overLink(tile)}) && !(${CARD_SHOWN})`, "no link under the pointer, and no card");
   }
 
   /**
-   * Brings the pointer onto a cell of the pane in front, from a row with no
-   * link, until `expression` holds there, and answers where the pointer is.
+   * Brings the pointer onto a cell of a tile, the first tile not hidden where
+   * none is named, from a row with no link, until `expression` holds there,
+   * and answers where the pointer is.
    * The terminal looks for the links of a row as the pointer comes onto it,
    * and not again while the pointer stays on it, so a row drawn after the
    * pointer came holds no link under it. The output of a pane that has just
@@ -351,11 +370,11 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
    * each two seconds, from the row with no link, until `what` shows, fifteen
    * seconds at most.
    */
-  async function comeOnto(column: number, row: number, expression: string, what: string, modifiers = 0): Promise<{ x: number; y: number }> {
+  async function comeOnto(column: number, row: number, expression: string, what: string, modifiers = 0, tile = FIRST_TILE): Promise<{ x: number; y: number }> {
     const deadline = Date.now() + 15_000;
     for (;;) {
-      await pointAway();
-      const at = await pointAt(column, row, modifiers);
+      await pointAway(tile);
+      const at = await pointAt(column, row, modifiers, tile);
       const again = Date.now() + 2_000;
       do {
         if (await app.evaluate<boolean>(expression)) return at;
@@ -363,6 +382,21 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
       } while (Date.now() < again);
       if (Date.now() >= deadline) throw new Error(`the window never showed ${what}`);
     }
+  }
+
+  /**
+   * Waits until the link on the first row of a tile, the first tile not
+   * hidden where none is named, is drawn again, and takes the pointer off
+   * it. A pane that came back onto the stage is sent nothing until its
+   * terminal has drawn its replay (src/renderer/view.ts, `screenTurns`), and
+   * a shell pane asks for pastes in brackets in the `printf` that prints that
+   * link, the mode first (./fixtures/basics-shell.sh). So a key or a drop
+   * after this reaches the pane, a paste in brackets. It presses nothing,
+   * and gives no pane the keyboard.
+   */
+  async function untilReplayDrawn(tile = FIRST_TILE): Promise<void> {
+    await comeOnto(9, 0, overLink(tile), "the link on the pane's first row, drawn again from its replay", 0, tile);
+    await pointAway(tile);
   }
 
   /** A click on the link of a row of the pane in front, with the modifier keys held, as a person's click arrives: the pointer comes over the link first. Afterwards the pointer is over no link. */
@@ -497,6 +531,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   }
 
   it("sends a line feed for Shift+Enter, and what the terminal sends for Enter and for Option+Enter", async () => {
+    // The case before closed the pane in front, and the first pane came back onto the stage.
+    await untilReplayDrawn();
     await received.next(0);
     await enter(SHIFT);
     expect((await received.next(1)).toString("hex")).toBe("0a");
@@ -514,6 +550,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(repository.base).toMatch(/^[A-Za-z0-9/._-]+$/);
     const file = join(repository.base, "shot 한 it's.png");
     writeFileSync(file, "");
+    // The drop is a paste, and arrives in brackets once the replay has set the mode the pane's program asked for.
+    await untilReplayDrawn();
     await received.next(0);
     await app.evaluate("document.activeElement.blur()");
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(false);
@@ -533,9 +571,11 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
     await app.until(`document.activeElement?.classList.contains("xterm-helper-textarea")`, "the keyboard in the pane in front");
     expect(await app.evaluate<string>(TAB_IN_FRONT)).toBe("Shell 2");
+    // The tile of the pane that is not in front: the one without the keyboard. "Side by side" brought the first pane back onto the stage there.
+    const notInFront = `[...document.querySelectorAll("#stage .pane:not([hidden])")].find((tile) => !tile.contains(document.activeElement))`;
+    await untilReplayDrawn(notInFront);
     await received.next(0);
-    // The tile of the pane that is not in front: the one without the keyboard.
-    await drop(`[...document.querySelectorAll("#stage .pane:not([hidden])")].find((tile) => !tile.contains(document.activeElement))`, files);
+    await drop(notInFront, files);
     const text = pasted(`${files[0]} ${files[1]} `);
     expect((await received.next(Buffer.byteLength(text))).toString("utf8")).toBe(text);
     expect(readFileSync(`${receivedFile}-${second}`, "utf8")).toBe("");
@@ -882,6 +922,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
   });
 
   it.runIf(process.platform === "darwin")("sends Control+A, Control+E and Control+U for the left arrow, the right arrow and Backspace with the Command key, and nothing else", async () => {
+    // The case before closed the pane in front, and the first pane came back onto the stage.
+    await untilReplayDrawn();
     await received.next(0);
     for (const [key, virtualKey, byte] of [
       ["ArrowLeft", 37, "01"],
@@ -994,6 +1036,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#side-by-side");
     await app.click("#tabs .tab:nth-child(2) .label");
     await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the new pane in front again");
+    // The pane came back onto the stage, and "Select All" below reads its screen, which its replay draws again.
+    await untilReplayDrawn();
 
     // A press outside the menu closes it, and so does a second press of the right button, which opens the menu where it was pressed.
     await openMenu();
@@ -1045,16 +1089,17 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
       await app.click("#tabs .tab:nth-child(2) .label");
       await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the pane of the menu in front again");
     };
-    /** Presses the menu's "Paste" after the pane came back, and answers what the pane's process was handed. A screen sends nothing until its terminal has drawn the replay (src/renderer/view.ts, `screenTurns`), so a press made before that hands the process nothing, and it is made again after a second without a byte, three times at most. */
+    /** Presses the menu's "Paste" after the pane came back, and answers what the pane's process was handed. The screen of a pane that came back sends it nothing until its terminal has drawn the pane's replay (src/renderer/view.ts, `screenTurns`), so a press made before that hands the process nothing. The press is made again after a second without a byte, until fifteen seconds have passed, the bound `BuiltApp.until` waits. */
     const pasteOnceBack = async (): Promise<string> => {
-      for (let presses = 1; ; presses++) {
+      const deadline = Date.now() + 15_000;
+      for (;;) {
         await pressMenuItem("Paste");
         for (let reads = 0; reads < 5; reads++) {
           const got = (await handed.next(0)).toString("utf8");
           // A moment more for what follows the first bytes.
           if (got !== "") return got + (await handed.next(0)).toString("utf8");
         }
-        if (presses === 3) return "";
+        if (Date.now() >= deadline) return "";
       }
     };
 

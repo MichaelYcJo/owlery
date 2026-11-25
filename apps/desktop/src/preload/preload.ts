@@ -7,6 +7,10 @@ import { Channel, type OwleryApi } from "../shared/ipc";
 // element is ever drawn in another. The page's own module changes them
 // afterwards (src/renderer/theme.ts).
 const appearance = lookChoice(ipcRenderer.sendSync(Channel.appearance));
+// Whether the app started in the background, read at each load before the
+// page's first script runs, so a page loaded again raises no notification of
+// the system's either (src/renderer/notifier.ts).
+const background = ipcRenderer.sendSync(Channel.background) === true;
 
 function showTheme(): boolean {
   const root = document.documentElement;
@@ -26,6 +30,7 @@ const api: OwleryApi = {
   pickFolder: () => ipcRenderer.invoke(Channel.pickFolder),
   appearance,
   saveAppearance: (choice) => ipcRenderer.invoke(Channel.saveAppearance, choice),
+  background,
   installedApps: () => ipcRenderer.invoke(Channel.installedApps),
   openFolder: (folder, app) => ipcRenderer.invoke(Channel.openFolder, folder, app),
   trashFolder: (folder) => ipcRenderer.invoke(Channel.trashFolder, folder),

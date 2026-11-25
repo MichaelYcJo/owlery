@@ -2681,6 +2681,45 @@ describe("screenTurns", () => {
     expect(sent).toEqual([[4, "b"]]);
   });
 
+  it("sends a pane that comes back onto the screen nothing a person types until the terminal has drawn its replay, and sends it what is typed after that", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4, true);
+    // The terminal has reached pane 4's turn, and its replay has not come.
+    draws();
+    types("a");
+    turns.write("replay of 4", false);
+    draws();
+    types("b");
+    expect(sent).toEqual([[4, "b"]]);
+  });
+
+  it("keeps a pane that comes back silent where the replay the terminal draws was written in an earlier turn", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4, true);
+    draws();
+    turns.write("replay of 4", false);
+    turns.giveBack();
+    turns.take(5, true);
+    // The replay of pane 4, the reset and pane 5's turn are drawn, and pane 5's replay has not come.
+    draws();
+    types("a");
+    turns.write("replay of 5", false);
+    draws();
+    types("b");
+    expect(sent).toEqual([[5, "b"]]);
+  });
+
+  it("leaves no silence behind a pane that came back and left before its replay came: the next pane, drawn for the first time, is sent keys as a first pane is", () => {
+    const { turns, sent, types, draws } = screen();
+    turns.take(4, true);
+    draws();
+    turns.giveBack();
+    turns.take(5);
+    draws();
+    types("a");
+    expect(sent).toEqual([[5, "a"]]);
+  });
+
   it("empties the terminal after what the pane that leaves has still to draw, and before what the next pane prints", () => {
     const { turns, waiting, draws } = screen();
     turns.take(4);

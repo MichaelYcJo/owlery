@@ -635,12 +635,14 @@ function newScreen(): Screen {
  * Puts a pane on a free screen that stands at its place on the stage: the
  * screen is fitted to that place, the process is told the size where it
  * runs, and the window asks for the pane's output so far, which is written
- * into the emptied terminal when it arrives.
+ * into the emptied terminal when it arrives. A pane this window drew before
+ * is sent nothing a person types or pastes until that replay is drawn
+ * (./view, `screenTurns`).
  */
 function take(screen: Screen, pane: number): void {
   // Fitted while the screen is still free, so the size is sent once, below, whether or not the fit changed it.
   screen.fit.fit();
-  screen.turns.take(pane);
+  screen.turns.take(pane, replayed.has(pane));
   // An exited pane's pseudo-terminal is closed, and a daemon an earlier build left running fails on a size sent for it.
   if (tellsSize(held.sessions, pane)) send({ type: "resize", id: pane, cols: screen.term.cols, rows: screen.term.rows });
   // The replay holds everything the pane printed, a pane this window started a moment ago included.
@@ -1399,6 +1401,10 @@ export function requestRefused(requestId: number): void {
  * The answers to the first replay the window draws of a pane are sent, since
  * that replay may hold a question no terminal answered yet. The answers to a
  * later one are not: the program has them, and each would arrive as if typed.
+ * A pane that came back onto the stage is sent nothing from its take until
+ * the terminal has drawn that later replay: the screen it took was emptied,
+ * and until the replay is drawn the terminal holds none of the modes the
+ * pane's program set (./view, `screenTurns`).
  */
 export function write(id: number, kind: "replay" | "output", data: string): void {
   const step = replayStep(awaited.get(id) ?? 0, kind);
@@ -1406,7 +1412,7 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   else awaited.delete(id);
   const screen = screenOf(id);
   if (!step.write || !screen) return;
-  // The screen sends nothing until the terminal has drawn a later replay. What a person types in that moment is not sent either.
+  // The screen of a pane that came back sends nothing from the pane's take until the terminal has drawn this later replay. What a person types in that span is not sent either.
   const answered = kind === "output" || !replayed.has(id);
   if (kind === "replay") replayed.add(id);
   screen.turns.write(data, answered);
