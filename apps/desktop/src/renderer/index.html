@@ -571,7 +571,7 @@
       dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
       /* A list of what a delete would remove or lose: each entry on one row of one height, with no gap between rows. A commit's short hash stands in a column as wide as the list's widest hash, then its subject cut to one line; a path stands in the fixed-width face, cut to one line. Each row's tooltip holds the whole text. Ten rows show at once, and a longer list scrolls and comes to rest on whole rows. */
       dialog .loss { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-auto-rows: var(--detail-line); column-gap: var(--space-4); max-height: calc(10 * var(--detail-line)); overflow-x: hidden; overflow-y: auto; scroll-snap-type: y mandatory; }
-      dialog .loss li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; height: var(--detail-line); scroll-snap-align: start; }
+      dialog .loss li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; scroll-snap-align: start; }
       dialog .loss .hash { color: var(--ink-muted); }
       dialog .loss .subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink); }
       dialog .loss .path { grid-column: 1 / -1; color: var(--ink); }
