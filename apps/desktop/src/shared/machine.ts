@@ -19,6 +19,9 @@ export const KEEP_FREE_BYTES = 10_000_000_000;
 /** The most panes a view shows side by side: Chromium's default limit of GPU terminals. */
 export const PANES_MOST = 16;
 
+/** The panes a view shows side by side where the daemon keeps no cap: the count the four-terminal reference scene is measured at. */
+export const PANES_WITHOUT_CAP = 4;
+
 /** Each cap's name in a sentence, and on its row of the Machine dialog. */
 export const CAP_NAMES: Record<Cap, { label: string; inSentence: string }> = {
   agents: { label: "Agents at once", inSentence: "agents at once" },

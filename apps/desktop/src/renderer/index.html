@@ -437,17 +437,14 @@
       #back .back-foot { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-7); }
       #back .back-foot .converted-says, #back .back-foot .refused { color: var(--ink-muted); }
       #back .unread { color: var(--state-failed); overflow-wrap: anywhere; }
-      /* "Side by side": the stage's panes are tiles in two columns, in the tabs' order, with two rows from the third pane on. The third of three spans both columns. A rule stands between the tiles. */
-      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
-      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"]) .pane { position: relative; inset: auto; min-width: 0; min-height: 0; margin: 7px var(--space-5); }
-      .pane[data-tile="1"] { order: 1; }
-      .pane[data-tile="2"] { order: 2; }
-      .pane[data-tile="3"] { order: 3; }
-      .pane[data-tile="4"] { order: 4; }
-      #stage[data-tiles="3"] .pane[data-tile="3"] { grid-column: 1 / -1; }
-      #stage:is([data-tiles="2"], [data-tiles="3"], [data-tiles="4"])::before { content: ""; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; background: var(--rule); }
-      #stage[data-tiles="3"]::before { bottom: 50%; }
-      #stage:is([data-tiles="3"], [data-tiles="4"])::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--rule); }
+      /* "Side by side": the stage's panes are tiles in the tabs' order, row by row, in two columns for 2 to 4 tiles, three for 5 to 9 and four for 10 to 16, the last tile spanning what is left of its row (./view.ts, `stageGrid`). Each tile stands where its grid area places it. A rule stands between the tiles: each tile draws the one at its left, and the one above it, in the middle of the margin between it and its neighbour. */
+      #stage:is([data-columns="2"], [data-columns="3"], [data-columns="4"]) { display: grid; grid-auto-rows: minmax(0, 1fr); }
+      #stage[data-columns="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #stage[data-columns="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      #stage[data-columns="4"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      #stage:is([data-columns="2"], [data-columns="3"], [data-columns="4"]) .pane { position: relative; inset: auto; min-width: 0; min-height: 0; margin: 7px var(--space-5); }
+      #stage:is([data-columns="2"], [data-columns="3"], [data-columns="4"]) .pane:not([data-column="1"])::before { content: ""; position: absolute; top: -7px; bottom: -7px; left: calc(-1 * var(--space-5)); width: 1px; background: var(--rule); }
+      #stage:is([data-columns="2"], [data-columns="3"], [data-columns="4"]) .pane:not([data-row="1"])::after { content: ""; position: absolute; top: -7px; left: calc(-1 * var(--space-5)); right: calc(-1 * var(--space-5)); height: 1px; background: var(--rule); }
       /* The strip under the terminal: its size, the worktree's folder, and the state with its age. */
       #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
       #strip-size, #strip-state { flex: none; }
@@ -744,7 +741,7 @@
         <section id="pane-area" aria-label="Panes">
           <div id="pane-bar">
             <div id="tabs"></div>
-            <button id="side-by-side" aria-pressed="false" title="Show up to four of this work item's panes at once">Side by side</button>
+            <button id="side-by-side" aria-pressed="false" title="Show up to 4 of this work item's panes at once">Side by side</button>
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>

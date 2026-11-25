@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { agentsSays, CAP_NAMES, capRefusal, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
 import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
@@ -2466,8 +2466,27 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
   return (recent.find((tab) => tab.alive) ?? recent[0])?.id;
 }
 
-/** The most panes a work item's view shows at once: fixed here at the count the four-terminal reference scene is measured at, until #32 makes it a default read from the person's machine (docs/architecture.md, Memory design). */
-export const STAGE_PANES = 4;
+/** The most panes a work item's view shows side by side: the cap a person set on panes, the proposal where none is set, and `PANES_WITHOUT_CAP` where the daemon keeps no cap. */
+export function paneCap(machine: Machine | null): number {
+  return machine === null ? PANES_WITHOUT_CAP : (machine.panes.set ?? machine.panes.proposed);
+}
+
+/** The title of "Side by side", which names the cap on the panes it shows. */
+export function sideBySideTitle(cap: number): string {
+  return cap === 1 ? "Show one of this work item's panes at a time" : `Show up to ${String(cap)} of this work item's panes at once`;
+}
+
+/**
+ * Where each of `count` tiles stands where "Side by side" lays the stage out:
+ * in the tabs' order, row by row, in two columns for 2 to 4 tiles, three for
+ * 5 to 9 and four for 10 to 16, the last tile spanning what is left of its
+ * row. One tile, or none, is no grid, and has one column.
+ */
+export function stageGrid(count: number): { columns: number; tiles: { row: number; column: number; span: number }[] } {
+  const columns = count <= 1 ? 1 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
+  const tiles = Array.from({ length: count }, (_, place) => ({ row: Math.floor(place / columns) + 1, column: (place % columns) + 1, span: place === count - 1 ? columns - (place % columns) : 1 }));
+  return { columns, tiles };
+}
 
 /**
  * The panes on the stage of a view that shows `tabs`, in the tabs' order,
@@ -2477,26 +2496,27 @@ export const STAGE_PANES = 4;
  * then the tabs that are not in `recent`, which were never in front, the
  * highest id first. The pane in front is `paneInFront`'s for the first of
  * `recent`. Where "Side by side" is not pressed, it is alone on the stage.
- * Where it is pressed, the stage holds up to `STAGE_PANES` panes: the one in
+ * Where it is pressed, the stage holds up to `most` panes, the cap on panes
+ * side by side (`paneCap`): the one in
  * front, then the panes of the stage order. A pressed tab is the first of
  * `recent`, so it takes the place of the shown pane last in the stage order.
  * A closed pane that `recentKept` left first takes no place: the stage holds
- * the first `STAGE_PANES` panes of the stage order, and the pane in front is
- * `paneInFront`'s among them. Where fewer than `STAGE_PANES` of the tabs
+ * the first `most` panes of the stage order, and the pane in front is
+ * `paneInFront`'s among them. Where fewer than `most` of the tabs
  * were in front, tabs never in front are among them, and one of those can
  * be the pane in front.
  */
-export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean): { front: number | undefined; shown: number[] } {
+export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[], sideBySide: boolean, most: number): { front: number | undefined; shown: number[] } {
   const ids = tabs.map((tab) => tab.id);
   const never = ids.filter((id) => !recent.includes(id)).sort((a, b) => b - a);
   // A set keeps each pane at the first place it is named.
   const byRecency = [...new Set([...recent.filter((id) => ids.includes(id)), ...never])];
   const closedFirst = sideBySide && recent.length > 0 && !ids.includes(recent[0] as number);
-  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, STAGE_PANES).includes(tab.id)) : tabs;
+  const candidates = closedFirst ? tabs.filter((tab) => byRecency.slice(0, most).includes(tab.id)) : tabs;
   const front = paneInFront(candidates, recent[0]);
   if (front === undefined) return { front, shown: [] };
   if (!sideBySide) return { front, shown: [front] };
-  const top = [...new Set([front, ...byRecency])].slice(0, STAGE_PANES);
+  const top = [...new Set([front, ...byRecency])].slice(0, most);
   return { front, shown: ids.filter((id) => top.includes(id)) };
 }
 
@@ -2505,7 +2525,7 @@ export function stageOf(tabs: readonly SessionInfo[], recent: readonly number[],
  * daemon lists only `listed`. A pane it no longer lists leaves, except the
  * first one: that one stays as the pane last in front, so `paneInFront`
  * finds it is no tab and gives the live pane with the highest id, which
- * `stageOf` takes from the first `STAGE_PANES` panes of its stage order
+ * `stageOf` takes from the first panes of its stage order, as many as the cap,
  * where "Side by side" is pressed, tabs never in front among them where
  * fewer of the tabs were in front, or the one of those panes with the
  * highest id where none of them runs. Were it taken out, the pane in front

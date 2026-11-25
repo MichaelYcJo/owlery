@@ -128,8 +128,8 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
   });
 });
 
-// A second start, on a disk nearly full: 10.2 GB free, and a worktree of the repository measured at 440 MB in the run folder.
-describe.skipIf(process.platform !== "darwin")("the new work item form on a disk nearly full, in the built app", { timeout: 120_000 }, () => {
+// A second start, on a disk nearly full: 10.2 GB free, and a work item whose worktree is measured at 440 MB in the run folder.
+describe.skipIf(process.platform !== "darwin")("the new work item form and the stage of a work item's view, in the built app on a disk nearly full", { timeout: 120_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
   // No person set a cap on worktrees, so the cap is the proposal: the one that stands, and none more that the 0.2 GB past the 10 GB kept free holds at 440 MB.
@@ -170,5 +170,52 @@ describe.skipIf(process.platform !== "darwin")("the new work item form on a disk
     }
     expect(await app.evaluate<boolean>(`document.getElementById("work-item-create").disabled`)).toBe(false);
     expect(await app.evaluate<boolean>(`getComputedStyle(document.getElementById("work-item-warning")).display !== "none"`)).toBe(true);
+    await app.click("#work-item-cancel");
+    await app.until(`!document.getElementById("work-item-dialog").open`, 'the "New work item" form closed');
+  });
+
+  /** Sets the cap on panes side by side in the Machine dialog. */
+  const capPanes = async (cap: number): Promise<void> => {
+    await app.click("#machine-button");
+    await app.until(`document.getElementById("machine-dialog").open`, "the Machine dialog");
+    await app.click("#machine-panes");
+    await app.evaluate(`document.getElementById("machine-panes").select()`);
+    await app.cdp("Input.insertText", { text: String(cap) });
+    await app.click("#machine-submit");
+    await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+  };
+  /** The tiles on the stage: how many, the columns and the rows their corners stand in, and the title of "Side by side". */
+  const stage = (): Promise<{ tiles: string | undefined; columns: number; rows: number; title: string }> =>
+    app.evaluate(`(() => {
+      const boxes = [...document.querySelectorAll("#stage .pane:not([hidden])")].map((tile) => tile.getBoundingClientRect());
+      return { tiles: document.getElementById("stage").dataset.tiles, columns: new Set(boxes.map((box) => Math.round(box.left))).size, rows: new Set(boxes.map((box) => Math.round(box.top))).size, title: document.getElementById("side-by-side").title };
+    })()`);
+
+  it("lays out six panes in three columns where the cap on panes side by side is 6, and two where it is 2, the rest staying tabs (scenario 14)", async () => {
+    await capPanes(6);
+    // The sidebar is drawn again at each message, so the click is made again until the view shows.
+    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`;
+    for (const deadline = Date.now() + 15_000; ; ) {
+      await app.click(`#repositories button[data-work-item="1"]`);
+      try {
+        await app.until(shown, "the view of Measured", 2_000);
+        break;
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
+      }
+    }
+    const tabs = `document.querySelectorAll("#tabs .tab").length`;
+    for (let count = 1; count <= 6; count += 1) {
+      const button = (await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-buttons button")].map((button) => button.textContent)`)).indexOf("+ Shell");
+      await app.click(`#pane-buttons button:nth-child(${String(button + 1)})`);
+      await app.until(`${tabs} === ${String(count)}`, `${String(count)} tabs`);
+    }
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "6"`, "six panes side by side");
+    expect(await stage()).toEqual({ tiles: "6", columns: 3, rows: 2, title: "Show up to 6 of this work item's panes at once" });
+    await capPanes(2);
+    await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
+    expect(await stage()).toEqual({ tiles: "2", columns: 2, rows: 1, title: "Show up to 2 of this work item's panes at once" });
+    expect(await app.evaluate<number>(tabs)).toBe(6);
   });
 });
