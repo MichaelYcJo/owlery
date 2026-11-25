@@ -64,4 +64,4 @@ None. No migration, no environment variable, no dependency and no compatibility 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-25 | Round 1's finding 1 is deferred to issue #251; findings 2 and 3 go to the fix pass; findings 4 and 5, located in this file alone, are folded by the orchestrator as the round wrote them. | Finding 1 predates the branch and its fix redraws the dialogs only where their losses change, a unit the frame does not name, which would cost a fold and its rounds; its home is an issue with the round's paste-ready fix. Findings 4 and 5 correct coordinates and remove a paragraph whose fact stands in *Grounding* and *Scope* items 8 and 9 (`trail/rounds/round-1.md`). | the plugin's `skills/code-review/orchestration.md` *Orchestrator: the run ends with a verifying round* and `skills/implement/orchestration.md` *Orchestrator: drain the rows before the broad run, and keep the records* |
