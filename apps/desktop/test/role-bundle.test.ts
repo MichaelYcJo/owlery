@@ -179,7 +179,7 @@ describe("the role bundle", () => {
     }
   });
 
-  it("holds the orchestrator's definition for its two judgments: the signals that say the rounds are not converging, how a question is decided from the code and the policy, what alone parks a work item, and the blocks of its answer by the keys the daemon reads", () => {
+  it("holds the orchestrator's definition for its two judgments: the signals that say the rounds are not converging, none of the first four held by a finding located in the work item's records alone, what a no buys for the stop it costs, how a question is decided from the code and the policy, what alone parks a work item, and the blocks of its answer by the keys the daemon reads", () => {
     const definition = read("agents/orchestrator.md");
     for (const named of [
       "whether the review rounds are converging",
@@ -193,6 +193,21 @@ describe("the role bundle", () => {
       "`grounds:`",
       "You write no file and run no command",
     ]) expect(definition, named).toContain(named);
+    // A finding located in the work item's records alone holds none of the first four signals, and a `no` argues for the stop it costs (issue #236).
+    const flat = definition.replace(/\s+/gu, " ");
+    for (const said of [
+      "**A finding located in the work item's records alone counts toward none of the first four signals.**",
+      "A finding is located in the records where every path its `location:` lines name stands in the work item's directory.",
+      "Such a finding holds no signal by its `reopens:` line or its `regression:` line, is not counted among the last round's open findings, and is not one of two findings at one location or on one rule of the frame two rounds in a row.",
+      "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
+      "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
+      "Where the daemon runs the chain, its ceiling of rounds bounds such findings as well.",
+      "A stop is the most expensive step of the chain, as `skills/core/SKILL.md` *Asking a person is the most expensive step* says: it costs the person's attention, and while nobody watches it costs the hours until somebody does.",
+      "So a `no` argues for its stop by what it buys: the person's decision at the stop, which no fix pass makes, such as a reframe, a split of the work, dropping the work or a fix by hand, and the rounds that a chain which does not converge would spend before anything else stops it.",
+      "The `grounds:` line of a `no` names the signal that holds and the findings that hold it.",
+      "A reopen or a regression located in the work item's records alone buys no such decision, since the person's next start would only run the same fix pass.",
+      "That is why such a finding counts toward none of the first four signals above, and the chain goes on.",
+    ]) expect(flat, said).toContain(said);
     for (const ruling of ["answered", "default", "scope", "park"]) expect(definition, ruling).toContain(`- \`${ruling}\`: `);
     // The words of a ruling are the ones the daemon's reader takes.
     expect(RULING_BLOCK.keys.get("rules:")?.shape.source).toContain("default|scope|answered|park");
