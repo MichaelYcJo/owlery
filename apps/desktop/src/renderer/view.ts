@@ -479,7 +479,7 @@ export interface ApprovalPlace {
   under: string | null;
 }
 
-/** The words of the broad gate where the window names it: on the gate's line under "Ask", on the approval line, and on a line of the inbox while the gate runs. */
+/** The words of the broad gate where the window names it: on the gate's line at the view's foot, on the approval line, and on a line of the inbox while the gate runs. */
 export const GATE_HEAD = "Broad gate";
 
 /**
@@ -3139,7 +3139,7 @@ export function accountChoices(held: HeldAccounts, first: string, gives: number)
 /**
  * The menu of a button that opens a pane of `kind`, opened at a secondary
  * click: its first item opens the pane under the account `gives`, the one
- * the work item gives, named as the Ask row's menu names it, and an item for
+ * the work item gives, named "The work item's" with that account's name, and an item for
  * each other account follows, in the daemon's order, below a rule. Each
  * opens that one pane under its account (`accountId`, null for the work
  * item's). None for a kind that takes no account, and none where no account
@@ -3226,16 +3226,6 @@ export function settingsChain(repository: Repository): { shown: boolean; value: 
 }
 
 /**
- * Whether the "Ask" button of a work item's view can be pressed, and its
- * title: where it asks, or why it cannot. The daemon refuses a prompt of
- * white space.
- */
-export function askButton(prompt: string, workItem: WorkItem): { enabled: boolean; title: string } {
-  if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
-  return { enabled: true, title: `Ask in ${workItem.title}` };
-}
-
-/**
  * The sentence of a work item's chain, which stands at its view's foot under
  * the seal's words: where the chain of the daemon stands. It is empty where
  * no chain ran for the work item, and for a daemon of an earlier build,
@@ -3281,7 +3271,7 @@ export interface HeadlessLine {
   asks: { id: number; head: string; text: string }[];
 }
 
-/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field, each with the calls it waits for the person to allow or refuse. */
+/** The lines of one work item's headless sessions, the most recent first, each with the calls it waits for the person to allow or refuse. */
 export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem): HeadlessLine[] {
   const waiting = permissionsOf(workItem);
   return held
@@ -3314,7 +3304,7 @@ export interface GateOutput {
   cut: boolean;
 }
 
-/** The line of a work item's newest broad gate under "Ask", drawn in the form of a headless session's line. */
+/** The line of a work item's newest broad gate at its view's foot, drawn in the form of a headless session's line. */
 export interface GateLine {
   /** When the run started, by the daemon's clock, which tells one run of a work item's gate from the next. */
   startedAt: number;
@@ -3363,7 +3353,21 @@ export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine 
   };
 }
 
-/** What tells one drawing of a work item's "Ask" section from the next: it differs where the broad gate's line, a session's line or a request of it differs, and between two work items. The section is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the section shows. */
+/**
+ * The list at a work item's view's foot, above the seal's place, which a
+ * screen reader names "The daemon's chain": the line of the broad gate the
+ * work item's chain ran last (`gateLine`), the lines of the headless
+ * sessions the daemon lists for the work item (`headlessLines`), and
+ * whether the list is drawn. It is not drawn where it holds no line, and
+ * the foot then holds the seal's place alone.
+ */
+export function chainList(held: readonly HeadlessInfo[], workItem: WorkItem, read: GateOutput | null): { gate: GateLine | null; lines: HeadlessLine[]; drawn: boolean } {
+  const gate = gateLine(workItem, read);
+  const lines = headlessLines(held, workItem);
+  return { gate, lines, drawn: gate !== null || lines.length > 0 };
+}
+
+/** What tells one drawing of a work item's list of the daemon's chain from the next: it differs where the broad gate's line, a session's line or a request of it differs, and between two work items. The list is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the list shows. */
 export function headlessKey(workItemId: number, lines: readonly HeadlessLine[], gate: GateLine | null = null): string {
   return JSON.stringify([workItemId, lines, gate]);
 }

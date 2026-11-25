@@ -17,7 +17,6 @@ import {
   archivedIn,
   answersFor,
   approvalPlaces,
-  askButton,
   asksChain,
   askedSection,
   asksFetch,
@@ -30,6 +29,7 @@ import {
   bellSays,
   cardStaysAt,
   chainNotifications,
+  chainList,
   chainSays,
   stageAhead,
   machineQueue,
@@ -3036,17 +3036,6 @@ describe("baseSays", () => {
   });
 });
 
-describe("askButton", () => {
-  it("is enabled, and says where it asks, once a prompt is typed", () => {
-    expect(askButton("Which file holds the login form?", LOGIN)).toEqual({ enabled: true, title: "Ask in Fix the login bug" });
-  });
-
-  it("is disabled, and says why, while the field is empty or holds white space alone", () => {
-    expect(askButton("", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
-    expect(askButton(" \n ", LOGIN)).toEqual({ enabled: false, title: "Type what to ask." });
-  });
-});
-
 describe("withHeadless", () => {
   it("adds a headless session the window did not hold, after the others", () => {
     expect(withHeadless([headless(1)], headless(2))).toEqual([headless(1), headless(2)]);
@@ -3112,7 +3101,7 @@ describe("headlessLines", () => {
   });
 });
 
-describe("the broad gate's line under Ask", () => {
+describe("the list of the daemon's chain at the view's foot", () => {
   const RUN: GateRun = { command: "pnpm -r run check", exitCode: null, output: false };
   const ROUND: ChainStage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1000, endedAt: 2000, headlessId: 3, refusals: 0, gate: null };
   /** A broad gate's stage: at work since 5000, but for the fields given. */
@@ -3155,6 +3144,16 @@ describe("the broad gate's line under Ask", () => {
     expect(gateLine(chained("stopped", gate({ startedAt: 4000, state: "finished", endedAt: 4500 }), FAILED, ROUND), null)).toMatchObject({ state: "failed", text: "The command exited with code 3." });
   });
 
+  it("holds the gate's line and the lines of the work item's sessions, and is drawn only where it holds a line: not for a work item the daemon lists no session of and whose chain holds no gate's run (design, A work item with no daemon chain shows the seal's place alone)", () => {
+    expect(chainList([], LOGIN, null)).toEqual({ gate: null, lines: [], drawn: false });
+    // Another work item's session, and a chain whose stages hold no gate's run, give the list no line.
+    expect(chainList([headless(2, { workItemId: 2 })], chained("stopped", ROUND), null)).toEqual({ gate: null, lines: [], drawn: false });
+    const failed = chained("stopped", ROUND, FAILED);
+    expect(chainList([], failed, null)).toEqual({ gate: gateLine(failed, null), lines: [], drawn: true });
+    const sessions = [headless(1), headless(2, { workItemId: 2 }), headless(3, { state: "failed", error: "the session exited with code 1 and gave no result" })];
+    expect(chainList(sessions, LOGIN, null)).toEqual({ gate: null, lines: headlessLines(sessions, LOGIN), drawn: true });
+  });
+
   it("draws a gate whose stage says it works in a chain that does not run it as failed, with no Stop: no command of it runs", () => {
     for (const state of ["stopped", "parked", "rested"] as const) expect(gateLine(chained(state, ROUND, gate()), null)).toMatchObject({ state: "failed", words: "failed", text: "", stop: false, output: false });
     // A running chain whose newest stage is another runs no gate either.
@@ -3174,7 +3173,7 @@ describe("the broad gate's line under Ask", () => {
     expect({ ...gateLine(failed, read), printed: null }).toEqual(gateLine(failed, null));
   });
 
-  it("tells one drawing of the Ask section from the next by the gate's line too: its state, its buttons and the output under it", () => {
+  it("tells one drawing of the list from the next by the gate's line too: its state, its buttons and the output under it", () => {
     const failed = chained("stopped", ROUND, FAILED);
     const read = { workItemId: 1, startedAt: 5000, text: "1 failed\n", cut: false };
     const keys = [
@@ -4680,7 +4679,7 @@ describe("accounts in the window", () => {
     ]);
   });
 
-  it("gives a button that opens a pane of a kind that takes an account a menu whose first item opens it under the account the work item gives, named as the Ask row's menu names it, and the other accounts after it, and says so in the button's tooltip; gives none to a kind that takes no account, and none where no account stands beside System default (scope item 10)", () => {
+  it("gives a button that opens a pane of a kind that takes an account a menu whose first item opens it under the account the work item gives, named \"The work item's\" with that account's name, and the other accounts after it, and says so in the button's tooltip; gives none to a kind that takes no account, and none where no account stands beside System default (scope item 10)", () => {
     const kinds: PaneKindInfo[] = KINDS.map((kind) => ({ ...kind, accounts: kind.kind === "claude" }));
     const claude = kinds.find((kind) => kind.kind === "claude");
     expect(newPaneMenu(claude, HELD, 1)).toEqual([

@@ -1497,8 +1497,8 @@ function restore(workItemId: number): void {
 }
 
 /** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive, in the delete dialog and in the dialog that asks before the daemon ends, where one is open: a session that started or ended is one the dialog has to say. */
-function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
-  takeHeadless(headless, requestId);
+function takeHeadlessSession(headless: HeadlessInfo): void {
+  takeHeadless(headless);
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
@@ -1909,7 +1909,7 @@ function onMessage(message: ServerMessage): void {
       }
       return;
     case "asked":
-      takeHeadlessSession(message.headless, message.requestId);
+      takeHeadlessSession(message.headless);
       return;
     case "headless":
       takeHeadlessSession(message.headless);

@@ -52,7 +52,7 @@
 // start with a parked chain whose broad gate passed: it holds its routing, a
 // round that left no finding and the broad gate's run, and its record of
 // questions holds two the run writes there, asked by the sealer, so the
-// parked view lists them, lists the gate's line under "Ask" with the
+// parked view lists them, shows the gate's line at its foot with the
 // finished mark, and its approval line counts the round and marks the
 // sealer's place, which waits on the questions. The finished work item is
 // stored before the start with a rested chain and a pull request whose
@@ -461,16 +461,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup") && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("crafter")} .state-icon.finished') && document.querySelector('${place("sealer")} .note')?.textContent === "Gate failed" && document.querySelector("#headless li.gate .state.failed") && document.querySelector("#headless li.gate .answer")?.textContent === "The command exited with code 1."`, "the work item's view with its terminal, its setup, its approval line, whose sealer's place says that the gate failed, and the line of its broad gate, which failed");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(SHOWN)} && document.querySelector("#stage .pane .xterm-scrollable-element") && document.querySelector("#view-detail section.setup") && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("crafter")} .state-icon.finished') && document.querySelector('${place("sealer")} .note')?.textContent === "Gate failed" && !document.getElementById("view-chain").hidden && document.querySelector("#view-chain li.gate .state.failed") && document.querySelector("#view-chain li.gate .answer")?.textContent === "The command exited with code 1."`, "the work item's view with its terminal, its setup, its approval line, whose sealer's place says that the gate failed, and the line of its broad gate, which failed");
       // What the failed gate printed, as a press of "Show output" draws it under the gate's line.
-      await app.click(`#headless li.gate button[data-answer="gate:output"]`);
-      await app.until(`document.querySelector("#headless li.gate .error-output")?.textContent === ${JSON.stringify(GATE_FAILED_PRINTED)}`, "what the failed gate printed, under its line");
+      await app.click(`#view-chain li.gate button[data-answer="gate:output"]`);
+      await app.until(`document.querySelector("#view-chain li.gate .error-output")?.textContent === ${JSON.stringify(GATE_FAILED_PRINTED)}`, "what the failed gate printed, under its line");
       // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     parked: async () => {
       await app.click(PARKED_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate, which passed");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && !document.getElementById("view-chain").hidden && document.querySelector("#view-chain li.gate .state.finished") && document.querySelector("#view-chain li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#view-chain li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate, which passed");
       // The questions stand at the top of the column, which the shown work item's view left scrolled.
       await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
     },
