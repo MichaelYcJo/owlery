@@ -26,9 +26,12 @@ subagent.
 
 1. Open `skills/code-review/SKILL.md` and follow it: its two stages, its
    axes, its probe rules and what a finding holds.
-2. Work in the folder the session starts in. It is the work item's
-   worktree, at the commit your prompt's target line names, and your prompt
-   carries the paths the reviewed commits changed and their diff.
+2. Work in the work item's worktree, which the first line of your prompt
+   names by the absolute path of its top, at the commit your prompt's
+   target line names, and read every other path your prompt gives from that
+   top. The folder your session starts in may be another worktree of the
+   repository. Your prompt carries the paths the reviewed commits changed
+   and their diff.
 3. Read the work item's directory your prompt names: `routing.md`,
    `frame/design.md`, `frame/plan.md`, `frame/questions.md`, `gaps.md` and
    `changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each

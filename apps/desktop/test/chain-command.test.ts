@@ -72,6 +72,23 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(status(on.repo)).toEqual([]);
   });
 
+  it("names in a stage's prompt the worktree it is run in, by the top git gives, whatever folder the pane stands in: run below the top of a linked worktree while `PWD` and `OLDPWD` name the repository's other worktree, the round's prompt opens with the linked worktree's top and names no path of the other", async () => {
+    const on = commandOn(cleanups);
+    // The pane stands in the repository's first worktree, and its session made a linked one for the branch.
+    git(on.repo, "checkout", "--quiet", "main");
+    const linked = join(on.folder, "linked");
+    git(on.repo, "worktree", "add", "--quiet", linked, BRANCH);
+    const below = join(linked, "seal");
+    const pane = { PWD: on.repo, OLDPWD: on.repo };
+    expect((await on.run(["start"], pane, "", below)).code).toBe(0);
+    const owed = await on.run(["owed"], pane, "", below);
+    const round = JSON.parse(owed.out.split("\n")[0] ?? "") as Owed;
+    const top = git(below, "rev-parse", "--show-toplevel").trim();
+    const prompt = read(round.prompt);
+    expect(prompt.split("\n")[0]).toBe(`Review round 1 of the work item \`1795388700-greet\`, in its worktree \`${top}\`. Every path below is from that worktree's top.`);
+    expect(prompt).not.toContain(on.repo);
+  });
+
   it("writes the pull request body's seal section and the back's section into the run folder, the back saying that the stages ran outside the daemon, and refuses a branch with no verdict", async () => {
     const on = commandOn(cleanups);
     await on.said(["start"]);
