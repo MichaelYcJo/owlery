@@ -51,14 +51,17 @@ export interface TurnAsk {
 /**
  * A turn that was given: the load the keeper read as it was given, the
  * highest load it read while the turn was held, how many other commands
- * held a turn during any part of it, and what ends it, once however often
- * it is called. The two counts stop at the turn's end.
+ * held a turn during any part of it, what ends it, once however often it is
+ * called, and what starts its highest load again from a load given. The two
+ * counts stop at the turn's end.
  */
 export interface Turn {
   load: number | null;
   highest(): number | null;
   beside(): number;
   end(): void;
+  /** Starts the turn's highest load again from the load given, as a second run does once its wait for the load ends (`turn-socket.ts#turnGiver`). */
+  restart(load: number | null): void;
 }
 
 /** One ask as the queue lists it: what it asked with, when it asked, and whether it holds a turn. */
@@ -204,7 +207,7 @@ export class MachineTurns {
       this.running.push(next);
       const load = this.options.load?.() ?? null;
       next.highest = load;
-      next.settle({ load, highest: () => next.highest, beside: () => next.beside.size, end: () => this.leave(next) });
+      next.settle({ load, highest: () => next.highest, beside: () => next.beside.size, end: () => this.leave(next), restart: (start) => void (next.highest = start) });
     }
   }
 
@@ -227,7 +230,7 @@ export class MachineTurns {
   }
 }
 
-/** Whether the machine was over its load during a turn: another command held a turn during any part of it, or the load read as it was given was above the cores. */
+/** Whether the machine was over its load during a turn: another command held a turn during any part of it, or the turn's `load`, read as it was given or, for a second run, as its wait ended, was above the cores. */
 export function overLoad(turn: Pick<Turn, "load" | "beside">, cores: number | null): boolean {
   return turn.beside() > 0 || (turn.load !== null && cores !== null && turn.load > cores);
 }

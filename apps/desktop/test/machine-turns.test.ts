@@ -1,9 +1,10 @@
 // The turn keeper: how many heavy commands hold a turn on the machine at
-// once, and the order those that wait are given theirs. Each case gives the
-// keeper its limit, its clock and its reading of the load, and starts no
-// process.
+// once, and the order those that wait are given theirs, and the giver's wait
+// for the load. Each case gives the keeper its limit, its clock and its
+// reading of the load, and starts no process.
 import { describe, expect, it } from "vitest";
 import { type Asked, MachineTurns, type TurnPlace, overLoad, untilCalm } from "../src/daemon/machine-turns";
+import { type HeavyRunTaken, turnGiver } from "../src/daemon/turn-socket";
 
 const AT = 1_795_388_700_000;
 
@@ -215,6 +216,23 @@ describe("the turns on the machine", () => {
     const left = untilCalm(() => load, CORES, calm, going.signal);
     going.abort();
     expect(await within(left, 50)).toBe(true);
+  });
+
+  it("starts a second run that waited for the load on the load read as its wait ended, so its line keeps the load at its start and the highest load during it, and none read during the wait", async () => {
+    let load: number | null = CORES * 2 + 1;
+    const turns = new MachineTurns({ limit: 1, load: () => load });
+    const kept: HeavyRunTaken[] = [];
+    const giver = turnGiver(turns, { cores: CORES, load: () => load, calm: { waitMs: 20_000, pollMs: 10 }, now: () => AT, kept: (run) => kept.push(run) });
+    const asked = giver.ask({ folder: "/work/gate", name: "gate", place: "gate", alone: true });
+    // The run holds the keeper's turn while it waits, so a reading during the wait falls on it.
+    turns.sample();
+    load = 2;
+    const turn = await asked.turn;
+    expect(turn?.load).toBe(2);
+    load = 3;
+    turns.sample();
+    expect(giver.ran(asked, turn!, { exitCode: 0, peakMemory: null })).toEqual({ over: false, highest: 3, beside: 0, cores: CORES });
+    expect(kept).toMatchObject([{ name: "gate", load: 2, highestLoad: 3, alone: true }]);
   });
 
   it("gives each turn the load read when it was given, and tells each watcher of every change once the queue shows it, until the watcher stops watching", async () => {

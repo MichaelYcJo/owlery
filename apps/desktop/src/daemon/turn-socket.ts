@@ -50,7 +50,7 @@ export interface HeavyRunTaken {
   alone: boolean;
 }
 
-/** A turn as the giver gives it: the keeper's, with when it was given. */
+/** A turn as the giver gives it: the keeper's, with when it was given, and, for a run that must run alone, the load read once its wait for the load ended. */
 export type GivenTurn = Turn & { startedAt: number };
 
 /** An ask as the giver took it: the keeper's answer with the turn as the giver gives it, the ask as the keeper took it, and when it asked. */
@@ -87,8 +87,9 @@ export interface GiverOptions {
  * The giver of the keeper's turns. An ask that must run alone waits, once
  * the keeper has given its turn, until the load is at the cores or under,
  * for the calm wait at most (`CALM_WAIT_MS`), and holds the keeper's turn
- * meanwhile, so no other command starts. A turn ended by `ran` keeps one
- * line of the run.
+ * meanwhile, so no other command starts; its run starts on the load read
+ * as the wait ended, and its highest load counts from there. A turn ended
+ * by `ran` keeps one line of the run.
  */
 export function turnGiver(turns: MachineTurns, options: GiverOptions): TurnGiver {
   const now = options.now ?? Date.now;
@@ -108,7 +109,10 @@ export function turnGiver(turns: MachineTurns, options: GiverOptions): TurnGiver
           return null;
         }
         options.started?.();
-        return { ...given, startedAt: now() };
+        // A second run that waited for the load starts on the load read now, and its highest load counts from its start: a reading during its wait is not its run's.
+        const load = ask.alone === true ? options.load() : given.load;
+        if (ask.alone === true) given.restart(load);
+        return { ...given, load, startedAt: now() };
       });
       return { waits: asked.waits || loaded, turn, ahead: asked.ahead, ask, askedAt };
     },
