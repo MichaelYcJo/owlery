@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
+import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
@@ -192,6 +192,27 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
     write(keyless, "seal/config.json", '{ "Broad gate": 3 }');
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
+  });
+
+  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own three", () => {
+    const repo = repository();
+    write(repo, "seal/README.md", `${MARKER}\n`);
+    write(repo, "seal/config.json", `${JSON.stringify({ "Broad gate": "pnpm test", "Heavy commands": { test: "pnpm --filter @owlery/desktop run test", install: "pnpm install", count: 3, blank: "  ", list: ["pnpm"] } })}\n`);
+    expect(readHeavyCommands(repo)).toEqual({ test: "pnpm --filter @owlery/desktop run test", install: "pnpm install" });
+    for (const value of ["pnpm test", ["pnpm test"], null, 3]) {
+      write(repo, "seal/config.json", JSON.stringify({ "Heavy commands": value }));
+      expect(readHeavyCommands(repo), JSON.stringify(value)).toEqual({});
+    }
+    write(repo, "seal/config.json", '{ "Broad gate": "pnpm test" }');
+    expect(readHeavyCommands(repo)).toEqual({});
+    write(repo, "seal/config.json", "{ not json");
+    expect(readHeavyCommands(repo)).toEqual({});
+    // A config.json beside no root's README.md names nothing.
+    const rootless = repository();
+    write(rootless, "seal/config.json", JSON.stringify({ "Heavy commands": { test: "pnpm test" } }));
+    expect(readHeavyCommands(rootless)).toEqual({});
+    // This repository names the suite of the desktop app, its built-app files as one batch, and the install as its heavy commands.
+    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({ test: "pnpm --filter @owlery/desktop run test", "test:app": "pnpm --filter @owlery/desktop run test:app", install: "pnpm install" });
   });
 
   it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {

@@ -1,6 +1,10 @@
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { holdAwakeFor } from "../src/daemon/keep-awake";
+import { holdAwakeFor, wakeDisplayFor, wantsAwake } from "../src/daemon/keep-awake";
+import type { HeadlessInfo } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 
 const cleanups: (() => void)[] = [];
@@ -55,12 +59,23 @@ function holdsOf(watchedPid: number, parent = process.pid): number[] {
   return pids;
 }
 
+describe("when the daemon wants the Mac awake", () => {
+  const headless = (state: HeadlessInfo["state"]): HeadlessInfo => ({ id: 1, workItemId: 1, prompt: "Which file?", state, answer: "", error: null, usage: null, startedAt: 1, errorOutput: "", stopped: null, role: null, queuedAt: 1 });
+
+  it("holds nothing under `working` for a headless session that waits for the machine alone, which runs no process, and holds for one that works (scenario 9)", () => {
+    expect(wantsAwake("working", [], [headless("queued")])).toBe(false);
+    expect(wantsAwake("working", [], [headless("queued"), headless("working")])).toBe(true);
+    // A chain whose stage waits is a chain that runs, and is held across its wait as across the time between two stages.
+    expect(wantsAwake("working", [], [headless("queued")], true)).toBe(true);
+  });
+});
+
 // The program ships with macOS, and the daemon is given this holder on macOS alone (src/daemon/main.ts).
 describe.skipIf(process.platform !== "darwin")("the hold on the Mac's idle sleep", () => {
   it("runs one `/usr/bin/caffeinate -i -w` for the process it is given, and ends it at the release without reporting the hold lost", async () => {
     const pid = watched();
     let lost = 0;
-    const hold = holdAwakeFor(pid)(() => lost++);
+    const hold = holdAwakeFor(pid)(() => lost++, false);
     cleanups.push(() => hold.release());
     const [child, ...others] = await until(() => {
       const found = holdsOf(pid);
@@ -78,10 +93,33 @@ describe.skipIf(process.platform !== "darwin")("the hold on the Mac's idle sleep
     expect(lost).toBe(0);
   });
 
+  it("holds the display too, with `-d`, where it is asked to, and wakes the display through `caffeinate -u -t 5` once for each wake, with no shell and nothing to wait on", async () => {
+    const pid = watched();
+    const hold = holdAwakeFor(pid)(() => undefined, true);
+    cleanups.push(() => hold.release());
+    const [child] = await until(() => {
+      const found = holdsOf(pid);
+      return found.length > 0 ? found : undefined;
+    });
+    expect(execFileSync("ps", ["-o", "args=", "-p", String(child)], { encoding: "utf8" }).trim()).toBe(`/usr/bin/caffeinate -d -i -w ${String(pid)}`);
+    hold.release();
+    // A stand-in for the program writes the words it was started with, so the case wakes no display.
+    const folder = mkdtempSync(join(tmpdir(), "owlery-wake-"));
+    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
+    const program = join(folder, "caffeinate");
+    writeFileSync(program, `#!/bin/sh\necho "$@" >> "${folder}/woken"\n`, { mode: 0o700 });
+    const wake = wakeDisplayFor(program);
+    wake();
+    wake();
+    expect(await until(() => (existsSync(join(folder, "woken")) && readFileSync(join(folder, "woken"), "utf8").split("\n").length === 3 ? readFileSync(join(folder, "woken"), "utf8") : undefined))).toBe("-u -t 5\n-u -t 5\n");
+    // A program that cannot start wakes nothing and throws nothing.
+    expect(() => wakeDisplayFor(join(folder, "none"))()).not.toThrow();
+  });
+
   it("reports the hold lost, once, when the process it watches ends, and its child ends by itself", async () => {
     const pid = watched();
     let lost = 0;
-    const hold = holdAwakeFor(pid)(() => lost++);
+    const hold = holdAwakeFor(pid)(() => lost++, false);
     cleanups.push(() => hold.release());
     const [child] = await until(() => {
       const found = holdsOf(pid);
@@ -99,7 +137,7 @@ describe.skipIf(process.platform !== "darwin")("the hold on the Mac's idle sleep
   it("reports the hold lost, once, where the program cannot start, and throws nothing", async () => {
     const pid = watched();
     let lost = 0;
-    const hold = holdAwakeFor(pid, "/usr/bin/no-such-caffeinate")(() => lost++);
+    const hold = holdAwakeFor(pid, "/usr/bin/no-such-caffeinate")(() => lost++, false);
     await until(() => (lost > 0 ? true : undefined));
     hold.release();
     await new Promise((r) => setTimeout(r, 200));

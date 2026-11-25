@@ -118,6 +118,39 @@ export function runningSays(kind: ChainStageKind, round: number): string {
   return `${stageName(kind, round)} is running.`;
 }
 
+/** The sentence of a chain whose broad gate waits for its turn on the machine. */
+export const GATE_WAITS_SAYS = "The broad gate waits for the machine.";
+
+/** Why a broad gate failed that was stopped before its command started: while it waited for its turn on the machine, or between its turn and the start. */
+export const GATE_STOPPED_BEFORE_START = "it was stopped before its command started";
+
+/** The chain's sentence while the second run of a broad gate that failed while the machine was over its load waits to run alone. */
+export const GATE_AGAIN_SAYS = "The broad gate failed while the machine was over its load, and runs once more, alone.";
+
+/** How a broad gate's command ended, as the sentence of an earlier run names it, or null where it ended in no way that runs it again: it passed, it did not start, or it was stopped. */
+export function endedWith(end: { exitCode: number | null; signal: string | null; error: string | null }, stopped: boolean): string | null {
+  if (stopped || end.error !== null) return null;
+  if (end.signal !== null) return `the signal ${end.signal}`;
+  return end.exitCode === 0 || end.exitCode === null ? null : `exit code ${String(end.exitCode)}`;
+}
+
+/**
+ * The sentence `trail/gate.md` holds above the run block of a second run
+ * that passed: the commit the earlier run failed on, how it ended, and the
+ * load the daemon read at its start with the cores and how many other heavy
+ * commands held a turn during it.
+ */
+export function earlierRunSays(earlier: { commit: string; ended: string; load: number | null; cores: number | null; beside: number }): string {
+  const { commit, ended, load, cores, beside } = earlier;
+  const read = load === null ? "no load average read" : `load average ${load.toFixed(1)}${cores === null ? "" : ` on ${String(cores)} cores`}`;
+  return `An earlier run on ${commit} ended with ${ended} while the machine was over its load (${read}, ${String(beside)} other heavy command${beside === 1 ? "" : "s"}). The run below ran alone.`;
+}
+
+/** Why a broad gate failed whose second run, alone, failed too: both runs' ends. */
+export function twiceFailedWhy(first: string, second: string): string {
+  return `${first} on its first run, while the machine was over its load, and ${second} on its second, which ran alone`;
+}
+
 /** The sentence of a chain that is reading the records, before its first stage and between two. */
 export const READING_SAYS = "Owlery is reading the work item's records.";
 

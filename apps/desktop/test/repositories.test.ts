@@ -21,7 +21,7 @@ function runDir(): string {
 const PLACE = { title: "Fix the login bug", repo: "/r/project", branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", baseCommit: "c".repeat(40), baseBranch: "main" };
 const { repo: _repo, ...OWN } = PLACE;
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
-const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null };
+const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null, worktreeSize: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 const PLAIN = { name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, groups: [], accountId: null };
 /** The setup of a work item's worktree, as the daemon records one that ended. */
@@ -132,6 +132,23 @@ describe("RepositoryStore", () => {
     const { setup: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [before] }] }));
     expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, setup: null });
+  });
+
+  it("keeps the size of a work item's worktree in kilobytes with the time it was measured, writes it, and reads a work item written before sizes were kept with none (scenario 13)", () => {
+    const dir = runDir();
+    const store = new RepositoryStore(dir, () => 1);
+    const { item } = store.addWorkItem(PLACE);
+    expect(item.worktreeSize).toBeNull();
+    const size = { kilobytes: 429_688, measuredAt: 5 };
+    expect(store.setWorkItem(item.id, { worktreeSize: size })).toBe(true);
+    expect(store.setWorkItem(item.id, { worktreeSize: store.workItem(item.id)?.item.worktreeSize ?? null })).toBe(false);
+    expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, worktreeSize: size });
+    const { worktreeSize: _none, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [before] }] }));
+    expect(new RepositoryStore(dir).workItem(1)?.item).toEqual({ ...before, worktreeSize: null });
+    // A size that is no number of kilobytes with its time is no store's.
+    writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [{ ...before, worktreeSize: { kilobytes: "429688", measuredAt: 5 } }] }] }));
+    expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
 
   it("reads a setup that was running when the daemon stopped as failed, and says why, keeps one that ended as it ended, and names the pane of neither", () => {

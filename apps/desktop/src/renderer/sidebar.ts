@@ -85,7 +85,7 @@ export function untell(text: string): void {
 /** Draws the status line: the window's own notice first, then what there is to say of the daemon, then what the daemon said of its agent, then the daemon's state, once the daemon said it. */
 export function showStatus(): void {
   const said = statusNotice(notice, held.daemonNotice, held.agentNotice);
-  status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false) : "");
+  status.textContent = said || (held.ready ? daemonStatus(held.sessions, held.paneKinds, held.keepAwake?.held ?? false, held.machine) : "");
   status.classList.toggle("notice", said !== "");
 }
 

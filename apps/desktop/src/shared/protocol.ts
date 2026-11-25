@@ -320,6 +320,15 @@ export interface WorkItem {
   pullRequest: PullRequest | null;
   /** The id of the account set on the work item, or null where none is set there. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
+  /** The heavy command of its worktree that waits for a turn on the machine, the one that began to wait first where several do, or null where none waits. The daemon stores no queue, so a look keeps none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  machineWait?: MachineWait | null;
+}
+
+/** A heavy command that waits for its turn on the machine: its name, when it asked, by the daemon's clock, and how many of those that wait go before it. */
+export interface MachineWait {
+  name: string;
+  since: number;
+  ahead: number;
 }
 
 /** The id of "System default": the login the person's shell gives with nothing passed. It is always an account, has no folder and is never removed. */
@@ -443,6 +452,8 @@ export interface GateRun {
   exitCode: number | null;
   /** Whether a `readGateOutput` of the work item has text to answer with: the run has ended and the command printed something the daemon kept. */
   output: boolean;
+  /** True while the gate waits for its turn on the machine and its command has not started, and absent once it starts or the wait ends without a start. The store does not keep it. A daemon of an earlier build sends no such field. */
+  waits?: true;
 }
 
 /** One stage a chain ran or is running. */
@@ -698,8 +709,8 @@ export interface SealRecords {
   unreadRefusals: number;
 }
 
-/** What a headless session is doing: `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error. */
-export type HeadlessState = "working" | "finished" | "failed";
+/** What a headless session is doing: `queued` while it waits for a place under the cap on agents, with no process, then `working` until its result, while it waits for the person to answer a permission request too, then `finished`, or `failed` where it gave none or an error, or was stopped. A session the daemon begins under the cap never is `queued`. */
+export type HeadlessState = "queued" | "working" | "finished" | "failed";
 
 /**
  * One headless session: an agent asked one prompt in a work item's worktree,
@@ -717,7 +728,10 @@ export interface HeadlessInfo {
   error: string | null;
   /** What the turn used, as the result reported it: null until the result, and where the result carried none. */
   usage: Usage | null;
+  /** When the session started its run, by the daemon's clock. While it is `queued` it is the time it joined the queue, and its start sets it again. */
   startedAt: number;
+  /** When the session joined the queue of the agents. The daemon sends it only on a session that waited, and leaves it out of one that never waited, as a daemon of an earlier build leaves it out of every session. */
+  queuedAt?: number | null;
   /** The last of what the agent's process printed on its error stream, once the process has exited; empty until then and where it printed nothing there. */
   errorOutput: string;
   /** What stopped a `failed` session before it ended by itself: its time limit, or a request, a client's `stopHeadless` or an archive, a delete or a removal that ended it. Null where the session ended by itself or still works. */
@@ -762,6 +776,87 @@ export interface KeepAwake {
   choice: KeepAwakeChoice;
   held: boolean;
 }
+
+/**
+ * What a plan of a work item carries of the room its worktree would take:
+ * the free bytes of the worktrees' disk as the daemon read them for the plan,
+ * the bytes it keeps free, what a worktree of the repository needs, which is
+ * the largest worktree of that repository measured, or null where none is,
+ * the worktrees that stand, and the cap on them, the one a person set or the
+ * proposal, or null where neither is.
+ */
+export interface PlanDisk {
+  freeBytes: number;
+  keepFreeBytes: number;
+  needsBytes: number | null;
+  standing: number;
+  cap: number | null;
+}
+
+/**
+ * What the daemon reads of the machine it runs on. `memoryBytes`, `cores` and
+ * `performanceCores` are read once, at the daemon's start: `os.totalmem()`,
+ * `os.availableParallelism()`, and what macOS gives under
+ * `hw.perflevel0.physicalcpu`, which is `cores` where it gives no whole number
+ * above 0 or cannot be asked. `load` is the load average of the last minute,
+ * and `disk` the free and total bytes of the volume that holds the worktrees'
+ * folder, read from the folder or the nearest folder above it that stands, or
+ * null where none answers. Both are read again at each hello and each
+ * `readMachine`.
+ */
+export interface MachineReading {
+  memoryBytes: number;
+  cores: number;
+  performanceCores: number;
+  load: number;
+  disk: { freeBytes: number; totalBytes: number } | null;
+}
+
+/**
+ * The caps the daemon keeps on this machine, with what each proposal came
+ * from. A cap's `set` is the value a person set, or null where the cap
+ * follows its proposal. The agent cap's `proposed` is the smaller of
+ * `byCores` and `byMemory`, and never under 1. `perAgentBytes` is what one
+ * agent is taken to use, and `measured` how many agents the daemon measured
+ * on this machine. `running` counts the agents that run, and `queue` holds
+ * the ids of the headless sessions that wait, in the order they will start.
+ * The worktree cap's `proposed` is null until a worktree is measured.
+ */
+export interface Machine {
+  reading: MachineReading;
+  agents: { proposed: number; byCores: number; byMemory: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
+  worktrees: { proposed: number | null; set: number | null; standing: number; perWorktreeBytes: number | null; keepFreeBytes: number };
+  panes: { proposed: number; set: number | null };
+  /** The limit on heavy commands that hold a turn at once: its proposal, one for each 8 cores (`byCores`) or each 16 GiB of memory (`byMemory`), whichever gives fewer and never under 1, the value a person set, and the heavy commands that run and wait, in the queue's order. */
+  heavy: { proposed: number; byCores: number; byMemory: number; set: number | null; queue: HeavyQueued[] };
+}
+
+/** Where a heavy command stands in the order of those that wait: a work item's broad gate, a command of a work item under review, one of a work item still being built, and one in a folder no work item's records name. */
+export type HeavyPlace = "gate" | "review" | "build" | "outside";
+
+/** A heavy command that holds a turn on the machine or waits for one: the work item whose worktree it runs in, or null for none, the folder, its name, its place, whether it runs or waits, and since when, by the daemon's clock. */
+export interface HeavyQueued {
+  workItemId: number | null;
+  folder: string;
+  name: string;
+  place: HeavyPlace;
+  state: "running" | "waiting";
+  since: number;
+}
+
+/** What one heavy command of one repository took, over every run the daemon kept: the repository's folder, or null for a folder no work item's worktree is, the name the window gives it, the command's name, how many runs, the longest in milliseconds, the most memory in bytes and the highest load, each null where no run read it. */
+export interface HeavyRan {
+  repo: string | null;
+  repoName: string;
+  name: string;
+  runs: number;
+  longestMs: number;
+  mostMemory: number | null;
+  highestLoad: number | null;
+}
+
+/** The caps a person sets on the machine, the limit on heavy commands among them. */
+export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands";
 
 export type ClientMessage =
   | { type: "hello"; token: string }
@@ -831,7 +926,7 @@ export type ClientMessage =
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`. `accountId` is the session's own account, the id of one the daemon keeps, and an id it keeps none under is refused, starting nothing. Without it the session takes the account `accountFor` gives from the work item, its repository and the default, and every stage of a chain takes that one too. The daemon gives the adapter the account's folder where the account has one and the adapter declares `accounts`. Through an adapter that does not declare it the session runs under none, whatever is set, and its `accountId` is null.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage; accountId?: number }
-  // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs.
+  // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. A gate that waits for its turn on the machine has its ask ended and no command starts, and its stage fails and its chain stops the same way. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs or waits.
   | { type: "stopGate"; requestId: number; workItemId: number }
   // Asks for what the work item's newest broad gate printed, of a run that ended. The daemon answers with a `gateOutput`, and with an `error` for an id it lists no work item under and for a work item with no kept output: one no broad gate ran for, one whose newest gate still runs or was running when its daemon ended, and one whose newest gate's command printed nothing.
   | { type: "readGateOutput"; requestId: number; workItemId: number }
@@ -847,19 +942,25 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16 and a limit on heavy commands over the machine's cores where it read them, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
+  // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
+  | { type: "readMachine" }
+  // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
+  | { type: "readHeavyRuns" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no.
-  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine }
   // The whole of the four lists, sent to every client whenever one of them changes.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane the creation named, whose output the creating client receives. The setup pane, where the repository names a command, is listed in the inbox and named by `workItem.setup`, and the creating client receives its output too.
   | { type: "workItemCreated"; requestId: number; workItem: WorkItem; session: SessionInfo }
-  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none. `setupCommand` is the command the main checkout's `.worktreesetup` holds, whole, or null where it names none, and `includes` whether its `.worktreeinclude` stands. A daemon of an earlier build sends neither, and a client reads their absence as null and false.
-  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean }
+  // Answers a `planWorkItem`: the branch and the folder a creation would get, and the branches a work item of the repository can start from. `localBases` holds the branch the checkout stands on first, then the other local branches, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. `remoteBases` holds the remotes' branches, such as `origin/main`, the newest commit first. `defaultBase` is the one of them a creation without a `base` starts from, or null where the repository has none. `setupCommand` is the command the main checkout's `.worktreesetup` holds, whole, or null where it names none, and `includes` whether its `.worktreeinclude` stands. A daemon of an earlier build sends neither, and a client reads their absence as null and false. `disk` is what the form warns from, read as the plan is asked; a daemon given no reader of the machine, one whose reading holds no disk, and one of an earlier build send none.
+  | { type: "workItemPlan"; requestId: number; branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk?: PlanDisk }
   // Answers a `fetchBase` with what the fetch gave.
   | ({ type: "baseFetched"; requestId: number } & BaseFetch)
   // Answers a `planRename`. `branch` is the branch a rename would give the work item, `owlery/<slug of the name>` with -2, -3 and so on while another local branch bears the name, or null where the name leaves no slug. `blocked` is why the branch cannot be renamed, as a sentence the window shows as it is, or null where it can: it can where the branch exists, has another name than `branch` and no upstream, and no remote of the clone holds a branch of its name.
@@ -884,6 +985,10 @@ export type ServerMessage =
   | { type: "accounts"; accounts: Account[]; defaultAccountId: number; refreshesUsage?: boolean }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
+  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap, the count of agents or the queue of heavy commands changes, and to the client that sent a `readMachine`.
+  | { type: "machine"; machine: Machine }
+  // What each heavy command of each repository took, one row for each, in the order the runs' file first names them, sent to the client that sent a `readHeavyRuns`.
+  | { type: "heavyRuns"; runs: HeavyRan[] }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
   | { type: "agentNotice"; notice: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.

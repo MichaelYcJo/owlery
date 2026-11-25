@@ -4,7 +4,9 @@
 // Electron's Node. The role bundle is the folder the build put beside this
 // script, as the daemon finds it beside its own. The command's input is read
 // where a subcommand asks for it, which `ask` alone does, so no other
-// subcommand waits on a terminal.
+// subcommand waits on a terminal, and `run` hands it whole to the command it
+// runs. A line the command says while it runs, as a wait for the machine,
+// reaches the error output at once.
 import { dirname, join } from "node:path";
 import { chainCommand } from "./chain-command";
 
@@ -17,6 +19,7 @@ chainCommand(process.argv.slice(2), {
   bundleDir: process.argv[1] === undefined ? undefined : join(dirname(process.argv[1]), "bundle"),
   version: OWLERY_VERSION,
   now: Date.now,
+  say: (line) => process.stderr.write(`${line}\n`),
   input: async () => {
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk as Buffer);

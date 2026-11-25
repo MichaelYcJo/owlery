@@ -7,6 +7,7 @@
 // and the chain command a pane's session runs (`chain-command.ts`)
 // (docs/architecture.md, "Code runs the order, the orchestrator judges").
 import { execFile, spawn } from "node:child_process";
+import { withoutPaneVariables } from "./hooks";
 import { terminalEnv } from "./pty";
 
 /** How long a broad gate's command may run, from its start, before the daemon ends it, where the options name no time. */
@@ -46,11 +47,12 @@ export function loginPath(env: NodeJS.ProcessEnv, timeoutMs = 10_000): Promise<s
 /**
  * The environment a broad gate's command runs with: a terminal pane's
  * (`pty.ts#terminalEnv`), without the two variables that say a terminal
- * stands, and with `path` as its `PATH`. Where `path` is null, the `PATH`
- * stays the pane's, which is the daemon's own.
+ * stands, without the variables of the pane the chain command was run in
+ * (`hooks.ts#PANE_VARIABLES`), and with `path` as its `PATH`. Where `path` is
+ * null, the `PATH` stays the pane's, which is the daemon's own.
  */
 export function gateEnvironment(base: NodeJS.ProcessEnv, path: string | null): Record<string, string> {
-  const env = terminalEnv(base);
+  const env = withoutPaneVariables(terminalEnv(base));
   delete env.TERM;
   delete env.COLORTERM;
   if (path !== null) env.PATH = path;
@@ -76,6 +78,8 @@ export interface GateEnd {
 
 /** A command that was started. */
 export interface GateProcess {
+  /** The id of the shell's process, which leads the command's group, or undefined where none started. */
+  pid: number | undefined;
   /** Settled once the command's process has exited and its streams have closed, or the wait for them is over. It never rejects. */
   ended: Promise<GateEnd>;
   /** Signals the command's process group to end, kills the group where the command has not exited `killAfterMs` later, and settles once `ended` has. A stop of a command that has ended does nothing. */
@@ -146,5 +150,5 @@ export function startGate(options: { command: string; cwd: string; env: Record<s
       await ended;
       clearTimeout(kill);
     })());
-  return { ended, stop };
+  return { pid: child.pid, ended, stop };
 }

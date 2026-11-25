@@ -6,6 +6,8 @@
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { earlierRunSays, endedWith } from "../src/daemon/chain";
+import { gateText } from "../src/daemon/seal-records";
 import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, isSessionId, read, type BlocksRead } from "../src/daemon/record-blocks";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
@@ -219,6 +221,28 @@ describe("the reader of a seal block", () => {
         notices: fixture.notices,
       });
     }
+  });
+
+  it("reads the run block of a gate record whose second run passed below the sentence that names the earlier run, as the pull request check's reader does", { timeout: 30_000 }, () => {
+    const earlier = earlierRunSays({ commit: "0123abc", ended: "exit code 3", load: 9.04, cores: 4, beside: 1 });
+    expect(earlier).toBe("An earlier run on 0123abc ended with exit code 3 while the machine was over its load (load average 9.0 on 4 cores, 1 other heavy command). The run below ran alone.");
+    expect(earlierRunSays({ commit: "0123abc", ended: "the signal SIGKILL", load: null, cores: null, beside: 2 })).toBe(
+      "An earlier run on 0123abc ended with the signal SIGKILL while the machine was over its load (no load average read, 2 other heavy commands). The run below ran alone.",
+    );
+    expect([
+      endedWith({ exitCode: 3, signal: null, error: null }, false),
+      endedWith({ exitCode: null, signal: "SIGKILL", error: null }, false),
+      endedWith({ exitCode: 0, signal: null, error: null }, false),
+      endedWith({ exitCode: null, signal: null, error: "spawn ENOENT" }, false),
+      endedWith({ exitCode: 3, signal: null, error: null }, true),
+    ]).toEqual(["exit code 3", "the signal SIGKILL", null, null, null]);
+    const text = gateText(null, "1-work", { head: "0123abc", base: "89abcde" }, earlier);
+    expect(text).toBe(`# Broad gate: 1-work\n\n${earlier}\n\n${RUN}`);
+    const [python] = pythonRead([text], "GUARANTEE + fields.GATE");
+    const own = compared(read(text, [VERDICT_BLOCK, RUN_BLOCK]));
+    expect(own).toEqual(python);
+    expect(own.blocks).toHaveLength(1);
+    expect(own.refusals).toEqual([]);
   });
 
   it("returns a verdict's commit and base, and a run's two commits, as named parts of the value", () => {

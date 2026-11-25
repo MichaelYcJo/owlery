@@ -18,9 +18,7 @@
 // seal and the seal joins the summary at the lists that follow. The last case
 // commits once more in its worktree, which breaks the seal. The login shell is a script
 // that names no CLI, and the case opens no pane. The last case archives the
-// second work item as a second client of the daemon. The page's `Notification`
-// is replaced by one that does nothing, so the broken seal's notification
-// does not reach the system's.
+// second work item as a second client of the daemon.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -142,8 +140,6 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     );
     // The app starts in the background, and the page of a window without the system's focus moves no keyboard.
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
-    // A seal that breaks raises a notification, and none of this run reaches the system's.
-    await app.evaluate(`window.Notification = class { static permission = "granted"; }`);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
   }, 120_000);
 

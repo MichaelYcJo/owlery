@@ -50,9 +50,11 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
   const built = commitAll(repo, "feat: greet");
   const runDir = join(folder, "run");
   mkdirSync(runDir);
+  /** Each line a run of the command said on its error output while it ran, in the order said. */
+  const told: string[] = [];
   /** Runs the command in the repository. `input` is what its input holds, which `ask` alone reads, and `cwd` another folder to run it in. */
   const run = (args: string[], env: Record<string, string | undefined> = {}, input = "", cwd = repo): Promise<CommandEnd> =>
-    chainCommand(args, { cwd, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, input: () => Promise.resolve(input) });
+    chainCommand(args, { cwd, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, input: () => Promise.resolve(input), say: (line) => told.push(line) });
   /** What a subcommand printed as its JSON object. It throws the command's sentence where it was refused. */
   const said = async <T = Owed>(args: string[], env?: Record<string, string | undefined>): Promise<T> => {
     const end = await run(args, env);
@@ -65,7 +67,7 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
     writeFileSync(file, text);
     return file;
   };
-  return { repo, folder, main, built, runDir, run, said, answer };
+  return { repo, folder, main, built, runDir, run, said, answer, told };
 }
 
 /**

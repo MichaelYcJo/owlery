@@ -87,9 +87,11 @@ export function writePaneSettings(dir: string, id: number, enabledPlugins: Recor
 /**
  * Runs `act` with the process's working directory moved into `dir`, and moves
  * it back before returning, whether `act` returned or threw. Nothing else runs
- * in between: `act` is synchronous, and the daemon runs on one thread.
+ * in between: `act` is synchronous, and the daemon runs on one thread, as the
+ * chain command does. A Unix socket is bound and reached through it by its
+ * file name, since macOS refuses a socket path over 104 bytes.
  */
-function inside(dir: string, act: () => void): void {
+export function inside(dir: string, act: () => void): void {
   const back = process.cwd();
   process.chdir(dir);
   try {
@@ -154,6 +156,29 @@ export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, 
 }
 
 /**
+ * The names of the variables a pane's command sets for that one pane, which
+ * `paneCommands` and `setupPaneCommand` read here and nowhere else: its id,
+ * the hook socket it reports to, the runner of heavy commands where the
+ * daemon wrote one, and, on the owl chain, the chain command and the work
+ * item's base. A process started in an Owlery pane holds the pane's, so a
+ * daemon, and the broad gate's command, started there takes none of them
+ * from its own environment (`withoutPaneVariables`): a pane holds them only
+ * where its own command sets them. The run folder is the daemon's, set by
+ * the app that starts it, and stays. So does `CONFIG_DIR_VARIABLE`, which a
+ * shell's command sets where the pane's account names a folder: a person may
+ * set it in their own environment, and under System default Owlery leaves
+ * it as they set it.
+ */
+export const PANE_VARIABLES = { id: "OWLERY_PANE_ID", hookSocket: "OWLERY_HOOK_SOCKET", runner: "OWLERY_RUN", chain: "OWLERY_CHAIN", base: "OWLERY_BASE" } as const;
+
+/** `env` without the variables of the pane a process was started from (`PANE_VARIABLES`). */
+export function withoutPaneVariables<T extends NodeJS.ProcessEnv | Record<string, string>>(env: T): T {
+  const kept = { ...env };
+  for (const name of Object.values(PANE_VARIABLES)) delete kept[name];
+  return kept;
+}
+
+/**
  * The daemon's `commandFor`: a pane's command by its kind, with the pane's id
  * and the hook socket in its environment, where the hook command reads both.
  * A Claude Code pane continues where the start asks it, and resumes the
@@ -169,9 +194,11 @@ export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, 
  * names the folder of the pane's account, a Claude Code pane is given it in
  * its command (`claudePaneCommand`) and a shell in its environment, so a
  * `claude` the person types there takes it unless their profile sets its
- * own. Under System default neither is given a folder.
+ * own. Under System default neither is given a folder. Where the daemon
+ * wrote the runner of heavy commands (`pane-chain.ts#writeRunner`), every
+ * pane holds its path in `OWLERY_RUN`.
  */
-export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string, carries: (start: PaneStart) => Carried | null = () => null): (kind: PaneKind, id: number, start: PaneStart) => PaneCommand {
+export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string, carries: (start: PaneStart) => Carried | null = () => null, runner: string | null = null): (kind: PaneKind, id: number, start: PaneStart) => PaneCommand {
   return (kind, id, start) => {
     const carried = kind === "claude" ? carries(start) : null;
     const chain = carried?.chain ?? null;
@@ -179,7 +206,7 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
     const account: Record<string, string> = kind === "claude" || start.accountDir === null ? {} : { [CONFIG_DIR_VARIABLE]: start.accountDir };
     return {
       ...(kind === "claude" ? claudePaneCommand(env, settings, start.continueLatest, chain, start.accountDir, start.resume ?? null) : loginShell(env)),
-      env: { OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: socketPath, ...account, ...(chain === null ? {} : { OWLERY_CHAIN: chain.launcher, ...(start.base === null ? {} : { OWLERY_BASE: start.base }) }) },
+      env: { [PANE_VARIABLES.id]: String(id), [PANE_VARIABLES.hookSocket]: socketPath, ...runnerEnv(runner), ...account, ...(chain === null ? {} : { [PANE_VARIABLES.chain]: chain.launcher, ...(start.base === null ? {} : { [PANE_VARIABLES.base]: start.base }) }) },
     };
   };
 }
@@ -189,10 +216,16 @@ export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socke
  * holds, passed whole to the user's interactive login shell, as a Claude Code
  * pane's command is, so it finds the PATH their profile sets and reads the
  * text as a line typed in a pane. The pane ends when the command does. Its
- * environment holds the pane's id.
+ * environment holds the pane's id, and the runner of heavy commands where
+ * the daemon wrote one, so a repository's setup can wait its turn.
  */
-export function setupPaneCommand(env: NodeJS.ProcessEnv, command: string, id: number): PaneCommand {
-  return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command], env: { OWLERY_PANE_ID: String(id) } };
+export function setupPaneCommand(env: NodeJS.ProcessEnv, command: string, id: number, runner: string | null = null): PaneCommand {
+  return { command: env.SHELL || "/bin/zsh", args: ["-l", "-i", "-c", command], env: { [PANE_VARIABLES.id]: String(id), ...runnerEnv(runner) } };
+}
+
+/** What a pane's environment holds of the runner of heavy commands: its path in `OWLERY_RUN`, or nothing where the daemon wrote none. */
+function runnerEnv(runner: string | null): Record<string, string> {
+  return runner === null ? {} : { [PANE_VARIABLES.runner]: runner };
 }
 
 /** Reads the pane's id on the first line and the hook's JSON after it; anything else is no event. */
