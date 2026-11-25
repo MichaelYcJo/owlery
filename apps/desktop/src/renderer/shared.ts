@@ -3,9 +3,9 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeadlessState, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -219,7 +219,7 @@ export function lineMarkIcons(workItem: WorkItem): HTMLElement[] {
 }
 
 /** The states a mark is drawn for: an agent's three, a work item with no agent, and a headless session's failure. */
-type MarkedState = AgentState | HeadlessState | "no-agent";
+type MarkedState = AgentState | HeadlessMark | "no-agent";
 
 /** The parts of a state's mark: a line, a filled part, and for work the faint track and the part that turns. The page's style gives each the shape the theme in use holds for the state, so no shape stands here. */
 const MARK_PARTS = ["line", "fill", "track", "turn"] as const;
@@ -256,7 +256,7 @@ export function stateIcon(state: AgentState | null, changed = false): HTMLElemen
 }
 
 /** The icon of a headless session's line, `mark` being its state or `waiting` while it waits for the person, named by `words`, the line's words for it. */
-export function headlessIcon(mark: HeadlessState | "waiting", words: string): HTMLElement {
+export function headlessIcon(mark: HeadlessMark, words: string): HTMLElement {
   return iconOf(mark, words);
 }
 

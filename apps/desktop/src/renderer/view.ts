@@ -1836,7 +1836,7 @@ export interface PullRequestFacts {
   /** The result of its checks: "Checks running", "Checks passed", "1 check failed" or "No checks". */
   checks: string;
   /** Each check the daemon kept, in its order, the failed ones first: its name, the mark of its state, the state's word, and the address its row opens, or null. */
-  rows: { name: string; mark: HeadlessState; words: string; link: string | null }[];
+  rows: { name: string; mark: HeadlessMark; words: string; link: string | null }[];
   /** How many more checks GitHub listed than the daemon kept, or nothing. */
   foot: string;
   /** Why the last read failed, where it did, or nothing. */
@@ -1844,7 +1844,7 @@ export interface PullRequestFacts {
 }
 
 const PULL_REQUEST_STATE: Record<PullRequest["state"], string> = { open: "Open", merged: "Merged", closed: "Closed" };
-const CHECK_SAYS: Record<PullRequestCheck["state"], { mark: HeadlessState; words: string }> = { pending: { mark: "working", words: "Running" }, passed: { mark: "finished", words: "Passed" }, failed: { mark: "failed", words: "Failed" } };
+const CHECK_SAYS: Record<PullRequestCheck["state"], { mark: HeadlessMark; words: string }> = { pending: { mark: "working", words: "Running" }, passed: { mark: "finished", words: "Passed" }, failed: { mark: "failed", words: "Failed" } };
 
 /**
  * The facts of a work item's pull request as its view lists them, as GitHub
@@ -3167,12 +3167,15 @@ export function withoutHeadless(held: readonly HeadlessInfo[], id: number): Head
   return held.filter((info) => info.id !== id);
 }
 
+/** The mark a headless session's line is drawn with: its state, `waiting` while it waits for the person to allow a call, and `no-agent` while it waits for the machine, as it runs no process yet. */
+export type HeadlessMark = Exclude<HeadlessState, "queued"> | "waiting" | "no-agent";
+
 export interface HeadlessLine {
   id: number;
   prompt: string;
   state: HeadlessState;
-  /** The mark the line is drawn with: the session's state, or `waiting` while the session waits for the person to allow a call. */
-  mark: HeadlessState | "waiting";
+  /** The mark the line is drawn with (`HeadlessMark`). */
+  mark: HeadlessMark;
   /** The state in words beside the mark: the state's own word, or "Needs you" while the session waits for the person to allow a call. */
   words: string;
   /** The answer as far as it has arrived, or the error of a session that failed. */
@@ -3197,7 +3200,7 @@ export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem)
         id: info.id,
         prompt: info.prompt,
         state: info.state,
-        mark: asks.length > 0 ? "waiting" : info.state,
+        mark: asks.length > 0 ? "waiting" : info.state === "queued" ? "no-agent" : info.state,
         words: asks.length > 0 ? stateHeading("waiting") : info.state === "queued" ? "Queued" : info.state,
         text: info.state === "failed" ? (info.error ?? "") : info.answer,
         errorOutput: info.state === "failed" ? info.errorOutput : "",
@@ -3224,8 +3227,8 @@ export interface GateLine {
   startedAt: number;
   /** The command the gate ran, as the stage holds it. */
   command: string;
-  /** The mark the line is drawn with. */
-  state: HeadlessState;
+  /** The mark the line is drawn with: the gate's stage's state. */
+  state: ChainStage["state"];
   /** The state in words beside the mark, as a headless session's line says its state. */
   words: string;
   /** Why the gate failed, as a sentence, and empty for a gate that did not fail and for one the daemon gave no reason. */
@@ -3253,7 +3256,7 @@ export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine 
   const stage = chainOf(workItem)?.stages.findLast((held) => (held.gate ?? null) !== null);
   const run = stage?.gate;
   if (!stage || !run) return null;
-  const state: HeadlessState = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
+  const state: ChainStage["state"] = stage.state === "working" && runningStage(workItem) !== stage ? "failed" : stage.state;
   const shown = read !== null && read.workItemId === workItem.id && read.startedAt === stage.startedAt;
   return {
     startedAt: stage.startedAt,

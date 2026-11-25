@@ -2970,7 +2970,7 @@ describe("headlessLines", () => {
   });
 
   it("says Queued on the line of a session that waits for the machine, and offers Stop on it (scenario 4)", () => {
-    expect(headlessLines([headless(1, { state: "queued", queuedAt: 1234 })], LOGIN)).toEqual([{ id: 1, prompt: "Which file holds the login form?", state: "queued", mark: "queued", words: "Queued", text: "", errorOutput: "", stop: true, asks: [] }]);
+    expect(headlessLines([headless(1, { state: "queued", queuedAt: 1234 })], LOGIN)).toEqual([{ id: 1, prompt: "Which file holds the login form?", state: "queued", mark: "no-agent", words: "Queued", text: "", errorOutput: "", stop: true, asks: [] }]);
   });
 
   it("offers Stop on the line of a session that is working, and on no line of one that ended", () => {
