@@ -115,6 +115,11 @@ The hold ends at the release of the main button, at a `pointercancel` and at the
 The wiring listens on the window in the capture phase for a `pointerdown` of the main button (`event.button === 0`), for every `pointerup`, for a `pointermove` whose `buttons` no longer holds the main button (`(event.buttons & 1) === 0`) and for `pointercancel`, and on the window for `blur`.
 ```
 
+```seal
+verdict: fixed 22fe9d08
+answer: The paste-ready fix was read against `frame/design.md` *Scope* item 1 and *Data & interfaces* as the fold at `201bba09` left them, which state the same endings, and was applied as written. `press.ts#holdDraws` now begins the hold at a `pointerdown` of the main button and ends it at every `pointerup`, at a `pointermove` whose `buttons` lacks bit 1, at a `pointercancel` and at `blur`. In `press.test.ts`, `windowLike` fires `buttons` too, the capture case expects `pointermove`, and the round's two cases replace the old other-button case. The second case was seen red against `press.ts` as at `062c21d6`, at `press.test.ts:151`, its `expect(drawn).toEqual(["kept"])`; the capture case failed with it at line 111. `seal mutate src/renderer/press.ts` removed the `pointermove` listener, dropped its `buttons` test, dropped the `pointerdown` button test, removed the `pointerup` listener, and took the `pointermove` listener out of the capture phase: all 5 mutants red. The fold at `201bba09` rewrote `frame/design.md` lines 41 and 68 as the finding asks. The evidence's `git grep`, rerun at `22fe9d08`, prints `press.ts` lines 64, 73 and 74 and `press.test.ts` lines 111, 122 and 152, each stating or running the new endings; `frame/design.md` lines 26, 32, 73, 108 and 109, `frame/plan.md` line 25 and `gaps.md` line 8, which state the new endings, a probe, an alternative or what the work removes; and `trail/phases/phase-1.md` line 44, a record of the phase that stands as written. The fix pass's set passed: 5 files and 43 cases.
+```
+
 ### 2. The rule the settle writes, in both editions, and the changelog say the window waits to draw what an `accounts` or a `machine` message changed, and the Accounts dialog and the Machine dialog are drawn at once
 
 ```seal
@@ -145,6 +150,12 @@ The `git grep` printed `changelog.md` line 5 and `frame/design.md` lines 86 and 
 - **A click on a line or a button that the daemon's lists draw still does what it does when those lists arrive between its press and its release.** While the mouse's main button is held down in the window, the window takes each `inbox`, `accounts` and `machine` message at once and raises its notifications. It waits to draw the lists the message changed until the button is released, and then draws them once, after the click has reached the element that was pressed. A cancelled press, and a window that loses the focus, end the wait as a release does. This covers the sidebar, the inbox and the other list screens, the summary, a work item's view and the dialogs that name what the daemon lists. The Accounts dialog at an `accounts` message and the Machine dialog at a `machine` message are still drawn at once.
 ```
 
+```seal
+verdict: fixed 22fe9d08
+location: `apps/desktop/src/renderer/renderer.ts:1559-1568`, `apps/desktop/src/renderer/renderer.ts:1833`, `apps/desktop/src/renderer/renderer.ts:1852`, `seal/threads/1795610688-242-sidebar-click-survives-a-redraw/gaps.md`
+answer: The fix pass took the path this finding leaves to the framer, and did not apply its paste-ready text. The fold at `201bba09` decided that the two dialogs join the hold (`frame/design.md` *Scope* item 2, its first two sub-items, and the rejected row of `frame/plan.md` *Alternatives considered*), and rewrote both `to:` lines of `## Rule changes` to name the Accounts dialog and the Machine dialog among what waits. `22fe9d08` builds that design: `case "accounts"` hands `drawAccountsDialog` to the hold in place of `if (accountsDialog.open) showAccounts();`, and `case "machine"` hands `drawMachineDialog` in place of `if (MACHINE.dialog.open) showMachine();`. Each is one module-level function, so the hold keeps it once per press. `showAccountsEntry`, `showMachineEntry` and `showSignIn` stay at once, and so do `takeAccountsAnswer`'s `showAccounts` and `heavyRuns`'s `showMachine`, as the fold says. The same commit rewrites `changelog.md` line 5 to say the two dialogs wait, and not the pasted sentence that says they are drawn at once, which the fold reversed. `gaps.md` *Not done* takes the two dialogs out of the list of draws outside the hold, and its *Not verified* names the two draws as run by no case. The fold's acceptance row for the dialogs is read, so no case was written new and no mutant was run for them. The evidence's `git grep`, rerun at `22fe9d08`, prints `changelog.md` line 5 and `frame/design.md` line 96 (the Korean `to:`). Each now says the two dialogs wait, as the code does. The `grep` prints `renderer.ts` lines 1562 and 1567, inside the two functions, and lines 848 (`takeAccountsAnswer`) and 1846 (`heavyRuns`), which the fold keeps at once.
+```
+
 ### 3. Two coordinates of the frame, outside the sections dated to `80917d43`, name lines of files the build moved
 
 ```seal
@@ -165,6 +176,11 @@ Why it matters: the frame names the commit it read at the head of `frame/design.
 
 ```markdown
 which the file already reads (`apps/desktop/test/seal-back-view.test.ts`, its `beforeAll`)
+```
+
+```seal
+verdict: fixed 201bba09
+answer: The fold at `201bba09` rewrote both coordinates as the finding asks. `frame/design.md` *Data & interfaces* now names `renderer.ts#showNarrowed` without lines, and `frame/questions.md` Q2 names `seal-back-view.test.ts`, its `beforeAll`. The fix pass changed no code for this finding. The evidence's `grep -o`, rerun at `22fe9d08`, prints line coordinates of `frame/design.md` only on lines 10 to 26, which are *Grounding*, and on lines 69 and 105, which state the tree at `80917d43` in their own words. `frame/plan.md` holds line coordinates only on lines 7 and 13, in *Technical context*, which is dated to `80917d43`.
 ```
 
 ## Confirmations
