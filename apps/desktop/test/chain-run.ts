@@ -291,9 +291,11 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * given each worktree by a link beside its repository's folder, as a person
  * may give a folder, while git names it by its real path. With
  * `branchless: true` each work item has no branch yet: its worktree's `HEAD`
- * is detached at its commit, the branch its creation cut is removed, and the
- * store the daemon reads holds no branch for it, though `workItems` still
- * names the removed branch.
+ * is detached at its commit, the branch its creation cut is removed, a tag
+ * `held-<id>` holds the commit, so no read takes it for a commit made in the
+ * worktree and makes the work item's branch, and the store the daemon reads
+ * holds no branch for it, though `workItems` still names the removed
+ * branch.
  */
 export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean; branchless?: boolean } = {}) {
   const { root = true, gate = "true", apart = false, linked = false, branchless = false, ...daemonOptions } = options;
@@ -318,8 +320,11 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     commitAll(place.worktree, "feat: greet");
     const link = join(own.base, `linked-${String(index + 1)}`);
     if (linked) symlinkSync(place.worktree, link);
-    // A work item with no branch yet stands on the commit its creation's branch held, which is then removed.
-    if (branchless) unbranched(own.repo, place);
+    // A work item with no branch yet stands on the commit its creation's branch held, which is then removed. The tag keeps a read from making its branch there.
+    if (branchless) {
+      unbranched(own.repo, place);
+      git(place.worktree, "tag", `held-${String(index + 1)}`);
+    }
     workItems.push({ id: index + 1, title, createdAt: 1, ...place, worktree: linked ? link : place.worktree });
     if (own !== made) bareRemote(own.base, own.repo);
   }

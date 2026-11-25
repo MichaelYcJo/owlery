@@ -357,17 +357,18 @@ export class RepositoryStore {
    * null for a work item in none, its archive, which is the time it was
    * archived, or null for a work item that is restored, and its account, an
    * account's id or null for none; and the setup of its
-   * worktree, its chain, its pull request and its worktree's size, which the daemon sets. It answers whether
+   * worktree, its chain, its pull request, its worktree's size and whether
+   * Owlery made its branch, which the daemon sets. It answers whether
    * the work item is another than it was, and writes the store only where
    * it is. Undefined where no work item has the id. Whether a group is one
    * of the work item's repository is the caller's to hold.
    */
-  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "groupId" | "archivedAt" | "setup" | "chain" | "pullRequest" | "accountId" | "worktreeSize">>): boolean | undefined {
+  setWorkItem(id: number, fields: Partial<Pick<StoredWorkItem, "pinned" | "muted" | "title" | "branch" | "ownsBranch" | "groupId" | "archivedAt" | "setup" | "chain" | "pullRequest" | "accountId" | "worktreeSize">>): boolean | undefined {
     const item = this.workItem(id)?.item;
     if (!item) return undefined;
-    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, groupId = item.groupId, archivedAt = item.archivedAt, setup = item.setup, chain = item.chain, pullRequest = item.pullRequest, accountId = item.accountId, worktreeSize = item.worktreeSize } = fields;
-    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && groupId === item.groupId && archivedAt === item.archivedAt && setup === item.setup && chain === item.chain && pullRequest === item.pullRequest && accountId === item.accountId && worktreeSize === item.worktreeSize) return false;
-    Object.assign(item, { pinned, muted, title, branch, groupId, archivedAt, setup, chain, pullRequest, accountId, worktreeSize });
+    const { pinned = item.pinned, muted = item.muted, title = item.title, branch = item.branch, ownsBranch = item.ownsBranch, groupId = item.groupId, archivedAt = item.archivedAt, setup = item.setup, chain = item.chain, pullRequest = item.pullRequest, accountId = item.accountId, worktreeSize = item.worktreeSize } = fields;
+    if (pinned === item.pinned && muted === item.muted && title === item.title && branch === item.branch && ownsBranch === item.ownsBranch && groupId === item.groupId && archivedAt === item.archivedAt && setup === item.setup && chain === item.chain && pullRequest === item.pullRequest && accountId === item.accountId && worktreeSize === item.worktreeSize) return false;
+    Object.assign(item, { pinned, muted, title, branch, ownsBranch, groupId, archivedAt, setup, chain, pullRequest, accountId, worktreeSize });
     this.write();
     return true;
   }

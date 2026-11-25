@@ -100,7 +100,7 @@ import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, commitNamed, commitPaths, createWorktree, fileAt, headCounts, newCommits, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, commitNamed, commitPaths, createWorktree, fileAt, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
@@ -113,9 +113,6 @@ const NO_BRANCH_FOR_CHAIN = "The work item has no branch yet. Owlery makes one a
 
 /** Why a person's word, a reversal or an answer, is refused for a work item with no branch yet: it is committed on the work item's branch, and no routing names a directory of one. */
 const NO_BRANCH_TO_WRITE = "Nothing was written: the work item has no branch yet.";
-
-/** Why a rename of the branch is refused for a work item with no branch yet. */
-const NO_BRANCH_TO_RENAME = "The work item has no branch yet, so there is none to rename.";
 
 /** The branch a delete of the work item removes: its branch where Owlery made it, and none where it has none or its branch is one Owlery did not make, which stays. */
 function removedBranch(item: Pick<StoredWorkItem, "branch" | "ownsBranch">): string | null {
@@ -488,7 +485,7 @@ export class Daemon {
   private holdsDisplay = false;
   // The fetches of the bases work items start from: a form's and a creation's of one branch are one fetch.
   private readonly fetches: BaseFetches;
-  // What takes or gives up a branch runs one after another: a creation, a rename that renames a branch, and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
+  // What takes or gives up a branch runs one after another: a creation, a rename that renames or makes a branch, the branch a read gives a work item with no branch yet (`branchUp`), and a delete. So two creations of one title never pick the same branch and folder, a rename never takes the branch a creation chose, a rename and a read never both make a work item's branch, and a creation never takes the name of a branch a delete is removing. A repository's removal runs among them, so no creation adds a work item to the repository while the removal waits for its sessions to end. A plan and a read of a loss change nothing and do not wait behind them.
   private changing: Promise<void> = Promise.resolve();
   // The new commits last read for each work item, by its id; the list itself does not store them.
   private readonly commitCounts = new Map<number, number | null>();
@@ -506,6 +503,8 @@ export class Daemon {
   private readonly paneChains = new Map<number, { owl: boolean; plugin: boolean }>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
+  // The work items with no branch yet whose turn to be given one waits on `changing`, by their ids (`branchUp`).
+  private readonly branching = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
   private readonly archiving = new Set<number>();
   // The work items a delete is under way for, by their ids, from its first read of the loss until it has removed them or was refused: one delete's, or every work item of a repository whose removal deletes them. No pane and no headless session starts in one meanwhile, in a folder git is about to remove, and no archive ends its sessions beside the delete.
@@ -1309,8 +1308,9 @@ export class Daemon {
             if (typeof message.title !== "string") throw new Error("a rename's plan needs the work item's new name");
             const held = this.store.workItem(message.id);
             if (!held) throw new Error(`no work item ${String(message.id)}`);
-            const { branch } = held.item;
-            this.send(socket, { type: "renamePlan", requestId: message.requestId, ...(branch === null ? { branch: null, blocked: NO_BRANCH_TO_RENAME } : await planBranchRename(held.repository.folder, branch, message.title)) });
+            const { branch, ownsBranch, worktree } = held.item;
+            // A work item with no branch yet is planned the branch a rename makes.
+            this.send(socket, { type: "renamePlan", requestId: message.requestId, ...(branch === null ? await planBranchMaking(held.repository.folder, worktree, message.title) : await planBranchRename(held.repository.folder, branch, message.title, ownsBranch)) });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -1329,25 +1329,33 @@ export class Daemon {
             if (title === "") throw new Error("Give the work item a name.");
             const held = this.store.workItem(message.id);
             if (!held) throw new Error(`no work item ${String(message.id)}`);
-            let branch = held.item.branch;
+            let { branch, ownsBranch } = held.item;
             // The work item's directory, where the rename wrote the new branch into its routing.
             let routed: string | null = null;
             if (message.branch) {
               // A chain finds the work item's directory by the branch its routing names, at each stage.
               if (this.chains.has(message.id)) throw new Error("The work item's chain is running, and it finds the work item's records by the branch's name. Rename the branch once the chain rests.");
-              if (branch === null) throw new Error(NO_BRANCH_TO_RENAME);
               // The conditions the person's dialog read are read again here, at the rename, and nothing is changed where one no longer holds or git refuses.
-              const plan = await planBranchRename(held.repository.folder, branch, title);
-              if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
-              this.renaming.add(message.id);
-              holds = true;
-              await renameBranch(held.repository.folder, branch, plan.branch);
-              // The work item's directory is found by the branch its routing names, so the row follows the branch while the reads are still held off.
-              routed = this.routeRenamed(held.item.worktree, branch, plan.branch);
-              branch = plan.branch;
+              if (branch === null) {
+                // A work item with no branch yet gets its branch, at the commit its worktree's HEAD stands at, committed or not. No routing names a work item with no branch, so none is rewritten.
+                const plan = await planBranchMaking(held.repository.folder, held.item.worktree, title);
+                if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
+                await makeBranch(held.item.worktree, plan.branch);
+                branch = plan.branch;
+                ownsBranch = true;
+              } else {
+                const plan = await planBranchRename(held.repository.folder, branch, title, ownsBranch);
+                if (plan.blocked !== null || plan.branch === null) throw new Error(plan.blocked ?? "The name names no branch.");
+                this.renaming.add(message.id);
+                holds = true;
+                await renameBranch(held.repository.folder, branch, plan.branch);
+                // The work item's directory is found by the branch its routing names, so the row follows the branch while the reads are still held off.
+                routed = this.routeRenamed(held.item.worktree, branch, plan.branch);
+                branch = plan.branch;
+              }
             }
             // What was read of the branch is kept by the work item's id, and its head did not move, so the counts and the commits stand.
-            const changed = this.store.setWorkItem(message.id, { title, branch });
+            const changed = this.store.setWorkItem(message.id, { title, branch, ownsBranch });
             if (routed !== null) this.commitWord(held, routed, "chore: name the renamed branch in the work item's routing", ROUTING_FILE);
             this.send(socket, { type: "done", requestId: message.requestId });
             if (changed) this.broadcastInbox();
@@ -4183,7 +4191,9 @@ export class Daemon {
    * look keeps of the lists is never read for it: a daemon that starts reads
    * it again from git. A work item with no branch yet is read at the commit
    * its worktree's `HEAD` stands at, as its branch's head would be, and its
-   * head holds no seal, since no routing names its directory.
+   * head holds no seal, since no routing names its directory. Where that
+   * `HEAD` names a branch or holds a commit made in the worktree, the work
+   * item is then given its branch (`branchUp`).
    */
   private async readBranch({ repository, item }: Held): Promise<boolean> {
     // A work item from before the base commit was recorded has nothing to count from.
@@ -4195,6 +4205,7 @@ export class Daemon {
     const [count, head] = branch === null ? await headCounts(repo, item.worktree, baseCommit) : await Promise.all([newCommits(repo, branch, baseCommit), branchHead(repo, branch)]);
     // A rename takes the old name away before the store holds the new one, and a read in between finds no branch. It is dropped, and the next read is of the new name.
     if (this.renaming.has(item.id) || item.branch !== branch) return false;
+    if (branch === null && head !== null && (await headStands(item.worktree)) !== null) this.branchUp(item.id);
     if (count !== (this.commitCounts.get(item.id) ?? null)) {
       this.commitCounts.set(item.id, count);
       changed = true;
@@ -4215,6 +4226,43 @@ export class Daemon {
     const [commits, changes, seal] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.sealAt(item, head)]);
     this.branches.set(item.id, { head, commits, changes, seal });
     return true;
+  }
+
+  /**
+   * Gives a work item with no branch yet the branch its worktree holds for
+   * one (`worktrees.ts#headStands`), on `this.changing`, behind the
+   * creations, the renames of a branch and the deletes, so a rename and a
+   * read never both make one: the branch the worktree's `HEAD` names, taken
+   * up as one Owlery did not make, and otherwise a branch Owlery makes at the
+   * commit made there (`worktrees.ts#makeBranch`), named from the work item's
+   * title as `worktrees.ts#branchName` names it, with the worktree then on
+   * it. What the worktree holds is read again in that turn, and nothing is
+   * done where the work item is gone, is archived or has a branch by then.
+   * Where git refuses, for a rebase under way or any other reason, nothing
+   * is stored, the log says why, and the next read tries again. Every client
+   * is told of the branch. One turn of a work item waits at a time.
+   */
+  private branchUp(workItemId: number): void {
+    if (this.branching.has(workItemId)) return;
+    this.branching.add(workItemId);
+    const up = async (): Promise<void> => {
+      try {
+        const held = this.store.workItem(workItemId);
+        if (this.closed || !held || held.item.branch !== null || held.item.archivedAt !== null) return;
+        const { worktree, title } = held.item;
+        const stands = await headStands(worktree);
+        if (stands === null) return;
+        const taken = "branch" in stands;
+        const branch = taken ? stands.branch : await branchName(held.repository.folder, title, worktree);
+        if (!taken) await makeBranch(worktree, branch);
+        if (this.store.setWorkItem(workItemId, { branch, ownsBranch: !taken })) this.broadcastInbox();
+      } catch (error) {
+        console.error(`the branch of work item ${String(workItemId)} was not made: ${error instanceof Error ? error.message : String(error)}`);
+      } finally {
+        this.branching.delete(workItemId);
+      }
+    };
+    this.changing = this.changing.then(up);
   }
 
   /** The seal a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */

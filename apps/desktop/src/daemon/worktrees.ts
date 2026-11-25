@@ -541,24 +541,43 @@ export interface RenamePlan {
   blocked: string | null;
 }
 
+/** `owlery/<slug>`, with -2, -3 and so on appended while a local branch of the repository other than `own` bears the name. */
+async function numberedBranch(repo: string, slug: string, own: string | null): Promise<string> {
+  let named = `owlery/${slug}`;
+  for (let n = 2; named !== own && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  return named;
+}
+
+/**
+ * The branch Owlery makes for a work item with no branch yet, read in the
+ * repository: `owlery/<slug of the title>`, or `owlery/<slug of the
+ * worktree's folder name>` where the title leaves no slug, with -2, -3 and
+ * so on appended while a local branch bears the name. Nothing is made.
+ */
+export async function branchName(repo: string, title: string, folder: string): Promise<string> {
+  return numberedBranch(repo, slugFor(title) || slugFor(basename(folder)), null);
+}
+
 /**
  * What renaming `branch` after a work item's new name would give, read in the
  * repository. Nothing is renamed. The branch is `owlery/<slug of the name>`,
  * with -2, -3 and so on appended while another local branch bears the name.
- * The rename can run where the name leaves a slug, the branch exists, that
- * branch is not the one the name gives, it has no upstream, and no remote of
- * the clone holds a branch of its name: a branch that was pushed without an
- * upstream has none, and its rename would leave the remote's branch under the
- * old name. `blocked` says the first of these that does not hold. Nothing is
+ * The rename can run where the name leaves a slug, Owlery made the branch
+ * (`owned`), the branch exists, that branch is not the one the name gives,
+ * it has no upstream, and no remote of the clone holds a branch of its name:
+ * a branch that was pushed without an upstream has none, and its rename
+ * would leave the remote's branch under the old name. A branch the person
+ * picked, or one the worktree took up by itself, is theirs, and keeps its
+ * name. `blocked` says the first of these that does not hold. Nothing is
  * fetched: a remote's branches are read as the clone holds them.
  */
-export async function planBranchRename(repo: string, branch: string, title: string): Promise<RenamePlan> {
+export async function planBranchRename(repo: string, branch: string, title: string, owned: boolean): Promise<RenamePlan> {
   const slug = slugFor(title);
   if (slug === "") return { branch: null, blocked: "The name leaves no letter or digit to name a branch by." };
-  let named = `owlery/${slug}`;
   // The work item's own branch does not stand in the way of its own name.
-  for (let n = 2; named !== branch && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  const named = await numberedBranch(repo, slug, branch);
   const blocked = (sentence: string): RenamePlan => ({ branch: named, blocked: sentence });
+  if (!owned) return blocked(`The branch ${branch} is not one Owlery made, so it keeps its name.`);
   const local = `refs/heads/${branch}`;
   let refs: string[];
   let remotes: string[];
@@ -591,6 +610,76 @@ export async function planBranchRename(repo: string, branch: string, title: stri
  */
 export async function renameBranch(repo: string, from: string, to: string): Promise<void> {
   await git(repo, ["branch", "-m", from, to]);
+}
+
+/**
+ * What the worktree of a work item with no branch yet holds for one: the
+ * branch its `HEAD` names, where it names one, which the work item takes up;
+ * the commit `HEAD` is detached at, where no local branch, no remote's branch
+ * and no tag holds it, which is a commit made in the worktree and the one
+ * Owlery makes the branch at; and null where `HEAD` stands at a commit one of
+ * those holds, as the base it was detached at, and where git cannot say.
+ */
+export async function headStands(worktree: string): Promise<{ branch: string } | { commit: string } | null> {
+  const branch = await branchOfHead(worktree);
+  if (branch !== null) return { branch };
+  try {
+    const unheld = await git(worktree, ["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes", "--tags", "--"]);
+    return unheld.trim() === "" ? null : { commit: await worktreeHead(worktree) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Makes the branch `name` at the commit the worktree's `HEAD` is detached at,
+ * and puts the worktree on it, with `git switch --quiet -c` in the worktree:
+ * one command, which git refuses where a rebase, a merge, a cherry-pick, a
+ * revert or a `git am` is under way, and where a branch bears the name. It
+ * throws git's words then, and nothing is made. The worktree's files are
+ * untouched. Git's switch reads `HEAD`, makes the branch at it, and points
+ * `HEAD` at the branch without checking that `HEAD` still names the commit
+ * it read, so a commit made in the worktree in between is left off the
+ * branch, its files standing as changes staged on it, as git 2.54 does. The
+ * switch's entry in `HEAD`'s reflog holds that commit as `HEAD`'s old value,
+ * so the branch is moved on to it where it descends from the commit the
+ * branch was made at and the branch still stands there. Where git keeps no
+ * reflog of `HEAD`, the branch stays where the switch made it.
+ */
+export async function makeBranch(worktree: string, name: string): Promise<void> {
+  await git(worktree, ["switch", "--quiet", "-c", name]);
+  const ref = `refs/heads/${name}`;
+  try {
+    const [made, before] = (await Promise.all([git(worktree, ["rev-parse", "--verify", ref]), git(worktree, ["rev-parse", "--verify", "HEAD@{1}"])])).map((line) => line.trim());
+    if (made === undefined || before === undefined || before === made || !(await holdsCommit(worktree, before, made))) return;
+    // The old value is checked, so a commit made on the branch since moves nothing back.
+    await git(worktree, ["update-ref", "-m", "owlery: take the commit made while the branch was made", ref, before, made]);
+  } catch {
+    // The branch stands, and the worktree is on it.
+  }
+}
+
+/**
+ * What a rename of a work item with no branch yet would make, read in the
+ * repository and its worktree: the branch `branchName` gives, and why none
+ * can be made now, or null where it can. None can where a rebase, a merge, a
+ * cherry-pick, a revert or a `git am` is under way in the worktree, and where
+ * the worktree's `HEAD` names a branch, which the work item takes up at the
+ * next read instead. Where git cannot read the worktree, its words are why.
+ * Nothing is made.
+ */
+export async function planBranchMaking(repo: string, worktree: string, title: string): Promise<RenamePlan> {
+  const named = await branchName(repo, title, worktree);
+  let under: string | null;
+  try {
+    under = await underWay(worktree);
+  } catch (error) {
+    return { branch: named, blocked: error instanceof Error ? error.message : String(error) };
+  }
+  if (under !== null) return { branch: named, blocked: `The branch cannot be made while ${under} is under way in the worktree.` };
+  const taken = await branchOfHead(worktree);
+  if (taken !== null) return { branch: named, blocked: `The worktree is on the branch ${taken}, which becomes the work item's at Owlery's next read.` };
+  return { branch: named, blocked: null };
 }
 
 /**
@@ -869,6 +958,14 @@ const UNDER_WAY: [marker: string, words: string][] = [
   ["REVERT_HEAD", "a revert"],
 ];
 
+/** The words `UNDER_WAY` gives for what is under way in a worktree, or null where nothing is. It throws git's words where git cannot say. */
+async function underWay(worktree: string): Promise<string | null> {
+  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
+  const markers = await gitIn(worktree, ["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
+  if (markers.failed || markers.printed.length !== UNDER_WAY.length) throw new Error(markers.said);
+  return UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")))?.[1] ?? null;
+}
+
 /** Runs git in a worktree, and gives whether it failed, its words, and the lines it printed. */
 function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; said: string; printed: string[] }> {
   return new Promise((done) => {
@@ -887,12 +984,14 @@ function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; sai
  * commit made on a detached HEAD is on no branch.
  */
 export async function whyNoCommit(worktree: string, branch: string): Promise<string | null> {
-  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
-  const markers = await gitIn(worktree, ["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
-  if (markers.failed || markers.printed.length !== UNDER_WAY.length) return markers.said;
-  const under = UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")));
+  let under: string | null;
+  try {
+    under = await underWay(worktree);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   // A rebase is read first, since HEAD is detached for its length and the reason then names the rebase.
-  if (under !== undefined) return `${under[1]} is under way in the worktree`;
+  if (under !== null) return `${under} is under way in the worktree`;
   const head = await gitIn(worktree, ["symbolic-ref", "--quiet", "HEAD"]);
   if (head.failed || head.printed[0] !== `refs/heads/${branch}`) return `the worktree is not on the branch ${branch}`;
   return null;

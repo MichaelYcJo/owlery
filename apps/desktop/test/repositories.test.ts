@@ -404,16 +404,20 @@ describe("RepositoryStore", () => {
     expect(counts(dir)).toEqual([9, 6, 10]);
   });
 
-  it("keeps a work item with no branch and whether Owlery made a work item's branch, writes both, and reads a work item written before that was kept as one whose branch Owlery made", () => {
+  it("keeps a work item with no branch and whether Owlery made a work item's branch, writes both, sets both where a branch is made for a work item that had none, and reads a work item written before that was kept as one whose branch Owlery made", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);
     store.addWorkItem({ ...PLACE, branch: null, ownsBranch: false });
     store.addWorkItem({ ...PLACE, branch: "feature", ownsBranch: false });
     store.addWorkItem(PLACE);
+    const made = store.addWorkItem({ ...PLACE, branch: null, ownsBranch: false }).item.id;
+    expect(store.setWorkItem(made, { branch: "owlery/made", ownsBranch: true })).toBe(true);
+    expect(store.setWorkItem(made, { branch: "owlery/made", ownsBranch: true })).toBe(false);
     expect(new RepositoryStore(dir).workItems().map(({ item }) => [item.branch, item.ownsBranch])).toEqual([
       [null, false],
       ["feature", false],
       [PLACE.branch, true],
+      ["owlery/made", true],
     ]);
     const repository = { id: 1, folder: "/r/project", ...PLAIN, addedAt: 1 };
     const { ownsBranch: _kept, ...before } = { id: 1, ...OWN, createdAt: 1, ...UNSET };

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -183,25 +183,27 @@ async function runFolderWithWorkItem(made: { repo: string; root: string; base: s
 
 /**
  * A daemon whose store lists one work item with no branch yet, number 1,
- * written before the daemon that reads it: the worktree a creation made,
- * its `HEAD` detached at a commit of its own that no branch holds, and the
- * branch the creation cut removed. `branches` gives the repository's local
- * branches as git names them.
+ * named `title`, written before the daemon that reads it: the worktree a
+ * creation made, its `HEAD` detached at a commit of its own that no branch
+ * holds, and the branch the creation cut removed. The tag `lone` holds that
+ * commit, so no read takes it for a commit made in the worktree and makes the
+ * work item's branch: a case makes one with a commit of its own. `branches`
+ * gives the repository's local branches as git names them.
  */
-async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}) {
+async function daemonWithoutBranch(options: Partial<DaemonOptions> = {}, title = "No branch yet") {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const runDir = join(made.base, "run");
   mkdirSync(runDir);
-  const title = "No branch yet";
   const { repo: _repo, ...place } = await createWorktree({ folder: made.repo, title, root: made.root });
   unbranched(made.repo, place);
   const lone = commitFile(place.worktree, "lone.txt");
+  git(made.repo, "tag", "lone", lone);
   writeStore(runDir, made.repo, [{ id: 1, title, createdAt: 1, ...place, branch: null, ownsBranch: false }]);
   const { url } = await daemon({ runDir, worktreesRoot: made.root, ...options });
   const c = await client(url);
   await c.message("ready");
-  return { made, c, worktree: place.worktree, lone, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
+  return { made, runDir, c, worktree: place.worktree, lone, branches: () => git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads") };
 }
 
 /** A daemon whose run folder lists one work item, number 1, in which a pane starts. */
@@ -2205,18 +2207,52 @@ describe("what a person sets on a work item", () => {
     expect((await (await client(url)).message("ready")).workItems).toMatchObject([{ title: "First name", branch: "owlery/first-name" }]);
   });
 
-  it("answers a `planRename` and a rename of the branch of a work item with no branch yet with the reason, renames nothing, and renames its name alone", async () => {
-    const { c, branches } = await daemonWithoutBranch();
+  it("answers a `planRename` of a work item with no branch yet with the branch a rename makes, and the reason where its worktree's HEAD names a branch; a rename of its name alone makes none, and a rename of its branch makes it at the worktree's HEAD, puts the worktree on it, and keeps that Owlery made it", async () => {
+    // A read a minute away, so the branch the worktree's HEAD names meanwhile is not taken up before the rename.
+    const { c, made, runDir, worktree, lone, branches } = await daemonWithoutBranch({ commitPollMs: 60_000 });
     const before = branches();
-    const none = "The work item has no branch yet, so there is none to rename.";
-    c.send({ type: "planRename", requestId: 1, id: 1, title: "Fix the login bug" });
-    expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: null, blocked: none });
-    c.send({ type: "renameWorkItem", requestId: 2, id: 1, title: "Fix the login bug", branch: true });
-    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(none);
-    c.send({ type: "renameWorkItem", requestId: 3, id: 1, title: "Fix the login bug", branch: false });
-    await c.message("done", (m) => m.requestId === 3);
+    c.send({ type: "renameWorkItem", requestId: 1, id: 1, title: "Fix the login bug", branch: false });
+    await c.message("done", (m) => m.requestId === 1);
     expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Fix the login bug")).workItems[0]).toMatchObject({ title: "Fix the login bug", branch: null });
     expect(branches()).toBe(before);
+    c.send({ type: "planRename", requestId: 2, id: 1, title: "Fix the login bug" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 2)).toEqual({ type: "renamePlan", requestId: 2, branch: "owlery/fix-the-login-bug", blocked: null });
+    git(worktree, "switch", "--quiet", "-c", "fix/x");
+    const taken = "The worktree is on the branch fix/x, which becomes the work item's at Owlery's next read.";
+    c.send({ type: "planRename", requestId: 3, id: 1, title: "Fix the login bug" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 3)).toEqual({ type: "renamePlan", requestId: 3, branch: "owlery/fix-the-login-bug", blocked: taken });
+    c.send({ type: "renameWorkItem", requestId: 4, id: 1, title: "Fix the login bug", branch: true });
+    expect((await c.message("error", (m) => m.requestId === 4)).message).toBe(taken);
+    git(worktree, "switch", "--quiet", "--detach");
+    git(made.repo, "branch", "--quiet", "-D", "fix/x");
+    expect(branches()).toBe(before);
+    c.send({ type: "renameWorkItem", requestId: 5, id: 1, title: "Fix the login bug", branch: true });
+    await c.message("done", (m) => m.requestId === 5);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.branch !== null)).workItems[0]).toMatchObject({ title: "Fix the login bug", branch: "owlery/fix-the-login-bug", ownsBranch: true });
+    expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/fix-the-login-bug");
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/fix-the-login-bug").trim()).toBe(lone);
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ branch: "owlery/fix-the-login-bug", ownsBranch: true }]);
+  });
+
+  it("answers a `planRename` and a rename of the branch of a work item on a branch Owlery did not make with the reason, renames nothing, and renames its name alone", async () => {
+    const made = repository();
+    const runDir = join(made.base, "run");
+    mkdirSync(runDir);
+    const { repo: _repo, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root });
+    writeStore(runDir, made.repo, [{ id: 1, title: "Picked", createdAt: 1, ...picked, ownsBranch: false }]);
+    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    const c = await client(url);
+    await c.message("ready");
+    const kept = "The branch owlery/picked is not one Owlery made, so it keeps its name.";
+    c.send({ type: "planRename", requestId: 1, id: 1, title: "Second name" });
+    expect(await c.message("renamePlan", (m) => m.requestId === 1)).toEqual({ type: "renamePlan", requestId: 1, branch: "owlery/second-name", blocked: kept });
+    c.send({ type: "renameWorkItem", requestId: 2, id: 1, title: "Second name", branch: true });
+    expect((await c.message("error", (m) => m.requestId === 2)).message).toBe(kept);
+    c.send({ type: "renameWorkItem", requestId: 3, id: 1, title: "Second name", branch: false });
+    await c.message("done", (m) => m.requestId === 3);
+    expect((await c.message("inbox", (m) => m.workItems[0]?.title === "Second name")).workItems[0]).toMatchObject({ branch: "owlery/picked", ownsBranch: false });
+    expect(git(made.repo, "for-each-ref", "--format=%(refname:short)", "refs/heads").trim().split("\n")).toEqual(["main", "owlery/picked"]);
   });
 
   it("sends no list read from a branch's old name while the branch is being renamed", async () => {
@@ -2495,16 +2531,18 @@ describe("what a person sets on a work item", () => {
     mkdirSync(runDir);
     const { repo: _none, ...none } = await createWorktree({ folder: made.repo, title: "No branch yet", root: made.root });
     unbranched(made.repo, none);
-    const lone = commitFile(none.worktree, "lone.txt");
     const { repo: _picked, ...picked } = await createWorktree({ folder: made.repo, title: "Picked", root: made.root });
     commitFile(picked.worktree, "picked.txt");
     writeStore(runDir, made.repo, [
       { id: 1, title: "No branch yet", createdAt: 1, ...none, branch: null, ownsBranch: false },
       { id: 2, title: "Picked", createdAt: 1, ...picked, ownsBranch: false },
     ]);
-    const { url } = await daemon({ runDir, worktreesRoot: made.root });
+    // The `ready` waits for the first read, and the next is a minute away.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, readyWaitMs: 60_000 });
     const c = await client(url);
     await c.message("ready");
+    // The commit is made after that read, so no read makes the work item's branch at it before the delete: the state a commit made in the worktree is in until the next read.
+    const lone = commitFile(none.worktree, "lone.txt");
     const loss = await lossOf(c, 1);
     expect(loss).toMatchObject({ branch: null, worktree: none.worktree, commits: [{ hash: git(made.repo, "rev-parse", "--short", lone).trim(), subject: "add lone.txt" }], commitCount: 1 });
     c.send({ type: "deleteWorkItem", requestId: 1, id: 1, stamp: loss.stamp, force: true, running: { panes: [], headless: [] } });
@@ -3553,7 +3591,7 @@ describe("the inbox", () => {
     expect("seal" in gone.workItems[0]!).toBe(false);
   });
 
-  it("reads a work item with no branch yet at its worktree's HEAD: its commit there is one new commit, ahead of the base by one, with the file it changed and no seal, and no branch is made", async () => {
+  it("reads a work item with no branch yet at its worktree's HEAD: its commit there, which a tag holds, is one new commit, ahead of the base by one, with the file it changed and no seal, and no branch is made", async () => {
     const { c, worktree, lone, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
     const before = branches();
     const read = await c.until(() => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).find((item) => item.newCommits === 1 && item.seal !== undefined));
@@ -3568,6 +3606,55 @@ describe("the inbox", () => {
       seal: null,
     });
     expect(branches()).toBe(before);
+  });
+
+  /** The first list that carries the work item number 1 with a branch. */
+  const branched = (c: Awaited<ReturnType<typeof client>>) => c.message("inbox", (m) => typeof m.workItems.find((w) => w.id === 1)?.branch === "string").then((m) => m.workItems.find((w) => w.id === 1));
+
+  it("makes the branch owlery/<slug of the title> at a commit made in the worktree of a work item with no branch yet, at the next read, puts the worktree on it, and keeps that Owlery made it", async () => {
+    const { c, made, runDir, worktree } = await daemonWithoutBranch({ commitPollMs: 20 });
+    const first = commitFile(worktree, "first.txt");
+    expect(await branched(c)).toMatchObject({ branch: "owlery/no-branch-yet", ownsBranch: true, newCommits: 2 });
+    expect(git(worktree, "symbolic-ref", "HEAD").trim()).toBe("refs/heads/owlery/no-branch-yet");
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/no-branch-yet").trim()).toBe(first);
+    const later = await daemon({ runDir, worktreesRoot: made.root });
+    expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ branch: "owlery/no-branch-yet", ownsBranch: true }]);
+  });
+
+  it("names the branch it makes after the worktree's folder where the work item's title leaves no slug", async () => {
+    const { c, worktree } = await daemonWithoutBranch({ commitPollMs: 20 }, "?!");
+    commitFile(worktree, "first.txt");
+    expect((await branched(c))?.branch).toBe(`owlery/${basename(worktree)}`);
+  });
+
+  it("numbers the branch it makes -2 where a local branch bears the name the title gives, and leaves that branch as it was", async () => {
+    const { c, made, worktree } = await daemonWithoutBranch({ commitPollMs: 20 });
+    git(made.repo, "branch", "--quiet", "owlery/no-branch-yet", "main");
+    const first = commitFile(worktree, "first.txt");
+    expect((await branched(c))?.branch).toBe("owlery/no-branch-yet-2");
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/no-branch-yet-2").trim()).toBe(first);
+    expect(git(made.repo, "rev-parse", "refs/heads/owlery/no-branch-yet").trim()).toBe(git(made.repo, "rev-parse", "main").trim());
+  });
+
+  it("takes up the branch its worktree's HEAD names, as one Owlery did not make, and makes no branch of its own", async () => {
+    const { c, worktree, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
+    git(worktree, "switch", "--quiet", "-c", "fix/x");
+    expect(await branched(c)).toMatchObject({ branch: "fix/x", ownsBranch: false });
+    expect(branches()).toBe("fix/x\nmain\n");
+  });
+
+  it("makes no branch while a rebase is under way in the worktree and says why in the log, and makes it at a read after the rebase has ended", async () => {
+    const said = logged();
+    const { c, worktree, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
+    const before = branches();
+    const marker = git(worktree, "rev-parse", "--path-format=absolute", "--git-path", "rebase-merge").trim();
+    mkdirSync(marker);
+    commitFile(worktree, "first.txt");
+    await c.until(() => (said.some((line) => line.startsWith("the branch of work item 1 was not made:") && line.includes("cannot switch branch while rebasing")) ? true : undefined));
+    expect(branches()).toBe(before);
+    expect(c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems.map((w) => w.branch) : []))).not.toContainEqual(expect.any(String));
+    rmSync(marker, { recursive: true });
+    expect(await branched(c)).toMatchObject({ branch: "owlery/no-branch-yet", ownsBranch: true });
   });
 
   it("sends no inbox while the counts stay as they were", async () => {
