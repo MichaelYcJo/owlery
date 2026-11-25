@@ -2235,6 +2235,23 @@ describe("what a person sets on a work item", () => {
     expect((await (await client(later.url)).message("ready")).workItems).toMatchObject([{ branch: "owlery/fix-the-login-bug", ownsBranch: true }]);
   });
 
+  it("gives a work item with no branch yet one branch where a rename makes it while a read finds a commit in its worktree: the read's turn waits behind the rename's and then finds the branch made, as Owlery's", async () => {
+    const { c, made, worktree, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
+    const held = heldGit(made.base, '[ "$1" = switch ]');
+    c.send({ type: "renameWorkItem", requestId: 1, id: 1, title: "Fix the login bug", branch: true });
+    await c.until(() => (held.waiting() ? true : undefined));
+    // The rename waits in git's switch. A commit made now is one the reads find, and their turn to give the work item a branch waits behind the rename's.
+    commitFile(worktree, "first.txt");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    held.release();
+    await c.message("done", (m) => m.requestId === 1);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const listed = c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems.filter((w) => w.branch !== null).map((w) => [w.branch, w.ownsBranch]) : []));
+    expect(listed.length).toBeGreaterThan(0);
+    expect(new Set(listed.map((pair) => JSON.stringify(pair)))).toEqual(new Set([JSON.stringify(["owlery/fix-the-login-bug", true])]));
+    expect(branches()).toBe("main\nowlery/fix-the-login-bug\n");
+  });
+
   it("answers a `planRename` and a rename of the branch of a work item on a branch Owlery did not make with the reason, renames nothing, and renames its name alone", async () => {
     const made = repository();
     const runDir = join(made.base, "run");
