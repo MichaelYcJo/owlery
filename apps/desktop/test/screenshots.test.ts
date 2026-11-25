@@ -6,8 +6,9 @@
 // the inbox, a work item's view, the view of the parked work item, the view
 // of the finished work item, the view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings, the Accounts dialog, the Machine dialog and the
-// delete dialog of a work item with many commits) in each
+// repository's settings, the Accounts dialog, the Machine dialog, the
+// delete dialog of a work item with many commits, and the sidebar where a
+// filter leaves no repository) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -41,7 +42,11 @@
 // ignored `.env`. The delete dialog's view opens that work item's menu in
 // the sidebar, presses Delete, waits until the head of its commits counts
 // 39 and the heads of its untracked file and its ignored file stand, and
-// Cancel then closes the dialog, which deletes nothing.
+// Cancel then closes the dialog, which deletes nothing. The scene holds no
+// decision made without asking, so the narrowed view chooses "Decided
+// without asking" in the sidebar's filter over the inbox, waits until the
+// sidebar says that it does not list its one repository and the filter's
+// icon stands inside its edge, and then chooses All again.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -318,6 +323,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-accounts.png",
       "night-watch-dark-machine.png",
       "night-watch-dark-delete.png",
+      "night-watch-dark-narrowed.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -331,11 +337,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-accounts.png",
       "night-watch-light-machine.png",
       "night-watch-light-delete.png",
+      "night-watch-light-narrowed.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(78);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(78);
-    expect(all[77]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(84);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(84);
+    expect(all[83]).toEqual({ theme: "desk", appearance: "light", view: "narrowed", file: "desk-light-narrowed.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -402,6 +409,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
   const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
   const QUEUED_LINE = `#repositories button[data-work-item="${QUEUED_ID}"]`;
+  /** What the sidebar says once "Decided without asking" leaves the scene's one repository unlisted. */
+  const NARROWED_SAYS = 'No work item stands under "Decided without asking", so the sidebar does not list its repository.';
 
   /** Opens the menu of the sidebar's line a selector finds, by a press of the right button in its middle, as a person's press arrives. */
   const openMenu = async (line: string): Promise<void> => {
@@ -491,6 +500,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** A person's choice in one of the two controls of the sidebar's foot. */
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+
+  /** Chooses a state in the sidebar's filter, as a person picks it from the filter's list. */
+  const filterSidebar = (choice: "all" | "decided"): Promise<void> =>
+    app.evaluate(`(() => { const filter = document.getElementById("sidebar-filter"); filter.value = ${JSON.stringify(choice)}; filter.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
   /** Opens the "New work item" form with a name typed in it, and waits for the branch the name gets. */
   const openForm = async (name: string): Promise<void> => {
@@ -583,6 +596,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
       await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(QUEUED_HEADS)}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted))`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits, and the heads of its untracked file and its ignored file`);
     },
+    narrowed: async () => {
+      // The scene holds no decision made without asking, so that choice leaves its one repository unlisted, and the sentence takes the one-repository end.
+      await show.inbox();
+      await filterSidebar("decided");
+      await app.until(`document.getElementById("sidebar-empty")?.textContent === ${JSON.stringify(NARROWED_SAYS)} && document.getElementById("show-every")?.textContent === "Show every work item" && document.querySelectorAll("#repositories section").length === 0 && (() => { const control = document.getElementById("sidebar-filter-control"); return control.classList.contains("on") && control.title === "Showing: Decided without asking" && getComputedStyle(control).boxShadow !== "none"; })()`, `the inbox with "Decided without asking" chosen in the sidebar's filter, the filter's icon inside its edge and the sidebar saying "${NARROWED_SAYS}"`);
+    },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
@@ -618,6 +637,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // A cancel deletes nothing.
       await app.click("#delete-cancel");
       await dialogClosed("delete-dialog");
+    },
+    narrowed: async () => {
+      // The next theme's views click lines of the sidebar and count the inbox's lines, so the filter shows every work item again.
+      await filterSidebar("all");
+      await app.until(`!document.getElementById("sidebar-empty") && document.querySelectorAll("#repositories section").length === 1 && !document.getElementById("sidebar-filter-control").classList.contains("on")`, "the sidebar listing its repository again, the filter at All");
     },
   };
 
