@@ -195,8 +195,10 @@ export function withoutPaneVariables<T extends NodeJS.ProcessEnv | Record<string
  * its command (`claudePaneCommand`) and a shell in its environment, so a
  * `claude` the person types there takes it unless their profile sets its
  * own. Under System default neither is given a folder. Where the daemon
- * wrote the runner of heavy commands (`pane-chain.ts#writeRunner`), every
- * pane holds its path in `OWLERY_RUN`.
+ * wrote the runner of heavy commands (`pane-chain.ts#writeRunner`), a shell
+ * and a Claude Code pane hold its path in `OWLERY_RUN`, as a worktree setup
+ * pane does (`setupPaneCommand`); a sign-in pane, which runs the command its
+ * account's login gives, holds none.
  */
 export function paneCommands(env: NodeJS.ProcessEnv, settingsFile: string, socketPath: string, carries: (start: PaneStart) => Carried | null = () => null, runner: string | null = null): (kind: PaneKind, id: number, start: PaneStart) => PaneCommand {
   return (kind, id, start) => {

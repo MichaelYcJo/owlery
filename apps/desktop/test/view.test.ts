@@ -724,22 +724,31 @@ describe("what a delete dialog says of a loss", () => {
   const CLEAN: WorkItemLoss = { ...NOTHING, branch: "owlery/fix-the-login-bug", worktree: "/w/project/fix-the-login-bug", ignored: [".env", "node_modules/"], ignoredCount: 2 };
   const HOLDS: WorkItemLoss = { ...CLEAN, commits: [{ hash: "abc1234", subject: "add the form" }], commitCount: 1, uncommitted: ["README.md"], uncommittedCount: 1, untracked: ["newdir/deep/u.txt"], untrackedCount: 1 };
 
-  it("names the branch and the folder a delete removes, each commit by its hash and its subject, and each file by its path, under a heading for each kind, and leaves out a kind the loss holds none of", () => {
+  it("names the branch and the folder a delete removes, each commit by its hash and its subject apart, and each file by its path, under a heading for each kind that counts one in the singular, and leaves out a kind the loss holds none of", () => {
     expect(lossSections(HOLDS)).toEqual([
-      { caption: "Removed from disk", lines: ["The branch owlery/fix-the-login-bug", "The folder /w/project/fix-the-login-bug"], more: "" },
-      { caption: "Commits no other branch, no remote and no tag holds", lines: ["abc1234 add the form"], more: "" },
-      { caption: "Files with changes that are not committed", lines: ["README.md"], more: "" },
-      { caption: "Untracked files", lines: ["newdir/deep/u.txt"], more: "" },
-      { caption: "Ignored files and folders, which go with the folder", lines: [".env", "node_modules/"], more: "" },
+      { caption: "The branch and the folder removed from disk", rows: [{ path: "owlery/fix-the-login-bug" }, { path: "/w/project/fix-the-login-bug" }], more: "" },
+      { caption: "1 commit no other branch, no remote and no tag holds", rows: [{ hash: "abc1234", subject: "add the form" }], more: "" },
+      { caption: "1 file with changes that are not committed", rows: [{ path: "README.md" }], more: "" },
+      { caption: "1 untracked file", rows: [{ path: "newdir/deep/u.txt" }], more: "" },
+      { caption: "2 ignored files and folders, which go with the folder", rows: [{ path: ".env" }, { path: "node_modules/" }], more: "" },
     ]);
-    expect(lossSections(CLEAN).map(({ caption }) => caption)).toEqual(["Removed from disk", "Ignored files and folders, which go with the folder"]);
-    expect(lossSections({ ...NOTHING, branch: "owlery/gone-folder" })).toEqual([{ caption: "Removed from disk", lines: ["The branch owlery/gone-folder"], more: "" }]);
+    expect(lossSections({ ...CLEAN, ignored: [".env"], ignoredCount: 1 }).map(({ caption }) => caption)).toEqual(["The branch and the folder removed from disk", "1 ignored file or folder, which goes with the folder"]);
+    expect(lossSections({ ...NOTHING, branch: "owlery/gone-folder" })).toEqual([{ caption: "The branch removed from disk", rows: [{ path: "owlery/gone-folder" }], more: "" }]);
+    expect(lossSections({ ...NOTHING, worktree: "/w/project/detached" })).toEqual([{ caption: "The folder removed from disk", rows: [{ path: "/w/project/detached" }], more: "" }]);
     expect(lossSections({ ...NOTHING, unreachable: true })).toEqual([]);
   });
 
-  it("says how many more there are where a list is cut, of each kind by its own count", () => {
+  it("counts in each heading what the loss counts, and not the entries it lists, and says how many more there are where a list is cut, of each kind by its own count", () => {
     const cut = lossSections({ ...HOLDS, commitCount: 501, uncommittedCount: 2, untrackedCount: 1, ignoredCount: 14 });
+    expect(cut.map(({ caption }) => caption)).toEqual([
+      "The branch and the folder removed from disk",
+      "501 commits no other branch, no remote and no tag holds",
+      "2 files with changes that are not committed",
+      "1 untracked file",
+      "14 ignored files and folders, which go with the folder",
+    ]);
     expect(cut.map(({ more }) => more)).toEqual(["", "and 500 more", "and 1 more", "", "and 12 more"]);
+    expect(lossSections({ ...NOTHING, untracked: ["a.txt", "b.txt"], untrackedCount: 2 })[0]?.caption).toBe("2 untracked files");
   });
 
   it("offers Force delete only where a commit, a changed file or an untracked file would be lost, and turns Delete on once the loss has arrived, unless the delete is blocked or would lose work and is not forced", () => {

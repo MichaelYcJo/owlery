@@ -6,7 +6,8 @@
 // the inbox, a work item's view, the view of the parked work item, the view
 // of the finished work item, the view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings, the Accounts dialog and the Machine dialog) in each
+// repository's settings, the Accounts dialog, the Machine dialog and the
+// delete dialog of a work item with many commits) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -34,6 +35,16 @@
 // starts: that work item's line says "Waiting for the machine", the status
 // line counts the agents against the cap and the stage that waits, and the
 // Machine dialog lists the stage under its cap on agents.
+// Before the look is taken, that work item's branch takes 39 commits no
+// other branch holds, some with a subject longer than a row of the delete
+// dialog. Once its stage waits, its worktree takes an untracked file at a
+// nested path and the ignored `.env`: the daemon resumes a chain only in a
+// worktree whose every change a commit holds. The delete dialog's view opens that work item's menu in
+// the sidebar, presses Delete, waits until the head of its commits counts
+// those 39 and the commits of its records (its routing, the question it was
+// parked on and the answer), and the heads of its untracked file and its
+// ignored file stand, and Cancel then closes the dialog, which deletes
+// nothing.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -232,6 +243,53 @@ const PLUGIN_KEY = "agentic@agenticseal";
 /** The answers of the chain choice, as the menu of the repository's settings holds them: none, which asks at the next Claude Code pane, and the owl chain. */
 const NO_ANSWER = "";
 const OWL_CHAIN = "owlery";
+/** The subjects of the commits the run makes on the branch of `QUEUED`, the work item whose stage waits for the machine, before the look is taken, oldest first, none of which another branch holds, so its delete dialog lists more commits than the list shows at once. Some are longer than a row of the dialog, which cuts them. They are invented examples. */
+const QUEUED_COMMITS = [
+  "Read the settings from settings.json beside the old settings.ini",
+  "Add a reader for the JSON settings file",
+  "Keep the INI reader for one release",
+  "Name the settings file's path in one place",
+  "Move the defaults out of the settings reader",
+  "Test the JSON reader against every key the INI file held",
+  "Write the settings back as JSON",
+  "Keep the order of the keys when the settings are written back",
+  "Say in the log which file the settings were read from",
+  "Rename settings.ini to settings.json at the first start after an update, and keep the old file beside it until the next release",
+  "Refuse a settings file that is neither JSON nor INI",
+  "Name the key that failed to parse",
+  "Test a settings file with a key the app does not know",
+  "Drop the unknown keys on write",
+  "Keep the unknown keys on write, since another version of the app may read them",
+  "Name the settings file in the README",
+  "Read the theme from the renamed file",
+  "Read the editor's path from the renamed file",
+  "Read the proxy from the renamed file",
+  "Read the update channel from the renamed file",
+  "Move the window's size and position, which the INI file kept as two keys each, into one object of the JSON file",
+  "Test the move of the window's size",
+  "Test a settings file with no window section",
+  "Keep the settings file's mode at 0600",
+  "Write the settings file through a temporary file and a rename",
+  "Test a write that stops half way",
+  "Read the settings again when the file changes on disk",
+  "Wait for a file that changes on disk to settle before reading it",
+  "Test two writes in quick succession",
+  "Remove the settings path from the old constants",
+  "Rename SettingsIni to SettingsFile across the app, its tests and the two scripts that import it from the old path",
+  "Fix the type of the update channel's key",
+  "Name the settings file in the crash report",
+  "Test the settings line of the crash report",
+  "Fall back to the defaults where the settings file cannot be read, and say in the status line which file failed and why",
+  "Test the fall back to the defaults",
+  "Remove the INI reader's branch for Windows line endings",
+  "Take the screenshots of the settings again",
+  "Note the rename in the changelog",
+];
+/** The heads of that work item's delete dialog the view waits for, given how many commits its branch holds that no other branch holds: its commits', which counts them, its untracked file's and its ignored file's. Its branch holds `QUEUED_COMMITS` and the commits of its records: its routing, the question its chain was parked on and the daemon's commit of the answer. */
+const queuedHeads = (commits: number): string[] => [`${String(commits)} commits no other branch, no remote and no tag holds`, "1 untracked file", "1 ignored file or folder, which goes with the folder"];
+/** The untracked file at a nested path and the ignored file the run writes into that work item's worktree once its stage waits, with what each holds, so its delete dialog lists the untracked files and the ignored files and folders. They are invented examples. */
+const QUEUED_UNTRACKED = { path: "notes/settings/keys-to-move.md", text: "theme, editor, proxy, channel\n" };
+const QUEUED_IGNORED = { path: ".env", text: "SETTINGS_FILE=settings.json\n" };
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -264,6 +322,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
       "night-watch-dark-machine.png",
+      "night-watch-dark-delete.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -276,11 +335,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
       "night-watch-light-machine.png",
+      "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(72);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(72);
-    expect(all[71]).toEqual({ theme: "desk", appearance: "light", view: "machine", file: "desk-light-machine.png" });
+    expect(all).toHaveLength(78);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(78);
+    expect(all[77]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -349,6 +409,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const MENU = `[role="menu"]`;
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
   const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
+  const QUEUED_LINE = `#repositories button[data-work-item="${QUEUED_ID}"]`;
+
+  /** Opens the menu of the sidebar's line a selector finds, by a press of the right button in its middle, as a person's press arrives. */
+  const openMenu = async (line: string): Promise<void> => {
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector(${JSON.stringify(line)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+    await app.until(`document.querySelector('${MENU}')`, "the work item's menu");
+  };
 
   /** Opens the settings of the run's one repository from its menu in the sidebar. */
   const openSettings = async (): Promise<void> => {
@@ -488,10 +557,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     menu: async () => {
       await show.inbox();
-      const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector(${JSON.stringify(SIDEBAR_LINE)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
-      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
-      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
-      await app.until(`document.querySelector('${MENU}')`, "the work item's menu");
+      await openMenu(SIDEBAR_LINE);
     },
     dialog: async () => {
       await show.inbox();
@@ -520,6 +586,17 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await app.click("#machine-button");
       await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Proofer, round 1`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the stage of ${QUEUED}'s chain that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
+    },
+    delete: async () => {
+      await show.inbox();
+      await openMenu(QUEUED_LINE);
+      await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
+      await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
+      const queued = (await listed()).workItems.find((item) => item.title === QUEUED);
+      if (!queued) throw new Error(`the daemon lists no work item ${QUEUED}`);
+      const commits = Number(git(queued.worktree, "rev-list", "--count", queued.branch, "--not", `--exclude=${queued.branch}`, "--branches", "--remotes", "--tags").trim());
+      if (commits < QUEUED_COMMITS.length) throw new Error(`the branch of ${QUEUED} holds ${String(commits)} commits no other branch holds, fewer than the run made`);
+      await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(queuedHeads(commits))}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted))`, `the delete dialog of ${QUEUED}, its heading counting its ${String(commits)} commits, and the heads of its untracked file and its ignored file`);
     },
   };
 
@@ -551,6 +628,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // A cancel keeps every cap as the run set it.
       await app.click("#machine-cancel");
       await dialogClosed("machine-dialog");
+    },
+    delete: async () => {
+      // A cancel deletes nothing.
+      await app.click("#delete-cancel");
+      await dialogClosed("delete-dialog");
     },
   };
 
@@ -686,6 +768,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.ts");
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
+    // The commits no other branch holds on the branch of the work item whose stage waits for the machine, for its delete dialog. They are made before the look, so no line says them since it.
+    const toDelete = (await listed()).workItems.find((item) => item.title === QUEUED);
+    if (!toDelete) throw new Error(`the daemon lists no work item ${QUEUED}`);
+    for (const subject of QUEUED_COMMITS) {
+      writeFileSync(join(toDelete.worktree, "settings.ts"), `// ${subject}\n`);
+      git(toDelete.worktree, "add", "settings.ts");
+      git(toDelete.worktree, "commit", "--quiet", "-m", subject);
+    }
 
     // The look the summary is read against, taken before any seal: a second client of the daemon sends `looked`, and the daemon writes the look into its run folder. The page's own `looked` is held back from here on, whichever event sends it, the page that leaves among them, so no look of the page holds the seals the run gives below.
     await app.evaluate(`(() => { const send = WebSocket.prototype.send; WebSocket.prototype.send = function (data) { if (data !== '{"type":"looked"}') send.call(this, data); }; })()`);
@@ -743,6 +833,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await listed({ type: "answerQuestions", requestId: 2, workItemId: QUEUED_ID, answers: [{ questionId: queuedQuestion, answer: "The window's size and its theme." }] });
     for (const deadline = Date.now() + 20_000; (await listed()).machine?.agents.queue.length !== 1; await new Promise((resolve) => setTimeout(resolve, 100))) {
       if (Date.now() >= deadline) throw new Error(`the chain of ${QUEUED} never had a stage wait for the machine: ${JSON.stringify({ agents: (await listed()).machine?.agents, chain: (await listed()).workItems.find((item) => item.id === QUEUED_ID)?.chain })}`);
+    }
+    // An untracked file at a nested path and the ignored `.env` in that work item's worktree, for its delete dialog. They are written once its stage waits: the daemon resumes a chain only in a worktree whose every change a commit holds, and an untracked file is such a change.
+    for (const { path, text } of [QUEUED_UNTRACKED, QUEUED_IGNORED]) {
+      mkdirSync(dirname(join(toDelete.worktree, path)), { recursive: true });
+      writeFileSync(join(toDelete.worktree, path), text);
     }
 
     // A command of the work item at review takes the one turn on the machine, and one in a folder no work item names waits behind it.
