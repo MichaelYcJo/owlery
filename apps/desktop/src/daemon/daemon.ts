@@ -70,7 +70,7 @@ import {
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
-import { setupPaneCommand } from "./hooks";
+import { setupPaneCommand, withoutPaneVariables } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
@@ -2399,10 +2399,10 @@ export class Daemon {
     return session.info;
   }
 
-  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
+  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment without the variables of a pane it was started from (`hooks.ts#PANE_VARIABLES`) and with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
   private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }, inherit = true): TerminalSession {
     // A sign-in pane runs in the cleared environment its command names, as `auth status` and `auth logout` do; the terminal adds its own names.
-    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...process.env, ...env } : env });
+    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...withoutPaneVariables(process.env), ...env } : env });
   }
 
   /**

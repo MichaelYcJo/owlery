@@ -132,6 +132,11 @@ describe("a broad gate's environment", { timeout: 30_000 }, () => {
     expect(gateEnvironment(base, null)).toEqual({ PATH: "/own/bin", HOME: "/home/me", LANG: "en_US.UTF-8" });
   });
 
+  it("holds none of the chain's variables of the pane it was started from, and keeps the run folder and every other variable of Owlery's", () => {
+    const pane = { PATH: "/own/bin", HOME: "/home/me", OWLERY_CHAIN: "/run/owl-chain", OWLERY_BASE: "release/v0.0.4", OWLERY_PANE_ID: "19", OWLERY_HOOK_SOCKET: "/run/hooks.sock", OWLERY_RUN_DIR: "/run", OWLERY_BACKGROUND: "1" };
+    expect(gateEnvironment(pane, null)).toEqual({ PATH: "/own/bin", HOME: "/home/me", OWLERY_RUN_DIR: "/run", OWLERY_BACKGROUND: "1", LANG: "en_US.UTF-8" });
+  });
+
 
   it("asks the login shell for its path as an interactive login shell, with the script that prints it, and reads the marked line whatever else the profile prints and whatever the shell exits with", async () => {
     const asked = shell(`echo "a profile's greeting"; printf '%s\\n' "$1 $2 $3" "\${CLAUDECODE:-unset} \${TERM:-unset}" "$4" > "$0.asked"; printf '\\n__owlery_path=%s\\n' '/login/bin:/usr/bin'; exit 7`);

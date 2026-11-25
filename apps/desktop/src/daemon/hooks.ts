@@ -154,6 +154,24 @@ export function claudePaneCommand(env: NodeJS.ProcessEnv, settingsFile: string, 
 }
 
 /**
+ * The variables a pane's command sets for that one pane (`paneCommands`):
+ * its id and the hook socket it reports to, and, on the owl chain, the
+ * chain command and the work item's base. A process started in an Owlery
+ * pane holds the pane's, so a daemon, and the broad gate's command, started
+ * there takes none of them from its own environment: a pane holds a chain's
+ * variables only where its own command sets them. The run folder is the
+ * daemon's, set by the app that starts it, and stays.
+ */
+export const PANE_VARIABLES = ["OWLERY_PANE_ID", "OWLERY_HOOK_SOCKET", "OWLERY_CHAIN", "OWLERY_BASE"] as const;
+
+/** `env` without the variables of the pane a process was started from (`PANE_VARIABLES`). */
+export function withoutPaneVariables<T extends NodeJS.ProcessEnv | Record<string, string>>(env: T): T {
+  const kept = { ...env };
+  for (const name of PANE_VARIABLES) delete kept[name];
+  return kept;
+}
+
+/**
  * The daemon's `commandFor`: a pane's command by its kind, with the pane's id
  * and the hook socket in its environment, where the hook command reads both.
  * A Claude Code pane continues where the start asks it, and resumes the
