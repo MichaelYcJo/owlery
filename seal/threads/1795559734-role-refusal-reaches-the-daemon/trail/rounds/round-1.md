@@ -22,6 +22,12 @@ Why it matters: the changelog fragment goes whole into the pull request body and
 - **The check spends none of your usage and needs no login.** It gives the CLI a placeholder key and a home folder of its own. The daemon takes a Claude Code config folder of the check's own as its default and gives it to the session, as it gives an account's folder. In every run the session wrote its conversation into the check's config folder, and in the runs whose folders were listed afterwards the check's home stayed empty and the config folder held what the CLI writes there. In the daemon's code, every read of a Claude Code folder that this check reaches names the check's own folder. No run traced the daemon's reads of files, or the CLI's writes outside the two folders, so those parts rest on reading the code. The check still needs `pnpm install` and a `claude` your login shell finds.
 ```
 
+```seal
+verdict: fixed bd3bebc1
+location: `seal/threads/1795559734-role-refusal-reaches-the-daemon/changelog.md:6`, `seal/threads/1795559734-role-refusal-reaches-the-daemon/gaps.md:11`
+answer: The finding holds. bd3bebc1 replaces the two sentences of `changelog.md:6` with the record's paste-ready text, word for word: each run's assertion of `projects`, the listed runs' folders, and no trace of the daemon's reads or the CLI's writes outside the two folders. The new sentence names a gap `gaps.md` did not hold, the CLI's writes outside the case's two folders, so the same commit adds that row to `gaps.md:11`, answered by a measurement the orchestrator may order. `pr.md` quotes no sentence of `changelog.md`, so nothing else states the claim.
+```
+
 ### 2. The stand-in model answers a request that is not streamed, which no run showed the CLI send, while its comment and Scope item 11 say it answers only what a run showed
 
 ```seal
@@ -53,6 +59,11 @@ A request with `stream: true` is answered as server-sent events, in the order th
 ```
 
 A fix pass may instead keep the branch and reword *Scope* item 11, the helper's comment and the quote in `pr.md` to say that the stand-in also answers one request that no run showed. Either way, `frame/plan.md:38` makes a fix to `model-stand-in.ts` owe the runs of scenarios 1 and 2 again at the fix's commit.
+
+```seal
+verdict: fixed bd3bebc1
+answer: The finding holds, and the orchestrator chose the code over the sentence. bd3bebc1 applies the record's paste-ready code to `apps/desktop/test/model-stand-in.ts`, read first against *Scope* item 11 and the one caller, `role-session.test.ts`, which sends the stand-in only what the CLI sends: a messages request answers only with `stream: true`, and every other request takes the named 404, a non-streamed messages request with the words "that is not streamed". The opening comment at `model-stand-in.ts:7-12` now says the stand-in answers streamed messages requests alone. Shown red by a probe run once, `test_tmp_non_streamed.mjs` under the fix pass's scratch, which sends a `POST /v1/messages?beta=true` without `stream` straight to each of two copies of the helper (executed): the helper as it stood at 4fd3c38e answered status 200 with a JSON `tool_use` message, and the helper of bd3bebc1 answered status 404 with `The stand-in model answers no POST /v1/messages that is not streamed.` The runs `frame/plan.md:38` owes passed at bd3bebc1, each after the wait on `pgrep -f 'vites[t]'`, with `OWLERY_BACKGROUND=1` and no further argument, each exit code read directly (executed): `pnpm run role:refusal` three times and `pnpm run role:refusal:sealer` three times, each exit 0, each printing CLI version 2.1.331, the proofer's or the sealer's reason, and two requests, all twelve `POST /v1/messages?beta=true` and none refused. `pnpm exec tsc --noEmit` in `apps/desktop` exited 0 before the commit (executed). The frame's half is the framer's: `seal/threads/1795559734-role-refusal-reaches-the-daemon/frame/design.md:94` still says a request without `stream: true` is answered with one JSON body, and the rows of the answers table at `design.md:89` to `:91` read `POST /v1/messages…` without naming `stream: true`; the framer rewrites them after this pass.
+```
 
 ## Confirmations
 
