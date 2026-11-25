@@ -76,7 +76,7 @@ import {
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, routingAnswer, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
-import { setupPaneCommand } from "./hooks";
+import { setupPaneCommand, withoutPaneVariables } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { addHeavyRun, heavyRan, readHeavyRuns, watchMemory } from "./heavy-runs";
@@ -310,7 +310,7 @@ export interface DaemonOptions {
   undecidedCeiling?: number;
   /** How long a broad gate's command may run, from its start, before the daemon ends it; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
-  /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands, with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
+  /** The environment a broad gate's command runs with. When absent, it is a pane's without the variables that say a terminal stands and without the variables of the pane the daemon was started from (`hooks.ts#PANE_VARIABLES`), with the `PATH` the person's interactive login shell prints, which the daemon asks that shell for once (`gate.ts#gateEnvironment`). */
   gateEnv?: Record<string, string>;
   /** How many of the last characters a broad gate's command printed the daemon keeps; `GATE_OUTPUT_CHARS` of `gate.ts` when absent. */
   gateOutputChars?: number;
@@ -2452,10 +2452,10 @@ export class Daemon {
     return session.info;
   }
 
-  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
+  /** Starts a pane's process with its command in its folder at its size, in the daemon's environment without the variables of a pane it was started from (`hooks.ts#PANE_VARIABLES`) and with the command's own over it, or, where it does not `inherit`, in the command's own alone. */
   private spawnPane({ command, args, env }: PaneCommand, cwd: string, size: { cols: number; rows: number }, inherit = true): TerminalSession {
     // A sign-in pane runs in the cleared environment its command names, as `auth status` and `auth logout` do; the terminal adds its own names.
-    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...process.env, ...env } : env });
+    return TerminalSession.spawn({ command, args, cwd, cols: size.cols, rows: size.rows, env: inherit ? { ...withoutPaneVariables(process.env), ...env } : env });
   }
 
   /**

@@ -7,6 +7,7 @@
 // and the chain command a pane's session runs (`chain-command.ts`)
 // (docs/architecture.md, "Code runs the order, the orchestrator judges").
 import { execFile, spawn } from "node:child_process";
+import { withoutPaneVariables } from "./hooks";
 import { terminalEnv } from "./pty";
 
 /** How long a broad gate's command may run, from its start, before the daemon ends it, where the options name no time. */
@@ -46,11 +47,12 @@ export function loginPath(env: NodeJS.ProcessEnv, timeoutMs = 10_000): Promise<s
 /**
  * The environment a broad gate's command runs with: a terminal pane's
  * (`pty.ts#terminalEnv`), without the two variables that say a terminal
- * stands, and with `path` as its `PATH`. Where `path` is null, the `PATH`
- * stays the pane's, which is the daemon's own.
+ * stands, without the variables of the pane the chain command was run in
+ * (`hooks.ts#PANE_VARIABLES`), and with `path` as its `PATH`. Where `path` is
+ * null, the `PATH` stays the pane's, which is the daemon's own.
  */
 export function gateEnvironment(base: NodeJS.ProcessEnv, path: string | null): Record<string, string> {
-  const env = terminalEnv(base);
+  const env = withoutPaneVariables(terminalEnv(base));
   delete env.TERM;
   delete env.COLORTERM;
   if (path !== null) env.PATH = path;

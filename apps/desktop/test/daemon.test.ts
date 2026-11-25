@@ -7685,6 +7685,28 @@ describe("a Claude Code pane and the owl chain", () => {
     expect([shell.env.OWLERY_CHAIN, shell.env.OWLERY_BASE]).toEqual([undefined, undefined]);
   });
 
+  it("gives a pane none of the pane variables of a daemon started in an Owlery pane: a pane on the owl chain carries its own, a shell carries none of the chain's, no runner where its daemon wrote none, and its own id and socket, and each keeps the daemon's run folder", async () => {
+    // The daemon's own environment, as a daemon started in a pane of another Owlery holds it, until the case ends.
+    const outer = { OWLERY_CHAIN: "/outer/owl-chain", OWLERY_BASE: "outer-base", OWLERY_PANE_ID: "99", OWLERY_HOOK_SOCKET: "/outer/hooks.sock", OWLERY_RUN: "/outer/owl-run", OWLERY_RUN_DIR: "/daemon/run" };
+    const own = Object.fromEntries(Object.keys(outer).map((name) => [name, process.env[name]]));
+    Object.assign(process.env, outer);
+    cleanups.push(() => {
+      for (const [name, value] of Object.entries(own)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const { c, runDir, chain, given } = await launching(made);
+    const read = (pane: { env: Record<string, string | undefined> }): (string | undefined)[] => [pane.env.OWLERY_CHAIN, pane.env.OWLERY_BASE, pane.env.OWLERY_PANE_ID, pane.env.OWLERY_HOOK_SOCKET, pane.env.OWLERY_RUN, pane.env.OWLERY_RUN_DIR];
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Inside a pane", kind: "claude", cols: 80, rows: 24 });
+    const { workItem, session } = await c.message("workItemCreated");
+    expect(read(await given(session.id))).toEqual([chain.launcher, "main", String(session.id), join(runDir, "hooks.sock"), undefined, "/daemon/run"]);
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
+    const shell = (await c.message("started", (m) => m.requestId === 2)).session;
+    expect(read(await given(shell.id))).toEqual([undefined, undefined, String(shell.id), join(runDir, "hooks.sock"), undefined, "/daemon/run"]);
+  });
+
   it.each([
     ["AgenticSeal's check", ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`],
     ["no check", null, ""],
