@@ -7,7 +7,7 @@
 | Planning | framer |
 | Implementation | crafter |
 | Automation | yes |
-| Branch | test/168-two-cases-of-the-terminal-panes-menu-fail-intermittently |
+| Branch | fix/168-a-paste-into-a-pane-that-came-back-can-arrive-without-brackets |
 
 Answered 2026-11-25 by the orchestrator, before the first edit.
 
