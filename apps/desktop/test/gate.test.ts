@@ -138,8 +138,8 @@ describe("a broad gate's environment", { timeout: 30_000 }, () => {
     expect(gateEnvironment(pane, null)).toEqual({ PATH: "/own/bin", HOME: "/home/me", OWLERY_RUN_DIR: "/run", OWLERY_BACKGROUND: "1", LANG: "en_US.UTF-8" });
   });
 
-  it("holds no variable that the command of a shell, of a Claude Code pane on the owl chain or off it, or of a worktree setup pane sets for that pane, the runner of heavy commands among them", () => {
-    // Every key the pane commands set, read off what they return rather than listed here, so a variable a later change adds to a pane's command is held too.
+  it("holds none of the pane variables that the command of a shell, of a Claude Code pane on the owl chain or off it, or of a worktree setup pane sets for that pane, the runner of heavy commands among them", () => {
+    // Every key these pane commands set, read off what they return. Their starts name no account folder, so no command here sets `CLAUDE_CONFIG_DIR`, which the frame keeps out of the cut. The set is pinned below, so a variable a later change adds to a pane's command fails this case there, and that change decides whether the variable is a pane variable.
     const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
     const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? { chain, enabledPlugins: null } : null), "/run/owl-run");
     const start = { continueLatest: false, base: "release/v0.0.4", checkout: "/r/project", chosen: null, accountDir: null, configDir: null };
