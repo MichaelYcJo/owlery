@@ -29,11 +29,6 @@ export function wantsAwake(choice: KeepAwakeChoice, sessions: readonly SessionIn
   return chainRuns || heavyRuns || sessions.some((session) => session.alive && session.state === "working") || headless.some((session) => session.state === "working");
 }
 
-/** Whether the daemon wants the display awake too: while a heavy command holds a turn, under every choice but `never`. A case that waits on what a page draws fails on a display that sleeps. */
-export function wantsDisplay(choice: KeepAwakeChoice, heavyRuns: boolean): boolean {
-  return choice !== "never" && heavyRuns;
-}
-
 /**
  * The daemon's choice of when to keep the Mac awake. Like the last look it is
  * the daemon's state: it lives in `keep-awake.json` in the run directory, as

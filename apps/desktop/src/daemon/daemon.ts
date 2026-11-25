@@ -77,7 +77,7 @@ import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, readDecisionRecord, rou
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
 import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
 import { setupPaneCommand } from "./hooks";
-import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake, wantsDisplay } from "./keep-awake";
+import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
 import { addHeavyRun, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
@@ -3625,7 +3625,8 @@ export class Daemon {
     const choice = this.keepAwake.get();
     const heavy = this.turns.queue().some((queued) => queued.state === "running");
     const wanted = !this.closed && wantsAwake(choice, this.sessionList(), this.headlessList(), this.chains.size > 0, heavy);
-    const display = wanted && wantsDisplay(choice, heavy);
+    // A held Mac holds its display too while a heavy command holds a turn: a case that waits on what a page draws fails on a display that sleeps.
+    const display = wanted && heavy;
     const held = this.hold !== undefined;
     if (wanted === held && (!wanted || display === this.holdsDisplay)) return false;
     if (this.hold) {
