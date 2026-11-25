@@ -2072,7 +2072,9 @@ export class Daemon {
    * Ends the running sessions of the work items given, for a request that
    * carries the sessions the person was told of. Where a session runs that
    * `told` does not name, it refuses and ends none. Otherwise it kills each
-   * pane's process and stops each headless run, which is then `failed` with
+   * pane's process and stops each headless session, those that wait for the
+   * machine first, so a place one that works frees starts none of them, and
+   * each is then `failed` with
    * the error `why` and stopped at a request, ends the command of a broad
    * gate that runs for one of them, whose stage then fails with `why`, and
    * waits until each pane's process has exited and each headless run and
@@ -2084,7 +2086,9 @@ export class Daemon {
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
-    const stops = headless.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
+    // The queued sessions leave the queue first, so a place a working one frees never goes to a session this end is about to stop.
+    const ordered = [...headless].sort((a, b) => Number(b.info.state === "queued") - Number(a.info.state === "queued"));
+    const stops = ordered.flatMap((session) => this.stopHeadless(session, why, "request") ?? []);
     // A broad gate is no session the person was told of by its id: it is the chain's, and it ends with the work item's sessions.
     for (const id of workItemIds) {
       const stopping = this.stopGate(id, "request", `the command was ${why}`);
@@ -2260,9 +2264,11 @@ export class Daemon {
       session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
       this.startHeadless(session, worktree, accountDir);
     };
-    this.headless.set(session.info.id, session);
     const cap = this.agentsCap();
-    if (cap !== null && this.agentsRunning() >= cap) {
+    // The count is read before the session is listed: it is listed as working, and would count itself.
+    const full = cap !== null && this.agentsRunning() >= cap;
+    this.headless.set(session.info.id, session);
+    if (full) {
       session.info.state = "queued";
       session.info.queuedAt = session.info.startedAt;
       this.queued.set(session.info.id, {

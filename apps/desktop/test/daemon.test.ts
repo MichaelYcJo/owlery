@@ -6966,6 +6966,44 @@ describe("the caps on the machine", () => {
     expect((await c.message("ledger", (m) => m.requestId === 6)).entries).toEqual([]);
   });
 
+  it("starts a session asked while one place under the cap is free, lists it as working with no `queuedAt`, and queues the next once the agents are at the cap (scenario 6)", async () => {
+    const { roleAdapter, starts } = noting(1_000);
+    const { c } = await machined({ roleAdapter });
+    c.send({ type: "setCaps", requestId: 1, agents: 2 });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ ...START, kind: "claude", requestId: 2, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 2);
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    c.send({ type: "ask", requestId: 3, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 3)).headless;
+    expect(first.state).toBe("working");
+    expect("queuedAt" in first).toBe(false);
+    expect(c.messages.some((m) => m.type === "headless" && m.headless.id === first.id && m.headless.state === "queued")).toBe(false);
+    c.send({ type: "ask", requestId: 4, workItemId: 1, prompt: "Second?" });
+    expect((await c.message("asked", (m) => m.requestId === 4)).headless.state).toBe("queued");
+    expect(starts).toEqual(["First?"]);
+  });
+
+  it("ends a work item's queued session before its working one at an archive, so the place the working one frees starts none of them, and writes the one entry of the run that ran (scenario 9)", async () => {
+    const { roleAdapter, starts } = noting(1_000);
+    const { c } = await machined({ roleAdapter });
+    c.send({ type: "setCaps", requestId: 1, agents: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "First?" });
+    const first = (await c.message("asked", (m) => m.requestId === 2)).headless;
+    await c.message("machine", (m) => m.machine.agents.running === 1);
+    c.send({ type: "ask", requestId: 3, workItemId: 1, prompt: "Second?" });
+    const second = (await c.message("asked", (m) => m.requestId === 3)).headless;
+    expect(second.state).toBe("queued");
+    c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [first.id, second.id] } });
+    await c.message("done", (m) => m.requestId === 4);
+    expect(starts).toEqual(["First?"]);
+    expect(c.messages.some((m) => m.type === "headless" && m.headless.id === second.id && m.headless.state === "working")).toBe(false);
+    expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
+    c.send({ type: "readLedger", requestId: 5, workItemId: 1 });
+    expect((await c.message("ledger", (m) => m.requestId === 5)).entries).toHaveLength(1);
+  });
+
   it("refuses to remove an account a queued session would run under, naming the session (scenario 9)", async () => {
     const { roleAdapter } = noting();
     const { c } = await atCap({ roleAdapter });
