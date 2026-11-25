@@ -154,6 +154,23 @@ describe("the role bundle", () => {
     for (const file of ["README.md", "skills/seal/SKILL.md", "agents/orchestrator.md", "agents/sealer.md"]) expect(read(file), file).toContain("the owl chain");
   });
 
+  it("binds whoever makes a fix pass to the read of its range and the work item's records whole, a pane's session as well as the crafter, has a fix pass correct a fact at every place that states it, and has the close block name the search and the places it corrected", () => {
+    // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
+    const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
+    for (const [file, said] of [
+      // The read binds a pane's session that makes the pass itself, and the text says what the crafter's Job and hand-back stand for there (issue #236).
+      ["skills/implement/fix-pass.md", "**Then whoever makes the pass makes the reading `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for: the crafter, and a pane's session that makes the pass itself and records it with `--by the session`.**"],
+      ["skills/implement/fix-pass.md", "Where a pane's session makes the pass, that rule's *Job* stands for the work item: a pane's session built the work and wrote the work item's records, so it corrects every statement HEAD contradicts in its range and in each file of the work item's directory that the rule names."],
+      ["skills/implement/fix-pass.md", "That rule's hand-back stands for the close blocks: what the rule has the crafter name in its hand-back, a pane's session names in the `answer:` of the close block of the finding it concerns, and otherwise in the `answer:` of the last close block it appends."],
+      // A fact a finding corrects is corrected wherever it is stated, and the close block says how the places were found.
+      ["agents/crafter.md", "In a fix pass, a finding that corrects a fact, a statement of which things hold something, is corrected at every place that states that fact, and not at its `location:` lines alone."],
+      ["agents/crafter.md", "Find those places two ways: by the whole read above, which is a closed set, and by `git grep` on the fact's words across the tree, which is a sample and is called one."],
+      ["skills/implement/fix-pass.md", "Where the finding corrects a fact, the `answer:` also names the search the pass ran for the other places that state the fact, and each place beyond the finding's `location:` lines that the pass corrected, or says that the search found none."],
+      ["skills/implement/fix-pass.md", "The search is the `git grep` on the fact's words that `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for, and the `answer:` calls it a sample."],
+    ] as const)
+      expect(flat(file), `${file}: ${said}`).toContain(said);
+  });
+
   it("leaves the rules to a role's rules file: no definition's frontmatter holds a skills key", () => {
     for (const { role } of ROLE_STAGES) {
       const frontmatter = frontmatterOf(read(`agents/${role}.md`));

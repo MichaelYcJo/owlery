@@ -45,9 +45,20 @@ reading fails, the fix pass writes the fix in its own words and says so in
 
 Once the fixes are committed, the fix pass runs the set the *Review rounds
 1..n* row of `skills/verify/SKILL.md` *Scope: cheap and often, broad and
-once* names, as one command through the repository's runner. A crafter
-then makes the reading `agents/crafter.md` *Before you hand back, your
-range and the work item's records are read whole against HEAD* asks for.
+once* names, as one command through the repository's runner.
+
+**Then whoever makes the pass makes the reading `agents/crafter.md`
+*Before you hand back, your range and the work item's records are read
+whole against HEAD* asks for: the crafter, and a pane's session that makes
+the pass itself and records it with `--by the session`.** Where a pane's
+session makes the pass, that rule's *Job* stands for the work item: a
+pane's session built the work and wrote the work item's records, so it
+corrects every statement HEAD contradicts in its range and in each file of
+the work item's directory that the rule names. That rule's hand-back
+stands for the close blocks: what the rule has the crafter name in its
+hand-back, a pane's session names in the `answer:` of the close block of
+the finding it concerns, and otherwise in the `answer:` of the last close
+block it appends.
 
 ## The close blocks, last
 
@@ -61,7 +72,13 @@ finding's `verdict:` decides it, and severity is for people* gives the
 values its `verdict:` takes, and `docs/forms/the-round-record.md` *The fix
 pass appends one close block per finding and edits nothing else in the
 file* gives when the block carries a `location:` line of its own. Its
-`answer:` says what was done.
+`answer:` says what was done. Where the finding corrects a fact, the
+`answer:` also names the search the pass ran for the other places that
+state the fact, and each place beyond the finding's `location:` lines
+that the pass corrected, or says that the search found none. The search is
+the `git grep` on the fact's words that `agents/crafter.md` *Before you
+hand back, your range and the work item's records are read whole against
+HEAD* asks for, and the `answer:` calls it a sample.
 The pass edits nothing else in the record: the finding's own block is the
 proofer's (`docs/forms/the-round-record.md` *The round record*). The
 build's phases keep their records.

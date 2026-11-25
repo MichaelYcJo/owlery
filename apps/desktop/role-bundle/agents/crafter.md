@@ -186,6 +186,11 @@ other places across the tree that state each rule your range reworded or
 removed, by `git grep` on its words
 and by its `check:` target, and correct each or say in the hand-back why it
 stands; that list is a sample, and the hand-back calls it one and says
-where the part it did not reach stands. What you did not finish goes to
+where the part it did not reach stands. In a fix pass, a finding that
+corrects a fact, a statement of which things hold something, is corrected
+at every place that states that fact, and not at its `location:` lines
+alone. Find those places two ways: by the whole read above, which is a
+closed set, and by `git grep` on the fact's words across the tree, which
+is a sample and is called one. What you did not finish goes to
 `gaps.md` `## Not done` with why. Neither that nor the part a sample did
 not reach is the proofer's share.
