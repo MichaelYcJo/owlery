@@ -108,9 +108,10 @@ finding holds no signal by its `reopens:` line or its `regression:` line,
 is counted neither among the last round's open findings nor among those of
 the round before it, and is not one of two findings at one location or on
 one rule of the frame two rounds in a row. So the third signal compares the
-findings of the two rounds that are located outside the records. The last
-signal, a finding closed `rejected` and raised again, holds for
-every finding, wherever it is located. A finding in the records corrects
+findings of the two rounds that are located outside the records. Where the
+last round has no open finding located outside the records, the third
+signal does not hold. The last signal, a finding closed `rejected` and
+raised again, holds for every finding, wherever it is located. A finding in the records corrects
 text of the records, and the fix pass that closes it reads the work item's
 records whole and corrects the fact at every place that states it
 (`skills/implement/fix-pass.md` *The narrow set, then the read of the
