@@ -13,4 +13,4 @@ A pane and the broad gate's command take none of the variables of the pane they 
 
 ## Not done
 
-nothing
+- `OWLERY_RUN`, the runner of heavy commands, is not in `hooks.ts#PANE_VARIABLES`. It reached this branch with issue #226, in the merge of `release/v0.0.4` after round 4, and the frame was written before it existed. `paneCommands` and `setupPaneCommand` set it for every pane where the daemon wrote a runner, so a daemon that writes one gives each pane its own. Where a daemon writes none, as a daemon a case starts may not, a pane started under it still names the outer pane's runner, and the broad gate's command holds that runner too. The broad gate's command and the repository's `Heavy commands` do not read it, and the chain command finds the same run folder through `OWLERY_RUN_DIR`, which this work keeps on purpose. Whether the runner belongs on the list is a question for a work item that frames it, and the owner decides whether to open one.
