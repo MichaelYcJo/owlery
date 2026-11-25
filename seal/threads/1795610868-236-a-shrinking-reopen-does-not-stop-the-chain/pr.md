@@ -5,6 +5,7 @@ Closes #236.
 - "**The close block says it did.**" (`frame/design.md` *Scope*, item 3)
 - "**A finding in the records alone is no signal.**" (`frame/design.md` *Scope*, item 4)
 - "**A `no` argues for its stop.**" (`frame/design.md` *Scope*, item 5)
+- "**A crafter's fix pass corrects the frame's lines that state the fact a finding corrects (round-1#2).**" (`frame/design.md` *Scope*, item 8)
 - "The orchestrator filed it on 2026-11-25 as MichaelYcJo/AgenticSeal#1623, from the text below:" (`frame/design.md` *The paired AgenticSeal issue*)
 - "`text pins`, and the model's judgment labelled `unverified` with the walk (#184) as its answerer" (`frame/questions.md` Q1)
 - "`no ceiling in this work`, with the issue filed by the orchestrator" (`frame/questions.md` Q2)
