@@ -11,7 +11,8 @@
 // items from disk, and one that is refused after its first delete; then
 // a repository's removal that leaves everything on disk; and last a delete
 // that leaves a search and a chosen state no repository, which the sidebar
-// says, and the press that shows every work item again. Among the first
+// says above the button of a repository it hides, and the press that shows
+// every work item again. Among the first
 // cases stand the ones of the "Open in" submenu: its keys, the pointer, its
 // place at the window's edge, and a press of its Finder item on a folder the
 // case moved aside. No case presses an item of that submenu on a folder that
@@ -41,6 +42,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   /** Two repositories the last case registers, each with one work item: its search leaves the work item of `lone`, and no other. */
   let kept: ReturnType<typeof temporaryRepository>;
   let lone: ReturnType<typeof temporaryRepository>;
+  /** A third repository the last case registers and hides, so the hidden repositories' button stands under the sidebar's sentence. */
+  let aside: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -235,6 +238,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     fourth = temporaryRepository("fourth");
     kept = temporaryRepository("kept");
     lone = temporaryRepository("lone");
+    aside = temporaryRepository("aside");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
@@ -253,6 +257,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     fourth?.remove();
     kept?.remove();
     lone?.remove();
+    aside?.remove();
   }, 30_000);
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
@@ -1121,7 +1126,11 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   it("says in the sidebar, after a delete of the one work item a search and a chosen state leave, what left no repository and how many repositories it does not list, keeps the filter's mark on, and at Show every work item lists them all again with the filter at All, the search field empty, the mark off and the keyboard on the first repository's row", async () => {
     await create("Kept elsewhere", kept.repo);
     await create("Filtered away", lone.repo);
-    const rows = (): Promise<number> => value(`document.querySelectorAll('${SIDEBAR} section.repository').length`);
+    await create("Set aside", aside.repo);
+    const asideId = await value<number>(`Number(document.querySelector('${SIDEBAR} button.fold[data-repo=${JSON.stringify(aside.repo)}]').closest("section").dataset.repository)`);
+    await fromMenu(asideId, "Hide from sidebar");
+    await app.until(`!document.querySelector('${repository(asideId)}') && document.getElementById("hidden-repositories")`, "the third repository hidden, and the button that says so");
+    const rows =(): Promise<number> => value(`document.querySelectorAll('${SIDEBAR} section.repository').length`);
     // The rows the sidebar lists before anything narrows it, which the sentence counts. Earlier cases remove repositories, and the case may run alone, so it counts them.
     const listed = await rows();
     expect(listed).toBeGreaterThan(1);
@@ -1154,7 +1163,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"', true]);
     // The sentence in the muted ink at the second size, and the button in the form of a button that is not the main one.
     expect(await value<boolean[]>(`(() => { const resolved = ${RESOLVED}; const words = getComputedStyle(document.getElementById("sidebar-empty")); return [words.color === resolved("color", "--ink-muted"), words.fontSize === resolved("font-size", "--size-second")]; })()`)).toEqual([true, true]);
-    expect(await value<string[]>(`[...document.querySelectorAll('${SIDEBAR} > *')].map((element) => element.id)`)).toEqual(["sidebar-empty", "show-every"]);
+    // The hidden repositories' button stands under the sentence and the press that shows every work item.
+    expect(await value<string[]>(`[...document.querySelectorAll('${SIDEBAR} > *')].map((element) => element.id)`)).toEqual(["sidebar-empty", "show-every", "hidden-repositories"]);
     expect(await value<[string, boolean]>(`(() => { const every = document.getElementById("show-every"); return [every.textContent, every.classList.contains("quiet")]; })()`)).toEqual(["Show every work item", true]);
     await app.click("#show-every");
     await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === ${listed}`, "every repository in the sidebar again");
