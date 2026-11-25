@@ -36,6 +36,11 @@ The settle and the sealer read the plan's *Judgments of the run* as a decision a
 | 2026-11-25 | A cap that follows its default sends nothing where a person types its default into the field, and keeps following the default when it moves, as built. A cap a person set that is changed to its default's number is kept as typed, and stays fixed when the default later moves | Round 1 left it to the owner. A field that still holds the number it showed reads as no change, and "Use the default" is the way back to a cap that follows its default. The owner can reverse it in a later issue at no cost to this one | `frame/design.md` *Scope*, item 3 |
 ```
 
+```seal
+verdict: fixed 39176b51
+answer: `39176b51` rewrites the row at `frame/plan.md:85` with this record's text, so it says what is built: a cap that follows its default sends nothing where its default is typed and keeps following it, and a cap a person set that is changed to the default's number is kept as typed. The build is the decision, and `capChanges` stays as it is.
+```
+
 ### 2. The new row of the Machine dialog says the reading stands in one line, and every shot of the dialog draws it on two
 
 ```seal
@@ -62,6 +67,12 @@ docs/design.md:457
 docs/design.ko.md:457
   from: 머리 아래에 데몬이 읽은 기계가 `--font-fact`로 한 줄에 놓입니다.
   to:   머리 아래에 데몬이 읽은 기계가 `--font-fact`의 한 문장으로, 줄을 바꿔 가며 놓입니다.
+```
+
+```seal
+verdict: fixed 008194a0
+location: `docs/design.md:458`, `docs/design.ko.md:458`, `apps/desktop/src/renderer/view.ts:1566-1567`, `apps/desktop/test/view.test.ts:3663`, `apps/desktop/test/machine-dialog.test.ts:56`, `seal/threads/1795559736-caps-on-worktrees-and-agents/changelog.md:5`
+answer: Applied the record's text to both editions' line 457. The same commit corrects the other statements of the reading or the warning as one line, which are paths this finding does not name. The warning's row now reads "The two stand in one paragraph, wrapped", and in Korean "한 문단에 이어서 줄을 바꿔 가며". The docstring of `machineDialog` and the names of the two cases that read the reading now say "in one sentence". The fragment now says the dialog opens with a sentence. `frame/design.md:81` still says "in one line", and it is the orchestrator's to fold.
 ```
 
 ## Confirmations
