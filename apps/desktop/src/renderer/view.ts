@@ -2519,7 +2519,7 @@ export type RenamePlanned = { branch: string | null; blocked: string | null } | 
  * choice, whether it stands taken and cannot be taken back (`makes`), and
  * what the dialog says under it. For a work item with a branch it says the
  * branch the rename gives, or why the branch keeps its name. For one with no
- * branch yet, the rename makes its branch (./protocol, `renameWorkItem`), so
+ * branch yet, the rename makes its branch (../shared/protocol, `renameWorkItem`), so
  * the choice stands taken where the plan names the branch it makes, and it
  * says why none can be made where the plan is blocked.
  */
@@ -2870,7 +2870,7 @@ function localOf(remoteBranch: string): string {
  * makes the branch the plan names, that a local branch is checked out, and
  * that a remote's branch is checked out as a local branch of its name that
  * tracks it, or as the local branch of that name where one stands, as the
- * daemon does (./protocol, `createWorkItem`).
+ * daemon does (../shared/protocol, `createWorkItem`).
  */
 function branchParts(plan: { branch: string; localBases: string[] }, picked: string): PlanPart[] {
   const words = (text: string): PlanPart => ({ text, fact: false });
