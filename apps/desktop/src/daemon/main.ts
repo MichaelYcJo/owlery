@@ -1,7 +1,8 @@
 // The daemon process. The app starts it detached, with Electron's Node, so it
 // outlives the app; it exits by itself once no session is alive, no headless
 // session is working and no window is connected. On macOS it keeps the Mac
-// from idle sleep while an agent works.
+// from idle sleep while an agent works, and its display awake while a heavy
+// command holds a turn on the machine.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
