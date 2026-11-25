@@ -36,6 +36,11 @@ In `apps/desktop/test/launch.ts:139`, and the same sentence in the expected last
     `Ready is the status line reading "${READY}", read every 10 ms. The start asks the debugging port every 200 ms, and the stop and part 2 of a reset look for the process's end every 50 ms, so each holds up to one such step. 1 MB is 1,048,576 bytes. The app itself is the main process, every process below it and the daemon.`,
 ```
 
+```seal
+verdict: fixed 1175bb66
+answer: The finding holds (read: `built-app.ts:48`, `:340`, `:360`, and part 2's ten values of 50 or 51 ms). The timing code is unchanged, so the published numbers stay those of the run at `def06e3f`. The footer at `launch.ts:139` and its pin at `launch.test.ts:137` carry the given sentence. The pin was shown red against the old footer before the footer changed (executed: `node scripts/test-in-electron.mjs test/launch.test.ts` exited 1, and only the footer case failed, on the footer line). The Waits row of `built-app-launch.md` *What was measured* is written in the crafter's words at one place. The given row said "as `test/built-app.ts` does for every built-app file", but five built-app files start no app in a run of the suite, so the row says "at every start and stop of the built app in the suite". After the fix, `tsc` over the two files exited 0, and `node scripts/test-in-electron.mjs test/launch.test.ts test/memory.test.ts test/records-place.test.ts` passed 77 cases in 3 files with 2 skipped (executed).
+```
+
 ### 2. The published file states a cause of the load that nobody established, and rests the load's effect on an inference two readings cannot carry
 
 ```seal
@@ -67,6 +72,12 @@ The two readings do not say whether the load fell on the launches or on the rese
 ```
 
 In `changelog.md:6`, "and the machine's load during each run" becomes "and the machine's load read before and after each run".
+
+```seal
+verdict: fixed 1175bb66
+location: `seal/threads/1795559733-built-app-files-share-one-app/gaps.md:10`
+answer: The finding holds (read: `phase-1.md:45` says the cause is not known, and no record reads other work during either run). The sentence at `built-app-launch.md:31` is replaced as given. The sentence at `:38` is replaced as given, with one more sentence tying the bound to the 1 s at which the work would have built no further, which grounds the choice not to measure again. `changelog.md:6` now reads "the machine's load read before and after each run". The same class stood in `gaps.md:10`, the closed row on a quiet machine: it said the load rose "during" the run and grounded its close on the fold alone. It now gives the two readings as before and after, and grounds the close on the round's bound. `frame/design.md:42` is the framer's and is not changed here: the framer rewrites the sentence that opens "A busy machine makes a launch slower". `git grep` over `apps`, `seal`, `docs` and `README.md` for "busy machine", "saving larger", "other worktrees", "during each run", "during both runs" and "load during" found no other statement of the two claims (executed; a sample).
+```
 
 ## Confirmations
 
