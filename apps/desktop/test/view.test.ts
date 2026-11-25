@@ -34,6 +34,9 @@ import {
   stageAhead,
   machineQueue,
   queuedAhead,
+  machineAhead,
+  heavyQueue,
+  heavyRanRows,
   changedSet,
   changedSetAfter,
   changesOf,
@@ -3614,6 +3617,7 @@ const MACHINE: Machine = {
   agents: { proposed: 6, byCores: 6, byMemory: 27, set: null, running: 0, perAgentBytes: 679 * 1024 ** 2, measured: 0, queue: [] },
   worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
   panes: { proposed: 8, set: null },
+  heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
 };
 
 describe("daemonStatus", () => {
@@ -3667,8 +3671,14 @@ describe("machineDialog", () => {
         { cap: "agents", label: "Agents at once", value: 6, proposed: 6, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
         { cap: "worktrees", label: "Worktrees", value: null, proposed: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
         { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+        { cap: "heavyCommands", label: "Heavy commands at once", value: 1, proposed: 1, isDefault: true, says: "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken." },
       ],
     });
+  });
+
+  it("shows the limit on heavy commands a person set in place of its default, with \"Use the default\" offered (scenario E)", () => {
+    const rows = machineDialog({ ...MACHINE, heavy: { ...MACHINE.heavy, set: 2 } })?.rows;
+    expect(rows?.at(-1)).toMatchObject({ cap: "heavyCommands", value: 2, proposed: 1, isDefault: false });
   });
 
   it("shows the value a person set in place of the proposal, and the row no longer follows the default (scenario 3)", () => {
@@ -3677,6 +3687,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 3, isDefault: false },
       { cap: "worktrees", value: 40, isDefault: false },
       { cap: "panes", value: 8, isDefault: true },
+      { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
     // The sentence still states the default, which "Use the default" returns to.
     expect(rows?.[0]?.says).toMatch(/^The default is 6: /);
@@ -3688,6 +3699,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 6, isDefault: false },
       { cap: "worktrees", value: null, isDefault: true },
       { cap: "panes", value: 8, isDefault: false },
+      { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
   });
 
@@ -3722,6 +3734,71 @@ describe("the queue of the agents", () => {
   });
 });
 
+describe("the heavy commands in the Machine dialog", () => {
+  const AT = 1_000_000_000_000;
+  const outside = "/Users/someone/scratch";
+  const HEAVY: Machine = {
+    ...MACHINE,
+    heavy: {
+      ...MACHINE.heavy,
+      queue: [
+        { workItemId: 2, folder: SEARCH.worktree, name: "Broad gate", place: "gate", state: "running", since: AT - 4 * 60_000 },
+        { workItemId: 1, folder: LOGIN.worktree, name: "Broad gate", place: "gate", state: "waiting", since: AT - 2 * 60_000 },
+        { workItemId: 1, folder: LOGIN.worktree, name: "test", place: "review", state: "waiting", since: AT - 30_000 },
+        { workItemId: 9, folder: "/w/project/gone", name: "test", place: "build", state: "waiting", since: AT - 6 * 60_000 },
+        { workItemId: null, folder: outside, name: "install", place: "outside", state: "waiting", since: AT - 60 * 60_000 },
+      ],
+    },
+  };
+
+  it("lists the heavy commands that run and wait in the queue's order, each with its state, its command, the reason for the place of one that waits, and its age, under its work item's title or the last part of its folder (scenario K)", () => {
+    expect(heavyQueue(HEAVY, [LOGIN, SEARCH], AT)).toEqual([
+      { title: "Speed up search", detail: "Running · Broad gate · 4 min" },
+      { title: "Fix the login bug", detail: "Waiting · Broad gate · one step from its seal · 2 min" },
+      { title: "Fix the login bug", detail: "Waiting · test · under review · less than a minute" },
+      { title: "gone", detail: "Waiting · test · still being built · 6 min" },
+      { title: "scratch", detail: "Waiting · install · in no work item · 1 h" },
+    ]);
+    expect(heavyQueue(MACHINE, [LOGIN], AT)).toEqual([]);
+    expect(heavyQueue(null, [LOGIN], AT)).toEqual([]);
+  });
+
+  it("gives one row for each command of each repository that ran, with how many runs, the longest, the most memory and the highest load, and says where no reading was made (scenario I)", () => {
+    expect(
+      heavyRanRows([
+        { repo: "/r/project", repoName: "project", name: "Broad gate", runs: 9, longestMs: 14 * 60_000, mostMemory: 9.2 * 1024 ** 3, highestLoad: 13.14 },
+        { repo: null, repoName: "scratch", name: "test", runs: 1, longestMs: 20_000, mostMemory: null, highestLoad: null },
+      ]),
+    ).toEqual([
+      { title: "project · Broad gate", detail: "9 runs · longest 14 min · most memory 9.2 GB · highest load 13.1" },
+      { title: "scratch · test", detail: "1 run · longest less than a minute · most memory not read · highest load not read" },
+    ]);
+  });
+});
+
+describe("the line of a work item whose heavy command waits for the machine", () => {
+  const WAITS: WorkItem = { ...LOGIN, machineWait: { name: "test", since: 5_000, ahead: 2 } };
+
+  it("says in #32's words that a heavy command of the work item waits, with how many go before it (scenario A)", () => {
+    expect(machineAhead(WAITS, [], MACHINE)).toBe(2);
+    expect(lineText(WAITS, undefined, false, machineAhead(WAITS, [], MACHINE))).toEqual({ says: "machine", text: "Waiting for the machine (2 ahead)" });
+    expect(machineAhead({ ...WAITS, machineWait: { name: "test", since: 5_000, ahead: 0 } }, [], null)).toBe(0);
+    expect(machineAhead(LOGIN, [], MACHINE)).toBeNull();
+    expect(machineAhead({ ...LOGIN, machineWait: null }, [], MACHINE)).toBeNull();
+  });
+
+  it("shows the wait that began first where a session of the work item waits for the agent cap too", () => {
+    const queued = (queuedAt: number) => [headless(7, { state: "queued", queuedAt }), headless(8, { workItemId: 2, state: "queued", queuedAt: 1 })];
+    const machine: Machine = { ...MACHINE, agents: { ...MACHINE.agents, queue: [8, 7] } };
+    // The session waits from 4,000, before the heavy command's 5,000: its count of 1 is shown.
+    expect(machineAhead(WAITS, queued(4_000), machine)).toBe(1);
+    // It waits from 6,000, after the heavy command: the heavy command's count of 2 is shown.
+    expect(machineAhead(WAITS, queued(6_000), machine)).toBe(2);
+    // A session of the work item alone.
+    expect(machineAhead(LOGIN, queued(6_000), machine)).toBe(1);
+  });
+});
+
 describe("capChanges", () => {
   const rows = (set: { agents?: number; worktrees?: number }): CapRow[] => [
     { cap: "agents", label: "Agents at once", value: set.agents ?? 6, proposed: 6, isDefault: set.agents === undefined, says: "" },
@@ -3732,6 +3809,7 @@ describe("capChanges", () => {
     agents: { text: text.agents ?? "6", toDefault: toDefault.includes("agents") },
     worktrees: { text: text.worktrees ?? "", toDefault: toDefault.includes("worktrees") },
     panes: { text: text.panes ?? "8", toDefault: toDefault.includes("panes") },
+    heavyCommands: { text: text.heavyCommands ?? "1", toDefault: toDefault.includes("heavyCommands") },
   });
 
   it("sends the value a person typed, and nothing of a row that still shows its proposal untouched (scenario 3)", () => {
@@ -3753,6 +3831,13 @@ describe("capChanges", () => {
     // Text a number is read from in another notation is no whole number as a person types one.
     expect(capChanges(rows({}), fields({ agents: "1e1" }))).toEqual({ refusal: "The cap on agents at once is a whole number from 1." });
     expect(capChanges(rows({}), fields({ panes: "17" }))).toEqual({ refusal: "The cap on panes side by side is a whole number from 1 to 16." });
+  });
+
+  it("sends the limit on heavy commands a person typed, and refuses one over the machine's cores in the daemon's sentence", () => {
+    const heavy: CapRow[] = [...rows({}), { cap: "heavyCommands", label: "Heavy commands at once", value: 1, proposed: 1, isDefault: true, says: "" }];
+    const typed = (text: string) => ({ ...fields({}), heavyCommands: { text, toDefault: false } });
+    expect(capChanges(heavy, typed("2"), 12)).toEqual({ caps: { heavyCommands: 2 } });
+    expect(capChanges(heavy, typed("13"), 12)).toEqual({ refusal: "The limit on heavy commands at once is a whole number from 1 to 12." });
   });
 });
 

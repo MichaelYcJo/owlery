@@ -1,9 +1,11 @@
 // What the daemon gives a Claude Code pane that carries the owl chain, beside
 // the role bundle the build made: the head its system prompt ends with, and
 // the launcher of the chain command its environment names in `OWLERY_CHAIN`.
-// Both are files of Owlery's run folder, and both reach `claude` on its
-// command line or in the pane's environment (`hooks.ts#paneCommands`), so no
-// file of the person's Claude Code folder is written here. Which pane
+// Beside them stands the runner's launcher, which every pane's environment
+// names in `OWLERY_RUN`. Each is a file of Owlery's run folder, and each
+// reaches a pane on `claude`'s command line or in the pane's environment
+// (`hooks.ts#paneCommands`), so no file of the person's Claude Code folder
+// is written here. Which pane
 // carries the chain is read at each launch: from the folder it opens in,
 // and, where the pane's Claude Code enables the AgenticSeal plugin there
 // under the config folder of the pane's account
@@ -22,6 +24,9 @@ export const HEAD_FILE = "pane-head.md";
 
 /** The launcher's file in the run folder. It is not named `chain`: the chain command keeps what it hands a session under the folder `chain/` there (`chain-command.ts#stageFolder`). */
 export const LAUNCHER_FILE = "owl-chain";
+
+/** The runner's launcher in the run folder, which every pane's environment names in `OWLERY_RUN` (`hooks.ts#paneCommands`). */
+export const RUNNER_FILE = "owl-run";
 
 /**
  * The head a pane's system prompt ends with. It says three things and no
@@ -53,6 +58,23 @@ export function paneHead(): string {
  */
 function launcherText(node: string, script: string): string {
   return ["#!/bin/sh", "# Owlery's chain command, which a pane's session runs for the owl chain. The daemon writes this file at each start.", `ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(node)} ${shellQuote(script)} "$@"`, ""].join("\n");
+}
+
+/**
+ * Writes the runner's launcher into the run folder, over what an earlier
+ * daemon left there, and gives its path. The launcher runs the chain
+ * command's `run` (`chain-command.ts#run`) as `launcherText` runs the
+ * command, and names the run folder in `OWLERY_RUN_DIR` for it, so the
+ * runner finds the daemon's turn socket from a session outside a pane too.
+ */
+export function writeRunner(dir: string, built: { node: string; script: string }): string {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const runner = join(dir, RUNNER_FILE);
+  const text = ["#!/bin/sh", "# Owlery's runner of heavy commands, which runs a command the repository names in its turn on the machine. The daemon writes this file at each start.", `OWLERY_RUN_DIR=${shellQuote(dir)} ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(built.node)} ${shellQuote(built.script)} run "$@"`, ""].join("\n");
+  writeFileSync(runner, text, { mode: 0o700 });
+  // The mode of a write holds only for a file the write made.
+  chmodSync(runner, 0o700);
+  return runner;
 }
 
 /**

@@ -303,11 +303,25 @@ describe("paneCommands", () => {
     expect(commandFor("shell", 4, own)).toEqual({ command: "/bin/zsh", args: ["-l"], env: env(4) });
     expect(asked).toEqual([work, own]);
   });
+
+  it("names the runner of heavy commands in OWLERY_RUN in the environment of a shell, of a Claude Code pane and of one that carries the owl chain, and names none where the daemon wrote no runner", () => {
+    const chain = { bundleDir: "/app/dist/bundle", headFile: "/x/pane-head.md", launcher: "/x/owl-chain" };
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/x/hooks.json", "/x/hooks.sock", ({ folder }) => (folder === "/w/owl" ? { chain, enabledPlugins: null } : null), "/x/owl-run");
+    const env = (id: number) => ({ OWLERY_PANE_ID: String(id), OWLERY_HOOK_SOCKET: "/x/hooks.sock", OWLERY_RUN: "/x/owl-run" });
+    const start = { continueLatest: false, base: null, checkout: "/r/project", chosen: null, accountDir: null, configDir: null };
+    expect(commandFor("shell", 1, { ...start, folder: "/w/other" }).env).toEqual(env(1));
+    expect(commandFor("claude", 2, { ...start, folder: "/w/other" }).env).toEqual(env(2));
+    expect(commandFor("claude", 3, { ...start, folder: "/w/owl" }).env).toEqual({ ...env(3), OWLERY_CHAIN: "/x/owl-chain" });
+    const without = paneCommands({ SHELL: "/bin/zsh" }, "/x/hooks.json", "/x/hooks.sock");
+    expect(without("shell", 4, { ...start, folder: "/w/other" }).env).toEqual({ OWLERY_PANE_ID: "4", OWLERY_HOOK_SOCKET: "/x/hooks.sock" });
+  });
 });
 
 describe("setupPaneCommand", () => {
-  it("runs the command a repository names whole in the user's interactive login shell, as a Claude Code pane's, with the pane's id in its environment", () => {
+  it("runs the command a repository names whole in the user's interactive login shell, as a Claude Code pane's, with the pane's id in its environment and the runner of heavy commands where the daemon wrote one", () => {
     expect(setupPaneCommand({ SHELL: "/bin/bash" }, "pnpm install\necho 'done'\n", 6)).toEqual({ command: "/bin/bash", args: ["-l", "-i", "-c", "pnpm install\necho 'done'\n"], env: { OWLERY_PANE_ID: "6" } });
     expect(setupPaneCommand({}, "pnpm install", 7).command).toBe("/bin/zsh");
+    // A repository that wants its setup to wait its turn names the runner in its `.worktreesetup`.
+    expect(setupPaneCommand({ SHELL: "/bin/bash" }, '"$OWLERY_RUN" install', 8, "/x/owl-run").env).toEqual({ OWLERY_PANE_ID: "8", OWLERY_RUN: "/x/owl-run" });
   });
 });

@@ -269,11 +269,13 @@ export async function gateOwed(place: Place, standing: Standing, base: ChainBase
  * Records a run of the broad gate that exited with 0: where the head and the
  * tree stand as they stood before the run, it appends one run block,
  * `run: <head> against <base commit>`, to `trail/gate.md` as the head holds
- * the file (`seal-records.ts#gateText`) and commits it. It throws a
+ * the file (`seal-records.ts#gateText`), below the sentence of an earlier
+ * run that failed while the machine was over its load where `earlier` gives
+ * one, and commits it. It throws a
  * `ChainStop`, with nothing committed, where the head moved during the run
  * and where the command left a change outside the work item's directory.
  */
-export async function recordGate(place: Place, run: { head: string; base: string }, inTurn: InTurn = AT_ONCE): Promise<void> {
+export async function recordGate(place: Place, run: { head: string; base: string; earlier?: string | null }, inTurn: InTurn = AT_ONCE): Promise<void> {
   const { worktree, directory } = place;
   const file = join(directory, GATE_FILE);
   const after = await worktreeHead(worktree);
@@ -282,7 +284,7 @@ export async function recordGate(place: Place, run: { head: string; base: string
   if (left !== null) throw new ChainStop(`after the run ${left}`);
   // The record's text is built on the file as the head holds it, so no line the worktree alone holds is committed with the run.
   const stood = await fileAt(worktree, run.head, relative(worktree, file));
-  await commitRecords(place, [file], GATE_SUBJECT, { write: () => writeRecordFile(worktree, file, gateText(stood, basename(directory), run)) }, inTurn);
+  await commitRecords(place, [file], GATE_SUBJECT, { write: () => writeRecordFile(worktree, file, gateText(stood, basename(directory), run, run.earlier ?? null)) }, inTurn);
 }
 
 // ---------------------------------------------------------------------------

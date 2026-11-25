@@ -2,16 +2,18 @@
 // (`src/daemon/chain-command.ts`): each case calls its subcommands in a
 // temporary repository, in the case's own process, and reads the commits
 // they made. No case starts an agent or reaches a remote.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BASE_RECORDED } from "../src/daemon/chain";
-import { BASE_OPTION, NO_DEFAULT, USAGE } from "../src/daemon/chain-command";
+import { BASE_RECORDED, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
+import { BASE_OPTION, NO_DEFAULT, USAGE, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
+import { BROAD_GATE_NAME, MachineTurns } from "../src/daemon/machine-turns";
+import { TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
 import { routingAnswer } from "../src/daemon/decision-record";
 import { rulesText } from "../src/daemon/adapters/claude-roles";
 import { BACK_OPEN, SECTION_OPEN } from "../src/daemon/github";
 import { workItemSeal } from "../src/daemon/seal-state";
-import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenSeal, head, proofs, roundRecord, sealSection, status, write } from "./chain-run";
+import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenSeal, head, proofs, roundRecord, sealSection, status, until, write } from "./chain-run";
 import { BRANCH, BUNDLE, type Owed, commandOn, sealThrough } from "./chain-command-run";
 import { git } from "./repositories";
 
@@ -24,6 +26,7 @@ afterEach(async () => {
 const DIRECTORY = "seal/threads/1795388700-greet";
 
 const read = (file: string | undefined): string => readFileSync(file ?? "", "utf8");
+
 
 /** The JSON a `PreToolUse` hook's command is handed on its input for an `AskUserQuestion` call that asks these questions. */
 const asked = (...questions: string[]): string =>
@@ -160,6 +163,88 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(head(on.repo)).toBe(before);
     expect(existsSync(join(on.repo, DIRECTORY, "trail/gate.md"))).toBe(false);
     expect(await on.said(["owed"])).toEqual({ step: "gate", round: 1, head: before });
+  });
+
+  it("asks the daemon for a turn on the machine before it runs the broad gate: it says it waits while another heavy command holds the turn and starts the command once that ends, and where no daemon answers it runs the gate at once and says so", async () => {
+    const owesGate = async (on: ReturnType<typeof commandOn>): Promise<void> => {
+      await on.said(["start"]);
+      const round = await on.said(["owed"]);
+      await on.said(["round", on.answer("round-1.md", clean(givenRound(read(round.prompt))))]);
+    };
+    const alone = commandOn(cleanups, { gate: 'touch "$HOME/gate.ran"' });
+    await owesGate(alone);
+    expect(await alone.said(["gate"])).toMatchObject({ recorded: "gate", round: 1 });
+    expect(alone.told).toEqual([noDaemonSays(BROAD_GATE_NAME)]);
+
+    const on = commandOn(cleanups, { gate: 'touch "$HOME/gate.ran"' });
+    await owesGate(on);
+    const turns = new MachineTurns({ limit: 1 });
+    const server = await TurnServer.listen(join(on.runDir, TURN_SOCKET), turnGiver(turns, { cores: null, load: () => null }));
+    cleanups.push(() => server.close());
+    const held = turns.ask({ folder: on.folder, name: "test", place: "build" });
+    const gate = on.run(["gate"]);
+    await until(() => (on.told.length > 0 ? true : undefined));
+    expect(on.told).toEqual([waitingSays(BROAD_GATE_NAME, 0)]);
+    expect(turns.queue()).toEqual([
+      { folder: on.folder, name: "test", place: "build", since: expect.any(Number), state: "running" },
+      { folder: on.repo, name: BROAD_GATE_NAME, place: "gate", since: expect.any(Number), state: "waiting" },
+    ]);
+    expect(existsSync(join(on.folder, "gate.ran"))).toBe(false);
+    (await held.turn)?.end();
+    expect(JSON.parse((await gate).out)).toMatchObject({ recorded: "gate", round: 1 });
+    expect(existsSync(join(on.folder, "gate.ran"))).toBe(true);
+    // The gate's turn ended with its command.
+    expect(turns.queue()).toEqual([]);
+  });
+
+  it("runs a broad gate that failed while the machine was over its load once more, alone, and commits the pass with the earlier run's sentence, refuses one that failed twice with a sentence that names both runs, and runs one that failed with the machine calm once (scenarios F, G and H)", async () => {
+    const load = { now: 9 };
+    const answering = async (on: ReturnType<typeof commandOn>, waitMs: number): Promise<MachineTurns> => {
+      await on.said(["start"]);
+      const round = await on.said(["owed"]);
+      await on.said(["round", on.answer("round-1.md", clean(givenRound(read(round.prompt))))]);
+      const turns = new MachineTurns({ limit: 1, load: () => load.now });
+      const server = await TurnServer.listen(join(on.runDir, TURN_SOCKET), turnGiver(turns, { cores: 4, load: () => load.now, calm: { waitMs, pollMs: 20 } }));
+      cleanups.push(() => server.close());
+      return turns;
+    };
+    // The gate runs in this process with no daemon to stop it, so its wait for `go` also ends once the cleanup has removed `$HOME`.
+    const once = commandOn(cleanups, { gate: 'if [ -e "$HOME/gate.failed" ]; then exit 0; fi; touch "$HOME/gate.failed"; while [ -d "$HOME" ] && [ ! -e "$HOME/go" ]; do sleep 0.05; done; exit 3' });
+    const turns = await answering(once, 20_000);
+    const gate = once.run(["gate"]);
+    await until(() => (existsSync(join(once.folder, "gate.failed")) ? true : undefined));
+    // A command that asks while the first run runs takes the turn after it, and the second run waits for it to end and then for the load.
+    const other = turns.ask({ folder: once.folder, name: "test", place: "build" });
+    writeFileSync(join(once.folder, "go"), "");
+    await until(() => (once.told.length > 0 ? true : undefined));
+    expect(once.told).toEqual([waitingSays(BROAD_GATE_NAME, 0)]);
+    expect(turns.queue().map(({ name, state }) => [name, state])).toEqual([
+      ["test", "running"],
+      [BROAD_GATE_NAME, "waiting"],
+    ]);
+    (await other.turn)?.end();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(existsSync(join(once.repo, DIRECTORY, "trail/gate.md"))).toBe(false);
+    load.now = 3;
+    const end = await gate;
+    expect(end.code, end.err).toBe(0);
+    const record = read(join(once.repo, DIRECTORY, "trail/gate.md"));
+    const commit = /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "";
+    expect(record).toContain(`${earlierRunSays({ commit, ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n`);
+
+    load.now = 9;
+    const twice = commandOn(cleanups, { gate: "echo the suite is red; exit 3" });
+    await answering(twice, 200);
+    const before = head(twice.repo);
+    expect(await twice.run(["gate"])).toEqual({ code: 1, out: "", err: `${stoppedSays("gate", 1, twiceFailedWhy("the command exited with code 3", "the command exited with code 3"))}\nthe suite is red\n` });
+    expect(head(twice.repo)).toBe(before);
+
+    // The machine calm, a load at the cores or under and nothing beside the run: a gate that failed runs once (scenario G).
+    load.now = 1;
+    const calm = commandOn(cleanups, { gate: 'touch "$HOME/gate.$$"; echo the suite is red; exit 3' });
+    await answering(calm, 200);
+    expect(await calm.run(["gate"])).toEqual({ code: 1, out: "", err: `${stoppedSays("gate", 1, "the command exited with code 3")}\nthe suite is red\n` });
+    expect(readdirSync(calm.folder).filter((name) => name.startsWith("gate."))).toHaveLength(1);
   });
 
   it("refuses to start on a branch that left its base, naming the commit or the base and how another is named, and writes nothing: a branch reset onto a line that does not hold the commit it was read against, and a base that shares no commit with the branch", async () => {

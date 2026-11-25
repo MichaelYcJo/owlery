@@ -1,6 +1,7 @@
-// How the daemon keeps the Mac from idle sleep while an agent works: when it
-// wants the Mac awake, the choice it keeps in its run directory, and the child
-// process that holds the block. Nothing here knows the `Daemon` class, which
+// How the daemon keeps the Mac from idle sleep while an agent works, and its
+// display awake while a heavy command runs: when it wants the Mac awake, the
+// choice it keeps in its run directory, the child process that holds the
+// block, and the wake of the display. Nothing here knows the `Daemon` class, which
 // is given the holder as an option so that its cases start no process.
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -17,15 +18,15 @@ const CAFFEINATE = "/usr/bin/caffeinate";
 /**
  * Whether the daemon wants the Mac awake: never under `never`, always under
  * `always`, and under `working` while a pane is alive with the state
- * `working`, a headless session has it, or a work item's chain is running:
- * between two stages of a chain no session works, and the Mac is held awake
- * across them. An exited pane keeps its last state, so `alive` is read
- * beside it.
+ * `working`, a headless session has it, a work item's chain is running, or a
+ * heavy command holds a turn on the machine: between two stages of a chain
+ * no session works, and the Mac is held awake across them. An exited pane
+ * keeps its last state, so `alive` is read beside it.
  */
-export function wantsAwake(choice: KeepAwakeChoice, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], chainRuns = false): boolean {
+export function wantsAwake(choice: KeepAwakeChoice, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], chainRuns = false, heavyRuns = false): boolean {
   if (choice === "never") return false;
   if (choice === "always") return true;
-  return chainRuns || sessions.some((session) => session.alive && session.state === "working") || headless.some((session) => session.state === "working");
+  return chainRuns || heavyRuns || sessions.some((session) => session.alive && session.state === "working") || headless.some((session) => session.state === "working");
 }
 
 /**
@@ -64,21 +65,27 @@ export class KeepAwakeStore {
 }
 
 /**
- * A way to hold the Mac awake. A call starts a hold and `release` ends it.
- * `lost` is called once where the hold ends and `release` was not called.
+ * A way to hold the Mac awake, and its display too where `display` says so.
+ * A call starts a hold and `release` ends it. `lost` is called once where
+ * the hold ends and `release` was not called.
  */
-export type HoldAwake = (lost: () => void) => { release(): void };
+export type HoldAwake = (lost: () => void, display: boolean) => { release(): void };
+
+/** A way to turn the display on where it is off. */
+export type WakeDisplay = () => void;
 
 /**
  * The holder that keeps the Mac from idle sleep while the process of that id
- * runs: each hold is one child process, `caffeinate -i -w <pid>`, started with
- * no shell and no input or output. `-i` leaves the display free to sleep and a
- * closed lid free to put the Mac to sleep, and `-w` ends the child when the
- * watched process ends, however it ends. A child that could not start is a
- * hold lost, so a Mac without the program holds nothing and throws nothing.
+ * runs: each hold is one child process, `caffeinate -i -w <pid>`, or
+ * `caffeinate -d -i -w <pid>` where the display is held too, started with no
+ * shell and no input or output. `-i` alone leaves the display free to sleep,
+ * `-d` keeps it awake, neither keeps a closed lid from putting the Mac to
+ * sleep, and `-w` ends the child when the watched process ends, however it
+ * ends. A child that could not start is a hold lost, so a Mac without the
+ * program holds nothing and throws nothing.
  */
 export function holdAwakeFor(pid: number, program = CAFFEINATE): HoldAwake {
-  return (lost) => {
+  return (lost, display) => {
     let over = false;
     // A child that could not start reports an error and no exit, and one that started and ended reports an exit.
     const ended = (): void => {
@@ -86,7 +93,7 @@ export function holdAwakeFor(pid: number, program = CAFFEINATE): HoldAwake {
       over = true;
       lost();
     };
-    const child = spawn(program, ["-i", "-w", String(pid)], { stdio: "ignore" });
+    const child = spawn(program, [...(display ? ["-d"] : []), "-i", "-w", String(pid)], { stdio: "ignore" });
     child.once("error", ended);
     child.once("exit", ended);
     return {
@@ -96,5 +103,19 @@ export function holdAwakeFor(pid: number, program = CAFFEINATE): HoldAwake {
         child.kill();
       },
     };
+  };
+}
+
+/**
+ * The wake of the display: each call starts one child, `caffeinate -u -t 5`,
+ * with no shell and no input or output, which turns a display that is off on
+ * and holds it for 5 seconds, and which the daemon does not wait on. A child
+ * that could not start wakes nothing and throws nothing.
+ */
+export function wakeDisplayFor(program = CAFFEINATE): WakeDisplay {
+  return () => {
+    const child = spawn(program, ["-u", "-t", "5"], { stdio: "ignore" });
+    child.once("error", () => undefined);
+    child.unref();
   };
 }

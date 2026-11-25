@@ -320,6 +320,15 @@ export interface WorkItem {
   pullRequest: PullRequest | null;
   /** The id of the account set on the work item, or null where none is set there. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
+  /** The heavy command of its worktree that waits for a turn on the machine, the one that began to wait first where several do, or null where none waits. The daemon stores no queue, so a look keeps none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  machineWait?: MachineWait | null;
+}
+
+/** A heavy command that waits for its turn on the machine: its name, when it asked, by the daemon's clock, and how many of those that wait go before it. */
+export interface MachineWait {
+  name: string;
+  since: number;
+  ahead: number;
 }
 
 /** The id of "System default": the login the person's shell gives with nothing passed. It is always an account, has no folder and is never removed. */
@@ -443,6 +452,8 @@ export interface GateRun {
   exitCode: number | null;
   /** Whether a `readGateOutput` of the work item has text to answer with: the run has ended and the command printed something the daemon kept. */
   output: boolean;
+  /** True while the gate waits for its turn on the machine and its command has not started, and absent once it starts or the wait ends without a start. The store does not keep it. A daemon of an earlier build sends no such field. */
+  waits?: true;
 }
 
 /** One stage a chain ran or is running. */
@@ -816,10 +827,36 @@ export interface Machine {
   agents: { proposed: number; byCores: number; byMemory: number; set: number | null; running: number; perAgentBytes: number; measured: number; queue: number[] };
   worktrees: { proposed: number | null; set: number | null; standing: number; perWorktreeBytes: number | null; keepFreeBytes: number };
   panes: { proposed: number; set: number | null };
+  /** The limit on heavy commands that hold a turn at once: its proposal, one for each 8 cores (`byCores`) or each 16 GiB of memory (`byMemory`), whichever gives fewer and never under 1, the value a person set, and the heavy commands that run and wait, in the queue's order. */
+  heavy: { proposed: number; byCores: number; byMemory: number; set: number | null; queue: HeavyQueued[] };
 }
 
-/** The caps a person sets on the machine. */
-export type Cap = "agents" | "worktrees" | "panes";
+/** Where a heavy command stands in the order of those that wait: a work item's broad gate, a command of a work item under review, one of a work item still being built, and one in a folder no work item's records name. */
+export type HeavyPlace = "gate" | "review" | "build" | "outside";
+
+/** A heavy command that holds a turn on the machine or waits for one: the work item whose worktree it runs in, or null for none, the folder, its name, its place, whether it runs or waits, and since when, by the daemon's clock. */
+export interface HeavyQueued {
+  workItemId: number | null;
+  folder: string;
+  name: string;
+  place: HeavyPlace;
+  state: "running" | "waiting";
+  since: number;
+}
+
+/** What one heavy command of one repository took, over every run the daemon kept: the repository's folder, or null for a folder no work item's worktree is, the name the window gives it, the command's name, how many runs, the longest in milliseconds, the most memory in bytes and the highest load, each null where no run read it. */
+export interface HeavyRan {
+  repo: string | null;
+  repoName: string;
+  name: string;
+  runs: number;
+  longestMs: number;
+  mostMemory: number | null;
+  highestLoad: number | null;
+}
+
+/** The caps a person sets on the machine, the limit on heavy commands among them. */
+export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands";
 
 export type ClientMessage =
   | { type: "hello"; token: string }
@@ -889,7 +926,7 @@ export type ClientMessage =
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Starts a headless session that answers `prompt` in the work item's worktree. The daemon stops it where it still works at its time limit. With `role`, the session is launched as that role at that stage, and the daemon answers each call of it that asks for permission by the role's rule. The daemon answers a pair `ROLE_STAGES` does not list with an `error`, and so an adapter that cannot launch a role, and starts nothing. Without `role` the session has no role, and each call of it that asks for permission waits for the person, in its work item's `permissions`, while the session stays `working`. `accountId` is the session's own account, the id of one the daemon keeps, and an id it keeps none under is refused, starting nothing. Without it the session takes the account `accountFor` gives from the work item, its repository and the default, and every stage of a chain takes that one too. The daemon gives the adapter the account's folder where the account has one and the adapter declares `accounts`. Through an adapter that does not declare it the session runs under none, whatever is set, and its `accountId` is null.
   | { type: "ask"; requestId: number; workItemId: number; prompt: string; role?: RoleStage; accountId?: number }
-  // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs.
+  // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. A gate that waits for its turn on the machine has its ask ended and no command starts, and its stage fails and its chain stops the same way. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs or waits.
   | { type: "stopGate"; requestId: number; workItemId: number }
   // Asks for what the work item's newest broad gate printed, of a run that ended. The daemon answers with a `gateOutput`, and with an `error` for an id it lists no work item under and for a work item with no kept output: one no broad gate ran for, one whose newest gate still runs or was running when its daemon ended, and one whose newest gate's command printed nothing.
   | { type: "readGateOutput"; requestId: number; workItemId: number }
@@ -905,10 +942,12 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
-  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1 and a cap on panes over 16, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
-  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null }
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16 and a limit on heavy commands over the machine's cores where it read them, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
+  // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
+  | { type: "readHeavyRuns" }
   | { type: "input"; id: number; data: string }
   | { type: "resize"; id: number; cols: number; rows: number };
 
@@ -946,8 +985,10 @@ export type ServerMessage =
   | { type: "accounts"; accounts: Account[]; defaultAccountId: number; refreshesUsage?: boolean }
   // The choice and whether the hold stands, sent to every client whenever either changes.
   | { type: "keepAwake"; keepAwake: KeepAwake }
-  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap or the count of agents changes, and to the client that sent a `readMachine`.
+  // The machine and its caps, as `ready` carries them, sent to every client whenever a cap, the count of agents or the queue of heavy commands changes, and to the client that sent a `readMachine`.
   | { type: "machine"; machine: Machine }
+  // What each heavy command of each repository took, one row for each, in the order the runs' file first names them, sent to the client that sent a `readHeavyRuns`.
+  | { type: "heavyRuns"; runs: HeavyRan[] }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
   | { type: "agentNotice"; notice: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.

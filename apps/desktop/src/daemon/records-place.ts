@@ -173,17 +173,33 @@ export function onOwlChain(folder: string): boolean {
  */
 export function readRecordsPlace(folder: string): RecordsPlace {
   const root = rootOf(folder);
-  let broadGate: string | null = null;
-  if (root !== null) {
-    try {
-      const config = JSON.parse(textOf(join(folder, root, "config.json")) ?? "null") as unknown;
-      const value = typeof config === "object" && config !== null ? (config as Record<string, unknown>)["Broad gate"] : undefined;
-      if (typeof value === "string") broadGate = value;
-    } catch {
-      // A config.json that is no JSON holds no key.
-    }
+  const value = root === null ? undefined : configOf(folder, root)?.["Broad gate"];
+  return { root, check: checkOf(folder), broadGate: typeof value === "string" ? value : null };
+}
+
+/** The keys of the root's `config.json` in a working tree, or null where it holds no JSON object. A config.json that is no JSON holds no key. */
+function configOf(folder: string, root: string): Record<string, unknown> | null {
+  try {
+    const config = JSON.parse(textOf(join(folder, root, "config.json")) ?? "null") as unknown;
+    return typeof config === "object" && config !== null && !Array.isArray(config) ? (config as Record<string, unknown>) : null;
+  } catch {
+    return null;
   }
-  return { root, check: checkOf(folder), broadGate };
+}
+
+/**
+ * The heavy commands a working tree's records root names in its
+ * `config.json` under `Heavy commands`, each by its name with its command
+ * line, read as `readRecordsPlace` reads the root. A value that is no object
+ * names none, and an entry whose value is no text or is empty names nothing.
+ * The broad gate is heavy whether or not it is named here, and the chain
+ * asks for its turn itself (`machine-turns.ts`).
+ */
+export function readHeavyCommands(folder: string): Record<string, string> {
+  const root = rootOf(folder);
+  const value = root === null ? undefined : configOf(folder, root)?.["Heavy commands"];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""));
 }
 
 /**

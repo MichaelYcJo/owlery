@@ -142,16 +142,18 @@ function above(stood: string): string {
 /**
  * The text of a work item's `trail/gate.md` with one run more: the heading
  * `# Broad gate: <work item>` where no record stands, then what stands,
- * unchanged, and below it one run block that names the head the gate passed
- * on against the base's commit. `before` is the file as it stands, or null.
+ * unchanged, then the sentence of an earlier run where one is given
+ * (`chain.ts#earlierRunSays`), and below them one run block that names the
+ * head the gate passed on against the base's commit. `before` is the file
+ * as it stands, or null.
  * It throws, saying which, where the reader refuses a line of what stands,
  * where the head or the base is no commit's hash, and where the reader would
  * not read the run below what stands.
  */
-export function gateText(before: string | null, workItem: string, run: { head: string; base: string }): string {
+export function gateText(before: string | null, workItem: string, run: { head: string; base: string }, earlier: string | null = null): string {
   const refused = refusedAt(before === null ? [] : readGate(before).refusals, `${GATE_FILE} holds a line Owlery cannot read`);
   if (refused !== null) throw new Error(refused);
-  const text = `${above(before ?? `# Broad gate: ${workItem}\n`)}${assemble([["run:", `${run.head} against ${run.base}`]], [RUN_BLOCK])}`;
+  const text = `${above(before ?? `# Broad gate: ${workItem}\n`)}${earlier === null ? "" : above(earlier)}${assemble([["run:", `${run.head} against ${run.base}`]], [RUN_BLOCK])}`;
   // Below a line that leaves the reader unsure, the run's own fences are refused, and a run nobody reads is not written.
   const unread = refusedAt(readGate(text).refusals, `the run appended to ${GATE_FILE} would not be read`);
   if (unread !== null) throw new Error(unread);

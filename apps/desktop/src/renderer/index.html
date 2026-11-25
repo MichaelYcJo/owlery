@@ -323,7 +323,7 @@
       /* The sign-in pane takes the width of eighty columns, so the dialog that holds it is wider than the others. */
       #accounts-dialog { width: min(760px, 92vw); }
       #accounts-terminal { padding: var(--space-3); border-radius: var(--radius-card); background: var(--terminal-ground); overflow: hidden; }
-      /* The Machine dialog: what the daemon read, as a fact, and for each cap its name, its field with "Use the default" beside it, and the default's sentence under them. Under the agent row's sentence, where a session waits, the label "Waiting for the machine" and under it each session that waits: its work item's name, and on the line under it, in the secondary colour, what it waits to run. */
+      /* The Machine dialog: what the daemon read, as a fact, and for each cap its name, its field with "Use the default" beside it, and the default's sentence under them. Under the agent row's sentence, where a session waits, the label "Waiting for the machine" and under it each session that waits: its work item's name, and on the line under it, in the secondary colour, what it waits to run. Under the row of heavy commands, in the same form, the label "Running and waiting" with each heavy command that runs or waits, and the label "What ran" with each command of each repository that ran. */
       #machine-dialog { width: min(560px, 92vw); }
       #machine-reading { font-family: var(--font-fact); }
       #machine-caps .cap { margin-bottom: var(--space-5); }
@@ -331,10 +331,10 @@
       #machine-caps input { flex: none; width: 8ch; }
       #machine-caps .cap-says { margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-muted); }
       #machine-caps .cap-queue-head { margin: var(--space-4) 0 var(--space-2); }
-      #machine-caps .cap-queue { margin-bottom: 0; }
-      #machine-caps .cap-queue li { display: block; min-height: 0; padding: var(--space-2) 0; }
-      #machine-caps .cap-queue li > span { display: block; }
-      #machine-caps .cap-queue .detail { color: var(--ink-muted); }
+      #machine-caps :is(.cap-queue, .heavy-queue, .heavy-ran) { margin-bottom: 0; }
+      #machine-caps :is(.cap-queue, .heavy-queue, .heavy-ran) li { display: block; min-height: 0; padding: var(--space-2) 0; }
+      #machine-caps :is(.cap-queue, .heavy-queue, .heavy-ran) li > span { display: block; }
+      #machine-caps :is(.cap-queue, .heavy-queue, .heavy-ran) .detail { color: var(--ink-muted); }
       .line .first, .line .second { display: flex; align-items: center; gap: var(--space-4); min-width: 0; }
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }

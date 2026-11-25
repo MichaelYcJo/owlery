@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
@@ -14,6 +14,7 @@ import {
   BASE_NAMED_IN_A_PANE,
   CHAIN_STAGES_KEPT,
   ChainStop,
+  GATE_AGAIN_SAYS,
   PROMPT_DIFF_CHARS,
   ROUNDS_CEILING,
   type RoundStanding,
@@ -23,6 +24,7 @@ import {
   chainRead,
   convergenceOf,
   convergencePrompt,
+  earlierRunSays,
   fixPassPrompt,
   fixPassRecord,
   gateBefore,
@@ -30,6 +32,7 @@ import {
   passedBefore,
   promptText,
   pullRequestCarriesSays,
+  twiceFailedWhy,
   pullRequestOpenSays,
   refusalsText,
   roundPrompt,
@@ -51,6 +54,8 @@ import type { DaemonOptions } from "../src/daemon/daemon";
 import type { MachineReader } from "../src/daemon/machine";
 import { declaredBranch, readDecisionRecord, routingAnswer, withDecision, withQuestion } from "../src/daemon/decision-record";
 import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
+import { readHeavyRuns } from "../src/daemon/heavy-runs";
+import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Verdict } from "../src/daemon/seal-records";
 import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
@@ -1043,7 +1048,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(queue[0]).toBe(second);
   });
 
-  it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest in one hold, and a client that connects later is sent the chain in its ready", async () => {
+  it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest with no gap, the display too while the broad gate holds its turn, and a client that connects later is sent the chain in its ready", async () => {
     let idle = 0;
     const holds: string[] = [];
     const { c, url, workItems } = await standing(cleanups, ["Left alone"], {
@@ -1053,8 +1058,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         idle += 1;
         holds.push("asked to exit");
       },
-      holdAwake: () => {
-        holds.push("held");
+      holdAwake: (_lost, display) => {
+        holds.push(display ? "held with the display" : "held");
         return { release: () => void holds.push("released") };
       },
     });
@@ -1070,8 +1075,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(Date.now()).toBeLessThan(end);
       await new Promise((r) => setTimeout(r, 20));
     }
-    // One hold from the chain's start to its rest, and no exit asked before it: between two stages no session works, git runs for longer than the idle wait of 1 ms, and the hold and the daemon both stood.
-    expect(holds).toEqual(["held", "released", "asked to exit"]);
+    // A hold from the chain's start to its rest, and no exit asked before it: between two stages no session works, git runs for longer than the idle wait of 1 ms, and the hold and the daemon both stood. The broad gate is a heavy command, so for its turn the hold is replaced by one that holds the display too, each release followed at once by the next hold.
+    expect(holds).toEqual(["held", "released", "held with the display", "released", "held", "released", "asked to exit"]);
     const later = await client(url, cleanups);
     const ready = await later.message("ready");
     expect(ready.workItems[0]?.chain).toMatchObject({ state: "rested", says: "Pull request #1 is open." });
@@ -2418,6 +2423,154 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     expect(await gateEntries(c, a.id, 4)).toMatchObject([{ state: "failed", stopped: "request", usage: null }]);
     expect((await c.asked({ type: "stopGate", requestId: 5, workItemId: a.id })).type).toBe("error");
     expect((await c.asked({ type: "stopGate", requestId: 6, workItemId: "1" as unknown as number })).type).toBe("error");
+  });
+
+  describe("the machine's turn", () => {
+    /** A command that marks its start in `$OUT` with its worktree folder's name, waits until a file of that name ending `.go` stands there, and marks its end. */
+    const WAITS_ON_A_FILE = 'touch "$OUT/$(basename "$PWD").started"; while [ ! -e "$OUT/$(basename "$PWD").go" ]; do sleep 0.05; done; touch "$OUT/$(basename "$PWD").ended"';
+    const mark = (out: string, worktree: string, what: "started" | "go" | "ended"): string => join(out, `${basename(worktree)}.${what}`);
+    /** Once the command of the worktree's gate has marked its start. */
+    const startsIn = (c: Client, out: string, worktree: string): Promise<true> => c.until(() => (existsSync(mark(out, worktree, "started")) ? true : undefined));
+    /** The chain's newest stage once it is a gate that waits for the machine. */
+    const gateWaits = (c: Client, id: number): Promise<ChainStage> =>
+      c.until(() => {
+        const stage = c.workItem(id)?.chain?.stages.at(-1);
+        return stage?.kind === "gate" && stage.gate?.waits === true ? stage : undefined;
+      });
+
+    it("runs one broad gate at a time across repositories: a gate that asks while another runs is listed as the chain's stage that waits, its chain says so and its work item carries the wait, its command starts once the other's has ended, and each gate then passes with one stage and one entry of the ledger", async () => {
+      const out = outside();
+      const stood = await standing(cleanups, ["Sealed work", "Other work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+      const { c } = stood;
+      const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+      expect(a.repo).not.toBe(b.repo);
+      expect(await c.startChain(a.id)).toBe("done");
+      await startsIn(c, out, a.worktree);
+      expect(await c.startChain(b.id)).toBe("done");
+      expect(await gateWaits(c, b.id)).toEqual(gateStage({ state: "working", endedAt: null, gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false, waits: true } }));
+      expect(c.workItem(b.id)?.chain?.says).toBe("The broad gate waits for the machine.");
+      expect(c.workItem(b.id)?.machineWait).toEqual({ name: "Broad gate", since: NOW, ahead: 0 });
+      expect(c.workItem(a.id)?.machineWait).toBeNull();
+      expect(existsSync(mark(out, b.worktree, "started"))).toBe(false);
+
+      // The commit of the first gate's record is held, so the turn has to pass when the command ends and not when the stage does.
+      const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
+      writeFileSync(mark(out, a.worktree, "go"), "");
+      await startsIn(c, out, b.worktree);
+      // The turn passed when the first command ended, not before.
+      expect(existsSync(mark(out, a.worktree, "ended"))).toBe(true);
+      await c.until(() => (held.waiting() ? true : undefined));
+      held.release();
+      await c.until(() => (c.workItem(b.id)?.machineWait === null ? true : undefined));
+      expect(c.workItem(b.id)?.chain?.stages.at(-1)).toEqual(gateStage({ state: "working", endedAt: null, gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } }));
+      writeFileSync(mark(out, b.worktree, "go"), "");
+      for (const item of [a, b]) {
+        expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+        expect(await gateEntries(c, item.id, item.id + 10)).toMatchObject([{ state: "finished", stopped: null }]);
+      }
+    });
+
+    /** A command that fails on its first run in a worktree, once `go` stands in `$OUT`, and passes on every later one. */
+    const FAILS_ONCE = 'if [ -e "$OUT/$(basename "$PWD").failed" ]; then exit 0; fi; touch "$OUT/$(basename "$PWD").failed"; while [ ! -e "$OUT/go" ]; do sleep 0.05; done; exit 3';
+
+    it("runs a broad gate that failed while the machine was over its load once more, alone, once the command that took the turn meanwhile has ended and the load is at or under the cores, and records the pass with a sentence that names the earlier run above its run block, each run a stage and an entry of the ledger of its own (scenario F)", async () => {
+      const out = outside();
+      const load = { now: 9 };
+      const stood = await standing(cleanups, ["Sealed work"], { gate: FAILS_ONCE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 20_000, pollMs: 20 } });
+      const { c } = stood;
+      const [item] = stood.workItems as [(typeof stood.workItems)[number]];
+      expect(await c.startChain(item.id)).toBe("done");
+      await c.until(() => (existsSync(join(out, `${basename(item.worktree)}.failed`)) ? true : undefined));
+      // A command that asks while the first run runs takes the turn after it, and the second run waits for it to end and then for the load.
+      const other = stood.d.turnGiver().ask({ folder: out, name: "test", place: "build", alone: false });
+      writeFileSync(join(out, "go"), "");
+      const waiting = await c.until(() => {
+        const stages = c.workItem(item.id)?.chain?.stages ?? [];
+        return stages.filter((stage) => stage.kind === "gate").length === 2 ? stages : undefined;
+      });
+      expect(waiting.at(-2)).toEqual(gateStage({ state: "failed", failure: "the command exited with code 3", gate: { command: FAILS_ONCE, exitCode: 3, output: false } }));
+      expect(waiting.at(-1)).toMatchObject({ kind: "gate", state: "working", gate: { exitCode: null, waits: true } });
+      expect(c.workItem(item.id)?.chain?.says).toBe(GATE_AGAIN_SAYS);
+      const held = await other.turn;
+      // The second run holds no turn while the other command does, whatever the load.
+      load.now = 3;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(kinds(c.workItem(item.id)?.chain as Chain).at(-1)).toEqual(["gate", "working"]);
+      expect(existsSync(join(item.worktree, GATE_PATH))).toBe(false);
+      held?.end();
+      expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      const record = readFileSync(join(item.worktree, GATE_PATH), "utf8");
+      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`seal\nrun: `);
+      expect(await gateEntries(c, item.id, 11)).toMatchObject([{ state: "failed" }, { state: "finished" }]);
+      // Each run has its line in the runs' file: the first over the load it started at, with the memory read while it waited for `go`, and the second alone, which ends too soon for a reading to be sure.
+      expect(readHeavyRuns(stood.runDir).filter((run) => run.name === BROAD_GATE_NAME)).toMatchObject([
+        { workItemId: item.id, exitCode: 3, load: 9, beside: false, alone: false, peakMemory: expect.any(Number) },
+        { workItemId: item.id, exitCode: 0, load: 3, beside: false, alone: true },
+      ]);
+    });
+
+    it("stops the chain as before where the gate failed with the machine calm, and names both runs where the second run, alone, failed too (scenarios G and H)", async () => {
+      const out = outside();
+      const load = { now: 1 };
+      const stood = await standing(cleanups, ["Calm work", "Loaded work"], { apart: true, gate: "exit 3", gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 200, pollMs: 20 } });
+      const { c } = stood;
+      const [calm, loaded] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+      expect(await c.startChain(calm.id)).toBe("done");
+      const once = await c.chain(calm.id, "stopped");
+      expect(once.says).toBe("The broad gate failed: the command exited with code 3.");
+      expect(kinds(once)).toEqual([["round", "finished"], ["gate", "failed"]]);
+      expect(await gateEntries(c, calm.id, 11)).toHaveLength(1);
+
+      // A load that stays above the cores holds the second run for the calm wait, and the run then fails whatever the load.
+      load.now = 9;
+      expect(await c.startChain(loaded.id)).toBe("done");
+      const twice = await c.chain(loaded.id, "stopped");
+      expect(twice.says).toBe(stoppedSays("gate", 1, twiceFailedWhy("the command exited with code 3", "the command exited with code 3")));
+      expect(twice.says).toBe("The broad gate failed: the command exited with code 3 on its first run, while the machine was over its load, and the command exited with code 3 on its second, which ran alone.");
+      expect(kinds(twice)).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
+      expect(await gateEntries(c, loaded.id, 12)).toMatchObject([{ state: "failed" }, { state: "failed" }]);
+      // No gate record was written in either worktree.
+      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "seal/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
+    });
+
+    it("ends the ask of a gate that waits and starts no command, where a stopGate arrives or the worktree's head moves during the wait: neither command runs once the turn frees, no record or ledger entry is written, and each chain stops with what ended its wait", async () => {
+      const out = outside();
+      const stood = await standing(cleanups, ["Sealed work", "Stopped work", "Moved work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+      const { c } = stood;
+      const [a, stopped, moved] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number], (typeof stood.workItems)[number]];
+      expect(await c.startChain(a.id)).toBe("done");
+      await startsIn(c, out, a.worktree);
+      expect(await c.startChain(stopped.id)).toBe("done");
+      await gateWaits(c, stopped.id);
+      expect(await c.startChain(moved.id)).toBe("done");
+      await gateWaits(c, moved.id);
+      expect(c.workItem(moved.id)?.machineWait).toEqual({ name: "Broad gate", since: NOW, ahead: 1 });
+
+      expect((await c.asked({ type: "stopGate", requestId: 2, workItemId: stopped.id })).type).toBe("done");
+      const chain = await c.chain(stopped.id, "stopped");
+      expect(chain.says).toBe("The broad gate failed: it was stopped before its command started.");
+      expect(chain.stages.at(-1)).toEqual(gateStage({ state: "failed", failure: "it was stopped before its command started", gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } }));
+      await c.until(() => (c.workItem(moved.id)?.machineWait?.ahead === 0 ? true : undefined));
+      expect(c.workItem(stopped.id)?.machineWait).toBeNull();
+
+      const was = head(moved.worktree);
+      write(moved.worktree, "feature.txt", "Another greeting\n");
+      const now = commitAll(moved.worktree, "feat: greet again");
+      writeFileSync(mark(out, a.worktree, "go"), "");
+      const stoppedMoved = await c.chain(moved.id, "stopped");
+      expect(stoppedMoved.says).toBe(`The broad gate did not run: the worktree's head moved from ${was.slice(0, 7)} to ${now.slice(0, 7)} while Owlery read the records.`);
+      expect(stoppedMoved.stages.at(-1)).toMatchObject({ kind: "gate", state: "failed", gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } });
+      expect(kinds(await c.chain(a.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+
+      for (const item of [stopped, moved]) {
+        expect(existsSync(mark(out, item.worktree, "started"))).toBe(false);
+        expect(await gateEntries(c, item.id, item.id + 10)).toEqual([]);
+        expect(c.workItem(item.id)?.machineWait).toBeNull();
+        expect(status(item.worktree)).toEqual([]);
+      }
+      expect(subjects(stopped.worktree)).toEqual(TO_ROUND_1);
+      expect(subjects(moved.worktree)).toEqual([...TO_ROUND_1, "feat: greet again"]);
+    });
   });
 
   it("ends the command at its time limit, and records no run of a command that was stopped whatever it exited with: one that takes the signal and exits with 0 has failed", async () => {

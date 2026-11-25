@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { placesFree, queueOrder } from "../src/daemon/agent-queue";
-import { AgentMemoryStore, LimitsStore, type MachineProbes, readMachine } from "../src/daemon/machine";
-import { agentsProposal, agentsSays, capRefusal, GIB, MIB, panesProposal, panesSays, readingSays, worktreesProposal, worktreesSays } from "../src/shared/machine";
+import { AgentMemoryStore, LimitsStore, type MachineProbes, type MachineReader, readMachine, turnReading } from "../src/daemon/machine";
+import { agentsProposal, agentsSays, capRefusal, GIB, heavyProposal, heavySays, MIB, panesProposal, panesSays, readingSays, worktreesProposal, worktreesSays } from "../src/shared/machine";
 import type { MachineReading } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
@@ -99,6 +99,20 @@ describe("the proposal of the cap on worktrees", () => {
   });
 });
 
+describe("the proposal of the limit on heavy commands", () => {
+  it("is one for each 8 cores or one for each 16 GB of memory, whichever gives fewer, and never under 1, and its sentence gives both numbers (scenario E)", () => {
+    expect(heavyProposal(OWNERS_MAC)).toEqual({ proposed: 1, byCores: 1, byMemory: 2 });
+    expect(heavySays(heavyProposal(OWNERS_MAC))).toBe("The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken.");
+    const large: MachineReading = { ...OWNERS_MAC, cores: 32, memoryBytes: 64 * GIB };
+    expect(heavyProposal(large)).toEqual({ proposed: 4, byCores: 4, byMemory: 4 });
+    expect(heavySays(heavyProposal(large))).toBe("The default is 4: one for each 8 cores and one for each 16 GB both give 4.");
+    expect(heavyProposal({ ...OWNERS_MAC, cores: 16, memoryBytes: 32 * GIB - 1 })).toEqual({ proposed: 1, byCores: 2, byMemory: 1 });
+    const least: MachineReading = { ...OWNERS_MAC, cores: 1, memoryBytes: GIB };
+    expect(heavyProposal(least)).toEqual({ proposed: 1, byCores: 0, byMemory: 0 });
+    expect(heavySays(heavyProposal(least))).toBe("The default is 1, the least it can be: one for each 8 cores gives 0, and one for each 16 GB gives 0.");
+  });
+});
+
 describe("what the window says of the reading, and of a value a person gives a cap", () => {
   it("states the reading in one sentence, the performance cores only where they are fewer than the cores", () => {
     expect(readingSays(OWNERS_MAC)).toBe("36 GB of memory, 12 cores of which 6 are performance cores, a load of 3.9, and 25.1 GB free of 494.4 GB on the worktrees' disk.");
@@ -116,6 +130,14 @@ describe("what the window says of the reading, and of a value a person gives a c
     expect(capRefusal("agents", "3")).toBe("The cap on agents at once is a whole number from 1.");
     expect(capRefusal("panes", 17)).toBe("The cap on panes side by side is a whole number from 1 to 16.");
     expect(capRefusal("panes", 0)).toBe("The cap on panes side by side is a whole number from 1 to 16.");
+  });
+
+  it("refuses a limit on heavy commands over the machine's cores, and none where the cores are not given", () => {
+    expect(capRefusal("heavyCommands", 12, 12)).toBeNull();
+    expect(capRefusal("heavyCommands", 13, 12)).toBe("The limit on heavy commands at once is a whole number from 1 to 12.");
+    expect(capRefusal("heavyCommands", 0, 12)).toBe("The limit on heavy commands at once is a whole number from 1 to 12.");
+    expect(capRefusal("heavyCommands", 40)).toBeNull();
+    expect(capRefusal("heavyCommands", 0)).toBe("The limit on heavy commands at once is a whole number from 1.");
   });
 });
 
@@ -175,6 +197,18 @@ describe("the reading of the machine", () => {
     expect(failing("EACCES")).toEqual({ disk: null, asked: [join(at, "file", "worktrees")] });
   });
 
+  it("gives the turn keeper the cores once and the load at each call, from the reader of the worktrees' folder", () => {
+    const asked: string[] = [];
+    let load = 3.9;
+    const reader: MachineReader = { read: (at) => (asked.push(at), { ...OWNERS_MAC, load }), memoryOf: () => Promise.resolve(new Map()), sizeOf: () => Promise.resolve(null) };
+    const given = turnReading(reader, "/worktrees");
+    expect(given.cores).toBe(12);
+    expect(given.load()).toBe(3.9);
+    load = 13.1;
+    expect(given.load()).toBe(13.1);
+    expect(asked).toEqual(["/worktrees", "/worktrees", "/worktrees"]);
+  });
+
   it("takes the reading `OWLERY_MACHINE` holds in place of the machine's, and asks the machine nothing (scenario 16)", () => {
     const { given, calls } = probes(() => "4");
     const reader = readMachine({ OWLERY_MACHINE: JSON.stringify({ memoryBytes: OWNERS_MAC.memoryBytes, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 }) }, given);
@@ -203,32 +237,42 @@ describe("the caps a person set", () => {
   it("keeps them in `limits.json` of the run folder, readable by the user alone, where a store started later reads them, and drops a cap returned to its proposal", () => {
     const runDir = folder();
     const store = new LimitsStore(runDir);
-    expect(store.get()).toEqual({ agents: null, worktrees: null, panes: null });
+    expect(store.get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null });
     store.set({ agents: 3 });
     expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3}');
     expect(statSync(join(runDir, "limits.json")).mode & 0o777).toBe(0o600);
     store.set({ panes: 12 });
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: 12 });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: 12, heavyCommands: null });
     store.set({ agents: null });
     expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"panes":12}');
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 12 });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 12, heavyCommands: null });
+  });
+
+  it("keeps the limit on heavy commands under its own key beside the caps, where a store started later reads it (scenario E)", () => {
+    const runDir = folder();
+    const store = new LimitsStore(runDir);
+    store.set({ agents: 3, heavyCommands: 2 });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3,"heavyCommands":2}');
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: null, heavyCommands: 2 });
+    store.set({ heavyCommands: null });
+    expect(new LimitsStore(runDir).get().heavyCommands).toBeNull();
   });
 
   it.each([
-    ["values the daemon would refuse", '{"agents":0,"worktrees":2.5,"panes":17}'],
+    ["values the daemon would refuse", '{"agents":0,"worktrees":2.5,"panes":17,"heavyCommands":0}'],
     ["text that is no JSON", "agents=3"],
     ["JSON that is no object", "null"],
     ["numbers given as text", '{"agents":"3"}'],
   ])("reads a file that holds %s as no cap set", (_, text) => {
     const runDir = folder();
     writeFileSync(join(runDir, "limits.json"), text);
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: null });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null });
   });
 
   it("keeps the caps in memory alone where it is given no run folder", () => {
     const store = new LimitsStore(undefined);
     store.set({ worktrees: 4 });
-    expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null });
+    expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null, heavyCommands: null });
   });
 });
 

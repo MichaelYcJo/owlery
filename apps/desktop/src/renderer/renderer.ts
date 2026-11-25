@@ -1813,8 +1813,13 @@ function onMessage(message: ServerMessage): void {
       showKeepAwake();
       showStatus();
       return;
+    case "heavyRuns":
+      // The daemon answered the Machine dialog's opening with what each heavy command took.
+      held.heavyRan = message.runs;
+      if (MACHINE.dialog.open) showMachine();
+      return;
     case "machine":
-      // A cap changed, here or in another client, the count of agents changed, or the daemon read the machine again for this window.
+      // A cap changed, here or in another client, the count of agents or the queue of heavy commands changed, or the daemon read the machine again for this window.
       held.machine = message.machine;
       showMachineEntry();
       if (MACHINE.dialog.open) showMachine();

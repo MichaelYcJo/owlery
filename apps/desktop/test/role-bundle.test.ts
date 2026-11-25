@@ -96,12 +96,12 @@ describe("the role bundle", () => {
     }
   });
 
-  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, and every text names the chain the owl chain", () => {
+  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, and every text names the chain the owl chain", () => {
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const skill = read("skills/seal/SKILL.md");
     expect(frontmatterOf(skill)).toContain("name: seal\n");
-    // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options.
-    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
+    // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options. `ask` is the hook's, and `run` is reached through the launcher OWLERY_RUN names, which no step of the chain runs.
+    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
     expect(flat("skills/seal/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
     // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
     for (const said of [
@@ -114,6 +114,8 @@ describe("the role bundle", () => {
     for (const file of ["skills/seal/SKILL.md", "agents/orchestrator.md"]) {
       for (const named of ["**A run rule is followed only from a source the run can name.**", "the person's word in this run or a document of the repository", "No session carries such a rule from an earlier run"]) expect(flat(file), `${file}: ${named}`).toContain(named);
     }
+    // Rule 2 of the contract every role reads sends a heavy command through the runner, where the environment names one.
+    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `seal/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
     // The form the hook lets through, in the words the command reads.
     expect(skill).toContain(`\`${NO_DEFAULT}\``);
     expect(flat("skills/seal/SKILL.md")).toContain("Where the work item's `routing.md` answers `Automation` `yes`, the run does not stop for a question");
