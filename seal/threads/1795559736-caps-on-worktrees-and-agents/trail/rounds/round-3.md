@@ -55,6 +55,11 @@ apps/desktop/src/renderer/machine.ts:73
   to:    * Draws the dialog from what the daemon last said: the reading in its sentence,
 ```
 
+```seal
+verdict: fixed 966a7355
+answer: Applied the record's one-word fix to the docstring of `showMachine`. Round 2's search missed it because that search looked for "one line", "in one line" and "first line says", and this docstring says "in its line". This pass searched `apps/desktop/src/renderer/` again for "its line", "the line", "one line" and "a line" on any line that names the reading. It also searched `apps/desktop/src`, `apps/desktop/test` and both editions of `docs/design.md` for "reading" beside " line", "its line", "one line" or "한 줄". The only hit about the dialog's reading was this one, and the other hits name the status line, a terminal's line or an output stream's line. Both searches look for wordings, so they are a sample. The `tsc` typecheck of `machine.ts` alone, with `--noEmit`, exited 0.
+```
+
 ## Confirmations
 
 ```seal
