@@ -28,6 +28,11 @@ Why it matters: the unit is the label `#remove-delete-label` of `index.html:1073
 
 The line is a built-app read. It is seen red against the label at `10207084`, and run in the built-app batch the fix pass ends with. Then the row at `frame/design.md:118` holds as it stands.
 
+```seal
+verdict: fixed 2d521c88
+answer: The round's line stands after the line that reads the label's `display`, in the case "deletes a repository's work items from disk at its removal where the dialog's choice is taken: …". `work-item-menu.test.ts` ran in the built app in one `seal mutate` command after `2d521c88`: against the label as it stands, all 30 cases passed; with the label put back to the words of `10207084`, "Also delete the work items' worktrees and local branches", the run went red, and its first failure was that case, at the new line, receiving those words. The four cases after it failed too, since that case left the removal's dialog open. `seal mutate` restored `index.html` and checked its hash.
+```
+
 ## Confirmations
 
 ```seal
