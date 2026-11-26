@@ -61,7 +61,14 @@
 // questions holds two the run writes there, asked by the sealer, so the
 // parked view lists them, lists the gate's line under "Ask" with the
 // finished mark, and its approval line counts the round and marks the
-// sealer's place, which waits on the questions. The finished work item is
+// sealer's place, which waits on the questions. The record also holds one
+// decision made without asking, with the person's reversal of it, and no
+// commit holds the record. Before the app starts the run writes a
+// `pre-commit` hook that refuses a commit holding that record, so each try
+// of the daemon's to commit the person's word fails: the parked work item's
+// line says "word not committed" after its count of the decisions, and the
+// parked view says above the decisions that the word was not committed,
+// with the hook's line, and that Owlery tries again. The finished work item is
 // stored before the start with a rested chain and a pull request whose
 // checks passed. Its branch takes the records of a chain that sealed it
 // after one fix once the look is taken: round 1 with one finding, the
@@ -111,7 +118,7 @@ import { createConnection, type Socket } from "node:net";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
+import { RECORD_FILE, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { PARKED_SAYS, pullRequestOpenSays, routingText } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
@@ -190,7 +197,7 @@ const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*
 const SETUP_ENDS_WITH = 0;
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
-/** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED`. Its view is the view "parked". */
+/** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED` and the reversal of `DECIDED_FOR_PARKED`, whose commit the hook the run writes refuses. Its view is the view "parked". */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
 /** The account the run hands over by its folder, and the id the daemon keeps it under. */
 const HANDED = "Work";
@@ -226,6 +233,13 @@ const ASKED_OF_PARKED = [
   { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer" },
   { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] },
 ];
+/** The decision made without asking that the run writes into the parked work item's record after its questions, so it takes the id after theirs, and the person's message that reverses it. */
+const DECIDED_FOR_PARKED = { kind: "scope", decided: "The hotfix leaves its changelog entry to the release script.", grounds: "The issue names no changelog entry, and the release script writes one for each tag.", by: "crafter" } as const;
+const REVERSED_SAYS = "Write the changelog entry in the hotfix: the release script skips a hotfix's tag.";
+/** The line the `pre-commit` hook the run writes prints where it refuses a commit holding the parked work item's record, which it does at every try of the daemon's, and the line's words and the sentence of the parked view the run waits for. */
+const HOOK_SAYS = "a hotfix branch takes no commit of its record of decisions.";
+const PARKED_MARK = "1 reversed, word not committed";
+const PARKED_OWED = `The record holds a word of yours that was not committed: ${HOOK_SAYS.replace(/\.$/u, "")}. Owlery tries again.`;
 /** The key of the stand-in for the AgenticSeal plugin in the Claude Code config folder the run gives the app. The daemon tells the plugin by the script its install folder holds, and by no name. */
 const PLUGIN_KEY = "agentic@agenticseal";
 /** The answers of the chain choice, as the menu of the repository's settings holds them: none, which asks at the next Claude Code pane, and the owl chain. */
@@ -518,7 +532,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="1"] .second .decided')?.textContent === ${JSON.stringify(PARKED_MARK)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account and the word not committed on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -528,7 +542,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     parked: async () => {
       await app.click(PARKED_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate, which passed");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output" && document.querySelector("#view-detail .word-owed.failed")?.textContent === ${JSON.stringify(PARKED_OWED)}`, "the parked work item's view with its questions, its approval line, the line of its broad gate, which passed, and the sentence of the reversal whose commit the hook refused");
       // The questions stand at the top of the column, which the shown work item's view left scrolled.
       await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
     },
@@ -655,12 +669,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
     writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
     writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
-    // The two work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
+    // The two work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's and a decision the person reversed. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
     const stored = Date.now();
     const parkedAt = await createWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
     commitSeal(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
-    writeFileSync(join(parkedAt.worktree, "seal", "threads", PARKED_RECORDS, RECORD_FILE), ASKED_OF_PARKED.reduce(withQuestion, ""));
+    const parkedRecord = `seal/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
+    writeFileSync(join(parkedAt.worktree, parkedRecord), withReversal(withDecision(ASKED_OF_PARKED.reduce(withQuestion, ""), DECIDED_FOR_PARKED), ASKED_OF_PARKED.length + 1, REVERSED_SAYS));
+    // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
+    writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
     const finishedAt = await createWorktree({ folder: made.repo, title: FINISHED, root: made.root });
     const unsealed = commitFile(finishedAt.worktree, "export.ts");
     commitSealedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
