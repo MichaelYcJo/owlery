@@ -74,3 +74,4 @@ Read for this section: issue #217's branch at `f9e4f756` in `/Users/yc/Documents
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
 | 2026-11-26 | Round 1's finding 1 is repaired in the code: a name equal to the kind's label once trimmed is sent as `null`, so a Save with nothing changed names nothing. | A Save with the label untouched fixed "Shell 2" as a name, and closing "Shell 1" then left two tabs reading "Shell 2", which *Scope* item 4's numbering exists to prevent. | `trail/rounds/round-1.md` finding 1; `frame/design.md` *Scope* items 4 and 5 |
+| 2026-11-26 | The pull request's title takes the prefix `feat:`. | The work gives a pane's tab a menu, a name and a colour the window did not offer; nothing that existed was broken. | the plugin's `skills/commit-pr-convention/SKILL.md` |
