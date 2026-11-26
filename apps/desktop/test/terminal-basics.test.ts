@@ -405,6 +405,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`${TAB_MENU} === null`, "the tab's menu closed at Escape");
     expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
 
+    // A close that leaves the pane in front leaves it the keyboard, though the press was on the menu.
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1"`, "the first pane in front");
     await openTabMenu(1);
     await pressTabMenuItem("Close Other Panes");
     await app.until(`${TABS}.length === 1`, "one tab");
