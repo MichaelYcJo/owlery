@@ -2887,10 +2887,11 @@ export class Daemon {
    * last read (`seal-state.ts#refusedAt`), with the reader's sentence cut at
    * `STATE_TEXT_CHARS`. A work item whose head the daemon holds no reading
    * of is named with the sentence that its records were not read yet. One
-   * whose reading git could not finish is named with the sentence that its
-   * records could not be read and git's words, and the log says so. So the
-   * dialog says that the readers refuse no work item's records only where
-   * each one was read.
+   * whose worktree's folder is gone, and one whose reading throws anything
+   * other than a refusal, is named with the sentence that says why its
+   * records could not be read, and the log says the second. A work item
+   * whose worktree stands and holds no directory for its branch is read as
+   * one with no records, though the branch's head may hold one.
    */
   private async unreadRecords(repositoryId: number): Promise<{ id: number; title: string; why: string }[]> {
     const items = this.store.workItems().flatMap(({ repository, item }) => (repository.id === repositoryId && item.archivedAt === null && item.branch !== null ? [item] : []));
@@ -2898,6 +2899,8 @@ export class Daemon {
       items.map(async (item) => {
         const head = this.branches.get(item.id)?.head;
         if (head === undefined) return { id: item.id, title: item.title, why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." };
+        // A person can remove a worktree's folder by hand (`whyNoRun`). The branch's head still holds its records, and `refusedAt` would find no directory there and answer as for a work item with none. `existsSync` follows a link, so a link to a folder that stands is read as before.
+        if (!existsSync(item.worktree)) return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item ${String(item.id)} is gone: ${item.worktree}`) };
         try {
           const why = await refusedAt(item, head);
           return why === null ? null : { id: item.id, title: item.title, why: cutText(why) };

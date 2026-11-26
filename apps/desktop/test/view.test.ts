@@ -5201,14 +5201,19 @@ describe("the dialog of the records place", () => {
       stamp: "m",
     };
     const READ = "Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    /** What was read, where an entry named may be a work item that was not read. */
+    const READ_BUT = "Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
 
-    it("says both versions, shows the commit's branch and subject and the workflow alone and whole with the sentence that it replaces the committed file, names each work item whose records the readers refuse with the reader's sentence and what was read, hides the field, and offers Move and commit", () => {
+    it("says both versions, shows the commit's branch and subject and the workflow alone and whole with the sentence that it replaces the committed file, names each work item whose records the readers refuse or did not read with its sentence and what was read, hides the field, and offers Move and commit", () => {
       const words = recordsDialog(HOLDING, MOVE, "", "");
       expect(words.move).toBe("`.github/workflows/owlery-seal.yml` fetches the pull request check of Owlery 0.0.4, older than this app. The commit moves it to Owlery 0.1.0.");
       expect(words.commit).toBe("This makes one commit on `main`: `chore: move the pull request check to Owlery 0.1.0`. Nothing is pushed.");
       expect(words.blocked).toBe("");
       expect(words.files).toEqual([{ path: WORKFLOW, text: "name: seal\n# --branch v0.1.0\n", says: "The commit writes this text over the committed `.github/workflows/owlery-seal.yml`, whole." }]);
-      expect(words.unread).toEqual({ head: "Work items whose records Owlery's readers refuse", items: [{ name: "Refused work", why: REFUSED }], says: `${READ} Once the check moves, it may refuse the pull requests of the work items named.` });
+      expect(words.unread).toEqual({ head: "Work items whose records Owlery's readers refuse or did not read", items: [{ name: "Refused work", why: REFUSED }], says: `${READ_BUT} Once the check moves, it may refuse the pull requests of the work items named.` });
+      // A work item the daemon did not read is named under the same head, with its own sentence.
+      const NOT_READ = "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known.";
+      expect(recordsDialog(HOLDING, { ...MOVE, unread: [{ id: 4, title: "Unread work", why: NOT_READ }] }, "", "").unread).toEqual({ head: "Work items whose records Owlery's readers refuse or did not read", items: [{ name: "Unread work", why: NOT_READ }], says: `${READ_BUT} Once the check moves, it may refuse the pull requests of the work items named.` });
       expect([words.holds, words.gate.shown]).toEqual([[], false]);
       expect(words.submit).toEqual({ shown: true, enabled: true, label: "Move and commit" });
       expect(words.cancel).toBe("Not now");

@@ -547,9 +547,9 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * paths, so the setup replaces no file and its cleanup unstages nothing of
  * the person's. The one file written over is the workflow of a plan that
  * moves the check, which the plan found as the commit holds it. The move is
- * refused where the workflow's bytes just before the write are not the ones
- * read before the plan was made again, so an edit saved while the plan ran
- * is not written over. Those paths
+ * refused where the workflow's text just before the write is not the one
+ * read before the plan was made again, as the plan reads a person's file,
+ * so an edit saved while the plan ran is not written over. Those paths
  * alone are staged and those paths alone are committed, on the branch the
  * checkout stands on, with the person's git identity and the repository's
  * hooks: no option skips a hook or a signature, and nothing is pushed. What
@@ -567,10 +567,10 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * does, and the setup stands as after a commit that ended by itself.
  */
 export async function setUpRecords(folder: string, broadGate: string, version: string, stamp: string, limitMs?: number): Promise<void> {
-  // The workflow's bytes before the plan compares the file with the commit's. A move writes over it only where the file still holds them, so an edit saved while the plan runs git is refused, not replaced. The plan refuses a link at the path, so a move never follows one here.
-  const beforePlan = ((): Buffer | null => {
+  // The workflow's text before the plan compares the file with the commit's. A move writes over it only where the file still holds that text, so an edit saved while the plan runs git is refused, not replaced. It is read as the plan reads a person's file (`repositoryFileText`): no link is opened, no pipe is waited on, nothing over `REPOSITORY_FILE_BYTES` is read, and what it refuses is null here, which refuses a move.
+  const beforePlan = ((): string | null => {
     try {
-      return readFileSync(join(folder, WORKFLOW));
+      return repositoryFileText(join(folder, WORKFLOW));
     } catch {
       return null;
     }
@@ -592,7 +592,8 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
       if (plan.move !== null && path === WORKFLOW) {
         const bytes = readFileSync(join(folder, path));
         // Thrown before anything is staged or replaced, so the cleanup below writes nothing back and unstages nothing.
-        if (beforePlan === null || !bytes.equals(beforePlan)) throw new Error("The repository changed since the plan was read. Read the plan again.");
+        // The two reads are compared as UTF-8 text, so two files that differ only in bytes that are no UTF-8 compare equal.
+        if (beforePlan === null || bytes.toString("utf8") !== beforePlan) throw new Error("The repository changed since the plan was read. Read the plan again.");
         // The plan found the checkout's file as the commit holds it, so what is written back is the commit's text as the checkout holds it.
         replaced = { path, bytes };
         writeFileSync(join(folder, path), text);

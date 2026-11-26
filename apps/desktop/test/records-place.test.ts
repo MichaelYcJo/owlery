@@ -2,7 +2,7 @@
 // repository creates them: what a plan names, what a setup writes and
 // commits, and what stands and is kept. Each case runs in a temporary
 // repository, never in Owlery's own, which one case reads for its workflow.
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1029,6 +1029,20 @@ describe("the records place", () => {
     expect(existsSync(join(shim, "saved"))).toBe(true);
     expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(edited);
     expect([head(repo), status(repo)]).toEqual([before, ` M ${WORKFLOW}\n`]);
+  });
+
+  it("refuses, without waiting on it, a named pipe that stands at the workflow's path when the plan is made again: the setup reads it as the plan reads a person's file, and the plan's refusal is the answer", { timeout: 2000 }, async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    const plan = await planRecords(repo, "", VERSION);
+    rmSync(join(repo, WORKFLOW));
+    execFileSync("mkfifo", [join(repo, WORKFLOW)]);
+    // A writer opens the pipe after the case's limit, so a read that waits on a writer ends then, and the case has failed at its limit, not hung.
+    const writer = spawn("/usr/bin/perl", ["-e", "sleep 3; open(my $f, '>', $ARGV[0]); close $f", join(repo, WORKFLOW)], { stdio: "ignore" });
+    cleanups.push(() => {
+      writer.kill();
+    });
+    await expect(setUpRecords(repo, "", VERSION, plan.stamp)).rejects.toThrow(differs(WORKFLOW));
   });
 
   it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `seal` with the run's token from a job of another name, `records`", () => {

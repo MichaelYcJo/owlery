@@ -109,7 +109,7 @@ export interface RecordsPlan {
   proposedBroadGate: string | null;
   /** The move of the workflow's pin that the plan's one written file makes, from the version the commit's workflow names to the daemon's, or null where the plan moves nothing. A daemon of an earlier build sends none. */
   move?: { from: string; to: string } | null;
-  /** Where the plan moves the pin: each work item of the repository whose records at its branch's head the daemon's readers refuse, with the reader's sentence; each one whose branch's head the daemon holds no reading of, with the sentence that its records were not read yet; and each one whose records git could not read there, with the sentence that they could not be read and git's words. Empty where each one was read and none is refused, and where the plan moves nothing. It is no part of the stamp. */
+  /** Where the plan moves the pin: each work item of the repository whose records at its branch's head the daemon's readers refuse, with the reader's sentence; each one whose branch's head the daemon holds no reading of, with the sentence that its records were not read yet; and each one whose worktree's folder is gone or whose records could not be read there for another reason, with the sentence that says why. Empty where each one was read and none is refused, and where the plan moves nothing. It is no part of the stamp. */
   unread?: { id: number; title: string; why: string }[];
   /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
   stamp: string;

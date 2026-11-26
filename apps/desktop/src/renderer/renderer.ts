@@ -1353,7 +1353,7 @@ function deleteNamed(): void {
  * now and from the plan the daemon answered with, in the words of ./view's
  * `recordsDialog`: what is out of scope, the versions of a move, the
  * commit, each file with its text, the work items whose records the
- * daemon's readers refuse, the field of the broad gate command, how an
+ * daemon's readers refuse or did not read, the field of the broad gate command, how an
  * administrator makes the seal check required, and the buttons. It closes
  * the dialog where the window's lists no longer hold the repository.
  */

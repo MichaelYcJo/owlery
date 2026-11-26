@@ -2124,6 +2124,25 @@ describe("the records place of a repository", () => {
     expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: expect.stringMatching(/^Owlery could not read these records, so whether the moved check refuses them is not known: .*not a git repository/su) }]);
   });
 
+  it("names, in a plan that moves the check, a work item whose worktree's folder is gone after the daemon read its branch's head, with the sentence that the folder is gone, though the branch still holds its records", { timeout: 60_000 }, async () => {
+    const NAME = "1795696248-records-of-a-gone-folder";
+    const { made, c, workItems } = await standing(cleanups, ["Gone work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    const head = git(a.worktree, "rev-parse", "HEAD").trim();
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // A person removes the worktree's folder by hand. The daemon reads the branch's head from the repository, so it still holds that head.
+    rmSync(a.worktree, { recursive: true, force: true });
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect(moving.plan.move).toEqual({ from: "1.2.2", to: "1.2.3" });
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Gone work", why: `Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item ${String(a.id)} is gone: ${a.worktree}` }]);
+  });
+
   it("names, in a plan that moves the check, a work item with a branch whose head the daemon holds no reading of, with the sentence that its records were not read, so the dialog does not say that the readers refuse none", { timeout: 60_000 }, async () => {
     const { made, c, workItems } = await standing(cleanups, ["Unread work"], { version: "1.2.3", commitPollMs: 50 });
     const [a] = workItems as [(typeof workItems)[number]];

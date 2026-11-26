@@ -2606,7 +2606,7 @@ export interface RecordsWords {
   blocked: string;
   /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. A move shows the workflow alone, with its whole text and the sentence that it is written over the committed file. */
   files: { path: string; text: string | null; says: string }[];
-  /** Of a plan that moves the check: each work item whose records the daemon's readers refuse at its branch's head, by its title with the reader's sentence, under a head where any is named, and what those readers read. Null for a plan that moves nothing. */
+  /** Of a plan that moves the check: each work item whose records the daemon's readers refuse at its branch's head or did not read, by its title with its entry's sentence, under a head where any is named, and what those readers read, which leaves out the ones named as not read. Null for a plan that moves nothing. */
   unread: { head: string; items: { name: string; why: string }[]; says: string } | null;
   /** For a repository that holds every part: its root, its workflow and its broad gate command. */
   holds: string[];
@@ -2646,7 +2646,8 @@ function requiredCheck(workflow: string | null): string {
  * the check says the version the workflow fetches the check at and the one
  * the commit moves it to, shows the workflow alone with the text written
  * over the committed file, names each work item whose records the daemon's
- * readers refuse and what those readers read, hides the field, and offers
+ * readers refuse or did not read and what those readers read, hides the
+ * field, and offers
  * "Move and commit", on where the plan is not blocked.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
@@ -2680,7 +2681,10 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
     // The one file a move writes is the workflow, over the committed one; the files it keeps are not shown.
     const moved = plan.files.filter((file) => file.text !== null);
     const named = (plan.unread ?? []).map(({ title, why }) => ({ name: title, why }));
-    const read = "Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const readers = "with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const read = `Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, ${readers}`;
+    // An entry can be a work item that was not read, so where any is named the sentence leaves those out by their own words.
+    const readBut = `Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
     return {
       ...unplanned,
       move: `\`${moved[0]?.path ?? ""}\` fetches the pull request check of Owlery ${move.from}, older than this app. The commit moves it to Owlery ${move.to}.`,
@@ -2689,7 +2693,7 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
       files: moved.map((file) => ({ ...file, says: `The commit writes this text over the committed \`${file.path}\`, whole.` })),
       unread:
         named.length > 0
-          ? { head: "Work items whose records Owlery's readers refuse", items: named, says: `${read} Once the check moves, it may refuse the pull requests of the work items named.` }
+          ? { head: "Work items whose records Owlery's readers refuse or did not read", items: named, says: `${readBut} Once the check moves, it may refuse the pull requests of the work items named.` }
           : { head: "", items: [], says: `${read} They refuse no work item's records, and the moved check may still refuse a pull request through another arm.` },
       required,
       submit: { shown: true, enabled: plan.blocked === null && plannedFor === command, label: "Move and commit" },
