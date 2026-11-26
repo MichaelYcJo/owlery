@@ -10,8 +10,9 @@
 // the dialog that renames that tab, the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
-// the row that login named, the Machine dialog, the app's Settings dialog
-// and the delete dialog of a work item with many commits) in each
+// the row that login named, the Machine dialog, the app's Settings dialog,
+// the delete dialog of a work item with many commits, and the sidebar where
+// a filter and a search leave no repository) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -57,7 +58,12 @@
 // ignored file stand, and "Running sessions that end" lists its shell pane
 // while "Sessions waiting for the machine that leave the queue" lists its
 // stage that waits, and Cancel then closes the dialog, which deletes
-// nothing.
+// nothing. The work item of the view "parked" alone holds a decision made
+// without asking, so the narrowed view chooses "Decided without asking" in
+// the sidebar's filter over the inbox and types into the search field a
+// word only other work items' titles hold, waits until the sidebar says
+// that it does not list its one repository and the filter's icon stands
+// inside its edge, and then empties the field and chooses All again.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -366,6 +372,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-machine.png",
       "night-watch-dark-app-settings.png",
       "night-watch-dark-delete.png",
+      "night-watch-dark-narrowed.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -385,11 +392,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-machine.png",
       "night-watch-light-app-settings.png",
       "night-watch-light-delete.png",
+      "night-watch-light-narrowed.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(114);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(114);
-    expect(all[113]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(120);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(120);
+    expect(all[119]).toEqual({ theme: "desk", appearance: "light", view: "narrowed", file: "desk-light-narrowed.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -464,6 +472,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const AT_REVIEW_ID = WORK_ITEMS.findIndex(({ title }) => title === AT_REVIEW) + 1;
   /** The marks of the panes' tabs of the view on screen, in the tabs' order: each tab's colour, or nothing for a tab with none, with commas between them. */
   const TAB_COLOURS_DRAWN = `[...document.querySelectorAll("#tabs .tab:not(.back)")].map((tab) => tab.dataset.colour ?? "").join()`;
+  /** What the narrowed view types into the sidebar's search field: a word only the titles of work items that hold no decision made without asking hold. */
+  const NARROWED_QUERY = "history";
+  /** What the sidebar says once "Decided without asking" and that search leave the scene's one repository unlisted. */
+  const NARROWED_SAYS = `No work item under "Decided without asking" matches "${NARROWED_QUERY}", so the sidebar does not list its repository.`;
+  /** Types into the sidebar's search field, as a person's typing arrives there. */
+  const searchSidebar = (query: string): Promise<void> =>
+    app.evaluate(`(() => { const field = document.getElementById("search-field"); field.value = ${JSON.stringify(query)}; field.dispatchEvent(new Event("input")); })()`);
 
   /** Opens the menu of the sidebar's line a selector finds, by a press of the right button in its middle, as a person's press arrives. */
   const openMenu = async (line: string): Promise<void> => {
@@ -553,6 +568,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** A person's choice in one of the two controls of the sidebar's foot. */
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
+
+  /** Chooses a state in the sidebar's filter, as a person picks it from the filter's list. */
+  const filterSidebar = (choice: "all" | "decided"): Promise<void> =>
+    app.evaluate(`(() => { const filter = document.getElementById("sidebar-filter"); filter.value = ${JSON.stringify(choice)}; filter.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
   /** Opens the "New work item" form with a name typed in it, and waits for the branch the first commit or a rename would make for the name, with no branch picked. */
   const openForm = async (name: string): Promise<void> => {
@@ -705,6 +724,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       if (commits < QUEUED_COMMITS.length) throw new Error(`the branch of ${QUEUED} holds ${String(commits)} commits no other branch holds, fewer than the run made`);
       await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(queuedHeads(commits))}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted)) && JSON.stringify([...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])) === ${JSON.stringify(JSON.stringify(QUEUED_SESSIONS))}`, `the delete dialog of ${QUEUED}, its heading counting its ${String(commits)} commits, the heads of its untracked file and its ignored file, its shell pane under "Running sessions that end", and its stage that waits for the machine under "Sessions waiting for the machine that leave the queue"`);
     },
+    narrowed: async () => {
+      // The work item of the view "parked" alone holds a decision made without asking, and neither its title nor its branch holds "history", so the choice and the search together leave the scene's one repository unlisted, and the sentence takes the one-repository end.
+      await show.inbox();
+      await filterSidebar("decided");
+      await searchSidebar(NARROWED_QUERY);
+      await app.until(`document.getElementById("sidebar-empty")?.textContent === ${JSON.stringify(NARROWED_SAYS)} && document.getElementById("show-every")?.textContent === "Show every work item" && document.querySelectorAll("#repositories section").length === 0 && (() => { const control = document.getElementById("sidebar-filter-control"); return control.classList.contains("on") && control.title === ${JSON.stringify(`Showing: Decided without asking, matching "${NARROWED_QUERY}"`)} && getComputedStyle(control).boxShadow !== "none"; })()`, `the inbox with "Decided without asking" chosen in the sidebar's filter and "${NARROWED_QUERY}" typed in its search, the filter's icon inside its edge and the sidebar saying "${NARROWED_SAYS}"`);
+    },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
@@ -772,6 +798,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // A cancel deletes nothing.
       await app.click("#delete-cancel");
       await dialogClosed("delete-dialog");
+    },
+    narrowed: async () => {
+      // The shots after this one click lines of the sidebar and count the inbox's lines, so the search is emptied and the filter shows every work item again.
+      await searchSidebar("");
+      await filterSidebar("all");
+      await app.until(`!document.getElementById("sidebar-empty") && document.querySelectorAll("#repositories section").length === 1 && document.getElementById("search-field").value === "" && !document.getElementById("sidebar-filter-control").classList.contains("on")`, "the sidebar listing its repository again, the search empty and the filter at All");
     },
   };
 

@@ -129,6 +129,7 @@
   --tab-blue: #6b8cf2;
   --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -249,6 +250,7 @@
   --tab-blue: #2f6bd0;
   --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -367,6 +369,7 @@
   --tab-blue: #6b8cf2;
   --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
 
@@ -485,6 +488,7 @@
   --tab-blue: #2f6bd0;
   --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
 
@@ -603,6 +607,7 @@
   --tab-blue: #6b8cf2;
   --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -721,6 +726,7 @@
   --tab-blue: #2f6bd0;
   --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 

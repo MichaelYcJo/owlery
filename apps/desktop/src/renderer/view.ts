@@ -1318,6 +1318,21 @@ export function filterChoices(): { value: StateFilter; label: string }[] {
   return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) })), { value: "decided", label: DECISIONS_HEAD }];
 }
 
+/** The label of a choice of the filter, as `filterChoices` names it. */
+function filterLabel(state: StateFilter): string {
+  return filterChoices().find((choice) => choice.value === state)?.label ?? state;
+}
+
+/**
+ * The sidebar's filter as its control marks it: on while a state other than
+ * All is chosen or a search is typed, and saying to a pointer the state it
+ * shows and what is typed.
+ */
+export function filterMark(query: string, state: StateFilter): { on: boolean; says: string } {
+  const says = `Showing: ${filterLabel(state)}`;
+  return { on: query !== "" || state !== "all", says: query === "" ? says : `${says}, matching "${query}"` };
+}
+
 /**
  * The work items a search and a filter leave, in the order given: those
  * whose title, branch or repository's name holds what is typed, and whose
@@ -1355,6 +1370,23 @@ export function emptyList(screen: "inbox" | "history" | "archived", total: numbe
   if (shown > 0) return "";
   if (total > 0) return "No work item matches.";
   return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
+}
+
+/** The button under the sentence of the empty sidebar, which chooses All in the filter and empties the search field. */
+export const SHOW_EVERY_WORK_ITEM = "Show every work item";
+
+/**
+ * What the sidebar says in place of its repositories, `listed` being how
+ * many it lists: what narrows it, and how many repositories the daemon keeps
+ * that are not hidden. Nothing where nothing narrows it, where it lists a
+ * repository, and where every repository is hidden, which the button of the
+ * hidden repositories says.
+ */
+export function emptySidebar(repositories: readonly Repository[], listed: number, query: string, state: StateFilter): string {
+  const kept = repositories.filter((repository) => !repository.hidden).length;
+  if ((query === "" && state === "all") || listed > 0 || kept === 0) return "";
+  const what = query === "" ? `No work item stands under "${filterLabel(state)}"` : state === "all" ? `No work item matches "${query}"` : `No work item under "${filterLabel(state)}" matches "${query}"`;
+  return `${what}, ${kept === 1 ? "so the sidebar does not list its repository" : `so the sidebar lists none of its ${kept} repositories`}.`;
 }
 
 /** What changed of a work item's seal since the look: a seal was given, or a seal broke. */
