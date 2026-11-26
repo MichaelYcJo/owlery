@@ -2744,6 +2744,7 @@ describe("agent events", () => {
     expect(agentEventFor("Notification")).toBe("notification");
     expect(agentEventFor("Stop")).toBe("turn-end");
     expect(agentEventFor("StopFailure")).toBe("turn-failed");
+    expect(agentEventFor("StopFailure", { hook_event_name: "StopFailure", agent_id: "a1b2", error: "rate_limit", last_assistant_message: "API Error: Rate limit reached" })).toBeUndefined();
     expect(agentEventFor("SubagentStop")).toBeUndefined();
   });
 });
@@ -2883,6 +2884,19 @@ describe("the inbox", () => {
     clock = 300;
     d.agentEvent(session.id, "UserPromptSubmit", { prompt: "Try again." });
     expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null, stateQuestions: null }]);
+  });
+
+  it("leaves a working Claude Code session working at the API error of one of its subagents, whose hook input names the subagent's agent_id", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    d.agentEvent(session.id, "StopFailure", { agent_id: "a1b2", error: "rate_limit", last_assistant_message: "API Error: Rate limit reached" });
+    await pause(100);
+    expect(c.messages.filter((m) => m.type === "agent" && m.event === "turn-failed")).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions[0]).toMatchObject({ state: "working", stateText: null });
   });
 
   it("reads no session log of a pane whose turn ended on an API error: an interruption entry the log gains afterwards tells nobody", async () => {

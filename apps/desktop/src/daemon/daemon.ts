@@ -660,7 +660,7 @@ export class Daemon {
     clearTimeout(session?.silentStart);
     // The conversation a change of the pane's account resumes, from any event that names one.
     if (session && typeof payload.session_id === "string" && CONVERSATION_ID.test(payload.session_id)) session.conversation = payload.session_id;
-    const event = agentEventFor(hookName);
+    const event = agentEventFor(hookName, payload);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });

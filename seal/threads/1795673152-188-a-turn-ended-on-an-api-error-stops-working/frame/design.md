@@ -39,7 +39,7 @@ In:
 
 1. `apps/desktop/src/daemon/hooks.ts#HOOK_EVENTS` gains `"StopFailure"`, so the shared settings file and a pane's own settings file each hold a hook for it.
 2. `apps/desktop/src/shared/protocol.ts`, `AgentEvent`, gains the value `"turn-failed"`: the agent's turn ended on an error of its provider before the agent finished.
-3. `apps/desktop/src/daemon/agent-events.ts` maps `StopFailure` to `"turn-failed"`, and reads `last_assistant_message` as the text of the event, as it does for `Stop`.
+3. `apps/desktop/src/daemon/agent-events.ts` maps `StopFailure` to `"turn-failed"`, and reads `last_assistant_message` as the text of the event, as it does for `Stop`. A `StopFailure` whose input names an `agent_id` fired inside a subagent, and maps to no event.
 4. `apps/desktop/src/daemon/agent-state.ts#agentStateAfter` gives `"waiting"` for `"turn-failed"`, whether or not the state began at an interruption. Its docstring says so.
 5. A fixture, `apps/desktop/test/fixtures/claude-stop-failure.json`, holds the event as the hooks reference gives it: the example's payload, the page's address, the date it was read, the version of the CLI whose declared input was read beside it, and the sentence that the event was taken from the reference and not recorded from a session.
 6. Cases hold items 1 to 4, the daemon's among them: fed the fixture's event after a prompt, a session leaves `working` for `waiting`, its `stateText` is the fixture's error text, the watch of its session log ends, and a prompt after it returns the session to `working`.
@@ -85,12 +85,12 @@ Each new case is shown red before it is committed: against the tree without the 
 - add
   file: docs/architecture.md
   section: Overall layout
-  to: - **A turn that ends on an API error leaves its session waiting for the person.** Claude Code runs its `StopFailure` hook in place of `Stop` for such a turn, and the hook's input holds the error's kind in `error` and the error's text, as the pane shows it, in `last_assistant_message`. The daemon reads the event as a turn that failed: the session waits, and the inbox shows the error's text. The agent did not finish what it was asked, so the session is not called finished. `apps/desktop/test/fixtures/claude-stop-failure.json` holds the event as Claude Code's hooks reference gives it and names the date the reference was read and the version of Claude Code whose declared input was read beside it.
+  to: - **A turn that ends on an API error leaves its session waiting for the person.** Claude Code runs its `StopFailure` hook in place of `Stop` for such a turn, and also at the end of a subagent's turn, whose input then names the subagent's `agent_id`; the daemon reads only the session's own, and the hook's input holds the error's kind in `error` and the error's text, as the pane shows it, in `last_assistant_message`. The daemon reads the event as a turn that failed: the session waits, and the inbox shows the error's text. The agent did not finish what it was asked, so the session is not called finished. `apps/desktop/test/fixtures/claude-stop-failure.json` holds the event as Claude Code's hooks reference gives it and names the date the reference was read and the version of Claude Code whose declared input was read beside it.
     check: apps/desktop/test/agent-state.test.ts apps/desktop/test/agent-events.test.ts apps/desktop/test/hooks.test.ts apps/desktop/test/daemon.test.ts
 - add
   file: docs/architecture.ko.md
   section: 전체 구성
-  to: - **API 오류로 끝난 턴은 그 세션을 사람을 기다리는 상태로 둡니다.** Claude Code는 이런 턴에서 `Stop` 대신 `StopFailure` 훅을 실행하고, 훅의 입력은 오류의 종류를 `error`에, 칸에 보이는 오류의 글을 `last_assistant_message`에 담습니다. 데몬은 이 이벤트를 실패한 턴으로 읽습니다. 세션은 사람을 기다리고, 작업함은 오류의 글을 보여 줍니다. 에이전트가 시킨 일을 끝내지 못했으므로 세션을 끝났다고 하지 않습니다. `apps/desktop/test/fixtures/claude-stop-failure.json`에 Claude Code의 훅 문서가 적은 대로의 이벤트가 들어 있고, 문서를 읽은 날짜와 입력 선언을 함께 읽은 Claude Code의 버전도 그 파일에 적혀 있습니다.
+  to: - **API 오류로 끝난 턴은 그 세션을 사람을 기다리는 상태로 둡니다.** Claude Code는 이런 턴에서 `Stop` 대신 `StopFailure` 훅을 실행하고, 서브에이전트의 턴이 끝날 때에도 실행하며 그때 입력에 서브에이전트의 `agent_id`가 들어 있습니다. 데몬은 세션 자신의 것만 읽고, 훅의 입력은 오류의 종류를 `error`에, 칸에 보이는 오류의 글을 `last_assistant_message`에 담습니다. 데몬은 이 이벤트를 실패한 턴으로 읽습니다. 세션은 사람을 기다리고, 작업함은 오류의 글을 보여 줍니다. 에이전트가 시킨 일을 끝내지 못했으므로 세션을 끝났다고 하지 않습니다. `apps/desktop/test/fixtures/claude-stop-failure.json`에 Claude Code의 훅 문서가 적은 대로의 이벤트가 들어 있고, 문서를 읽은 날짜와 입력 선언을 함께 읽은 Claude Code의 버전도 그 파일에 적혀 있습니다.
     check: apps/desktop/test/agent-state.test.ts apps/desktop/test/agent-events.test.ts apps/desktop/test/hooks.test.ts apps/desktop/test/daemon.test.ts
 
 ## Removes
