@@ -9,5 +9,7 @@ Closes #150.
 - "How long may a commit that Owlery's code makes run before it is ended?" (`frame/questions.md` Q1)
 - "5 minutes" (`frame/questions.md` Q1, the default)
 - "Does a real signing setup end cleanly at the limit: a `gpg` or an `ssh` signer that waits for a passphrase in a prompt of its own, outside git's process group?" (`frame/questions.md` Q2)
+- "Does the retry as built meet the issue's *Done when* line" (`frame/questions.md` Q3)
+- "The retry as built." (`frame/questions.md` Q3, the default)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
