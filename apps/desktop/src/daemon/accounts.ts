@@ -1,5 +1,5 @@
 import { lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync } from "node:fs";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { type Account, type AccountLimit, type AccountRefresh, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME } from "../shared/protocol";
 import { writeWholeFile } from "./whole-file";
 
@@ -198,8 +198,10 @@ export class AccountStore {
    * The path an account handed over by `folder` is kept under: the folder as
    * its path names it, without a slash at its end. It throws, with a sentence
    * a person reads, for a path that is not absolute, a path where no folder
-   * stands, and a folder that is already an account's, however the two paths
-   * spell it. Nothing is read or written inside the folder.
+   * stands, a folder that is already an account's, however the two paths
+   * spell it, and the folder the store makes its accounts' folders in or a
+   * folder inside it, a folder whose first sign-in runs among them. Nothing is
+   * read or written inside the folder.
    */
   handedPath(folder: string): string {
     if (!isAbsolute(folder)) throw new Error(`The folder of an account is an absolute path, and "${folder}" is not one.`);
@@ -214,6 +216,11 @@ export class AccountStore {
     const real = realOf(path);
     const holder = this.stored.accounts.find((account) => realOf(account.folder) === real);
     if (holder) throw new Error(`The folder ${folder} is already the account "${holder.name}".`);
+    // The store removes what stands in its folder of made folders, where an add's sign-in ends with no login and where a made account is removed, so no folder there is handed over.
+    if (this.file !== undefined) {
+      const made = realOf(join(dirname(this.file), MADE_FOLDERS));
+      if (real === made || real.startsWith(`${made}${sep}`)) throw new Error(`The folder ${folder} is the folder Owlery makes its accounts' folders in, or stands inside it, so it is not handed over.`);
+    }
     return path;
   }
 

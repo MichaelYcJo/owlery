@@ -131,19 +131,28 @@ describe("AccountStore", () => {
     expect(contents(handed)).toEqual(before);
   });
 
-  it("refuses with a sentence a path that is not absolute, a path where no folder stands, a file, and a folder that is already an account's by another spelling, before an add and at it, and adds nothing at any of them", () => {
-    const store = new AccountStore(folder());
+  it("refuses with a sentence a path that is not absolute, a path where no folder stands, a file, a folder that is already an account's by another spelling, and the store's own folder of made folders or a folder inside it, a folder whose first sign-in runs among them, before an add and at it, and adds nothing at any of them", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
     const handed = handedFolder();
     store.addHanded("Work", handed, "claude");
     const alias = join(folder(), "alias");
     symlinkSync(handed, alias);
     const file = join(handed, "settings.json");
+    // The folder of an add whose sign-in runs, which the store removes where that sign-in ends with no login, and a folder inside it.
+    const adding = store.beginMade().folder;
+    const inside = join(adding, "inside");
+    mkdirSync(inside);
+    const made = join(runDir, "accounts");
     for (const [path, refusal] of [
       ["accounts/work", 'The folder of an account is an absolute path, and "accounts/work" is not one.'],
       [join(handed, "missing"), `No folder stands at ${join(handed, "missing")}.`],
       [file, `No folder stands at ${file}.`],
       [handed, `The folder ${handed} is already the account "Work".`],
       [alias, `The folder ${alias} is already the account "Work".`],
+      [made, `The folder ${made} is the folder Owlery makes its accounts' folders in, or stands inside it, so it is not handed over.`],
+      [adding, `The folder ${adding} is the folder Owlery makes its accounts' folders in, or stands inside it, so it is not handed over.`],
+      [inside, `The folder ${inside} is the folder Owlery makes its accounts' folders in, or stands inside it, so it is not handed over.`],
     ] as const) {
       expect(() => store.handedPath(path)).toThrow(refusal);
       expect(() => store.addHanded("Again", path, "claude")).toThrow(refusal);
