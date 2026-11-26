@@ -10,4 +10,4 @@ The judgments the ticket left open that the tree answered:
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
-| Q1 | Does the Korean diagram line in `docs/architecture.ko.md:20` keep the box's right edge in its column once "(v0.2)" becomes its Korean "later"? Hangul takes two columns in a fixed-width font, and the width depends on the words the crafter picks, which this frame does not fix. | the work | Pad with spaces so the edge stays in its column / leave the edge where the new words put it | Pad, as the line is padded now | open |
+| Q1 | Does the Korean diagram line in `docs/architecture.ko.md:20` keep the box's right edge in its column once "(v0.2)" becomes its Korean "later"? Hangul takes two columns in a fixed-width font, and the width depends on the words the crafter picks, which this frame does not fix. | the work | Pad with spaces so the edge stays in its column / leave the edge where the new words put it | Pad, as the line is padded now | answered 2026-11-26 by the work (phase 1) |

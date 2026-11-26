@@ -46,9 +46,9 @@ Read: the combined branch of #215, #216 and #133 that `routing.md` names, at `fe
 
 No migration, variable, dependency or version move. The orchestrator, which alone may post, owns what this work leaves in the tracker:
 
-- The descriptions of milestones #3, #4, #5 and #8 say "of v0.1", "the done criteria of v0.1", "between milestone 4 and 0.1.0" and "0.1.0 is the one version number the roadmap fixes".
-- Issue #80 sits in milestone 5 and is titled "release 0.1.0 has no pull request into main, no tag and no release note, and nobody has checked the done criteria of v0.1". Issues #69 (milestone 4) and #187 (hardening) are titled with releases 0.0.6 and 0.0.7, numbers the new rules do not give.
-- No issue holds rule 5, which the owner named as an issue of its own after the launch (executed: `gh issue list --search`), and none holds rule 6.
+- The descriptions of milestones #3, #4, #5 and #8 name the first version and no release number.
+- Issue #80 is titled "nobody has checked the done criteria of the first version". #69 and #187 name the release that ships milestone 4 and the release that ships the hardening milestone, in place of 0.0.6 and 0.0.7.
+- Issue #279 holds rule 5 and issue #280 holds rule 6, both in `after launch: first findings and conveniences`.
 
 ## Judgments of the run
 
