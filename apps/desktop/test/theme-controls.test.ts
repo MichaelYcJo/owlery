@@ -386,7 +386,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
-  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in until its process ends, so no pane replaces the one the dialog draws", async () => {
+  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in until its process ends, in the dialog opened again too, so no pane replaces the one the dialog draws", async () => {
     writeFileSync(join(standIn, "hold-login"), "");
     const signIn = `[...document.querySelectorAll('#accounts-list li[data-account="1"] button')].find((button) => button.textContent === "Sign in")`;
     try {
@@ -394,6 +394,12 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
       await app.evaluate(`${signIn}.click()`);
       await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to stand-in@example.com"`, "the sign-in pane of the account the login named");
+      expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
+      // The rows are drawn anew when the dialog opens again, and the row's "Sign in" stays disabled while the sign-in runs.
+      await app.click("#accounts-close");
+      await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed during the sign-in");
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog open again during the sign-in");
       expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
     } finally {
       rmSync(join(standIn, "hold-login"), { force: true });
