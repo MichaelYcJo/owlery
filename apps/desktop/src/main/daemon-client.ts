@@ -55,10 +55,13 @@ export function runsNothing(ready: Readonly<Record<string, unknown>>): boolean {
  */
 export async function daemonForLoad(runDir: string, daemonScript: string, replaced: Set<string | undefined>, { startMs, stopMs }: { startMs?: number; stopMs?: number } = {}): Promise<Discovery> {
   const running = readDiscovery(runDir);
-  const ready = running && (await readyOf(running));
-  if (running && ready && otherBuild(running, daemonScript) && !replaced.has(running.build) && runsNothing(ready)) {
-    replaced.add(running.build);
-    await stopDaemon(runDir, stopMs);
+  // Only a daemon of another build that this run has not replaced is asked for its lists: a hello has the daemon read git again and hold its `ready` until that read ends, and `ensureDaemon` says its own.
+  if (running && otherBuild(running, daemonScript) && !replaced.has(running.build)) {
+    const ready = await readyOf(running);
+    if (ready && runsNothing(ready)) {
+      replaced.add(running.build);
+      await stopDaemon(runDir, stopMs);
+    }
   }
   return ensureDaemon(runDir, daemonScript, startMs);
 }

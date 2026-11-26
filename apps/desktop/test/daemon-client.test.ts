@@ -145,8 +145,11 @@ function standIn(dir: string, token: string, atSigterm?: string, lists: object =
        renameSync(join(process.env.OWLERY_RUN_DIR, "port.part"), join(process.env.OWLERY_RUN_DIR, "port"));
      });
      server.on("connection", (socket) => socket.on("message", (raw) => {
-       if (JSON.parse(String(raw)).token === ${JSON.stringify(token)}) socket.send(JSON.stringify({ ...${JSON.stringify(lists)}, type: "ready" }));
-       else socket.close();
+       if (JSON.parse(String(raw)).token === ${JSON.stringify(token)}) {
+         // Each hello it answers is noted in "hellos", one letter each.
+         require("node:fs").appendFileSync(join(process.env.OWLERY_RUN_DIR, "hellos"), "h");
+         socket.send(JSON.stringify({ ...${JSON.stringify(lists)}, type: "ready" }));
+       } else socket.close();
      }));`,
   );
 }
@@ -326,7 +329,7 @@ describe("daemonForLoad", () => {
     expect(readDiscovery(dir)).toEqual(found);
   }, WAIT);
 
-  it("keeps a daemon of the script's own build that runs nothing, signals it nothing, starts nothing, and gives it", async () => {
+  it("keeps a daemon of the script's own build that runs nothing, signals it nothing, starts nothing, asks it for no lists, and gives it", async () => {
     const dir = scratch();
     const app = thisBuild(dir);
     const own = await standingIn(dir, "own", NOTES_SIGTERM, IDLE);
@@ -335,6 +338,8 @@ describe("daemonForLoad", () => {
     expect(alive(own.pid)).toBe(true);
     expect(existsSync(join(dir, "signals"))).toBe(false);
     expect(existsSync(join(dir, "this-build-started"))).toBe(false);
+    // One hello, `ensureDaemon`'s: the lists of a daemon of the script's own build are not asked for.
+    expect(readFileSync(join(dir, "hellos"), "utf8")).toBe("h");
   }, WAIT);
 
   it.each([...RUNS, ["no lists", {}] as [string, object]])("keeps a daemon of another build whose ready holds %s, signals it nothing, starts nothing, and gives it", async (_what, lists) => {
