@@ -54,11 +54,12 @@ function streamed(response: ServerResponse, model: unknown, block: Block, stop: 
 /**
  * Starts the stand-in at a port the system gives, and gives its address, the
  * requests it received in the order they came, and a function that closes
- * it. `command` is the command of the `Bash` call it answers a session's
+ * it. `command` gives the command of the `Bash` call it answers a session's
  * first request with: a request whose tools name `Bash` and whose messages
- * hold no tool result.
+ * hold no tool result. It is called when that request arrives, so a command
+ * can name a folder the session was given only when it started.
  */
-export async function startModelStandIn(command: string): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
+export async function startModelStandIn(command: () => string): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
   const received: Received[] = [];
   const server = createServer((request, response) => {
     let text = "";
@@ -79,7 +80,7 @@ export async function startModelStandIn(command: string): Promise<{ url: string;
       const pathname = new URL(path, "http://stand-in").pathname;
       if (request.method === "POST" && pathname === "/v1/messages" && body?.stream === true) {
         const tools = Array.isArray(body.tools) ? (body.tools as { name?: unknown }[]).map((tool) => tool.name) : [];
-        const block: Block = tools.includes("Bash") && toolResults(body).length === 0 ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command, description: "The stand-in model's one call" } } : { type: "text", text: STAND_IN_TEXT };
+        const block: Block = tools.includes("Bash") && toolResults(body).length === 0 ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command: command(), description: "The stand-in model's one call" } } : { type: "text", text: STAND_IN_TEXT };
         streamed(response, body.model, block, block.type === "tool_use" ? "tool_use" : "end_turn");
         return;
       }
