@@ -128,7 +128,7 @@ OWLERY_BACKGROUND=1 OWLERY_MEMORY_SCENARIOS=four pnpm run measure:memory
 | four | 2 | 64.7 | 120.1 | 324.4 | 7.5 | 22.0 | 0.0 | 538.7 |
 | four | 3 | 64.6 | 116.5 | 321.4 | 7.4 | 22.0 | 0.0 | 532.0 |
 
-- The renderer process holds 116.4 to 120.1 MB at 30 s, where it held 82.7 to 86.9 MB, so about 33 MB more. The cells of 5,000 lines of 49 columns, at 12 bytes a cell, come to about 2.9 MB for each terminal and 11.8 MB for four. These tables do not say what holds the rest.
+- The renderer process holds 116.4 to 120.1 MB at 30 s, where it held 82.7 to 86.9 MB, so about 33 MB more. Each terminal holds 4,000 lines more than it held then, and at 49 columns and 12 bytes a cell they come to about 2.4 MB for each terminal and 9.4 MB for four. These tables do not say what holds the rest.
 - The daemon holds 22.0 to 22.8 MB, where it held 18.3 to 18.9 MB, so about 3.5 MB more. Four buffers of 1,280,000 characters in place of 262,144 should come to about 4 MB at one byte a character.
 - The GPU process holds 321.4 to 330.4 MB, about as much as before.
 - `docs/architecture.md` *Memory design* publishes what a scene costs as a measurement and holds no feature to its number, so this is the scene's number at the default, and not a limit.
