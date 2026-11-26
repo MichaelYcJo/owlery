@@ -1754,8 +1754,8 @@ export class Daemon {
    * signs no account in. With no folder, the daemon makes `accounts/<id>`,
    * gives it the person's names and starts its sign-in pane at once, and the
    * folder is no account until that pane's process ends (`endAdd`). Where the
-   * agent signs no account in, or its sign-in cannot start, the folder made is
-   * removed and nothing is kept.
+   * adapter signs no account in, nothing is made, and where the sign-in
+   * cannot start, the folder made is removed with its id and nothing is kept.
    */
   private async addAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "addAccount" }>): Promise<void> {
     try {

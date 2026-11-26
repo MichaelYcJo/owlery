@@ -258,7 +258,9 @@ describe("AccountStore", () => {
     expect(store.addHanded("Handed", handedFolder(), "claude").id).toBe(2);
     // A folder a lost accounts.json left behind is no account's to take.
     mkdirSync(join(runDir, "accounts", "3"));
+    writeFileSync(join(runDir, "accounts", "3", ".claude.json"), "{}\n");
     expect(store.beginMade().id).toBe(4);
+    expect(readFileSync(join(runDir, "accounts", "3", ".claude.json"), "utf8")).toBe("{}\n");
     expect(store.adding().map((noted) => noted.id)).toEqual([1, 4]);
     expect(() => new AccountStore(undefined).beginMade()).toThrow("This daemon keeps no run folder to make an account's folder in.");
     // A file of a build before this list holds no folder whose sign-in has not ended.
