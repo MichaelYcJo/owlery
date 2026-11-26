@@ -35,3 +35,30 @@ The re-runs below ran in a clone of HEAD at `<scratchpad>/1795610690-224-the-ask
 target: 44ab71ec against 783e2331
 Verdict: withheld reason: the orchestrator's pr.md says "Closes #224", and issue #224's last Done-when line, "The PR carries screenshots of the view's right column in every theme", with docs/design.md "A pull request that changes the window carries its screenshots", is not met at 44ab71ec: no screenshot is committed under seal/threads/1795610690-224-the-ask-section-goes/ and pr.md links none (gaps.md Not verified row 1 leaves it open to the orchestrator)
 ```
+
+## Re-audit at b31df3c5
+
+Since the block above, `44ab71ec..b31df3c5` adds `86a0a394` (30 screenshots under `screenshots/`), `12fdc63b` (`gaps.md`) and `b31df3c5` (this file's first block). Each touches only `seal/threads/1795610690-224-the-ask-section-goes/` (executed, `git diff --name-only 44ab71ec HEAD`). So no coordinate of the claims re-run above changed. Those claims stand as they were re-run, and only the part that changed is audited here. `git log --no-merges --name-only fee2b8b7..HEAD ^783e2331` lists no path outside the work item's directory, so the gate's run at `fee2b8b7` still covers the code (executed). `seal pr-body ... --check` on the rewritten body exited 0 (executed).
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The 30 shots of the view, parked, broken, Machine and delete views, in every theme and appearance, are committed, and the body shows each from the commit that holds it | `gaps.md` *Not verified* row 1 (closed) and *Not done*, last paragraph | for each `blob/<commit>/<path>` link in `gaps.md`: `git cat-file -e <commit>:<path>` and `git diff --quiet <commit> HEAD -- <path>`; `git ls-files seal/threads/1795610690-224-the-ask-section-goes/screenshots \| wc -l`; `grep -c 'raw=true'` over the body file | holds: 30 links, each resolving to a committed file that HEAD keeps unchanged. 30 files committed. The body holds 30 image links |
+| The shots cover every theme | issue #224 *Done when*, last line; `docs/design.md` *A pull request that changes the window carries its screenshots* | read `apps/desktop/src/renderer/themes.css` (`[data-theme=…]` rules) | holds: the app ships `night-watch`, `register` and `desk`, and the shots name the three, each dark and light |
+| The view's shot shows the right column with no "Ask" section and the failed gate's line and output at its foot. The broken work item's shot shows the seal's place alone at its foot | `frame/design.md` *User scenarios & acceptance*, rows 1, 2 and 4 | read `screenshots/desk-light-view.png` and `screenshots/register-dark-broken.png` | holds: the view shows "Broad gate sh scripts/check.sh", "failed", "Show output" and the command's output above "No seal yet", with no "Ask" heading, field or button. The broken view's foot holds the broken seal alone. Two of 30 shots were read, a sample |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | as in the first block, and the acceptance row "The screenshots in every theme" | the tree, now at that row too | none |
+| the build | as in the first block | the tree | none |
+| the last round | as in the first block. Its *Not judged* row of the screenshots in every theme is answered by `86a0a394` and `12fdc63b` | the tree | none |
+| the changelog | unchanged since the first block | the tree | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged: "Closes #224." with four quotes. The screenshots stand in the body through `gaps.md` *Not done*, which `seal pr-body` copies below its heading | issue #224's *Done when*, every line, and `docs/design.md`'s rule on screenshots, which asks the body to show each file and not `pr.md` in particular | none |
+
+```seal
+target: b31df3c5 against 783e2331
+Verdict: sealed
+```
