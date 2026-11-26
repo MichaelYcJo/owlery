@@ -39,6 +39,11 @@ The unit is the loop that `ad72e618` added at `package.ts:164-167`, with its cas
 
 `ALL` is the constant at `package.test.ts:15`, and `bare` and `packager` stand at `:57-63`. The fix pass shows the case red with the guard removed, as contract rule 15 asks.
 
+```seal
+verdict: fixed 20189d5c
+answer: The record's case stands in `apps/desktop/test/package.test.ts` under `describe("packageApp")`, after the case on the empty variables, as written. With the guard at `package.ts:167` changed to `for (const name of SIGNING_VARIABLES) delete env[name];` and nothing else changed, `pnpm run test test/package.test.ts -t "keeps the signing variables that hold text"` exited 1 on the guard's line, "expected { PATH: '/usr/bin' } to deeply equal { PATH: '/usr/bin', …(5) }" (executed); the guard was put back before the commit. The comment above the loop now says that the packager reads `CSC_LINK` and `CSC_KEY_PASSWORD` as set wherever they are defined and the three notarization variables only where they hold text, as `platformPackager.js:84-92` and `MacTargetHelper.js:236-243` read (read), and that the ones that hold text stay. After the commit, `pnpm run test test/package.test.ts` exited 0 with 27 passed (executed).
+```
+
 ### 2. The frame lists two checkout steps, and the workflow has one
 
 ```seal
@@ -54,6 +59,11 @@ The unit is the line `9f66146a` changed when it folded finding 2's fix of round 
 
 ```md
 - Steps: check out the tag, with `persist-credentials: false`; set up pnpm (its action pinned to a commit), Node.js 22 and the install as `check.yml` does; `package --tag`, which checks the tag and writes the way of signing to the summary; `package:verify`; the upload with `gh release`, as *Scope* item 8 states, which adds the release to the summary.
+```
+
+```seal
+verdict: fixed e62ba55c
+answer: The orchestrator's fold rewrote the line at `frame/design.md:161` in place to "check out the tag, with `persist-credentials: false`; …", one checkout step, which matches the one `actions/checkout` step at `.github/workflows/package.yml:41-46` (read at `20189d5c`). The fix pass changed no frame line. The read of the range, after `20189d5c`: `git diff 8d95474d HEAD` of the code and of the work item's records outside `trail/` was printed and each hunk read with its unit, and HEAD contradicts none of it (read). `changelog.md` and `gaps.md` are unchanged, since the fix changes no behaviour the work ships. The sample search `git grep -n -e "as set wherever" -e "reads a signing variable" HEAD` prints `package.ts:164`, the rewritten comment, `trail/rounds/round-1.md:32`, round 1's paste-ready fix, which records that round and stands, and `trail/rounds/round-2.md:64`, this round's own prose (executed). A statement in other words escapes the sample; the part it did not reach is the tree outside the work item's records and the two source files.
 ```
 
 ## Confirmations
