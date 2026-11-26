@@ -409,13 +409,15 @@ function forget(dialog: HTMLDialogElement): void {
   for (const [requestId, known] of asking) if (known.dialog === dialog) asking.delete(requestId);
 }
 
-/** Opens a dialog that waits on a request, with no refusal shown and its button on. Nothing opens over another dialog. */
+/** Opens a dialog that waits on a request, with no refusal shown, its button on and every list at its top. Nothing opens over another dialog. */
 function opened(of: Asking): boolean {
   if (dialogOpen()) return false;
   forget(of.dialog);
   of.error.textContent = "";
   of.button.disabled = false;
   of.dialog.showModal();
+  // A list a draw keeps is the element the last opening left, and Chromium gives it back the scroll it had then. So each opening starts every list at its top, once the dialog shows and the list has a box to scroll.
+  for (const list of of.dialog.querySelectorAll<HTMLElement>("ul")) list.scrollTop = 0;
   return true;
 }
 

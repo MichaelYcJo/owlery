@@ -916,7 +916,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect([existsSync(worktree), git(clone.repo, "branch", "--list", "owlery/doomed"), existsSync(join(clone.repo, "README.md"))]).toEqual([false, "", true]);
   });
 
-  it("shows in the delete dialog a list of more commits than ten rows as ten whole rows, counts every commit in its heading, keeps a row one line high where its subject or its path is longer than the dialog, and comes to rest on whole rows after a turn of the wheel; where the daemon sends lists that change nothing the dialog names, and where Force delete is checked, the list keeps its scroll and its rows, and the list of sessions stands as it is drawn", async () => {
+  it("shows in the delete dialog a list of more commits than ten rows as ten whole rows, counts every commit in its heading, keeps a row one line high where its subject or its path is longer than the dialog, and comes to rest on whole rows after a turn of the wheel; where the daemon sends lists that change nothing the dialog names, and where Force delete is checked, the list keeps its scroll and its rows, and the list of sessions stands as it is drawn; opened again, the dialog starts the list of sessions it kept at its top", async () => {
     await create("Long list");
     const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((button) => button.querySelector(".title").textContent === "Long list").dataset.workItem)`);
     const worktree = join(clone.root, "project", "long-list");
@@ -964,6 +964,19 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#delete-force");
     expect(await value<boolean>(`document.getElementById("delete-force").checked`)).toBe(true);
     expect(await kept()).toEqual([rested, true, true, true]);
+    // The list of sessions is kept across a close and an opening as well, since the work item's sessions are the same. Its one line scrolls under a style that makes the list lower than the line, and the list is left scrolled. The dialog opened again starts it at its top.
+    const sessions = `document.querySelector("#delete-sessions ul")`;
+    expect(await value<number>(`(() => { const list = ${sessions}; list.style.maxHeight = "6px"; list.scrollTop = 4; return list.scrollTop; })()`)).toBeGreaterThan(0);
+    await app.click("#delete-cancel");
+    await dialogClosed("delete-dialog");
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    await app.until(`[...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)})`, "the heading that counts the twelve commits, read again");
+    expect(await value<[boolean, number]>(`[${sessions} === window.__kept.sessions, ${sessions}.scrollTop]`)).toEqual([true, 0]);
+    await value(`void (${sessions}.style.maxHeight = "")`);
     await app.click("#delete-cancel");
     await dialogClosed("delete-dialog");
   });
