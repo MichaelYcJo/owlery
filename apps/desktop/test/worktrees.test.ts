@@ -1056,12 +1056,13 @@ describe("committing files of a worktree", () => {
   /**
    * Writes a program of the repository's at `path` below its folder, which
    * notes its process id in a file beside the repository and then runs
-   * `body`, and gives the ids noted so far. The case's cleanup ends by its id
-   * each one that still runs.
+   * `body`, given that file where it is a function, and gives the ids noted
+   * so far, its own first. The case's cleanup ends by its id each one that
+   * still runs.
    */
-  const program = (made: { base: string; repo: string }, path: string, body: string): (() => number[]) => {
+  const program = (made: { base: string; repo: string }, path: string, body: string | ((noted: string) => string)): (() => number[]) => {
     const noted = join(made.base, `${path.replaceAll("/", "-")}-pids.txt`);
-    write(made.repo, path, `#!/bin/sh\necho $$ >> '${noted}'\n${body}\n`);
+    write(made.repo, path, `#!/bin/sh\necho $$ >> '${noted}'\n${typeof body === "string" ? body : body(noted)}\n`);
     chmodSync(join(made.repo, path), 0o755);
     const started = (): number[] => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line !== "").map(Number) : []);
     cleanups.push(() => {
@@ -1125,6 +1126,22 @@ describe("committing files of a worktree", () => {
     expect(commitsIn(made.repo)).toBe(1);
     expect(status(made.repo)).toEqual(["?? a.md"]);
     expect(existsSync(join(made.repo, ".git", "index.lock"))).toBe(false);
+  });
+
+  it("ends a commit whose pipe a process in a session of its own holds open: once git has exited and the SIGKILL was sent, it throws the command and the limit, and no commit is made", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    // The hook starts a `sleep` in a session of its own, outside git's group, which holds git's stderr, and notes its id after the hook's.
+    const holder = `$p = fork; if ($p) { open(F, ">>", $ARGV[0]); print F "$p\\n"; close(F); exit 0 } setsid; exec "sleep", "60"`;
+    const hook = program(made, ".git/hooks/pre-commit", (noted) => `perl -MPOSIX -e '${holder}' '${noted}'\n${never(made)}`);
+    const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
+    expect(commit.said).toBe("git commit did not end in 0.5 seconds and was ended");
+    expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS + 3000);
+    const [own, held] = hook();
+    expect(held === undefined ? false : runs(held)).toBe(true);
+    await gone(() => (own === undefined ? [] : [own]));
+    expect(commitsIn(made.repo)).toBe(1);
+    expect(status(made.repo)).toEqual(["?? a.md"]);
   });
 
   it("keeps a commit that was made before it was ended: a post-commit hook that never ends leaves the commit of the paths on the branch, nothing staged, and commitPaths returns", async () => {

@@ -888,9 +888,12 @@ export interface BoundedGit {
  * since a git killed by it in the middle of a commit leaves `index.lock`,
  * and every later git that writes the index fails until a person removes
  * it. The SIGKILL follows, since a hook that ignores SIGTERM outlives git
- * and holds the pipe open. A git whose turn comes after the limit, or after
- * `ended` fired, is not started. A git that is not ended is over when the
- * pipe closes, which is when all it printed has arrived.
+ * and holds the pipe open. An ended git is over once it has exited and the
+ * SIGKILL was sent, since a process that left git's group, such as one in a
+ * session of its own, can hold the pipe open past both signals. A git whose
+ * turn comes after `ended` fired is not started, and one whose turn comes
+ * after the limit is ended as it starts. A git that is not ended is over
+ * when the pipe closes, which is when all it printed has arrived.
  */
 export function commitRunner(bounds: CommitBounds = {}): (folder: string, args: string[]) => Promise<BoundedGit> {
   const limitMs = bounds.limitMs ?? COMMIT_LIMIT_MS;
@@ -901,11 +904,6 @@ export function commitRunner(bounds: CommitBounds = {}): (folder: string, args: 
       const overdue = `git ${args[0] ?? ""} did not end in ${String(limitMs / 1000)} seconds and was ended`;
       if (ended?.aborted) {
         resolve({ code: null, said: "", ended: "the commit was ended" });
-        return;
-      }
-      const left = until - Date.now();
-      if (left <= 0) {
-        resolve({ code: null, said: "", ended: overdue });
         return;
       }
       const child = spawn("git", args, { cwd: folder, detached: true, stdio: ["ignore", "pipe", "pipe"] });
@@ -953,7 +951,7 @@ export function commitRunner(bounds: CommitBounds = {}): (folder: string, args: 
           if (exited) settle();
         }, COMMIT_END_GRACE_MS);
       };
-      const timer = setTimeout(() => end(overdue), left);
+      const timer = setTimeout(() => end(overdue), Math.max(0, until - Date.now()));
       const onEnded = (): void => end("the commit was ended");
       ended?.addEventListener("abort", onEnded, { once: true });
       child.on("error", (error) => {
