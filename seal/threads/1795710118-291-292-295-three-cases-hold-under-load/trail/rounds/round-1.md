@@ -40,6 +40,11 @@ The statements of the cast in the records, listed with `git grep -n -F "cast" --
 | 2026-11-27 | The inbox case reads two private fields of the daemon (`clients`, `readingCommits`) by name in brackets, which the typecheck reads, so a rename of either fails the typecheck. | No public option exposes the read under way, and a product change is out of this work's scope. A cast through `unknown`, as the same file reads `headless`, would hide a rename of `readingCommits`: the field would read as `undefined` and the case would wait for nothing. | `frame/design.md` *Out of scope*; round 1, finding 1 |
 ```
 
+```seal
+verdict: fixed f5034186
+answer: The inbox case reads `d["clients"].size` and awaits `d["readingCommits"]`, with no cast, as the paste-ready code gives it, and its comment says the fields are read by name, which the typecheck reads. `phase-1.md:7` now says the fields are read by name in brackets and why a cast was not kept, in place of the two cast sentences. The plan row at `frame/plan.md:14` was folded by the orchestrator in `291bf7c9`. Run after the fix: a typecheck of the two test files through a scratch tsconfig that extends `apps/desktop/tsconfig.json` exited 0; `seal mutate` renaming `d["readingCommits"]` to `d["readingCommitsRenamed"]` turned that typecheck red with `TS2551: Property 'readingCommitsRenamed' does not exist on type 'Daemon'`; the two daemon cases passed once (1195 ms and 1030 ms); `seal mutate` of `if (this.clients.size === 0) return;` to `if (false) return;` still turns the inbox case red at `expect(watched.calls("rev-list")).toBe(0)`, 4 received. The finding's listings, run again at `f5034186`: `git grep -n -e "as unknown as" -- apps/desktop/test` prints `daemon.test.ts:5729` as the one read of a private field left, the `headless` read, which stands because a rename of `headless` throws at once, as the finding says; `git grep -n -F "cast"` over the work item's directory prints `frame/plan.md:14` and `phase-1.md:7`, each of which now names the cast as the form not kept, and lines of this record.
+```
+
 ### 2. The phase record says the helper `failing` moved unchanged, and its doc comment was rewritten
 
 ```seal
@@ -52,6 +57,11 @@ Why it matters: `phase-1.md:11` says "The helper `failing` moved to the head of 
 
 ```markdown
 The helper `failing` moved to the head of the describe block with its code unchanged. Its doc comment was rewritten to list what the helper asserts, where the old one said it gave the chain, the head and the calls gh had, which it never returned.
+```
+
+```seal
+verdict: fixed f5034186
+answer: `phase-1.md:11` holds the round's replacement sentence word for word, after the paste-ready fix was read against `chain.test.ts:3294-3300` and the old doc comment at `c80b900a`. `git grep -n -F "moved to the head of the describe block, unchanged"` over the work item's directory, run again at `f5034186`, prints only this record's own quotes of the sentence.
 ```
 
 ## Confirmations
