@@ -51,4 +51,4 @@ No migration, no new environment variable, no new dependency. The turn socket ga
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-27 | The pull request's title takes the prefix `fix:`. | The approval line said "Not started" while a pane's own session ran a stage, which is a wrong account of the work; the work makes it true. | the plugin's `skills/commit-pr-convention/SKILL.md` |
