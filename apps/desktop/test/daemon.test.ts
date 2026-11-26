@@ -4886,6 +4886,67 @@ describe("the commit of a person's word", () => {
     expect(said).toHaveLength(1);
   });
 
+  it("tries a failed word again at the next turn of the pass once the record's text changes, before the wait after the failure is over: an edit of a decision's grounds, which is no word of the person's, after the refusing hook is gone, gives the commit within a few turns, where the wait is a minute", async () => {
+    // A wait far longer than the case, so only the change of the record can make the try due.
+    const { c, made, workItems } = await withWorkItems(["Edited"], { wordPassMs: 50, wordRetryMs: 60_000 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const refusing = join(made.repo, ".git", "hooks", "pre-commit");
+    writeFileSync(refusing, "#!/bin/sh\necho 'the hook says no.' >&2\nexit 1\n", { mode: 0o755 });
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    await reversal(c, 1, a.id, 1);
+    await rests(c, a.id, { waits: "retry", why: "the hook says no" });
+    rmSync(refusing);
+    // The pass's turns while the record stands as it failed try nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(commitsIn(a.worktree)).toBe(1);
+    const file = join(directory, RECORD_FILE);
+    const text = readFileSync(file, "utf8");
+    expect(text.split(DEFAULT.grounds)).toHaveLength(2);
+    writeFileSync(file, text.replace(DEFAULT.grounds, `${DEFAULT.grounds} Edited.`));
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1-item", by: WHO, paths: [RECORD] });
+    await rests(c, a.id, null);
+  });
+
+  it("tries a failed word again at the next turn of the pass once the branch's head moves while a client is connected, before the wait after the failure is over: a commit made by hand after the refusing hook is gone gives the daemon's commit of the record, where the wait is a minute", async () => {
+    const { c, made, workItems } = await withWorkItems(["Moved"], { wordPassMs: 50, wordRetryMs: 60_000, commitPollMs: 30 });
+    const a = workItems[0]!;
+    const directory = withDirectory(a);
+    const refusing = join(made.repo, ".git", "hooks", "pre-commit");
+    writeFileSync(refusing, "#!/bin/sh\necho 'the hook says no.' >&2\nexit 1\n", { mode: 0o755 });
+    writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
+    await reversal(c, 1, a.id, 1);
+    await rests(c, a.id, { waits: "retry", why: "the hook says no" });
+    rmSync(refusing);
+    // The pass's turns while the head stands as it failed try nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(commitsIn(a.worktree)).toBe(1);
+    commitFile(a.worktree, "moved.ts");
+    await c.until(() => (commitsIn(a.worktree) === 3 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1-item", by: WHO, paths: [RECORD] });
+    await rests(c, a.id, null);
+  });
+
+  it("commits a word left for a working pane once the pane's process exits while the pane still says it is working, within a turn of the pass: a pane that is not alive holds no word", async () => {
+    // A pane of the kind that reports its state ends by itself after a second and a half, and every other pane stays.
+    const commandFor = (kind: string) => (kind === "claude" ? { command: "/bin/sh", args: ["-c", "sleep 1.5"], env: {} } : silent());
+    const { d, c, workItems } = await withWorkItems(["Exited"], { ...QUICK, commandFor });
+    const a = workItems[0]!;
+    withDirectory(a);
+    d.decided(a.id, DEFAULT);
+    const pane = await workingPane(d, c, 1, a.id);
+    const from = c.messages.length;
+    await reversal(c, 2, a.id, 1);
+    await carried(c, a.id, WORKING, from);
+    expect(commitsIn(a.worktree)).toBe(1);
+    // The exit leaves the pane's state as its agent last said it, working.
+    await c.message("exit", (m) => m.id === pane);
+    await c.until(() => (commitsIn(a.worktree) === 2 ? true : undefined), 3000);
+    expect(newest(a.worktree)).toEqual({ subject: "chore: record the person's reversal of decision 1", body: "Seal-Routing: 1-item", by: WHO, paths: [RECORD] });
+    await rests(c, a.id, null);
+  });
+
   it("tries a commit that keeps failing again at waits that double: a `pre-commit` hook that notes the time of each run and exits 1 runs again no sooner than the retry's wait after the first try, twice it after the second and four times it after the third", async () => {
     const RETRY_MS = 300;
     const { c, made, workItems } = await withWorkItems(["Retried"], { wordPassMs: 50, wordRetryMs: RETRY_MS });
