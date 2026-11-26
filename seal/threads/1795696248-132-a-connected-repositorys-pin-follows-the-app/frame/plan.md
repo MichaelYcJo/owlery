@@ -36,7 +36,7 @@ Failure scenario of the chosen approach, six months on: a release changes the ch
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1 to 6, and the cases of item 11 for them | The cases of scenarios A to G in `records-place.test.ts` and `daemon.test.ts`, run by name by the crafter, each shown red as contract rule 15 asks | |
+| 1 | `frame/design.md` *Scope* items 1 to 6, and the cases of item 11 for them | The cases of scenarios A to G in `records-place.test.ts` and `daemon.test.ts`, run by name by the crafter, each shown red as contract rule 15 asks | cdcb882c |
 | 2 | `frame/design.md` *Scope* items 7 to 10, and the cases of item 11 for them | The cases of scenarios H and I in `view.test.ts`, run by name by the crafter. Scenario J's case in `records-dialog.test.ts` and the screenshot run of scenario K, in the orchestrator's batch of built-app runs at the phase's end | |
 
 ## Overlap with the release
