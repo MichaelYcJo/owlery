@@ -3897,10 +3897,9 @@ describe("the inbox", () => {
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Unwatched", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
     first.socket.close();
-    // A read that began before the daemon saw the close runs its git in series and may count on after it, under load for longer than any fixed wait (issue #291). No message tells of its end, so the case reads the daemon's own fields: once no client is connected no read begins, and the one under way is waited for.
-    const own = d as unknown as { clients: Map<unknown, unknown>; readingCommits: Promise<void> | undefined };
-    await first.until(() => (own.clients.size === 0 ? true : undefined));
-    await own.readingCommits;
+    // A read that began before the daemon saw the close runs its git in series and may count on after it, under load for longer than any fixed wait (issue #291). No message tells of its end, so the case reads the daemon's own fields by name, which the typecheck reads: once no client is connected no read begins, and the one under way is waited for.
+    await first.until(() => (d["clients"].size === 0 ? true : undefined));
+    await d["readingCommits"];
     const watched = watchedGit(base);
     commit(workItem.worktree, "one.txt");
     expect(watched.calls("commit")).toBe(1);
