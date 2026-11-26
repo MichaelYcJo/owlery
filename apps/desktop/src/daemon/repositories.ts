@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
 import type { Chain, Group, ChainChoice, PullRequest, WorktreeSetup } from "../shared/protocol";
 import { type WrittenChain, chainRead, isChain } from "./chain";
@@ -199,6 +199,28 @@ function setupRead(setup: WorktreeSetup | null | undefined): WorktreeSetup | nul
   return read.state === "running" ? { ...read, state: "failed", failure: DAEMON_STOPPED } : read;
 }
 
+/** What a store did with a `repositories.json` it could not read: the file's path, and the path it kept the file at, or null where the file could not be moved. */
+export interface SetAside {
+  refused: string;
+  keptAs: string | null;
+}
+
+/** The sentence a person reads of a file the store set aside. */
+export function setAsideNotice({ refused, keptAs }: SetAside): string {
+  return keptAs === null
+    ? `Owlery could not read its list of repositories at ${refused}, nor move it aside. The file stays as it is, and no change to the repositories is kept once the daemon stops.`
+    : `Owlery could not read its list of repositories, so it kept the file as ${keptAs} and started with none. Nothing in that file was changed.`;
+}
+
+/** The path in `runDir` a refused file is kept at, for a store started at `time`: `repositories-unread-<YYYYMMDDTHHMMSSZ>.json`, with `-2`, `-3` and on where a file or a folder stands at the name. */
+function keptPath(runDir: string, time: number): string {
+  const stamp = new Date(time).toISOString().replace(/\.\d{3}Z$/, "Z").replace(/[-:]/g, "");
+  for (let n = 1; ; n++) {
+    const path = join(runDir, `repositories-unread-${stamp}${n === 1 ? "" : `-${n}`}.json`);
+    if (lstatSync(path, { throwIfNoEntry: false }) === undefined) return path;
+  }
+}
+
 /** The JSON a file holds, or undefined where no file stands there. A file that cannot be read, and one that is no JSON, gives null. */
 function readJson(file: string): unknown {
   let text: string;
@@ -224,8 +246,16 @@ function readJson(file: string): unknown {
  * whole store, and none is given twice: each count only rises, whatever
  * leaves the store. A file that holds the list of repositories alone, which
  * a build before the counts wrote, is read with each count one past the
- * highest id of its kind. A file that is neither is read as no repository.
- * A work item written before the setup was recorded is read with none, and
+ * highest id of its kind. A file that is neither is refused, as is one the
+ * store cannot open and one that holds no JSON: the store renames it in the
+ * run directory to `repositories-unread-<YYYYMMDDTHHMMSSZ>.json`, at the UTC
+ * time of its start, with `-2`, `-3` and on where a file or a folder stands
+ * at that name, so no file kept earlier is replaced. It then starts with no
+ * repository, does not read `work-items.json` in its place, and writes a new
+ * `repositories.json` at its first change. Where the rename fails, the file
+ * stays as it stands and the store keeps its repositories in memory alone,
+ * so nothing writes over the file it refused. `setAside()` answers which it
+ * did, and `setAsideNotice` says it to a person. A work item written before the setup was recorded is read with none, and
  * one whose setup was running is read with that setup failed: its pane
  * ended with the daemon that started it. Every setup is read naming no
  * pane, since the next daemon gives that pane's id to another. A work item
@@ -252,8 +282,9 @@ function readJson(file: string): unknown {
  */
 export class RepositoryStore {
   private readonly held: StoredRepository[] = [];
-  private readonly file: string | undefined;
+  private file: string | undefined;
   private counts: Counts = { nextWorkItemId: 1, nextRepositoryId: 1, nextGroupId: 1 };
+  private setAsideFile: SetAside | null = null;
 
   constructor(
     runDir: string | undefined,
@@ -269,7 +300,10 @@ export class RepositoryStore {
       return;
     }
     const repositories = isStored(value) ? value.repositories : value;
-    if (!Array.isArray(repositories) || !repositories.every(isStoredRepository)) return;
+    if (!Array.isArray(repositories) || !repositories.every(isStoredRepository)) {
+      this.keepAside(runDir, this.file);
+      return;
+    }
     if (isStored(value)) this.counts = { nextWorkItemId: value.nextWorkItemId, nextRepositoryId: value.nextRepositoryId, nextGroupId: value.nextGroupId };
     // Only the fields of the store, whatever else the file's entries carry.
     for (const { id, folder, name, icon, defaultBase, hidden, paneChain, addedAt, groups, workItems, accountId } of repositories) {
@@ -289,6 +323,24 @@ export class RepositoryStore {
     }
     // A file with no counts, and one whose counts stand below an id it holds, gives no id twice either.
     this.countPast();
+  }
+
+  /** What the store did with a `repositories.json` it could not read at its start, or null where it read its file or found none. */
+  setAside(): SetAside | null {
+    return this.setAsideFile;
+  }
+
+  /** Renames the refused `file` to a name nothing stands at in `runDir`. Where that fails, the store keeps no file, so nothing writes over the one it refused. */
+  private keepAside(runDir: string, file: string): void {
+    let keptAs: string | null = null;
+    try {
+      const path = keptPath(runDir, this.now());
+      renameSync(file, path);
+      keptAs = path;
+    } catch {
+      this.file = undefined;
+    }
+    this.setAsideFile = { refused: file, keptAs };
   }
 
   /** Raises each count that is not past every id of its kind the store holds. None is lowered. */

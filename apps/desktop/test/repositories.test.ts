@@ -1,8 +1,8 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { RepositoryStore } from "../src/daemon/repositories";
+import { RepositoryStore, setAsideNotice } from "../src/daemon/repositories";
 import type { Chain, PullRequest, WorktreeSetup } from "../src/shared/protocol";
 import { git, temporaryRepository } from "./repositories";
 
@@ -35,6 +35,20 @@ const OLD = { id: 1, ...CUT, createdAt: 1 };
 const whole = (dir: string): { repositories: unknown; nextWorkItemId: unknown; nextRepositoryId: unknown; nextGroupId: unknown } => JSON.parse(readFileSync(join(dir, "repositories.json"), "utf8"));
 const file = (dir: string): unknown => whole(dir).repositories;
 const counts = (dir: string): unknown[] => [whole(dir).nextWorkItemId, whole(dir).nextRepositoryId, whole(dir).nextGroupId];
+
+/** The time a case's store starts at, 2026-11-26 12:30:05 UTC, and the name it keeps a refused file under at that time. */
+const NOW = Date.UTC(2026, 10, 26, 12, 30, 5);
+const KEPT = "repositories-unread-20261126T123005Z.json";
+/** A store whose one work item has a branch that is a number, a shape this build does not read, as a later build might write one. */
+const LATER = JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [{ id: 1, ...OWN, createdAt: 1, ...UNSET, branch: 3 }] }] });
+/** Each kind of `repositories.json` the store refuses, made at a path: the bytes it writes there, or null for a folder. */
+const REFUSED: [string, (path: string) => string | null][] = [
+  ["a text that is no JSON", (path) => (writeFileSync(path, "{ not json"), "{ not json")],
+  ["the text null", (path) => (writeFileSync(path, "null"), "null")],
+  ["a store of a shape this build does not read", (path) => (writeFileSync(path, LATER), LATER)],
+  ["a file it cannot open", (path) => (writeFileSync(path, LATER, { mode: 0o000 }), LATER)],
+  ["a folder", (path) => (mkdirSync(path), null)],
+];
 
 describe("RepositoryStore", () => {
   it("gives each work item the next id and the time it was made, under the repository of its folder, which it adds first", () => {
@@ -194,12 +208,12 @@ describe("RepositoryStore", () => {
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, stages: [old, gate] } }));
     expect(new RepositoryStore(dir).workItem(1)?.item.chain).toEqual({ ...chain, stages: [{ ...stage, headlessId: null }, gate] });
     expect(new RepositoryStore(dir).repositories()).toHaveLength(1);
-    // A file whose chain is none of a chain's states is read as no repository, as a file whose setup is none is.
+    // A file whose chain is none of a chain's states is refused, and its store starts with no repository, as a file whose setup is none is.
     writeFileSync(join(dir, "repositories.json"), file({ ...before, chain: { ...chain, state: "reviewing" } }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
 
-  it("keeps a work item's pull request: a second store reads it with only a pull request's fields, reads a work item a build before the pull request wrote with none, and reads a file whose pull request is none as no repository", () => {
+  it("keeps a work item's pull request: a second store reads it with only a pull request's fields, reads a work item a build before the pull request wrote with none, and refuses a file whose pull request is none", () => {
     const dir = runDir();
     const store = new RepositoryStore(dir, () => 1);
     const { item } = store.addWorkItem(PLACE);
@@ -324,7 +338,7 @@ describe("RepositoryStore", () => {
     const { paneChain: _, ...earlier } = { id: 1, folder: "/r/project", ...PLAIN, name: "Earlier", addedAt: 1, workItems: [] };
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [earlier] }));
     expect(new RepositoryStore(dir).repositories()).toEqual([{ id: 1, folder: "/r/project", ...PLAIN, name: "Earlier", addedAt: 1, workItems: [] }]);
-    // A file whose field names neither chain is read as no repository, as any file of another shape is.
+    // A file whose field names neither chain is refused, and its store starts with no repository, as any file of another shape is.
     writeFileSync(join(dir, "repositories.json"), JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [{ ...earlier, paneChain: "both" }] }));
     expect(new RepositoryStore(dir).repositories()).toEqual([]);
   });
@@ -489,17 +503,83 @@ describe("RepositoryStore", () => {
     expect(read([repository])).toEqual([repository]);
   });
 
+  it.each(REFUSED)("keeps aside %s under a name of its own in the run directory, starts with no repository, does not read work-items.json in its place, and writes a new repositories.json at its first change", (_kind, make) => {
+    const dir = runDir();
+    writeFileSync(join(dir, "work-items.json"), JSON.stringify([OLD]));
+    const refused = join(dir, "repositories.json");
+    const bytes = make(refused);
+    const held = lstatSync(refused);
+    const store = new RepositoryStore(dir, () => NOW);
+    expect(store.repositories()).toEqual([]);
+    // The refused file itself, renamed: its inode and its mode, which says its kind, are the ones it had.
+    const kept = join(dir, KEPT);
+    expect([lstatSync(kept).ino, lstatSync(kept).mode]).toEqual([held.ino, held.mode]);
+    expect(existsSync(refused)).toBe(false);
+    const setAside = store.setAside();
+    expect(setAside).toEqual({ refused, keptAs: kept });
+    expect(setAside && setAsideNotice(setAside)).toBe(`Owlery could not read its list of repositories, so it kept the file as ${kept} and started with none. Nothing in that file was changed.`);
+    const added = store.addRepository("/r/docs").repository;
+    expect(whole(dir)).toEqual({ nextWorkItemId: 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [added] });
+    if (bytes !== null) {
+      chmodSync(kept, 0o600);
+      expect(readFileSync(kept, "utf8")).toBe(bytes);
+    }
+  });
+
+  it("keeps a refused file under the next number where a file or a folder stands at its name, and replaces nothing kept earlier", () => {
+    const dir = runDir();
+    const refused = join(dir, "repositories.json");
+    const numbered = (n: number): string => join(dir, `repositories-unread-20261126T123005Z-${n}.json`);
+    writeFileSync(join(dir, KEPT), "kept earlier");
+    writeFileSync(refused, "{ not json");
+    const second = new RepositoryStore(dir, () => NOW);
+    expect(readFileSync(numbered(2), "utf8")).toBe("{ not json");
+    expect(second.setAside()?.keptAs).toBe(numbered(2));
+    mkdirSync(numbered(3));
+    writeFileSync(refused, LATER);
+    const fourth = new RepositoryStore(dir, () => NOW);
+    expect(readFileSync(numbered(4), "utf8")).toBe(LATER);
+    expect(fourth.setAside()?.keptAs).toBe(numbered(4));
+    expect(readFileSync(join(dir, KEPT), "utf8")).toBe("kept earlier");
+    expect(readFileSync(numbered(2), "utf8")).toBe("{ not json");
+    expect(readdirSync(numbered(3))).toEqual([]);
+    expect(readdirSync(dir).sort()).toEqual([KEPT, numbered(2), numbered(3), numbered(4)].map((path) => basename(path)).sort());
+  });
+
+  it("leaves a refused file it cannot move as it stands, writes nothing over it, keeps its repositories in memory alone, and says so", () => {
+    const dir = runDir();
+    const refused = join(dir, "repositories.json");
+    writeFileSync(refused, LATER);
+    // A run directory the user can read and not write: the rename is refused, and so would be a write.
+    chmodSync(dir, 0o500);
+    cleanups.push(() => chmodSync(dir, 0o700));
+    const store = new RepositoryStore(dir, () => NOW);
+    expect(() => store.addWorkItem(PLACE)).not.toThrow();
+    expect(store.workItems()).toHaveLength(1);
+    expect(readdirSync(dir)).toEqual(["repositories.json"]);
+    expect(readFileSync(refused, "utf8")).toBe(LATER);
+    const setAside = store.setAside();
+    expect(setAside).toEqual({ refused, keptAs: null });
+    expect(setAside && setAsideNotice(setAside)).toBe(`Owlery could not read its list of repositories at ${refused}, nor move it aside. The file stays as it is, and no change to the repositories is kept once the daemon stops.`);
+  });
+
+  it("answers that it kept nothing aside, and renames nothing, where it read its file, one of no repository among them, or found none", () => {
+    const dir = runDir();
+    expect(new RepositoryStore(dir).setAside()).toBeNull();
+    for (const text of ["[]", JSON.stringify({ nextWorkItemId: 1, nextRepositoryId: 1, nextGroupId: 1, repositories: [] }), JSON.stringify([{ id: 1, folder: "/r/project", ...PLAIN, addedAt: 1, workItems: [] }])]) {
+      writeFileSync(join(dir, "repositories.json"), text);
+      expect(new RepositoryStore(dir).setAside(), text).toBeNull();
+      expect(readdirSync(dir), text).toEqual(["repositories.json"]);
+    }
+  });
+
   it("throws where the rename fails, and removes the partial file it wrote", () => {
     const dir = runDir();
-    // A folder stands where the file goes, so the partial file is written and its rename refused.
+    const store = new RepositoryStore(dir);
+    // A folder stands where the file goes once the store has started, so the partial file is written and its rename refused.
     mkdirSync(join(dir, "repositories.json"));
-    expect(() => new RepositoryStore(dir).addWorkItem(PLACE)).toThrow(/rename/);
+    expect(() => store.addWorkItem(PLACE)).toThrow(/rename/);
     expect(readdirSync(dir)).toEqual(["repositories.json"]);
-    // What stands there cannot be read, and is not read as absent: the store does not start from work-items.json.
-    writeFileSync(join(dir, "work-items.json"), JSON.stringify([OLD]));
-    expect(new RepositoryStore(dir).repositories()).toEqual([]);
-    rmSync(join(dir, "work-items.json"));
-    expect(statSync(join(dir, "repositories.json")).isDirectory()).toBe(true);
   });
 
   it("keeps the store in memory alone where it is given no run directory", () => {
