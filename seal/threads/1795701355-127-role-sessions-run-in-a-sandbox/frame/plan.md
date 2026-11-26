@@ -4,7 +4,7 @@
 
 The tree as read at `88ad5244`.
 
-The work builds on #39's grants and the Claude adapter's launch. `role-grants.ts:31-36` holds the four grants and `:135-145` the daemon's rule; `adapters/claude.ts:80-104` builds a role launch's arguments, and its `--settings` value is a JSON string the adapter already writes; `daemon.ts:2342-2397` starts a role session with `cwd` the worktree and answers each request by `verdictOn`; `daemon.ts:2440-2470` makes the session, where the scratch folder is made; `chain.ts:641-743` builds the round's and the seal's prompts. The bundle's `agents/proofer.md` and `agents/sealer.md` are read by both launches, the daemon's role session and a pane's subagent, so their text states both cases. `test/role-session.test.ts` already runs the real CLI against a stand-in model at no cost, which is where the system's refusal is shown.
+The work builds on #39's grants and the Claude adapter's launch. `role-grants.ts:31-36` holds the four grants and `:135-145` the daemon's rule; `adapters/claude.ts:80-104` builds a role launch's arguments, and its `--settings` value is a JSON string the adapter already writes; `daemon.ts:2342-2397` starts a role session with `cwd` the worktree and answers each request by `verdictOn`; `daemon.ts:2440-2470` makes the session, and its start closure calls `startHeadless`, where the work makes the scratch folder; `chain.ts:641-743` builds the round's and the seal's prompts. The bundle's `agents/proofer.md` and `agents/sealer.md` are read by both launches, the daemon's role session and a pane's subagent, so their text states both cases. `test/role-session.test.ts` already runs the real CLI against a stand-in model at no cost, which is where the system's refusal is shown.
 
 Constraints the build meets:
 
@@ -12,7 +12,7 @@ Constraints the build meets:
 - A commit in a linked worktree writes the repository's git common dir (the commit probe's row), so the crafter's place is two folders.
 - `filesystem.denyWrite` takes precedence over `allowWrite`, so the scratch folder must sit under no refused folder. The run folder is refused nothing, and its other files stay unwritable because no allowed place holds them.
 - `--add-dir` takes every argument after it as a folder (`claude.ts:100`), so the scratch folder joins the end.
-- The scratch folder's path is the daemon's to know only when it makes the session, after the chain built the prompt, so the daemon appends the paragraph that names it, and the chain's prompts say nothing of a path.
+- The scratch folder's path is the daemon's to know only when the session starts, after the chain built the prompt, so the daemon appends the paragraph that names it, and the chain's prompts say nothing of a path.
 
 The failure scenario of the chosen approach, six months on: a Claude Code release changes what its sandbox writes by default, for example lets every `--add-dir` folder be written, or renames a key, and the `--settings` value no longer bounds what it bounded. The deny entries of *Scope* item 4 keep the worktree and the bundle refused whatever the default, and `failIfUnavailable` keeps a session that cannot sandbox from starting. A renamed key is the case nothing catches at launch: Claude Code ignores a key it does not know. The three `role:refusal` scripts are what catches it, run when `MIN_CLAUDE_VERSION` moves or the launch changes.
 
@@ -37,7 +37,7 @@ The failure scenario of the chosen approach, six months on: a Claude Code releas
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | *Scope* items 1 to 6 | `frame/design.md` *User scenarios* rows 1 to 5, as cases in `test/claude-adapter.test.ts`, `test/daemon.test.ts` and `test/fake-adapter.test.ts`, run narrow by the crafter with `node scripts/test-in-electron.mjs <those files>` in `apps/desktop`, as the `role:run` script passes a file, each new case seen red | `bab4c40f` |
-| 2 | *Scope* items 7 and 8 | Rows 6 to 8, as cases in `test/chain.test.ts`, `test/role-bundle.test.ts` and `test/claude-adapter.test.ts`, run narrow; and row 8's `git grep`, whose expected output that row states | |
+| 2 | *Scope* items 7 and 8 | Rows 6 to 8, as cases in `test/chain.test.ts`, `test/role-bundle.test.ts`, `test/claude-adapter.test.ts` and `test/daemon.test.ts`, run narrow; and row 8's `git grep`, whose expected output that row states | |
 | 3 | *Scope* item 9 | Rows 9 to 11: `pnpm --filter @owlery/desktop run role:refusal`, `role:refusal:sealer` and `role:refusal:crafter`, each run once at the phase's close against the stand-in model, their printed JSON read into `trail/phases/phase-3.md`, and `frame/questions.md` Q3, Q4 and Q5 answered from it | |
 
 Phase 3 spends no usage: the CLI talks to the stand-in on the loopback with a key that is no key. It is the one place the system's refusal is shown, and it needs `pnpm run build`'s bundle, which `buildApp` makes. The broad gate is the orchestrator's after the rounds (contract rule 2).
@@ -56,7 +56,7 @@ Read: each branch's diff against `origin/release/v0.0.5` at its head after `git 
 
 ## Operational impact
 
-- No migration, no new dependency, no environment variable. The run folder gains `scratch/`, which the daemon makes and empties.
+- No migration, no new dependency, no environment variable. The run folder gains `scratch/`, where the daemon makes a folder for each proofer's and sealer's session and removes it when that session's process has ended. A folder a crashed daemon left stays there (`gaps.md`).
 - A role session now fails to start where Claude Code's sandbox cannot start (`failIfUnavailable: true`). On macOS that is a Claude Code too old for the keys or a broken install, and the adapter already shows the CLI's error output for a failed launch.
 - A crafter's commands reach no host but the loopback: a fix pass that needs to install a package or call `gh` is refused by the system and says so in its report (`frame/questions.md` Q1).
 - No version move: the release's version is the release branch's to set.
