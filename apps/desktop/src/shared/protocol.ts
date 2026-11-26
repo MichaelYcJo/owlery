@@ -549,6 +549,13 @@ export interface Seal {
   why: string | null;
 }
 
+/** The colours a person can mark a pane's tab with, in the order the tab's menu offers them. */
+export const TAB_COLOURS = ["green", "blue", "pink"] as const;
+export type TabColour = (typeof TAB_COLOURS)[number];
+
+/** The longest name a pane's tab takes, in the characters a field counts, once the white space at its ends is taken off. */
+export const PANE_NAME_CHARS = 60;
+
 export interface SessionInfo {
   id: number;
   kind: PaneKind;
@@ -569,6 +576,10 @@ export interface SessionInfo {
   stateTool: string | null;
   /** The questions the event that began `state` asks the person in the agent's own pane, each with the choices the agent offers, and each of their texts 2000 characters at most. Null where that event asked none, and where no event began the state. A daemon of a build before it sends no such field, which a client reads as null. */
   stateQuestions: AskedQuestion[] | null;
+  /** The name a person gave the pane's tab, or null where it has none. It lasts as long as the pane, through a change of its account and the end of its process. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that keeps no name and no colour of a pane. */
+  name?: string | null;
+  /** The colour a person marked the pane's tab with, or null where it has none. It lasts as the name does, and a daemon of an earlier build sends no such field either. */
+  colour?: TabColour | null;
 }
 
 /** One question an agent asks the person in its own pane, with the choices it offers. */
@@ -939,6 +950,8 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
+  // Sets the name and the colour of a pane's tab, or one of them: a field that is absent is left as it is. The name is kept without the white space at its ends, and an empty one, or null, takes the name off, so the tab is named by its kind again. A colour is one of `TAB_COLOURS`, or null, which takes the colour off. The daemon refuses, with an `error` and setting nothing of the message, an id it lists no pane under, a sign-in pane, which has no tab, a name longer than `PANE_NAME_CHARS` once trimmed, and a colour that is neither null nor one of `TAB_COLOURS`. Otherwise it answers with `done`, before the `inbox` that carries the change. Both last as long as the pane, through a change of its account and the end of its process.
+  | { type: "setPane"; requestId: number; id: number; name?: string | null; colour?: TabColour | null }
   // Runs the setup of a work item's worktree again, as its repository's two files name it now, in a pane of the size given. The daemon refuses it with an `error`, and changes nothing, for a work item it does not list, an archived one, one being deleted, one whose setup still runs, and one whose repository holds neither file now. Otherwise it takes the earlier setup pane off the lists, copies the included paths that do not stand in the worktree, starts a new setup pane where a command stands and it is `setupCommand`, whole, the command the client showed the person, records the new setup in place of the old, and answers with `started` and the new pane, whose output the client receives, or with `done` where no pane started. Where the file holds another command than `setupCommand`, or one where it is null or absent, or none where it is a command, no command runs, and the setup records the command the file holds and a sentence that says it did not run, so the client shows that command before the next run.
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. A gate that waits for its turn on the machine has its ask ended and no command starts, and its stage fails and its chain stops the same way. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs or waits.
@@ -959,6 +972,8 @@ export type ClientMessage =
   | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null; scrollback?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
+  // Has the daemon read again what a client's hello has it read from outside, from the one list in its code that both read (`Daemon#readOutside` of src/daemon/daemon.ts), git and the open pull requests it watches among them. A read of git under way when the message arrives began before it, so the daemon waits for its end and reads git again. The daemon answers the client that asked alone, with an `inbox` that holds the four lists whole, whether or not anything changed, and then a `done`, once git has been read and its reads of the pull requests have ended or `listsWaitMs` of its options has passed, 5 seconds where none is given. A pull request read after that reaches every client in the watch's own `inbox`. Where a read throws, the daemon answers with an `error` whose sentence says why, and sends no `inbox`. A daemon of an earlier build answers nothing.
+  | { type: "readLists"; requestId: number }
   // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
   | { type: "readHeavyRuns" }
   | { type: "input"; id: number; data: string }
@@ -967,7 +982,7 @@ export type ClientMessage =
 export type ServerMessage =
   // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap.
   | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine }
-  // The whole of the four lists, sent to every client whenever one of them changes.
+  // The whole of the four lists, sent to every client whenever one of them changes, and to the client that sent a `readLists` alone, as its answer, before that request's `done`.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane the creation named, whose output the creating client receives. The setup pane, where the repository names a command, is listed in the inbox and named by `workItem.setup`, and the creating client receives its output too.
@@ -1004,7 +1019,7 @@ export type ServerMessage =
   | { type: "agentNotice"; notice: string | null }
   // How an add without a folder ended, sent once to the client that asked, after the `accounts` that carries the account where one came of it: `id` is its sign-in pane, `accountId` the account that now stands, or null where none does, and `says` a sentence a window shows as it is where no account named from a login came of it, and null otherwise.
   | { type: "addEnded"; id: number; accountId: number | null; says: string | null }
-  // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
+  // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed. A `readLists`'s `done` follows the `inbox` that answers it.
   | { type: "done"; requestId: number }
   // Answers a request that failed; nothing was created or started.
   | { type: "error"; requestId: number; message: string }

@@ -33,9 +33,11 @@ import { VIEW_FIELDS } from "../src/daemon/github";
 const TOKEN = "t".repeat(64);
 /** A session whose agent has sent no event and whose silent start is not over, whose session just started, or whose kind reports no state. */
 const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null };
+/** A pane whose tab no person named or coloured (`setPane`). */
+const NO_MARKS = { name: null, colour: null };
 /** What a work item just made holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
-const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
+const SESSION_FIELDS = ["accountId", "alive", "colour", "id", "kind", "name", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
 const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "paneStage", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "wordOwed", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
@@ -330,7 +332,7 @@ describe("sessions", () => {
     await new Promise((r) => setTimeout(r, 500));
     const second = await client(url);
     const ready = await second.message("ready");
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE }]);
     second.send({ type: "attach", id: session.id });
     const replay = await second.message("replay");
     expect(replay.data).toContain("first");
@@ -493,7 +495,7 @@ describe("sessions", () => {
     const exit = await c.message("exit");
     expect(exit).toEqual({ type: "exit", id: session.id, exitCode: 3 });
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "shell", alive: false, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE }]);
   });
 
   it("gives each session's process the pane's id and the hook socket", async () => {
@@ -536,7 +538,7 @@ describe("work items", () => {
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`. No branch was picked, so the creation made none.
     expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, wordOwed: null, paneStage: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
-    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
+    expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\nHEAD ${baseCommit}\ndetached\n`);
     expect([branches(), git(worktree, "branch", "--show-current").trim()]).toEqual([before, ""]);
     // The creating client receives the pane's output, as with a pane it started.
@@ -588,8 +590,8 @@ describe("work items", () => {
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["accounts", "continues", "kind", "label", "reportsState"]);
     expect(Object.keys(inbox).sort()).toEqual(["archived", "repositories", "sessions", "type", "workItems"]);
     for (const lists of [inbox, ready, ready.lastLook!]) {
-      // The look keeps no account a pane was launched under, as it keeps none set on a work item.
-      expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn") : SESSION_FIELDS);
+      // The look keeps no account a pane was launched under, as it keeps none set on a work item, nor the name and the colour of a pane's tab.
+      expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn" && key !== "name" && key !== "colour") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
       // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor what a heavy command or a word of the person's waits for, nor whether Owlery made its branch, nor the stage a pane's session runs, and keeps the seal reading the lists carried.
       expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait" && key !== "wordOwed" && key !== "ownsBranch" && key !== "paneStage") : WORK_ITEM_FIELDS);
@@ -917,7 +919,7 @@ describe("work items", () => {
     const { workItem } = await c.message("workItemCreated");
     c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 2, workItemId: workItem.id });
     const { session } = await c.message("started", (m) => m.requestId === 2);
-    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "shell", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
   });
 
@@ -963,7 +965,7 @@ describe("work items", () => {
       ["shell", first.id, { continueLatest: false, folder: workItem.worktree, base: "main", checkout: workItem.repo, chosen: null, accountDir: null, configDir: null }],
       ["claude", session.id, { continueLatest: true, folder: workItem.worktree, base: "main", checkout: workItem.repo, chosen: null, accountDir: null, configDir: null }],
     ]);
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     await c.until(() => (c.messages.some((m) => m.type === "output" && m.id === session.id && m.data.includes(`cwd=${workItem.worktree}\r`)) ? true : undefined));
     // A continued session is listed and told as any pane of its kind is.
     d.agentEvent(session.id, "UserPromptSubmit", {});
@@ -1746,7 +1748,8 @@ describe("repositories", () => {
     const { workItem, session } = await c.message("workItemCreated");
     commitFile(workItem.worktree, "work.txt");
     writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
-    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    // A read of the commit gives the work item its branch in a turn of its own, which can end after the read's inbox (issue #292): the case reads the disk once the branch is made, so nothing the daemon does by itself changes it after.
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1 && m.workItems[0]?.branch === "owlery/runs-a-pane");
     const before = onDisk(repo, workItem.worktree);
     const refusals = [
       [2, { workItems: [], running: NONE_RUNNING }, "A work item was added since you looked. Read it again."],
@@ -3028,7 +3031,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     d.agentEvent(session.id, "Stop", {});
     const last = await c.message("inbox", (m) => stateOf(m, session.id) === "finished");
-    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
+    expect(last.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_MARKS, state: "finished", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
     expect(last.workItems).toEqual([workItem]);
   });
 
@@ -3073,7 +3076,7 @@ describe("the inbox", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.socket.close();
     const later = await client(url);
-    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
+    expect((await later.message("ready")).sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null }]);
   });
 
   it("carries with a session's state the time it began, and the tool or the text the event that began it carried, until the state changes", async () => {
@@ -3083,7 +3086,7 @@ describe("the inbox", () => {
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     /** The session as a client that says hello now is given it. */
     const listed = async () => (await (await client(url)).message("ready")).sessions[0];
     d.agentEvent(session.id, "PermissionRequest", { tool_name: "Bash", tool_input: { command: "ls" } });
@@ -3255,7 +3258,7 @@ describe("the inbox", () => {
     await bystander.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
     const { session } = await c.message("started");
-    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
+    expect(session).toEqual({ id: session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     // The time is the one the silence was called at, and not the pane's start.
     clock = 700;
     const waiting = { ...session, state: "waiting", stateSince: 700, stateText: null, stateTool: null };
@@ -3582,7 +3585,7 @@ describe("the inbox", () => {
     d.agentEvent(session.id, "PermissionRequest", {});
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     c.send({ type: "input", id: session.id, data: "go\n" });
-    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, accountId: 0, signsIn: null, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
+    const ended = { id: session.id, kind: "claude", alive: false, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, state: "waiting", stateSince: expect.any(Number), stateText: null, stateTool: null, stateQuestions: null };
     for (const each of [c, bystander]) expect((await each.message("inbox", (m) => m.sessions[0]?.alive === false)).sessions).toEqual([ended]);
   });
 
@@ -3634,6 +3637,85 @@ describe("the inbox", () => {
     c.send({ type: "close", id: session.id });
     await c.until(() => (inboxes(c).at(-1)?.sessions.length === 0 ? true : undefined));
     expect((await (await client(url)).message("ready")).sessions).toEqual([]);
+  });
+
+  /** The daemon's answer to the request `requestId`, `done` or `error`. */
+  const answerTo = (c: { messages: ServerMessage[]; until: <T>(found: () => T | undefined) => Promise<T> }, requestId: number) => c.until(() => c.messages.find((m): m is Extract<ServerMessage, { type: "done" | "error" }> => (m.type === "done" || m.type === "error") && m.requestId === requestId));
+
+  it("names and colours a pane's tab at `setPane`, answering `done` before the inbox that carries both to every client, leaves a field the message does not hold as it is, and keeps both through the end of the pane's process and in a later client's `ready`", async () => {
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "read line"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    const bystander = await client(url);
+    await bystander.message("ready");
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started", (m) => m.requestId === 1);
+    expect(session).toMatchObject(NO_MARKS);
+    const marked = (m: Inbox) => m.sessions.find((s) => s.id === session.id);
+
+    c.send({ type: "setPane", requestId: 2, id: session.id, name: "build", colour: "blue" });
+    expect(await answerTo(c, 2)).toEqual({ type: "done", requestId: 2 });
+    const carried = await c.message("inbox", (m) => marked(m)?.name === "build");
+    expect(c.messages.indexOf(carried)).toBeGreaterThan(c.messages.findIndex((m) => m.type === "done" && m.requestId === 2));
+    expect(marked(carried)).toEqual({ ...session, name: "build", colour: "blue" });
+    expect(marked(await bystander.message("inbox", (m) => marked(m)?.name === "build"))).toEqual({ ...session, name: "build", colour: "blue" });
+
+    // A message that holds the colour alone leaves the name, and one that holds the name alone leaves the colour.
+    c.send({ type: "setPane", requestId: 3, id: session.id, colour: "pink" });
+    expect(await answerTo(c, 3)).toEqual({ type: "done", requestId: 3 });
+    expect(marked(await c.message("inbox", (m) => marked(m)?.colour === "pink"))).toMatchObject({ name: "build", colour: "pink" });
+    c.send({ type: "setPane", requestId: 4, id: session.id, name: "deploy" });
+    expect(await answerTo(c, 4)).toEqual({ type: "done", requestId: 4 });
+    expect(marked(await c.message("inbox", (m) => marked(m)?.name === "deploy"))).toMatchObject({ name: "deploy", colour: "pink" });
+
+    // The pane's process ends, and its tab keeps what the person gave it until the pane is closed.
+    c.send({ type: "input", id: session.id, data: "\n" });
+    expect(marked(await c.message("inbox", (m) => marked(m)?.alive === false))).toMatchObject({ alive: false, name: "deploy", colour: "pink" });
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, alive: false, name: "deploy", colour: "pink" }]);
+  });
+
+  it("keeps a name at `setPane` without the white space at its ends, takes it off where it is empty, white space alone or null, and takes the colour off where it is null", async () => {
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started", (m) => m.requestId === 1);
+    const listed = async () => (await (await client(url)).message("ready")).sessions.find((s) => s.id === session.id);
+    const set = async (requestId: number, fields: { name?: string | null; colour?: string | null }) => {
+      c.send({ type: "setPane", requestId, id: session.id, ...fields });
+      expect(await answerTo(c, requestId)).toEqual({ type: "done", requestId });
+      return listed();
+    };
+    expect(await set(2, { name: "  review  ", colour: "green" })).toMatchObject({ name: "review", colour: "green" });
+    expect(await set(3, { name: "" })).toMatchObject({ name: null, colour: "green" });
+    expect(await set(4, { name: "review" })).toMatchObject({ name: "review" });
+    expect(await set(5, { name: " \t " })).toMatchObject({ name: null });
+    expect(await set(6, { name: "review" })).toMatchObject({ name: "review" });
+    expect(await set(7, { name: null, colour: null })).toMatchObject(NO_MARKS);
+    // A name of the longest length is kept whole once its ends are trimmed.
+    expect(await set(8, { name: ` ${"a".repeat(60)} ` })).toMatchObject({ name: "a".repeat(60) });
+  });
+
+  it("refuses at `setPane`, with its reason and setting nothing of the message, an id it lists no pane under, a name past 60 characters once trimmed, a colour that is none of the tabs' colours, and a name or a colour of another type", async () => {
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started", (m) => m.requestId === 1);
+    c.send({ type: "setPane", requestId: 2, id: session.id, name: "kept", colour: "green" });
+    expect(await answerTo(c, 2)).toEqual({ type: "done", requestId: 2 });
+    const before = (await (await client(url)).message("ready")).sessions;
+    const refused = async (requestId: number, fields: Record<string, unknown>) => {
+      c.send({ type: "setPane", requestId, id: session.id, ...fields });
+      return ((await answerTo(c, requestId)) as { type: string; message?: string }).message;
+    };
+    expect(await refused(3, { id: session.id + 100, name: "lost" })).toBe(`No pane ${String(session.id + 100)} is open.`);
+    expect(await refused(4, { name: "b".repeat(61), colour: "blue" })).toBe("A pane's name is 60 characters at most.");
+    expect(await refused(5, { name: "lost", colour: "orange" })).toBe("A tab's colour is green, blue or pink, or null for none.");
+    expect(await refused(6, { name: 7 })).toBe("A pane's name is a text, or null for none.");
+    expect(await refused(7, { colour: 1 })).toBe("A tab's colour is green, blue or pink, or null for none.");
+    expect((await (await client(url)).message("ready")).sessions).toEqual(before);
+    expect(before.find((s) => s.id === session.id)).toMatchObject({ name: "kept", colour: "green" });
   });
 
   it("shows a commit made in a work item's worktree as one new commit, with its hash, its subject, its time, its lines and the file it changed, on the branch the read makes at it, and no agent state for its shell pane", async () => {
@@ -3892,13 +3974,15 @@ describe("the inbox", () => {
   it("reads no count while no client is connected, and reads them at the next hello, so its `ready` carries the commits made meanwhile", async () => {
     const { repo, root, base } = repository();
     // The wait is long, so that the first run of the watched git, which the system checks, ends inside it.
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Unwatched", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
     first.socket.close();
-    await pause(100);
+    // A read that began before the daemon saw the close runs its git in series and may count on after it, under load for longer than any fixed wait (issue #291). No message tells of its end, so the case reads the daemon's own fields by name, which the typecheck reads: once no client is connected no read begins, and the one under way is waited for.
+    await first.until(() => (d["clients"].size === 0 ? true : undefined));
+    await d["readingCommits"];
     const watched = watchedGit(base);
     commit(workItem.worktree, "one.txt");
     expect(watched.calls("commit")).toBe(1);
@@ -3941,6 +4025,68 @@ describe("the inbox", () => {
     expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
     expect((await c.message("inbox")).workItems[0]?.newCommits).toBe(1);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
+  });
+
+  /** The four lists as the newest `ready` or `inbox` a client got holds them. */
+  const listsIn = (c: { messages: ServerMessage[] }) => {
+    const newest = c.messages.filter((m) => m.type === "ready" || m.type === "inbox").at(-1) as Inbox | undefined;
+    return newest && { sessions: newest.sessions, repositories: newest.repositories, workItems: newest.workItems, archived: newest.archived };
+  };
+
+  it("answers a `readLists` with the four lists in an inbox to the client that asked alone, though nothing changed, and then `done`, with no wait where no pull request is watched", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Asked again");
+    // An answer that waited for the bound on the pull requests would come after the case's wait for `done`.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, listsWaitMs: 60_000 });
+    const c = await client(url);
+    const other = await client(url);
+    await other.message("ready");
+    await c.until(() => (listsIn(c)?.workItems[0]?.newCommits === 1 ? true : undefined));
+    const lists = listsIn(c);
+    const [from, otherFrom] = [c.messages.length, other.messages.length];
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(c.messages.slice(from)).toEqual([{ type: "inbox", ...lists }, { type: "done", requestId: 1 }]);
+    await pause(100);
+    expect(other.messages.slice(otherFrom)).toEqual([]);
+  });
+
+  it("reads git again for a `readLists` once the read under way has ended, so its answer holds a commit made while that read ran", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Read again");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 50, commitPollMs: 60_000 });
+    // The hello's read counts the branch's commits at once and then waits, at the read of the branch's head, until the release.
+    const held = heldGit(made.base, `[ "$1" = rev-parse ] && [ "$4" = "refs/heads/${workItem.branch}" ]`);
+    const c = await client(url);
+    expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
+    await c.until(() => (held.waiting() ? true : undefined));
+    await pause(100);
+    commit(workItem.worktree, "two.txt");
+    c.send({ type: "readLists", requestId: 1 });
+    await pause(100);
+    held.release();
+    await c.message("done", (m) => m.requestId === 1);
+    const answer = c.messages.at(-2) as Inbox;
+    expect([answer.type, answer.workItems[0]?.newCommits]).toEqual(["inbox", 2]);
+  });
+
+  it("answers a `readLists` whose read throws with an `error` that says why, and sends no inbox", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Unread");
+    let fails = false;
+    const pluginEnabled = (): boolean => {
+      if (fails) throw new Error("the plugins cannot be read.");
+      return false;
+    };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, pluginEnabled });
+    const c = await client(url);
+    await c.until(() => (listsIn(c)?.workItems[0]?.newCommits === 1 ? true : undefined));
+    fails = true;
+    const from = c.messages.length;
+    c.send({ type: "readLists", requestId: 1 });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "The work items were not read again: the plugins cannot be read." });
+    await pause(100);
+    expect(c.messages.slice(from).map((m) => m.type)).toEqual(["error"]);
   });
 
   it("handles nothing of a client that left before its `ready`: a pane it asked for is not started", async () => {
@@ -5647,7 +5793,7 @@ describe("the last look", () => {
     await c.message("inbox", (m) => stateOf(m, session.id) === "waiting");
     const ready = await (await client(url)).message("ready");
     expect(ready.lastLook).toEqual({ at: 1234, sessions: [{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, state: "working", stateSince: 1234, stateText: null, stateTool: null, stateQuestions: null }], workItems: [asLooked(workItem)] });
-    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
+    expect(ready.sessions).toEqual([{ id: session.id, kind: "claude", alive: true, workItemId: workItem.id, accountId: 0, signsIn: null, ...NO_MARKS, state: "waiting", stateSince: 1234, stateText: null, stateTool: "Bash", stateQuestions: null }]);
   });
 
   it("replaces the look with the one of a later `looked`, from whichever client", async () => {
@@ -5663,8 +5809,8 @@ describe("the last look", () => {
     const { session } = await two.message("started");
     clock = 200;
     await looked(two);
-    // The look keeps no account a pane was launched under, and no account whose sign-in it runs.
-    const { accountId: _, signsIn: __, ...lookedSession } = session;
+    // The look keeps no account a pane was launched under, no account whose sign-in it runs, and no name or colour of the pane's tab.
+    const { accountId: _, signsIn: __, name: ___, colour: ____, ...lookedSession } = session;
     expect(await lookNow(url)).toEqual({ at: 200, sessions: [lookedSession], workItems: [expect.objectContaining({ id: 1 })] });
   });
 
@@ -6676,6 +6822,25 @@ describe("the agent's notice", () => {
     await pause(50);
     expect(asks()).toBe(3);
     expect([told(first), told(second), told(third)]).toEqual([[null], [null], []]);
+  });
+
+  it("asks the adapter again at a `readLists` while a notice stands, and not once none does, and answers without waiting for it", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const c = await client(url);
+    await c.message("ready");
+    await c.until(() => (asks() === 2 ? true : undefined));
+    answer(1, NOTICE);
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    // The press asked, and its answer did not wait for the adapter's.
+    expect(asks()).toBe(3);
+    answer(2, null);
+    expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: null });
+    c.send({ type: "readLists", requestId: 2 });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(asks()).toBe(3);
   });
 
   it("keeps the answer of the adapter's last read where an earlier read answers after it", async () => {
@@ -7994,8 +8159,8 @@ describe("the watch of an open pull request", () => {
     const gh = ghStandIn(cleanups, made.base);
     const seen = { held: 0 };
     const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
-    /** What gh pr view answers for this pull request, with its checks and anything else given. */
-    const answer = (rollup: unknown[], more: Record<string, unknown> = {}) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }) });
+    /** What gh pr view answers for this pull request, with its checks and anything else given, after `seconds` where given. */
+    const answer = (rollup: unknown[], more: Record<string, unknown> = {}, seconds?: number) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }), seconds });
     return { d, url, gh, seen, at, stored, answer };
   }
 
@@ -8108,6 +8273,55 @@ describe("the watch of an open pull request", () => {
     const other = await client(archived.url);
     await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
     expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
+  });
+
+  /** The work item's pull request as the inbox just before a client's last message lists it, and that message. */
+  const answered = (c: Awaited<ReturnType<typeof client>>) => {
+    const [inbox, last] = c.messages.slice(-2);
+    return { before: inbox?.type === "inbox" ? inbox.workItems[0]?.pullRequest : inbox?.type, last };
+  };
+
+  it("reads the pull request again at a `readLists` with one call of gh, though its next read is a minute off, and answers with what that call gave once it ended", async () => {
+    // An answer that waited for the bound and not for the call's end would come after the case's wait for `done`.
+    const w = await watched({ listsWaitMs: 60_000 });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    const c = await client(w.url);
+    await c.until(() => (pullRequestIn(c)?.checks === "passed" ? true : undefined));
+    expect(w.gh.calls()).toHaveLength(1);
+    // The call ends after git has been read, so the answer holds what it gave only where it waited for it.
+    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")], {}, 1);
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(w.gh.calls()).toEqual([VIEW, VIEW]);
+    expect(answered(c)).toMatchObject({ before: { checks: "failed", failure: null }, last: { type: "done", requestId: 1 } });
+  });
+
+  it("answers a `readLists` once `listsWaitMs` has passed where gh has not answered, with the pull request as the last read gave it", async () => {
+    const w = await watched({ listsWaitMs: 300, githubLimitMs: 10_000 });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    const c = await client(w.url);
+    const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
+    w.gh.answer("view", { hangs: true });
+    const sent = Date.now();
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(Date.now() - sent).toBeGreaterThanOrEqual(300);
+    expect(w.gh.calls()).toHaveLength(2);
+    expect(answered(c)).toEqual({ before: passed, last: { type: "done", requestId: 1 } });
+  });
+
+  it("reads the pull request again after the read under way where a `readLists` arrives while gh is asked, since that read began before it", async () => {
+    const w = await watched({ githubLimitMs: 1000, listsWaitMs: 3000 });
+    w.gh.answer("view", { hangs: true });
+    const c = await client(w.url);
+    await c.message("ready");
+    await c.until(() => (w.gh.calls().length === 1 ? true : undefined));
+    c.send({ type: "readLists", requestId: 1 });
+    await pause(50);
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    await c.message("done", (m) => m.requestId === 1);
+    expect(w.gh.calls()).toHaveLength(2);
+    expect(answered(c)).toMatchObject({ before: { checks: "passed", failure: null }, last: { type: "done", requestId: 1 } });
   });
 });
 
@@ -8674,6 +8888,37 @@ describe("a Claude Code pane and the owl chain", () => {
     const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && listed.accountId === 2)));
     expect(inbox.sessions.find((listed) => listed.id === pane.id)?.alive).toBe(true);
     expect(inbox.workItems.find((item) => item.id === workItem.id)?.paneStage).toBeNull();
+  });
+
+  it("keeps the name and the colour `setPane` gave a pane through a change of its account, and refuses `setPane` of a sign-in pane, which has no tab, setting nothing", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const projects = join(made.base, "projects");
+    mkdirSync(projects);
+    const first = sharing(join(made.base, "First"), projects);
+    const second = sharing(join(made.base, "Second"), projects);
+    const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null, name: null }), signOut: () => Promise.resolve() };
+    const { c, url, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: configOf(made), logins }) });
+    c.send({ type: "addAccount", requestId: 1, folder: first });
+    c.send({ type: "addAccount", requestId: 2, folder: second });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Marked", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    c.send({ type: "setPane", requestId: 5, id: pane.id, name: "review", colour: "pink" });
+    expect(await answer(5)).toEqual({ type: "done", requestId: 5 });
+    c.send({ type: "changeAccount", requestId: 6, id: pane.id, accountId: 2 });
+    expect(await answer(6)).toEqual({ type: "done", requestId: 6 });
+    await launches(pane.id, 3);
+    const changed = await c.message("inbox", (m) => m.sessions.some((listed) => listed.id === pane.id && listed.accountId === 2 && listed.alive));
+    expect(changed.sessions.find((listed) => listed.id === pane.id)).toMatchObject({ accountId: 2, name: "review", colour: "pink" });
+    // A sign-in pane stands in no work item and has no tab to name.
+    c.send({ type: "signIn", requestId: 7, id: 1, cols: 80, rows: 12 });
+    const signIn = (await c.message("started", (m) => m.requestId === 7)).session;
+    c.send({ type: "setPane", requestId: 8, id: signIn.id, name: "login", colour: "green" });
+    expect(await answer(8)).toMatchObject({ type: "error", requestId: 8, message: "A sign-in pane has no tab to name or colour." });
+    expect((await (await client(url)).message("ready")).sessions.find((listed) => listed.id === signIn.id)).toMatchObject(NO_MARKS);
   });
 
   it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, of a pane whose process ended, and a second change of a pane while the first waits (scenario 9)", async () => {

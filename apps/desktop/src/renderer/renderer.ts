@@ -27,8 +27,9 @@ import { initMachine, openMachine, showMachine, showMachineEntry } from "./machi
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
 import { holdDraws } from "./press";
+import { refresher } from "./refresh";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
+import { focusSearch, initSidebar, showRefresh, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
@@ -108,7 +109,7 @@ import {
   type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -124,6 +125,20 @@ if (window.owlery.background) window.__notifications = notifier.kept;
 
 // While the mouse's main button is held down in the window, what a daemon message changed in the lists waits to be drawn until the release (./press), so a click whose press and release fall on one line still reaches that line.
 const draws = holdDraws(window);
+
+// The sidebar's refresh button has the daemon read the work items again and send the lists back (./refresh). The answer's `inbox` is drawn through the hold, as every `inbox` is (`takeLists`), so the screen in front, the view's pane in front and the filter stay.
+const refreshing = refresher({
+  ready: () => held.ready,
+  request,
+  send,
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  show: showRefresh,
+  tell,
+  daemonNotice: () => held.daemonNotice,
+});
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -2005,6 +2020,8 @@ function onMessage(message: ServerMessage): void {
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      // A refresh's `done` follows the `inbox` that answers it, which the window has drawn by now.
+      if (refreshing.answered(message.requestId)) return;
       if (trashing?.requestId === message.requestId) {
         // The daemon no longer keeps the repository, so its folder goes to the Trash now, as the person chose. A failure is said in the status line.
         const { folder } = trashing;
@@ -2023,7 +2040,7 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       if (takeAccountsAnswer(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
-      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null)) return;
+      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null) || takePaneName(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -2051,6 +2068,8 @@ function onMessage(message: ServerMessage): void {
     case "error":
       // Nothing was created or started.
       requestRefused(message.requestId);
+      // A refresh's refusal is said in the status line in the daemon's words, and the lists stand as they were.
+      if (refreshing.refused(message.requestId, message.message)) return;
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
       if (takePlan(message.requestId, { error: message.message })) return;
       // The refusal of a base's fetch is the form's to show, under the menu.
@@ -2061,8 +2080,8 @@ function onMessage(message: ServerMessage): void {
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
-      // The refusal of the answers to a parked work item's questions is its view's section's to show.
-      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message)) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show, and the refusal of a pane's new name the rename dialog's.
+      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message) || takePaneName(message.requestId, message.message)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
       if (takeBackRefusal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
@@ -2148,6 +2167,7 @@ initSidebar(
       showNarrowed();
     },
     filter,
+    refresh: () => refreshing.press(),
     leaveSearch() {
       const list = listInFront();
       if (list) list.focusLine(list.selected());

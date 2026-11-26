@@ -227,6 +227,40 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     expect(await card("#view-detail .says")).toEqual(drawn);
   });
 
+  it("reads the lists again at a press of the refresh button, works until the answer, and keeps the view in front, its pane in front and the filter", async () => {
+    const REST = "Read the work items again from git and GitHub.";
+    /** The filter's value, and what its control says to a pointer. */
+    const filter = (): Promise<[string, string]> => app.evaluate(`[document.getElementById("sidebar-filter").value, document.getElementById("sidebar-filter-control").title]`);
+    // The case before left Alpha's view in front. A state is chosen in the filter, as a person chooses it.
+    await app.evaluate(`(() => { const filter = document.getElementById("sidebar-filter"); filter.value = "waiting"; filter.dispatchEvent(new Event("change")); })()`);
+    const before = { title: await text("view-title"), tab: await activeTab(), filter: await filter() };
+    expect(before.title).toBe("Alpha");
+    expect(before.filter).toEqual(["waiting", "Showing: Needs you"]);
+    expect(await app.evaluate(`(() => { const button = document.getElementById("refresh-lists"); return [button.title, button.getAttribute("aria-label"), button.getAttribute("aria-busy")]; })()`)).toEqual([REST, REST, null]);
+    // Each section of the sidebar as it stands is marked, and each form the button takes is recorded as it changes.
+    await app.evaluate(`(() => {
+      for (const section of document.querySelectorAll("#repositories section")) section.__before = true;
+      const button = document.getElementById("refresh-lists");
+      window.__refresh = [];
+      new MutationObserver(() => window.__refresh.push([button.getAttribute("aria-busy"), button.title, button.getAttribute("aria-label")])).observe(button, { attributes: true, attributeFilter: ["aria-busy"] });
+    })()`);
+
+    await app.click("#refresh-lists");
+    await app.until(`window.__refresh.length === 2`, "the refresh button working and then at rest");
+    expect(await app.evaluate(`window.__refresh`)).toEqual([
+      ["true", "Reading the work items again…", "Reading the work items again…"],
+      [null, REST, REST],
+    ]);
+    // The answer's `inbox` drew the sidebar again before its `done` ended the work.
+    expect(await app.evaluate(`(() => { const sections = [...document.querySelectorAll("#repositories section")]; return [sections.length > 0, sections.some((section) => section.__before === true)]; })()`)).toEqual([true, false]);
+    expect(await app.evaluate<boolean>(`document.getElementById("work-item-view").hidden`)).toBe(false);
+    expect({ title: await text("view-title"), tab: await activeTab(), filter: await filter() }).toEqual(before);
+    expect(await text("status")).not.toContain("did not answer");
+
+    // The filter shows every work item again for the case after.
+    await app.evaluate(`(() => { const filter = document.getElementById("sidebar-filter"); filter.value = "all"; filter.dispatchEvent(new Event("change")); })()`);
+  });
+
   it("tells a page loaded again that the app started in the background, so that page keeps its notifications too and raises nothing of the system's", async () => {
     // The counting stand-in ends with its document, so the new document gets its own before its first script runs. The debugging port runs such a script only once its Page domain is on.
     await app.cdp("Page.enable");
