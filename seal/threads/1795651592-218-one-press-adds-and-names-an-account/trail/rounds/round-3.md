@@ -31,6 +31,11 @@ The search printed `gaps.md:10` alone. It is a sample under contract rule 19, si
 the fix pass of round 1 ran one `seal mutate` over each against the built-app cases of `theme-controls.test.ts`, and each went red: the disabled state while a sign-in runs at scenario K's case and at the case "starts no second sign-in from the dialog…", the running head at scenario K's case, and the ended head and `takeAddEnded` at the case "says in the dialog's refusal line why an add left no account…", which round 1's finding 2 asked for. Scenario K's case alone held neither of the last two (`trail/rounds/round-1.md`, finding 2). The fix pass of round 2 ran one more over the disabled state, `const busy = alive;`, which takes out the half that holds while a sign-in's request waits on the daemon. It went red at the read in the turn of the press, which the same pass added to the case "starts no second sign-in from the dialog…" (`trail/rounds/round-2.md`, finding 2)
 ```
 
+```seal
+verdict: fixed 10273e6a
+answer: The orchestrator replaced the second cell of the closed row at `gaps.md:10` with the record's paste-ready cell, word for word. It now names round 2's fix pass as the one that ran `const busy = alive;` and saw it red at the read in the turn of the press.
+```
+
 ## Confirmations
 
 ```seal
