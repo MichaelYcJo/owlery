@@ -4833,7 +4833,7 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
     expect((await on.sent(a.id))?.paneStage).toBeNull();
   });
 
-  it("holds no stage told by a pane the daemon ended that outlives the wait for its end, and does nothing at a line for an archived work item (issue #223)", async () => {
+  it("drops the stage a pane told before the daemon ended it, holds none it tells once ended while it outlives the wait for its end, and does nothing at a line for an archived work item (issue #223)", async () => {
     const on = await stagesOn(["Ended work", "Other work"], { apart: true, endWaitMs: 200 });
     const [a, b] = on.workItems as [(typeof on.workItems)[number], (typeof on.workItems)[number]];
     const other = await on.opened(b.id);
@@ -4841,10 +4841,17 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
     on.pane.command = "trap '' HUP; echo deaf; sleep 3";
     const deaf = await on.opened(a.id);
     await on.c.until(() => (on.c.messages.some((m) => m.type === "output" && m.id === deaf && m.data.includes("deaf")) ? true : undefined));
+    // A stage told before the daemon ends the pane: the end drops it, and sends the lists that say so.
+    on.d.stageTold({ is: "stage", folder: a.worktree, pane: deaf, kind: "round", round: 1 });
+    await on.carried(a.id, (stage) => stage !== null);
     const running = { panes: [deaf], headless: [] };
     // A removal ends the pane and is refused once the pane outlives its wait, so the pane stays listed and alive in a work item that is not archived.
     expect((await on.c.asked({ type: "removeRepository", requestId: 1, id: 1, workItems: [a.id], running })).type).toBe("error");
     expect(on.c.workItem(a.id)?.archivedAt).toBeNull();
+    // The lists that drop it come before the refusal, while the pane's process still runs, so no exit drops it.
+    expect(on.c.workItem(a.id)?.paneStage).toBeNull();
+    expect(on.c.messages.some((m) => m.type === "exit" && m.id === deaf)).toBe(false);
+    // A stage told once the daemon ended the pane is not held.
     on.d.stageTold({ is: "stage", folder: a.worktree, pane: deaf, kind: "round", round: 1 });
     on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "round", round: 1 });
     await on.carried(b.id, (stage) => stage !== null);
@@ -8639,6 +8646,34 @@ describe("a Claude Code pane and the owl chain", () => {
     expect(await answer(7)).toEqual({ type: "done", requestId: 7 });
     expect((await launches(pane.id, 5))[4]).toBe(`start exec env CLAUDE_CONFIG_DIR='${withIt}' claude --settings '${ownFile}' ${carried}`);
     expect(JSON.parse(readFileSync(ownFile, "utf8"))).toEqual({ ...hookSettings(), enabledPlugins: { [KEY]: false, "notes@handed": true } });
+  });
+
+  it("drops the stage a changed pane's session told at the exit of the process the change ends, though the pane stays, and sends the drop in the lists the change sends (issue #223)", async () => {
+    const made = repositoryWith(".github/workflows/owlery-seal.yml");
+    const projects = join(made.base, "projects");
+    mkdirSync(projects);
+    const first = sharing(join(made.base, "First"), projects);
+    const second = sharing(join(made.base, "Second"), projects);
+    const { d, c, launches, answer } = await changing(made);
+    c.send({ type: "addAccount", requestId: 1, folder: first });
+    c.send({ type: "addAccount", requestId: 2, folder: second });
+    await c.message("accounts", (m) => m.accounts.length === 3);
+    c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Stage moves", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 4, workItemId: workItem.id, accountId: 1 });
+    const pane = (await c.message("started", (m) => m.requestId === 4)).session;
+    await launches(pane.id, 1);
+    d.stageTold({ is: "stage", folder: workItem.worktree, pane: pane.id, kind: "round", round: 1 });
+    const listed = () => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).filter((item) => item.id === workItem.id).at(-1);
+    await c.until(() => (listed()?.paneStage ? true : undefined));
+    const from = c.messages.length;
+    c.send({ type: "changeAccount", requestId: 5, id: pane.id, accountId: 2 });
+    expect(await answer(5)).toEqual({ type: "done", requestId: 5 });
+    await launches(pane.id, 3);
+    // The pane stays, under the new account, and its new process resumes the conversation, so no role of the old one runs: the place reads as the records say.
+    const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox" && m.sessions.some((listed) => listed.id === pane.id && listed.accountId === 2)));
+    expect(inbox.sessions.find((listed) => listed.id === pane.id)?.alive).toBe(true);
+    expect(inbox.workItems.find((item) => item.id === workItem.id)?.paneStage).toBeNull();
   });
 
   it("refuses with its reason, and ends nothing, a change of a shell, of a sign-in pane, of a working headless session, to an account whose folder keeps other conversations, to the account the pane runs under, to an account it does not keep, of a pane whose process ended, and a second change of a pane while the first waits (scenario 9)", async () => {

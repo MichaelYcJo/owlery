@@ -7,7 +7,7 @@
 // daemon of its own, or against a run folder no daemon listens in, or writes
 // a line to the socket itself. No case starts an agent.
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { createConnection } from "node:net";
+import { createConnection, createServer, type Socket } from "node:net";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routingText } from "../src/daemon/chain";
@@ -16,7 +16,7 @@ import { type HeavyRun, readHeavyRuns } from "../src/daemon/heavy-runs";
 import { MachineTurns } from "../src/daemon/machine-turns";
 import { MARKER } from "../src/daemon/records-place";
 import { inside } from "../src/daemon/hooks";
-import { type StageLine, TURN_SOCKET, TurnServer, takeTurn, turnGiver } from "../src/daemon/turn-socket";
+import { type StageLine, TURN_SOCKET, TurnServer, takeTurn, tellStage, turnGiver } from "../src/daemon/turn-socket";
 import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
 import { BUNDLE, commandOn } from "./chain-command-run";
 import { branchOf, temporaryRepository } from "./repositories";
@@ -280,5 +280,22 @@ describe("the stage lines of the turn socket", { timeout: 60_000 }, () => {
     }
     expect(await wrote(socketPath, "not JSON")).toBe("");
     expect(told).toEqual([]);
+  });
+
+  it("settles a stage line's tell at its wait where the daemon accepts the connection and never reads, so a chain command ends within its bound (issue #223)", async () => {
+    const on = commandOn(cleanups);
+    const socketPath = join(on.runDir, TURN_SOCKET);
+    const held: Socket[] = [];
+    const deaf = createServer({ pauseOnConnect: true }, (socket) => held.push(socket));
+    await new Promise<void>((resolve) => inside(dirname(socketPath), () => deaf.listen(basename(socketPath), resolve)));
+    cleanups.push(() => {
+      for (const socket of held) socket.destroy();
+      deaf.close();
+    });
+    // A line longer than the socket's buffers, which a daemon that never reads leaves unwritten, so only the wait settles the tell.
+    const started = Date.now();
+    const settled = await Promise.race([tellStage(socketPath, { is: "stage-ended", folder: "x".repeat(8_000_000) }, 300).then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))]);
+    expect(settled).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1_500);
   });
 });

@@ -2297,7 +2297,10 @@ export class Daemon {
    * pane's has not within the wait, it refuses with the sentence `late`, and
    * goes on where `late` is null; a headless run that has not ended by then
    * refuses nothing. It refuses where a session started in one of the work
-   * items while it waited. The panes stay listed, as exited ones.
+   * items while it waited. The panes stay listed, as exited ones. The stage
+   * a pane it ends told is dropped as the pane ends, since an ended pane runs
+   * no stage (`stageTold`), and the lists that say so are sent then, before
+   * the wait, so a pane whose process outlives the wait holds none.
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
@@ -2309,10 +2312,13 @@ export class Daemon {
       const stopping = this.stopGate(id, "request", `the command was ${why}`);
       if (stopping !== undefined) stops.push(stopping);
     }
+    let dropped = false;
     for (const session of panes) {
       session.ended = true;
       session.terminal.kill();
+      dropped = this.dropStageOf(session.info.id) || dropped;
     }
+    if (dropped) this.broadcastInbox();
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
@@ -3002,9 +3008,11 @@ export class Daemon {
     if (!same) this.broadcastInbox();
   }
 
-  /** Drops the stage the pane told, where one stands. The caller sends the lists. */
-  private dropStageOf(paneId: number): void {
-    for (const [workItemId, stage] of this.paneStages) if (stage.paneId === paneId) this.paneStages.delete(workItemId);
+  /** Drops the stage the pane told, where one stands, and says whether one stood. The caller sends the lists. */
+  private dropStageOf(paneId: number): boolean {
+    let dropped = false;
+    for (const [workItemId, stage] of this.paneStages) if (stage.paneId === paneId) dropped = this.paneStages.delete(workItemId) || dropped;
+    return dropped;
   }
 
   /**
