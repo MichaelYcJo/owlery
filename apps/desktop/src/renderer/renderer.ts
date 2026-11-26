@@ -78,6 +78,7 @@ import {
   renameChoice,
   repositoryMenu,
   runningSessions,
+  sameValues,
   sessionSections,
   settingsBases,
   settingsChain,
@@ -454,16 +455,30 @@ function waiting(of: Asking): boolean {
 function namedLines(lines: readonly string[], whole = false): HTMLUListElement {
   const list = document.createElement("ul");
   list.className = whole ? "named whole" : "named";
-  list.append(
-    ...lines.map((line) => {
-      const item = document.createElement("li");
-      const words = document.createElement("span");
-      words.textContent = line;
-      item.append(words);
-      return item;
-    }),
-  );
+  list.append(...namedRows(lines));
   return list;
+}
+
+/** The rows of a list of named lines, each line whole in a row of its own. */
+function namedRows(lines: readonly string[]): HTMLLIElement[] {
+  return lines.map((line) => {
+    const item = document.createElement("li");
+    const words = document.createElement("span");
+    words.textContent = line;
+    item.append(words);
+    return item;
+  });
+}
+
+// What each kept part of a dialog was last drawn from. A draw of the daemon's lists leaves a part alone while those values are the same, so a list keeps its scroll and the row under the pointer keeps its tooltip.
+const drawnFrom = new WeakMap<HTMLElement, readonly unknown[]>();
+
+/** Draws a part of a dialog anew only where the values it is drawn from are not ./view's `sameValues` as those it was last drawn from. `build` reads no value that `from` does not hold, so no value the drawing reads is left out of the comparison. */
+function drawWhereChanged(part: HTMLElement, from: readonly unknown[], build: () => Node[]): void {
+  const last = drawnFrom.get(part);
+  if (last !== undefined && sameValues(last, from)) return;
+  part.replaceChildren(...build());
+  drawnFrom.set(part, from);
 }
 
 /** A loss list's row: a commit's hash and its subject as two parts, or a path as one, with the whole subject or path in its tooltip. */
@@ -506,20 +521,23 @@ function lossParts(loss: WorkItemLoss): HTMLElement[] {
   });
 }
 
-/** Draws into a session dialog's container the sections ./view's `sessionSections` gives: the sessions that run, then those that wait for the machine, each section with its heading and a list of its lines. The container is hidden where no section stands. */
+/** Draws into a session dialog's container the sections ./view's `sessionSections` gives: the sessions that run, then those that wait for the machine, each section with its heading and a list of its lines. The container is hidden where no section stands. The sections are drawn anew only where a heading or a line changed: the lines are new arrays at each draw, so they are compared by their words. */
 function drawSessions(id: string, named: SessionsNamed): void {
   const sections = sessionSections(named);
   const container = byId(id);
   container.hidden = sections.length === 0;
-  container.replaceChildren(
-    ...sections.map(({ caption, lines }) => {
-      const section = document.createElement("section");
-      const head = document.createElement("h3");
-      head.className = "caption";
-      head.textContent = caption;
-      section.append(head, namedLines(lines));
-      return section;
-    }),
+  drawWhereChanged(
+    container,
+    sections.flatMap(({ caption, lines }) => [caption, lines.length, ...lines]),
+    () =>
+      sections.map(({ caption, lines }) => {
+        const section = document.createElement("section");
+        const head = document.createElement("h3");
+        head.className = "caption";
+        head.textContent = caption;
+        section.append(head, namedLines(lines));
+        return section;
+      }),
   );
 }
 
@@ -1141,7 +1159,9 @@ function showRemove(): void {
   byId("remove-head").textContent = `Remove ${repository.name} from Owlery`;
   const workItems = byId("remove-work-items");
   workItems.hidden = removal.workItems.length === 0;
-  workItems.querySelector("ul")?.replaceWith(namedLines(removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title))));
+  const listed = removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title));
+  const list = workItems.querySelector("ul");
+  if (list) drawWhereChanged(list, listed, () => namedRows(listed));
   drawSessions("remove-sessions", removal.sessions);
   const deletes = removeDelete.checked && removal.workItems.length > 0;
   if (deletes) {
@@ -1163,17 +1183,21 @@ function showRemove(): void {
   REMOVE.button.disabled = !choice.enabled || waiting(REMOVE);
   const named = byId("remove-losses");
   named.hidden = !deletes;
-  named.replaceChildren(
-    ...(deletes ? removal.workItems : []).flatMap(({ id, title }) => {
-      const head = document.createElement("h3");
-      head.className = "work-item";
-      head.textContent = title;
-      const loss = removeLosses.get(id) ?? null;
-      const says = document.createElement("p");
-      says.className = "says";
-      says.textContent = deleteSays(loss);
-      return [head, says, ...(loss === null ? [] : lossParts(loss))];
-    }),
+  // Drawn from the choice to delete, which names no work item where it is not taken, and from each work item's id, title and loss, so a check of "Force delete" or an `inbox` that changes none of them leaves the lists as they are.
+  const drawn = (deletes ? removal.workItems : []).map(({ id, title }) => ({ id, title, loss: removeLosses.get(id) ?? null }));
+  drawWhereChanged(
+    named,
+    drawn.flatMap(({ id, title, loss }) => [id, title, loss]),
+    () =>
+      drawn.flatMap(({ title, loss }) => {
+        const head = document.createElement("h3");
+        head.className = "work-item";
+        head.textContent = title;
+        const says = document.createElement("p");
+        says.className = "says";
+        says.textContent = deleteSays(loss);
+        return [head, says, ...(loss === null ? [] : lossParts(loss))];
+      }),
   );
 }
 
@@ -1251,7 +1275,9 @@ function showDelete(): void {
   deletion = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("delete-head").textContent = `Delete ${workItem.title}`;
   byId("delete-says").textContent = deleteSays(deleteLoss);
-  byId("delete-loss").replaceChildren(...(deleteLoss === null ? [] : lossParts(deleteLoss)));
+  // The loss is a new object at each read, so the lists are drawn anew at a read and are left as they are at an `inbox` or a check of "Force delete".
+  const loss = deleteLoss;
+  drawWhereChanged(byId("delete-loss"), [loss], () => (loss === null ? [] : lossParts(loss)));
   drawSessions("delete-sessions", deletion.sessions);
   const choice = deleteChoice(deleteLoss, deleteForce.checked);
   byId("delete-force-label").hidden = !choice.forceShown;

@@ -137,6 +137,7 @@ import {
   rowButtons,
   RUN_SETUP_SAYS,
   runningSessions,
+  sameValues,
   screenMoves,
   screenTurns,
   sealNotifications,
@@ -860,6 +861,22 @@ describe("sessionSections", () => {
     expect(sessionSections({ running: [], queued: ["Asked: Who asked?"] })).toEqual([{ caption: WAITS, lines: ["Asked: Who asked?"] }]);
     expect(sessionSections({ running: ["Shell"], queued: [] })).toEqual([{ caption: RUNS, lines: ["Shell"] }]);
     expect(sessionSections({ running: [], queued: [] })).toEqual([]);
+  });
+});
+
+describe("sameValues", () => {
+  const loss = { stamp: "a" };
+
+  it("answers the same for lists that hold the same values in the same places, an object by its identity, so a dialog's part drawn from one is left as it is for the other", () => {
+    expect(sameValues([7, "Renamed here", loss], [7, "Renamed here", loss])).toBe(true);
+    expect(sameValues([], [])).toBe(true);
+  });
+
+  it("answers not the same where one value differs, an object read again among them, and where one list holds the other and more, so a section or a line added at the end is drawn", () => {
+    expect(sameValues([loss], [{ stamp: "a" }])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell in First item"])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell", "Sessions waiting for the machine that leave the queue", 1, "Asked: Who asked?"])).toBe(false);
+    expect(sameValues(["Shell", "Asked: Who asked?"], ["Shell"])).toBe(false);
   });
 });
 

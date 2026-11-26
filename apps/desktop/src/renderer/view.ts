@@ -999,6 +999,11 @@ export function sessionSections(named: SessionsNamed): SessionSection[] {
   ].filter(({ lines }) => lines.length > 0);
 }
 
+/** Whether two lists hold the same values in the same places, each pair compared by `Object.is`: a dialog's part drawn from one of them is drawn from the other too, so it needs no drawing anew. A list that holds the other and more is not the same. */
+export function sameValues(last: readonly unknown[], next: readonly unknown[]): boolean {
+  return last.length === next.length && last.every((value, at) => Object.is(value, next[at]));
+}
+
 /** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the sessions that run or wait for the machine, each by a line of words and, in `running`, by its id. */
 export interface Removal {
   workItems: { id: number; title: string; archived: boolean }[];
