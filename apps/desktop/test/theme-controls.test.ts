@@ -386,6 +386,43 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
+  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in until its process ends, so no pane replaces the one the dialog draws", async () => {
+    writeFileSync(join(standIn, "hold-login"), "");
+    const signIn = `[...document.querySelectorAll('#accounts-list li[data-account="1"] button')].find((button) => button.textContent === "Sign in")`;
+    try {
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
+      await app.evaluate(`${signIn}.click()`);
+      await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to stand-in@example.com"`, "the sign-in pane of the account the login named");
+      expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
+    } finally {
+      rmSync(join(standIn, "hold-login"), { force: true });
+    }
+    await app.until(`!document.getElementById("accounts-add").disabled && document.getElementById("accounts-sign-in-head").textContent === "The sign-in of stand-in@example.com has ended"`, "the row's sign-in ended, with Add an account enabled again");
+    expect(await app.evaluate<boolean>(`${signIn}.disabled`)).toBe(false);
+    await app.click("#accounts-sign-in-close");
+    await app.until(`document.getElementById("accounts-sign-in").hidden`, "the ended sign-in closed");
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
+  it("says in the dialog's refusal line why an add left no account once its sign-in ended with no login, heads the ended pane as a new account's, and enables Add an account again (scope item 8 and scenario C, in the window)", async () => {
+    writeFileSync(join(standIn, "refuse-login"), "");
+    try {
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open`, "the Accounts dialog");
+      await app.click("#accounts-add");
+      await app.until(`document.getElementById("accounts-error").textContent === "The sign-in ended with no login, so no account was added."`, "the sentence of an add whose sign-in ended with no login");
+      expect(await app.evaluate<[string | null, boolean, boolean]>(`[document.getElementById("accounts-sign-in-head").textContent, document.getElementById("accounts-sign-in").hidden, document.getElementById("accounts-add").disabled]`)).toEqual(["The sign-in of a new account has ended", false, false]);
+      await app.click("#accounts-sign-in-close");
+      await app.until(`document.getElementById("accounts-sign-in").hidden`, "the ended sign-in closed");
+    } finally {
+      rmSync(join(standIn, "refuse-login"), { force: true });
+    }
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
   it("opens the rename field of an account whose Rename button is pressed while another client adds an account, and draws the added account after the release", async () => {
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");

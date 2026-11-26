@@ -897,7 +897,6 @@ function openAccounts(): void {
  * shown under the list.
  */
 function showAccounts(): void {
-  showSignIn();
   byId("accounts-list").replaceChildren(
     // Whether a session runs under an account is read as the dialog is drawn: a session that starts later is refused its refresh by the daemon, in words.
     ...accountRows(held.accounts, Date.now(), held.sessions, held.headless).map((row) => {
@@ -993,10 +992,10 @@ function showAccounts(): void {
       }
       if (row.offersSignIn) {
         const id = row.id;
-        acts.append(
-          button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id)),
-          button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))),
-        );
+        const signIn = button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id));
+        // `showSignIn` disables it while a sign-in this window started waits or runs.
+        signIn.dataset.signIn = "";
+        acts.append(signIn, button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))));
       }
       if (row.offersRefresh) {
         const id = row.id;
@@ -1019,6 +1018,8 @@ function showAccounts(): void {
       return item;
     }),
   );
+  // After the rows, so the rows' "Sign in" buttons it disables stand.
+  showSignIn();
 }
 
 /** Adds an account whose folder the daemon makes, with no name: the daemon opens its sign-in at once, drawn under the list, and names the account from the login once the sign-in ends with one. */

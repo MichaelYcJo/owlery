@@ -65,13 +65,19 @@ export function writeSignIn(id: number, data: string): void {
 /**
  * Shows the sign-in section while the daemon lists the pane it draws, named
  * by the account it signs in or as a new account's, and hides it once the
- * pane is closed here or elsewhere. "Add an account" is disabled while this
- * window's add waits for its pane or its pane's sign-in runs.
+ * pane is closed here or elsewhere. While a sign-in this window asked for
+ * waits on the daemon or its pane's process runs, "Add an account" and each
+ * row's "Sign in" are disabled, so no second sign-in from this window
+ * replaces the pane the dialog draws while it runs. The rows' buttons are
+ * the ones `showAccounts` marks with `data-sign-in`, and it calls this after
+ * it draws them.
  */
 export function showSignIn(): void {
   if (shown !== undefined && !held.sessions.some((session) => session.id === shown?.id)) shown = undefined;
   const alive = shown !== undefined && held.sessions.some((session) => session.id === shown?.id && session.alive);
-  addButton.disabled = asked?.accountId === null || (shown?.adding === true && alive);
+  const busy = asked !== undefined || alive;
+  addButton.disabled = busy;
+  for (const button of document.querySelectorAll<HTMLButtonElement>("#accounts-list button[data-sign-in]")) button.disabled = busy;
   section.hidden = shown === undefined;
   if (shown === undefined || held.accounts === null) return;
   if (shown.adding) {
