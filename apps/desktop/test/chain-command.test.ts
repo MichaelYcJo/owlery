@@ -5,8 +5,8 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BASE_RECORDED, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
-import { BASE_OPTION, NO_DEFAULT, USAGE, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
+import { BASE_RECORDED, ROUNDS_CEILING, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
+import { BASE_OPTION, NO_DEFAULT, USAGE, ceilingRefusesSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
 import { BROAD_GATE_NAME, MachineTurns } from "../src/daemon/machine-turns";
 import { TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
 import { routingAnswer } from "../src/daemon/decision-record";
@@ -34,6 +34,30 @@ const asked = (...questions: string[]): string =>
 
 /** How `ask` ends where it lets the call through. */
 const LET_THROUGH = { code: 0, out: "", err: "" };
+
+/** A round record of the cases' work item, by its path from the repository's top. */
+const recordOf = (round: number): string => `${DIRECTORY}/trail/rounds/round-${String(round)}.md`;
+
+/** A proofer's answer that raises one finding, and after round 1 confirms the fix of the round before. */
+const finds = (given: { round: number; heading: string; target: string }): string => roundRecord(given.heading, given.target, [1], given.round === 1 ? [] : [`round-${String(given.round - 1)}#1`]);
+
+/** A fix pass on a round's record: a commit of the fix, and the record's one finding closed `fixed` with it, which no commit holds. */
+const closesFixed = (repo: string, round: number): void => {
+  closeFinding(repo, recordOf(round), 1, `fixed ${commitFix(repo)}`);
+};
+
+/** Runs the chain through the command to the record of round `last`, each round raising one finding and each fix pass before it, which `owed` hands with no word, closing that finding and recorded by the session. `start` takes `options`. */
+async function findingTo(on: ReturnType<typeof commandOn>, last: number, options: string[] = []): Promise<void> {
+  await on.said(["start", ...options]);
+  for (let round = 1; ; round += 1) {
+    const owed = await on.said(["owed"]);
+    await on.said(["round", on.answer(`round-${String(round)}.md`, finds(givenRound(read(owed.prompt))))]);
+    if (round === last) return;
+    expect(await on.said(["owed"])).toMatchObject({ step: "fix-pass", round, open: [1] });
+    closesFixed(on.repo, round);
+    await on.said(["fix-pass", "--by", "the session"]);
+  }
+}
 
 describe("the chain command", { timeout: 60_000 }, () => {
   it("runs a chain to a seal in the order `owed` names: it declares the routing, hands each role its prompt and rules, commits the round's record, the gate's run and the verdict, and the daemon's reader then reads the head as sealed", async () => {
@@ -137,6 +161,55 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(status(on.repo)).toEqual([]);
     await on.said(["seal", answer, "--judged-by", "agent-sealer", "--model", "owl-large"]);
     expect(read(join(on.repo, DIRECTORY, "guarantee.md"))).toContain("built-by: the session, agent-crafter\njudged-by: agent-sealer\n");
+  });
+
+  it("stops at the ceiling of rounds where a round leaves a finding open, in a run that answers `Automation` `yes` too: `owed` prints the step `ceiling`, writes no prompt and commits nothing, the person's word for that round hands its one fix pass, which `fix-pass` records on the same word, and a word for another round passes no stop (issue #246)", async () => {
+    const on = commandOn(cleanups, { roundsCeiling: 2 });
+    // Below the ceiling, `owed` hands round 1's fix pass with no word, and `fix-pass` records it.
+    await findingTo(on, 2, ["--automation", "yes"]);
+    const before = head(on.repo);
+    const stop = { step: "ceiling", round: 2, ceiling: 2, open: [1] };
+    expect(await on.run(["owed"])).toEqual({ code: 0, out: `${JSON.stringify(stop)}\n`, err: "" });
+    expect(existsSync(join(on.runDir, "chain", "1795388700-greet", "fix-pass-2.prompt.md"))).toBe(false);
+    expect(await on.said(["owed", "--persons-word", "1"])).toEqual(stop);
+    expect(head(on.repo)).toBe(before);
+    expect(status(on.repo)).toEqual([]);
+
+    const pass = await on.said(["owed", "--persons-word", "2"]);
+    expect(pass).toMatchObject({ step: "fix-pass", round: 2, open: [1], agent: "owlery:crafter", prompt: join(on.runDir, "chain", "1795388700-greet", "fix-pass-2.prompt.md") });
+    expect(givenFix(read(pass.prompt))).toEqual({ record: recordOf(2), open: [1] });
+    expect(read(pass.rules)).toBe(rulesText(BUNDLE, { role: "crafter", stage: "fix-pass" }, "pane"));
+    closesFixed(on.repo, 2);
+    expect(await on.said(["fix-pass", "--by", "agent-crafter", "--persons-word", "2"])).toMatchObject({ recorded: "fix-pass", round: 2, open: [] });
+
+    // Round 3 leaves a finding open, and the word for round 2 passes no stop of round 3's.
+    const third = await on.said(["owed", "--persons-word", "2"]);
+    expect(third).toMatchObject({ step: "round", round: 3 });
+    await on.said(["round", on.answer("round-3.md", finds(givenRound(read(third.prompt))))]);
+    expect(await on.said(["owed", "--persons-word", "2"])).toEqual({ ...stop, round: 3 });
+    expect(status(on.repo)).toEqual([]);
+  });
+
+  it("refuses a fix pass the ceiling stops, with its sentence and with nothing committed, leaves the pass's commits and close blocks in the worktree, and records them with the person's word for that round (issue #246)", async () => {
+    const on = commandOn(cleanups, { roundsCeiling: 2 });
+    await findingTo(on, 2);
+    closesFixed(on.repo, 2);
+    const before = head(on.repo);
+    const refused = { code: 1, out: "", err: `${ceilingRefusesSays(2, 2)}\n` };
+    expect(ceilingRefusesSays(2, 2)).toBe("Review round 2 left a finding open, and the chain stops for the person from round 2 on, so `fix-pass` records no fix pass of round 2. Once the person has said to go on, the same call with `--persons-word 2` records it.");
+    expect(await on.run(["fix-pass", "--by", "the session"])).toEqual(refused);
+    expect(await on.run(["fix-pass", "--by", "the session", "--persons-word", "1"])).toEqual(refused);
+    expect(head(on.repo)).toBe(before);
+    expect(status(on.repo)).toEqual([` M ${recordOf(2)}`]);
+    expect(await on.said(["fix-pass", "--by", "the session", "--persons-word", "2"])).toMatchObject({ recorded: "fix-pass", round: 2, open: [] });
+    expect(commitsAfterMain(on.repo).at(-1)).toMatchObject({ subject: "chore: record the fix pass of round 2" });
+    expect(status(on.repo)).toEqual([]);
+  });
+
+  it("stops at the daemon's ceiling of rounds where the command's context names none, as the built command runs, and hands each fix pass below it (issue #246)", async () => {
+    const on = commandOn(cleanups);
+    await findingTo(on, ROUNDS_CEILING);
+    expect(await on.said(["owed"])).toEqual({ step: "ceiling", round: ROUNDS_CEILING, ceiling: ROUNDS_CEILING, open: [1] });
   });
 
   it("refuses what the daemon's chain refuses, each with its sentence and with nothing committed: a record the reader refuses, a subcommand for a step the records do not owe, a head that moved after the prompt was handed, and a change outside the work item's directory", async () => {
@@ -438,10 +511,18 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
   });
 
-  it("refuses a run with no subcommand, an unknown one and an option the subcommand does not take, each with the usage", async () => {
+  it("refuses a run with no subcommand, an unknown one, an option the subcommand does not take and a person's word that names no round, each with the usage, which names the word on `owed` and `fix-pass`", async () => {
     const on = commandOn(cleanups);
     expect(await on.run([])).toEqual({ code: 1, out: "", err: `The chain command takes a subcommand.\n${USAGE}` });
     expect(await on.run(["press"])).toEqual({ code: 1, out: "", err: `The chain command has no subcommand press.\n${USAGE}` });
     expect(await on.run(["gate", "--force", "yes"])).toEqual({ code: 1, out: "", err: `The subcommand takes no option --force.\n${USAGE}` });
+    const noRound = { code: 1, out: "", err: `\`--persons-word\` takes the number of the round whose stop the person passed, in digits.\n${USAGE}` };
+    for (const word of ["soon", "0", "2nd", ""]) {
+      expect(await on.run(["owed", "--persons-word", word]), word).toEqual(noRound);
+      expect(await on.run(["fix-pass", "--by", "the session", "--persons-word", word]), word).toEqual(noRound);
+    }
+    expect(await on.run(["round", "answer.md", "--persons-word", "2"])).toEqual({ code: 1, out: "", err: `The subcommand takes no option --persons-word.\n${USAGE}` });
+    expect(USAGE).toContain("\n  owed [--base <base>] [--persons-word <round>]  ");
+    expect(USAGE).toContain("\n  fix-pass --by <session> [--persons-word <round>]  ");
   });
 });

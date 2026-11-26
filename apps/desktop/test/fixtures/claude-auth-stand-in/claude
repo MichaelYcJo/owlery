@@ -8,7 +8,9 @@
 # as a sign-in waits on the browser, and then signs the folder in, unless
 # `refuse-login` stands there. `auth status` prints JSON and exits 0 where
 # the folder is signed in and 1 where it is not, as the CLI reference says
-# the CLI does. `auth logout` signs it out, unless `refuse-logout` stands
+# the CLI does, and names a login that stands by an invented email, as the
+# CLI names it by the login's email, unless `no-email` stands beside the
+# stand-in. `auth logout` signs it out, unless `refuse-logout` stands
 # there. It reaches no network and reads no login of the person's.
 here="${0%/*}"
 printf '%s|%s\n' "$*" "${CLAUDE_CONFIG_DIR:-}" >> "$here/calls"
@@ -24,7 +26,9 @@ case "$2" in
     ;;
   status)
     if [ -e "$login" ]; then
-      printf '{"loggedIn":true,"authMethod":"claude.ai","configDirectory":"%s","loginExpiresAt":"2026-12-20T09:30:00.000Z"}\n' "$CLAUDE_CONFIG_DIR"
+      email=',"email":"stand-in@example.com"'
+      [ -e "$here/no-email" ] && email=
+      printf '{"loggedIn":true,"authMethod":"claude.ai"%s,"configDirectory":"%s","loginExpiresAt":"2026-12-20T09:30:00.000Z"}\n' "$email" "$CLAUDE_CONFIG_DIR"
     else
       printf '{"loggedIn":false,"authMethod":"none","configDirectory":"%s","loginExpiresAt":null}\n' "$CLAUDE_CONFIG_DIR"
       exit 1

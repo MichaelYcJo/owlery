@@ -147,7 +147,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     await message("ready", () => true, 10_000);
     client.send(JSON.stringify({ type: "createWorkItem", requestId: 1, repo: repository.repo, title: "A real role session", kind: "shell", cols: 80, rows: 24 }));
     const { workItem } = await message("workItemCreated", () => true, 10_000);
-    client.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: workItem.id, prompt, role }));
+    await daemon.startRoleSession(workItem.id, prompt, role);
     const headless: HeadlessInfo = (await message("headless", (m) => m.headless.state !== "working", 280_000)).headless;
 
     // What the run's record is written from: the session as the daemon holds it, and what its result line says it cost.
@@ -214,7 +214,5 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     // Nothing was appended.
     expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, pair]);
-    // A role session's request never waits for the person.
-    expect(messages.flatMap((m) => (m.type === "inbox" || m.type === "ready" ? m.workItems.flatMap((item) => item.permissions) : []))).toEqual([]);
   }, 300_000);
 });
