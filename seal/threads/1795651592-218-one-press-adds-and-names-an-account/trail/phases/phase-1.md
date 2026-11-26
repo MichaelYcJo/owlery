@@ -22,7 +22,7 @@
 
 **Mutation runs** (`seal mutate`, each one break, `executed`). Each store mutant ran against `-t AccountStore`, and each adapter and stand-in mutant against `-t part.of.the.accounts`. The failing line of each run was read:
 
-- The constructor reads an account's id under `adding`: `red`, at the case of scenario H's store, on `store.adding()`. The same case's `dropMade` assertions would also fail, because the account's folder would be removed. This is scenario H's red "with the store's check of the made path taken out".
+- The constructor reads an account's id under `adding`: `red`, at the case of scenario H's store, on `store.adding()`. The same case's `dropMade` assertions would also fail, because the account's folder would be removed (`read`, since the run stops at the first failing line). This is scenario H's red "with the store's check of the made path taken out".
 - The constructor reads an id that is no whole number above 0: `red`, at the same line, where `adding()` held 0, -1, 1.5 and the two strings.
 - `noted` lets through an id `adding` does not note: `red`, in the `keepMade` case and in scenario H's case, each at a refusal expected to throw.
 - `unheld` returns the name as given: `red`, at "person@example.com (2)". `addHanded` without `unheld`: `red`, at "person@example.com (3)". System default's name left out of the names held: `red`, at "System default (2)".
@@ -31,6 +31,8 @@
 - `loginStatusOf` reading `email` after exit 1: `red`, at `name: null` expected for exit 1. Without the trim: `red`, at the email printed with spaces and a newline. An empty email kept as a name: `red`, at `""`. A value that is no string turned into one: `red`, at `"null"`.
 - The stand-in printing an email despite `no-email`: `red`, at the status read with `no-email` standing. The stand-in printing no email: `red`, at `name: "stand-in@example.com"`.
 
-**The changed files were typechecked at `fd279782`, after both of the phase's commits.** `tsc` ran over a scratch configuration that extends `apps/desktop/tsconfig.json` and names the six source and test files the phase changed. Through their imports it read 56 files of the app, `daemon.ts` among them, and exited 0 (`executed`). The repository configures no formatter and no linter.
+**The changed files were typechecked at `fd279782`.** `tsc` ran over a scratch configuration that extends `apps/desktop/tsconfig.json` and names the six source and test files the phase changed. Through their imports it read 56 files of the app, `daemon.ts` among them, and exited 0 (`executed`). `bb227237`, after it, changed one comment of `accounts.ts` and one case's name, and was not typechecked again. The repository configures no formatter and no linter.
+
+**The phase's run is `test/accounts.test.ts` whole, at `bb227237`.** `node scripts/test-in-electron.mjs test/accounts.test.ts` passed its 47 cases (`executed`). The spawn narrowed every run to this file, so `claude-adapter.test.ts` and `daemon.test.ts`, each changed by one assertion, did not run, and `gaps.md` holds them for the broad gate.
 
 **What the next phase needs from this one.** `daemon.ts` still calls `addMade` and `addHanded` with a typed name, and `readLogin` hands the whole `LoginStatus` to `setLogin`, which reads its two login fields and leaves out `name`. `adding()` answers in the order the folders were made. The store answers no account for an id under `adding`: `account`, `holds`, `accounts` and `listed` leave it out, and `setDefault`, `rename`, `remove` and `setLogin` refuse it with "No account `<id>` is kept.", as the case of `beginMade` pins. A daemon check that reads `account` or `holds` therefore refuses such an id as it refuses an unknown one. Which requests reach such a check is phase 2's to show, as scenario J.
