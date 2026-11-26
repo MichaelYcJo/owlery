@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RECORD_FILE,
+  owedWords,
   readDecisionRecord,
   withAnswer,
   withApplied,
@@ -439,6 +440,33 @@ describe("the writer of a work item's record", () => {
       expect(() => writeRecord(worktreeOf(path), path, (text) => withAnswer(withReversal(text, 1, "No."), 6, "Another."))).toThrow("question 6 is answered");
       expect(readFileSync(join(path, RECORD_FILE), "utf8")).toBe(RECORD);
     });
+  });
+});
+
+describe("the person's words no commit holds", () => {
+  it("gives a decision the written record holds `reversed` and the committed one holds `decided`", () => {
+    const committed = `${HEAD}${ROUTE}${PUSH}`;
+    expect(owedWords(committed, withReversal(committed, 1, "No."))).toEqual({ reversed: [1], answered: [] });
+  });
+
+  it("gives a question the written record holds `answered` and the committed one holds `open`", () => {
+    const committed = `${HEAD}${ROUTE}${PUSH}`;
+    expect(owedWords(committed, withAnswer(committed, 2, "`yes`"))).toEqual({ reversed: [], answered: [2] });
+  });
+
+  it("gives nothing for a reversal and an answer the committed record holds in the same state, though its message differs", () => {
+    const committed = `${HEAD}${SCOPE}${TOKEN}`;
+    const written = committed.replace("reversal: Ask it: the team writes Korean.", "reversal: Ask it.").replace("answer: The one in the keychain item `owlery-release`.", "answer: Another.");
+    expect(owedWords(committed, written)).toEqual({ reversed: [], answered: [] });
+  });
+
+  it("gives every `reversed` decision and every `answered` question, in the order of the file, where no commit holds the record, and no decision that stands `applied` or `carried`", () => {
+    expect(owedWords(null, RECORD)).toEqual({ reversed: [3], answered: [6] });
+    expect(owedWords(null, `${HEAD}${TOKEN}${SCOPE}`)).toEqual({ reversed: [3], answered: [6] });
+  });
+
+  it("gives nothing for a record whose decisions stand `decided`, `applied` or `carried` and whose questions stand `open`, though no commit holds it", () => {
+    expect(owedWords(null, `${HEAD}${ROUTE}${PUSH}${DEFAULT}${ANSWERED}`)).toEqual({ reversed: [], answered: [] });
   });
 });
 

@@ -267,6 +267,36 @@ export function readDecisionRecord(text: string): DecisionRecord {
   };
 }
 
+/** The ids of the person's words a record holds that a commit of it does not: its reversals and its answers, each in the order of the file. */
+export interface OwedWords {
+  reversed: number[];
+  answered: number[];
+}
+
+/** Whether a record holds a word of the person's: a decision that stands `reversed`, or a question that stands `answered`. */
+export function holdsWords(record: Pick<DecisionRecord, "decisions" | "questions">): boolean {
+  return record.decisions.some((decision) => decision.state.is === "reversed") || record.questions.some((question) => question.state.is === "answered");
+}
+
+/**
+ * The person's words the written text of a record holds and its committed
+ * text does not: each decision that stands `reversed` in the written text
+ * and in no such state, or not at all, in the committed one, and each
+ * question that stands `answered` in the written text and in no such state,
+ * or not at all, in the committed one. A block is the same block in both
+ * where it bears the same id. `committed` is null where no commit holds the
+ * record. A word the commit holds in the same state is not owed, though its
+ * message differs.
+ */
+export function owedWords(committed: string | null, written: string): OwedWords {
+  const before = committed === null ? { decisions: [], questions: [] } : readDecisionRecord(committed);
+  const now = readDecisionRecord(written);
+  return {
+    reversed: now.decisions.filter((decision) => decision.state.is === "reversed" && before.decisions.find((held) => held.id === decision.id)?.state.is !== "reversed").map((decision) => decision.id),
+    answered: now.questions.filter((question) => question.state.is === "answered" && before.questions.find((held) => held.id === question.id)?.state.is !== "answered").map((question) => question.id),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // The writes.
 
