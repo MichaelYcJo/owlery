@@ -53,6 +53,11 @@ to
 
 The fix adds no heading and no table row, and no case reads `frame/design.md`.
 
+```seal
+verdict: fixed 00adaf14
+answer: The orchestrator applied the round's sentence to `frame/design.md` *Scope* item 8 word for word. Records alone.
+```
+
 ## Confirmations
 
 What matched: *Figure against its text*. The six `*-narrowed.png` files at `3ca05764` were opened one by one, in Night watch, Register and Desk, each dark and light. Their blobs differ from those of `3298cac8` and from the abandoned combined branch's `1f7689ec` (executed: `git ls-tree -r` at each), so they come from this branch's run. Each shows "history" in the search field with "0 of 7". The sidebar's head holds the bell with 3, the filter's icon inside its edge, and "+". The sidebar says `No work item under "Decided without asking" matches "history", so the sidebar does not list its repository.` with "Show every work item" under it, and it lists no repository row. That is the sentence `NARROWED_SAYS` pins (`screenshots.test.ts:469`), and the one-repository form *Data & interfaces* gives. The inbox's own filter reads "Decided without asking", and its list says "No work item matches.". The status line now reads "3 agents of 3", from the release's scene, which this work does not draw. (read)
