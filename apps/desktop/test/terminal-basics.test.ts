@@ -507,9 +507,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`JSON.stringify(${TABS}) === ${JSON.stringify(JSON.stringify(["Shell 1", "build", "Shell 3"]))}`, "the renamed tab between the two that keep their numbers");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane in front once the dialog closed");
     expect(await deleteDialogSessions(3)).toEqual(["Shell 1", "build", "Shell 3"]);
-    await openView();
 
-    // An empty name gives the tab its kind's label back.
+    // An empty name gives the tab its kind's label back, and the dialog's close gives the keyboard back to the pane in front, which the delete dialog's close left on the work item's line.
     await openTabMenu(2);
     await pressTabMenuItem("Rename…");
     await app.until(NAME_DIALOG_OPEN, "the rename dialog again");
@@ -519,6 +518,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#pane-name-submit");
     await app.until(`!(${NAME_DIALOG_OPEN})`, "the rename dialog closed at the empty name");
     await app.until(`JSON.stringify(${TABS}) === ${JSON.stringify(JSON.stringify(["Shell 1", "Shell 2", "Shell 3"]))}`, "the tab named by its kind again");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane in front once the dialog closed again");
 
     // The pane the dialog names is closed by another client while the dialog is open.
     await openTabMenu(3);
