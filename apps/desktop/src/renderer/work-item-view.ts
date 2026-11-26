@@ -491,8 +491,9 @@ function menuAct(chosen: PaneMenuAct, screen: Screen): void {
   else if (chosen === "paste")
     void window.owlery.clipboardText().then((text) => {
       // The screen may have gone to another pane while the main process answered.
+      if (turns.pane !== pane) return;
       if (text === "") pasteImage(screen);
-      else if (turns.pane === pane) term.paste(text);
+      else term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
   else if (chosen === "find") openFind(screen);

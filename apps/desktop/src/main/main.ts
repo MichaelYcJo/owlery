@@ -230,7 +230,7 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.openLink, (_event, address: unknown): Promise<boolean> => openLink(address, opener));
   // The texts come from what a pane printed. The answer says only whether a file or a folder stands at each, and where.
   ipcMain.handle(Channel.pathsOf, (_event, worktree: unknown, texts: unknown): Promise<(PathFound | null)[]> => pathsOf(worktree, texts, app.getPath("home")));
-  // The disk is read again at the request, and a file is never opened (./paths).
+  // The disk is read again at the request, and Finder shows a file selected and never opens it (./paths). A file opens in an editor only through `openInEditor` below.
   ipcMain.handle(Channel.showInFinder, (_event, path: unknown): Promise<boolean> => showInFinder(path, finder));
   // A copy writes the clipboard this start keeps: the app's own in the background, and the system's otherwise (./clipboard).
   ipcMain.handle(Channel.copyText, (_event, text: unknown): Promise<void> => copyText(text, (written) => held.writeText(written)));
