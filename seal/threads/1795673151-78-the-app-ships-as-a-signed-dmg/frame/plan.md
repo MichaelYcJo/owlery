@@ -61,7 +61,7 @@ The phases follow the launch: the package this Mac makes and opens first, the wo
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | *Scope* 1 to 7 and 11, with the rows of `frame/design.md` *Removes*. | Scenarios D, F, J and K as cases of `apps/desktop/test/package.test.ts`, run by name, each shown red first (contract rule 15). One run of `package` and then one of `package:verify`, each a heavy command run alone: scenarios A and B, with each check's line in `trail/phases/phase-1.md`. Scenario C, shown once against a package made with `identity: null`. The bytes of *Scope* 11 are that run's. | `12c02961` |
-| 2 | *Scope* 8 and 9. | Scenario E as cases of `apps/desktop/test/package.test.ts`, run by name. Scenario G's two searches at the phase's commit: the first prints lines of `.github/workflows/package.yml` alone, and the second prints nothing. Scenario H is `unverified` at the phase's close and goes into `gaps.md` with the orchestrator as its answerer (Q4). Scenario I is `unverified` and goes into `gaps.md` with the owner as its answerer (Q5). | |
+| 2 | *Scope* 8 and 9. | Scenario E as cases of `apps/desktop/test/package.test.ts`, run by name. Scenario G's two searches at the phase's commit: the first prints lines of `.github/workflows/package.yml` alone, and the second prints nothing. Scenario H is `unverified` at the phase's close and goes into `gaps.md` with the orchestrator as its answerer (Q4). Scenario I is `unverified` and goes into `gaps.md` with the owner as its answerer (Q5). | `efe69004` |
 | 3 | *Scope* 10 and 12. | Scenario L, read at review. The changelog fragment holds the three facts of *Scope* 12. | |
 
 The suite and the broad gate are the orchestrator's, after the review rounds.

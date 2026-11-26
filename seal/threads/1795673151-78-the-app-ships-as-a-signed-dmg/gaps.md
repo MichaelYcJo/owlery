@@ -8,6 +8,9 @@
 | What a person meets at the first open of the downloaded ad hoc build, how the Dock and the Finder draw the bundle's icon at each size, and whether a Claude Code pane of the app opened from the Finder starts the person's `claude`. `package:verify` starts the app from a shell, which hands the app the shell's environment. | the owner, at a screen, by `frame/questions.md` Q6 |
 | That `main.ts` gives the Dock no image in a packaged app. `dockImage`'s cases hold the function, and the call `dockImage(app.isPackaged, __dirname)` was read and not run in a packaged app with the Dock read. | the owner, at a screen, by `frame/questions.md` Q6 |
 | That the macOS runner of GitHub draws both SVGs with `sips` and packages the app. Phase 1 ran on the owner's Mac alone. | the orchestrator, by `frame/questions.md` Q4 |
+| Scenario H: that `.github/workflows/package.yml`, at a pushed tag with a suffix, packages the app, passes `package:verify` on the runner, writes "Signed ad hoc" into the run's summary, and leaves a draft release of the tag holding `Owlery-arm64.dmg`. Phase 2 parsed the file and ran its commands on this Mac; no agent pushed a tag or ran the workflow. | the orchestrator, by `frame/questions.md` Q4 |
+| That `gh release list` in the upload step lists a draft release, so a second run for a tag whose release is still a draft uploads into it and makes no second draft. | the orchestrator, by `frame/questions.md` Q4, running the workflow twice for the tag |
+| Scenario I: that the workflow, with the five secrets set, signs with the Developer ID certificate, has Apple notarize the app, writes "Signed with the Developer ID certificate and notarized" into the summary, and that a downloaded copy opens with no alert. | the owner, after the enrolment, by `frame/questions.md` Q5 |
 | The suite, the repository's typecheck and the README count of the broad gate at the work item's last commit. | the orchestrator, at the broad gate |
 
 ## Not done
