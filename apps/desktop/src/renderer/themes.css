@@ -126,6 +126,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -243,6 +244,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -358,6 +360,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: inset 0 2px 0 var(--terminal-strong);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
 
@@ -473,6 +476,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: inset 0 2px 0 var(--terminal-strong);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
 
@@ -588,6 +592,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
@@ -703,6 +708,7 @@
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
   --dot-edge: 0 0 0 1.5px var(--ground-side);
+  --on-edge: inset 0 0 0 1px var(--ink-muted);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
 
