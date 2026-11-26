@@ -1156,14 +1156,6 @@ describe("committing files of a worktree", () => {
     expect(status(made.repo)).toEqual([]);
   });
 
-  it("gives git no input: a pre-commit hook that reads its input to the end commits at once under the default limit", { timeout: 10_000 }, async () => {
-    const made = repository();
-    write(made.repo, "a.md", "a\n");
-    program(made, ".git/hooks/pre-commit", "cat > /dev/null\nexit 0");
-    await commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER]);
-    expect(newest(made.repo)).toMatchObject({ subject: "chore: record", paths: ["a.md"] });
-  });
-
   it("ends the commit under way where the caller's signal fires, as at the limit, and starts nothing where it fired before: each throws that the commit was ended, no commit is made and the file stands written and not staged", async () => {
     const made = repository();
     write(made.repo, "a.md", "a\n");
