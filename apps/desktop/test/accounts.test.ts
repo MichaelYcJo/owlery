@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
-import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, LoginStatus, RoleAdapter } from "../src/daemon/adapters/adapter";
 import { claudeAdapter, claudeEnv } from "../src/daemon/adapters/claude";
 import { authArgs, claudeLogins, LINKED_NAMES, linkOwn, loginStatusOf } from "../src/daemon/adapters/claude-accounts";
 import { fakeAdapter } from "../src/daemon/adapters/fake";
@@ -1003,6 +1003,11 @@ describe("the accounts Owlery makes", () => {
     const plain = await daemon();
     expect(await plain.c.request({ type: "addAccount", cols: 80, rows: 24 })).toMatchObject({ type: "error", message: "This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder." });
     expect(existsSync(join(plain.runDir, "accounts"))).toBe(false);
+    // An agent the adapter cannot find starts no sign-in, and the folder made for it is removed with its id.
+    const lost = await daemon({ roleAdapter: fakeAdapter({ logins: { ...loginsOf(cli, () => null), signIn: () => Promise.reject(new Error("claude was not found by the login shell (/bin/zsh)")) } }) });
+    expect(await lost.c.request({ type: "addAccount", cols: 80, rows: 24 })).toMatchObject({ type: "error", message: "claude was not found by the login shell (/bin/zsh)" });
+    expect(readdirSync(join(lost.runDir, "accounts"))).toEqual([]);
+    expect(JSON.parse(readFileSync(join(lost.runDir, "accounts.json"), "utf8"))).toMatchObject({ accounts: [], adding: [] });
   });
 
   it("signs an account in in a pane of no work item that runs the CLI's own sign-in under the account's folder, in the environment the adapter names and no variable of the daemon's own, and at the pane's end and at a request reads whether a login stands and when it ends (scenario 6)", async () => {
@@ -1262,7 +1267,12 @@ describe("the accounts Owlery makes", () => {
     expect(firstListing(c, 2)?.accounts[2]).toMatchObject({ id: 2, name: "Bare", made: false, signedIn: false, loginEndsAt: null });
     expect(firstListing(c, 3)?.accounts[3]).toMatchObject({ id: 3, name: "Unsaid", made: false, signedIn: null, loginEndsAt: null });
     expect([contents(signed), contents(bare), contents(unsaid)]).toEqual(before);
-    expect(calls()).toEqual([`auth status|${signed}`, `auth status|${bare}`]);
+    // A folder the store refuses is refused before the CLI is asked of it, and one named with a slash at its end is asked of, and kept, without the slash.
+    for (const at of ["Signed", join(bare, "missing"), signed]) expect(await c.request({ type: "addAccount", folder: at })).toMatchObject({ type: "error" });
+    const slashed = handedFolder("Slashed");
+    expect(await c.request({ type: "addAccount", folder: `${slashed}/` })).toMatchObject({ type: "done" });
+    expect(firstListing(c, 4)?.accounts[4]).toMatchObject({ id: 4, name: "Slashed", folder: slashed });
+    expect(calls()).toEqual([`auth status|${signed}`, `auth status|${bare}`, `auth status|${slashed}`]);
     // An adapter that signs no account in asks nothing, and names the account by its folder with its sign-in not read.
     const plain = await daemon();
     expect(await plain.c.request({ type: "addAccount", folder: handedFolder("Plain") })).toMatchObject({ type: "done" });
@@ -1326,6 +1336,23 @@ describe("the accounts Owlery makes", () => {
     ]);
     expect([existsSync(one!), existsSync(two!), existsSync(three!)]).toEqual([true, false, true]);
     expect(calls().slice(from).sort()).toEqual([`auth status|${one}`, `auth status|${two}`]);
+  });
+
+  it("decides nothing of a folder the CLI is still asked of when the daemon closes, so the folder and its id stay for the next start (scope item 7)", async () => {
+    const { cli, here } = authStandIn();
+    writeFileSync(join(here, "hold-login"), "");
+    const first = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
+    expect(await first.c.request({ type: "addAccount", cols: 80, rows: 24 })).toMatchObject({ type: "started" });
+    await first.d.close();
+    let answer: ((status: LoginStatus) => void) | undefined;
+    const second = await daemon({ runDir: first.runDir, roleAdapter: fakeAdapter({ logins: { ...loginsOf(cli, () => null), status: () => new Promise<LoginStatus>((resolve) => (answer = resolve)) } }) });
+    await second.c.until(() => (answer !== undefined ? true : undefined));
+    await second.d.close();
+    // The CLI says no login stands only after the daemon closed.
+    answer?.({ signedIn: false, loginEndsAt: null, name: null });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(existsSync(join(first.runDir, "accounts", "1"))).toBe(true);
+    expect(JSON.parse(readFileSync(join(first.runDir, "accounts.json"), "utf8"))).toMatchObject({ accounts: [], adding: [1] });
   });
 
   it("refuses every request that names a folder whose first sign-in has not ended as one that names no account, and sets nothing (scenario J)", async () => {
