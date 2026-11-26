@@ -85,7 +85,8 @@ export async function sealAt(worktree: string, directory: string, head: string, 
 /**
  * The seal the commit `head` of a work item's branch holds: `sealAt` on the
  * directory of the worktree whose `routing.md` names the branch, and null
- * where the worktree holds no such directory or two.
+ * where the worktree holds no such directory or two, and for a work item
+ * with no branch yet, whose directory no routing names.
  */
 export async function workItemSeal(item: Pick<WorkItem, "worktree" | "branch" | "baseBranch" | "baseCommit">, head: string): Promise<Seal | null> {
   const directory = workItemDirectory(item.worktree, item.branch);

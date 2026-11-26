@@ -6,6 +6,7 @@ import { byId, changedSince, detail, drawSeal, entries, held, lineMarkIcons, mar
 import {
   ageOf,
   ahead,
+  branchPlace,
   archivedHead,
   decisionMark,
   archivedIn,
@@ -117,7 +118,9 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     if (!entry) return;
     showState(previewState, entry.line.state, lineSince(entry.workItem, entry.session));
     previewTitle.textContent = entry.line.title;
-    previewBranch.textContent = entry.line.branch;
+    const branch = branchPlace(entry.line.branch);
+    previewBranch.textContent = branch.text;
+    previewBranch.classList.toggle("none", branch.none);
     previewAhead.textContent = ahead(entry.workItem).sentence;
     previewRepo.textContent = repoNameOf(entry.workItem);
     drawSeal(previewSeal, entry.workItem.seal);
@@ -153,7 +156,8 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     const second = part("second", "");
     // After the text, how many decisions made without asking the person has not seen, the look not holding them, how many reversals wait for a stage, and where the commit of a word of the person's failed, that it is not committed; then the setup's words while it runs and where it failed.
     second.append(
-      marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []),
+      // A work item with no branch says so in the sans, and nothing of those words is marked: the search does not match them.
+      marked(said.says !== "branch" ? "says" : workItem.branch === null ? "says branch none" : "says branch", said.text, said.says === "branch" && workItem.branch !== null ? markRanges(said.text, held.query) : []),
       part("decided", [decisionMark(workItem, held.lastLook), wordOwedMark(workItem)].filter((words) => words !== "").join(", ")),
       part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
       part("badge", lineBadge(workItem, held.lastLook)),

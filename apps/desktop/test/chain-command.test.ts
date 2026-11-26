@@ -386,7 +386,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(head(on.repo)).toBe(moved);
   });
 
-  it("refuses a start the daemon's chain refuses, each with the daemon's sentence and with no directory made: a records root that names no broad gate, a change no commit holds, and a branch with no commit after its base", async () => {
+  it("refuses a start the daemon's chain refuses, each with the daemon's sentence and with no directory made: a records root that names no broad gate, a change no commit holds, a branch with no commit after its base, and a worktree whose HEAD names no branch yet, with what makes one", async () => {
     const gateless = commandOn(cleanups, { gate: " " });
     expect(await gateless.run(["start"])).toEqual({ code: 1, out: "", err: 'seal/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository\'s check there, and commit it.\n' });
     const on = commandOn(cleanups);
@@ -394,7 +394,10 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.run(["start"])).toEqual({ code: 1, out: "", err: "The worktree holds a change no commit holds, at loose.txt. A round reads a committed tree: commit the change or remove it first.\n" });
     git(on.repo, "clean", "--quiet", "-f");
     expect(await on.run(["start", "--base", BRANCH])).toEqual({ code: 1, out: "", err: "The branch holds no commit after its base, so a round has nothing to read.\n" });
-    for (const { repo } of [gateless, on]) expect(existsSync(join(repo, "seal/threads"))).toBe(false);
+    const detached = commandOn(cleanups);
+    git(detached.repo, "checkout", "--quiet", "--detach");
+    expect(await detached.run(["start"])).toEqual({ code: 1, out: "", err: "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has.\n" });
+    for (const { repo } of [gateless, on, detached]) expect(existsSync(join(repo, "seal/threads"))).toBe(false);
   });
 
   it("follows the base round 1's record names, whatever the pane's environment names afterwards: the verifying round and the seal are read against it, and the seal's target names it", async () => {

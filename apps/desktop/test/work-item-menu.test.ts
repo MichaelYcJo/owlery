@@ -10,8 +10,9 @@
 // dialog and the repository's removal dialog keep in place at a draw that
 // changes none of them; a repository's new group, and a work item's
 // move into it and out of it; and a removal that deletes a repository's work
-// items from disk, and one that is refused after its first delete; and last
-// a repository's removal that leaves everything on disk. Among the first
+// items from disk, and one that is refused after its first delete; a
+// repository's removal that leaves everything on disk; and last the menu of
+// a work item with no branch yet, which offers no branch to copy. Among the first
 // cases stand the ones of the "Open in" submenu: its keys, the pointer, its
 // place at the window's edge, and a press of its Finder item on a folder the
 // case moved aside. No case presses an item of that submenu on a folder that
@@ -29,6 +30,7 @@ import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
+import { slugFor } from "../src/daemon/worktrees";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 describe("the menus in the built app", { timeout: 30_000 }, () => {
@@ -40,6 +42,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   let third: ReturnType<typeof temporaryRepository>;
   /** A fourth repository, whose removal deletes one of its two work items and is refused at the other. */
   let fourth: ReturnType<typeof temporaryRepository>;
+  /** A fifth repository, whose work item has no branch yet. */
+  let fifth: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -191,8 +195,15 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuGone();
   }
 
-  /** Creates a work item through the form, with a pane of the shell kind, and waits for its view. */
-  async function create(name: string, repo?: string): Promise<void> {
+  /**
+   * Creates a work item through the form, with a pane of the shell kind,
+   * waits for its view, and, unless `unbranched`, gives it its branch
+   * `owlery/<slug of the name>` by a rename to its own name, which for a work
+   * item with no branch yet makes its branch with the dialog's choice taken
+   * and not to be taken back. The cases read the branch of each work item,
+   * its menu's "Copy branch name" among it. It gives the work item's id.
+   */
+  async function create(name: string, repo?: string, unbranched = false): Promise<number> {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     if (repo !== undefined) {
@@ -208,6 +219,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
+    const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((each) => each.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.dataset.workItem)`);
+    if (unbranched) return id;
+    const branch = `owlery/${slugFor(name)}`;
+    await renameTo(id, name);
+    await says("rename-plan", `The rename makes the branch ${branch}.`);
+    expect(await value<boolean[]>(`[document.getElementById("rename-branch").checked, document.getElementById("rename-branch").disabled]`)).toEqual([true, true]);
+    await app.click("#rename-submit");
+    await app.until(`!document.getElementById("rename-dialog").open`, "the rename dialog closed");
+    await app.until(`document.getElementById("view-branch").textContent === ${JSON.stringify(branch)}`, `the branch ${branch} in the view`);
+    return id;
   }
 
   /** Opens the rename dialog of a work item from its menu in the sidebar, and types a name over the one it holds. */
@@ -232,6 +253,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     second = temporaryRepository("second");
     third = temporaryRepository("third");
     fourth = temporaryRepository("fourth");
+    fifth = temporaryRepository("fifth");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
@@ -248,6 +270,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     second?.remove();
     third?.remove();
     fourth?.remove();
+    fifth?.remove();
   }, 30_000);
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
@@ -1107,7 +1130,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await choices()).toEqual([false, true, false, false, true, false]);
     // A choice that is not offered is not drawn either.
     expect(await value<string[]>(`["remove-force-label", "remove-delete-label"].map((id) => getComputedStyle(document.getElementById(id)).display)`)).toEqual(["none", "flex"]);
-    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+    expect(await value<string>(`document.getElementById("remove-delete-label").textContent`)).toBe("Also delete the work items' worktrees, and the local branches Owlery made");
+    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
     expect(await value<string[]>(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell in In third"]);
     await app.click("#remove-submit");
     await dialogClosed("remove-dialog");
@@ -1196,5 +1220,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
     expect(held(clone.repo)).toEqual(before);
     expect([existsSync(join(clone.root, "project", "first-item", "README.md")), existsSync(join(clone.root, "project", "second-item", "README.md"))]).toEqual([true, true]);
+  });
+
+  it("holds no Copy branch name in the menu of a work item with no branch yet", async () => {
+    const id = await create("No branch here", fifth.repo, true);
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    expect(await menuItems()).toEqual(["Rename", "Open in", "Copy path", "Pin", "Mute notifications", "Archive", "Delete"]);
+    await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    await menuGone();
+    expect(git(fifth.repo, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/main\n");
   });
 });
