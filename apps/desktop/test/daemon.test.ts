@@ -2104,6 +2104,44 @@ describe("the records place of a repository", () => {
     expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
     expect(moving.plan.unread).toEqual([{ id: a.id, title: "Refused work", why: expect.stringMatching(new RegExp(`^the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: `, "u")) }]);
   });
+
+  it("names, in a plan that moves the check, a work item whose records git could not read at its branch's head, with git's words, so the dialog does not say that the readers refuse none", { timeout: 60_000 }, async () => {
+    const NAME = "1795696248-unreadable-records";
+    const { made, c, workItems } = await standing(cleanups, ["Unreadable work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    const head = git(a.worktree, "rev-parse", "HEAD").trim();
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // The worktree's link to its repository breaks after the daemon read the branch's head, so git cannot list the records at that head, though their directory stands on disk.
+    writeFileSync(join(a.worktree, ".git"), "gitdir: /nonexistent/owlery-gitdir\n");
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: expect.stringMatching(/^Owlery could not read these records, so whether the moved check refuses them is not known: .*not a git repository/su) }]);
+  });
+
+  it("names, in a plan that moves the check, a work item with a branch whose head the daemon holds no reading of, with the sentence that its records were not read, so the dialog does not say that the readers refuse none", { timeout: 60_000 }, async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Unread work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    const branch = branchOf(a);
+    const head = commitFile(a.worktree, "work.ts");
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // The branch's ref goes, so the daemon drops what it read of the branch and holds no head of it, as before its first reading.
+    git(made.repo, "update-ref", "-d", `refs/heads/${branch}`);
+    await c.until(() => (c.workItem(a.id)?.commits === null ? true : undefined));
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect(moving.plan.move).toEqual({ from: "1.2.2", to: "1.2.3" });
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unread work", why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." }]);
+  });
 });
 
 describe("what a person sets on a work item", () => {

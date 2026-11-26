@@ -2885,22 +2885,27 @@ export class Daemon {
    * refuse, for the plan that moves its check: each one that is not
    * archived and has a branch, read at the head of its branch the daemon
    * last read (`seal-state.ts#refusedAt`), with the reader's sentence cut at
-   * `STATE_TEXT_CHARS`. A work item whose head the daemon has not read yet
-   * is not read, and one whose reading git could not finish is left out,
-   * which the log says.
+   * `STATE_TEXT_CHARS`. A work item whose head the daemon holds no reading
+   * of is named with the sentence that its records were not read yet. One
+   * whose reading git could not finish is named with the sentence that its
+   * records could not be read and git's words, and the log says so. So the
+   * dialog says that the readers refuse no work item's records only where
+   * each one was read.
    */
   private async unreadRecords(repositoryId: number): Promise<{ id: number; title: string; why: string }[]> {
     const items = this.store.workItems().flatMap(({ repository, item }) => (repository.id === repositoryId && item.archivedAt === null && item.branch !== null ? [item] : []));
     const read = await Promise.all(
       items.map(async (item) => {
         const head = this.branches.get(item.id)?.head;
-        if (head === undefined) return null;
+        if (head === undefined) return { id: item.id, title: item.title, why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." };
         try {
           const why = await refusedAt(item, head);
           return why === null ? null : { id: item.id, title: item.title, why: cutText(why) };
         } catch (error) {
-          console.error(`the records of work item ${String(item.id)} were not read for the move of the check: ${error instanceof Error ? error.message : String(error)}`);
-          return null;
+          const said = error instanceof Error ? error.message : String(error);
+          console.error(`the records of work item ${String(item.id)} were not read for the move of the check: ${said}`);
+          // Named, not dropped: the dialog's sentence that the readers refuse no work item's records holds only where each one was read.
+          return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: ${said}`) };
         }
       }),
     );

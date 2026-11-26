@@ -2,7 +2,9 @@
 // repository creates them: what a plan names, what a setup writes and
 // commits, and what stands and is kept. Each case runs in a temporary
 // repository, never in Owlery's own, which one case reads for its workflow.
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MARKER, SUBJECT, moveSubject, olderVersion, onOwlChain, pinnedVersion, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
@@ -1004,6 +1006,29 @@ describe("the records place", () => {
     expect([head(repo), tree(repo)]).toEqual(before);
     expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(workflowText("1.2.2"));
     expect(status(repo)).toBe("");
+  });
+
+  it("refuses a move where the workflow changed while the plan was made again, after the plan compared it with the commit: the person's edit stands, and nothing is committed or staged", async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    const plan = await planRecords(repo, "", VERSION);
+    const before = head(repo);
+    // A `git` first on the PATH that saves the person's edit the first time the plan asks git what it ignores, which the plan does after it compared the workflow with the commit.
+    const shim = mkdtempSync(join(tmpdir(), "owlery-git-shim-"));
+    cleanups.push(() => rmSync(shim, { recursive: true, force: true }));
+    const real = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const edited = `${workflowText("1.2.2")}# saved while the plan ran\n`;
+    write(shim, "git", `#!/bin/sh\nif [ "$1" = "check-ignore" ] && [ ! -e '${join(shim, "saved")}' ]; then\n  : > '${join(shim, "saved")}'\n  printf '# saved while the plan ran\\n' >> '${join(repo, WORKFLOW)}'\nfi\nexec '${real}' "$@"\n`, 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${shim}:${path ?? ""}`;
+    try {
+      await expect(setUpRecords(repo, "", VERSION, plan.stamp)).rejects.toThrow("The repository changed since the plan was read");
+    } finally {
+      process.env.PATH = path;
+    }
+    expect(existsSync(join(shim, "saved"))).toBe(true);
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(edited);
+    expect([head(repo), status(repo)]).toEqual([before, ` M ${WORKFLOW}\n`]);
   });
 
   it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `seal` with the run's token from a job of another name, `records`", () => {

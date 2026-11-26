@@ -374,17 +374,16 @@ function shows(folder: string, path: string): boolean {
  * holds as a file that opens with the marker, with its `config.json` where
  * the commit holds one. A new root is planned at the first name the commit
  * holds nothing at or below. The workflow that is kept is Owlery's where
- * the commit holds it as a file, or AgenticSeal's `hygiene.yml` where the
- * commit's text of it runs the check, and Owlery's is planned where the
- * commit holds neither.
+ * the commit holds it as a file and the plan does not move its check, or
+ * AgenticSeal's `hygiene.yml` where the commit's text of it runs the
+ * check, and Owlery's is planned where the commit holds neither.
  *
  * Where the plan writes no other file, the commit holds Owlery's workflow
  * as a file, and the version `pinnedVersion` reads in the commit's text of
  * it is older than `version`, the plan moves the check: the workflow's
  * entry carries `workflowText(version)`, the plan carries `move` with both
  * versions, and the subject is `moveSubject(version)`. The moved workflow
- * is compared below as a kept file, and the arms on folders, letters and
- * what the commit holds read the files the setup creates alone.
+ * is compared below as a kept file.
  *
  * The checkout then has to hold the place as the commit does, since the
  * setup writes into the checkout and the daemon reads the place from it.
@@ -408,9 +407,9 @@ function shows(folder: string, path: string): boolean {
  * the sample of record paths below it; something other than a folder is at
  * `threads` of the root, where each work item's records go, in the
  * checkout, the index or the commit; something other than a folder is at a
- * folder above a path the plan writes, in the same three; the disk finds a
+ * folder above a path the setup creates, in the same three; the disk finds a
  * path the setup needs under the same name in other letters; the commit
- * holds a link, a submodule or a folder at a path the plan writes; the
+ * holds a link, a submodule or a folder at a path the setup creates; the
  * checkout differs from the commit as above, and each such path is named;
  * the plan writes a file and no branch is checked out. Where none of them
  * holds and git could not say whether it ignores a record path, no plan is
@@ -547,7 +546,10 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * and the plan is blocked where the commit or the index holds one of the
  * paths, so the setup replaces no file and its cleanup unstages nothing of
  * the person's. The one file written over is the workflow of a plan that
- * moves the check, which the plan found as the commit holds it. Those paths
+ * moves the check, which the plan found as the commit holds it. The move is
+ * refused where the workflow's bytes just before the write are not the ones
+ * read before the plan was made again, so an edit saved while the plan ran
+ * is not written over. Those paths
  * alone are staged and those paths alone are committed, on the branch the
  * checkout stands on, with the person's git identity and the repository's
  * hooks: no option skips a hook or a signature, and nothing is pushed. What
@@ -565,6 +567,14 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * does, and the setup stands as after a commit that ended by itself.
  */
 export async function setUpRecords(folder: string, broadGate: string, version: string, stamp: string, limitMs?: number): Promise<void> {
+  // The workflow's bytes before the plan compares the file with the commit's. A move writes over it only where the file still holds them, so an edit saved while the plan runs git is refused, not replaced. The plan refuses a link at the path, so a move never follows one here.
+  const beforePlan = ((): Buffer | null => {
+    try {
+      return readFileSync(join(folder, WORKFLOW));
+    } catch {
+      return null;
+    }
+  })();
   const plan = await planRecords(folder, broadGate, version);
   if (plan.stamp !== stamp) throw new Error("The repository changed since the plan was read. Read the plan again.");
   if (plan.blocked !== null) throw new Error(plan.blocked);
@@ -580,8 +590,11 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
   try {
     for (const { path, text } of writes) {
       if (plan.move !== null && path === WORKFLOW) {
+        const bytes = readFileSync(join(folder, path));
+        // Thrown before anything is staged or replaced, so the cleanup below writes nothing back and unstages nothing.
+        if (beforePlan === null || !bytes.equals(beforePlan)) throw new Error("The repository changed since the plan was read. Read the plan again.");
         // The plan found the checkout's file as the commit holds it, so what is written back is the commit's text as the checkout holds it.
-        replaced = { path, bytes: readFileSync(join(folder, path)) };
+        replaced = { path, bytes };
         writeFileSync(join(folder, path), text);
         continue;
       }
