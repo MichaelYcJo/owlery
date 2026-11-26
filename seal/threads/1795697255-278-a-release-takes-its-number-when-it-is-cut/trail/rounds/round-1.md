@@ -50,6 +50,11 @@ docs/roadmap.ko.md:84, last sentence:
 frame/design.md *Scope* items 1, 4, 5 and 8 quote the English sentences above; each quote takes the new wording.
 ```
 
+```seal
+verdict: fixed c78b0abe
+answer: Lines 47, 74 and 84 of both editions take the paste-ready wording as written. Line 72 is in the pass's own words in both editions, because the paste-ready sentence points at the release branch bullet alone, and that bullet names only the moment until #279; the release's close stands in the bullet after it. English line 72 now ends "The orchestrator proposes the number with its grounds, and the owner approves it, when the release branch is cut until issue #279 lands and at the release's close from then on, as the two bullets below state." The Korean line takes the same in its words, and "브랜치를 따는 동안에는" is gone. The evidence search, run again at c78b0abe, prints in docs and the READMEs only docs/roadmap.md:5, :47 and :84 and docs/roadmap.ko.md:47, :72, :75 and :84. Each now states the moment with #279 beside it, or the release's close as the later moment, except line 5, which stands as the round judged. In the work item it prints changelog.md:1, :5 and :7, which stand as the round judged, and the frame files, which the framer's fold 491dd145 rewrote. frame/design.md:42 there quotes the paste-ready line 72, not the text at c78b0abe, so the framer folds it. Headings and table rows still count 11/11 and 40/40 for the roadmap.
+```
+
 ### 2. `frame/plan.md` still says the work rides the combined pull request, and `routing.md` uses the term "rule changes" for what the frame states as *Scope*
 
 ```seal
@@ -70,6 +75,11 @@ routing.md:16, second sentence:
 The frame writes them as *Scope* items of the roadmap's text, and its `## Rule changes` holds the no-change block, since the work edits the policy root directly; the crafter writes them into both editions of `docs/roadmap.md`, and of `docs/architecture.md`, `docs/product.md` and `README.md` where they name a version by the old rule.
 ```
 
+```seal
+verdict: fixed 491dd145
+answer: The framer rewrote `frame/plan.md` *Overlap with the release*'s Merges first cell with the round's wording (`491dd145`), and the orchestrator rewrote `routing.md`'s sentence that used the plugin's term for rule changes (`6f08d378`). Records alone.
+```
+
 ### 3. The frame's *Scope* says new text names no release number above 0.1.0, and the text it dictates names 1.0.0
 
 ```seal
@@ -83,6 +93,11 @@ Why it matters: `frame/design.md:27` says "New text names no `v0.x` and no relea
 ```markdown
 frame/design.md:27, last sentence:
 New text names no `v0.x`, and no release number above 0.1.0 other than rule 1's 1.0.0.
+```
+
+```seal
+verdict: fixed 491dd145
+answer: The framer rewrote `frame/design.md:27` to "New text names no `v0.x`, and no release number above 0.1.0 other than rule 1's 1.0.0." (`491dd145`). Records alone.
 ```
 
 ## Confirmations
