@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoleStage } from "../../shared/protocol";
-import { grantOf, type PairKey, pairKey } from "../role-grants";
+import { grantOf, type PairKey, pairKey, type RoleGrant } from "../role-grants";
 
 /** The name of the bundle's plugin, as its manifest states it. Claude Code names a plugin's agent `<plugin>:<agent>`. */
 export const PLUGIN_NAME = "owlery";
@@ -59,16 +59,30 @@ export function rulesFileName(role: RoleStage): string {
 export type Launch = "session" | "pane";
 
 /**
+ * What a role session's head says of where its commands write, by the place
+ * the grant gives them (`RoleGrant.commands`). It names the places the
+ * daemon refuses them by name (`Daemon#commandsOf`) and the bundle's root,
+ * which the adapter adds, and leaves the rest to the sandbox.
+ */
+const COMMANDS_WRITE: Record<RoleGrant["commands"], string> = {
+  worktree: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
+  scratch: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
+  nowhere: "Write nothing with them: the system refuses their writes to the worktree and to the bundle's root.",
+};
+
+/**
  * The head of a rules file: who the session is, where the bundle stands, the
  * documents that follow, the tools the session holds with what to do where a
  * call is refused, and what to do at a step that names something the bundle
  * does not hold. The taken documents still name AgenticSeal's commands and
  * scripts, which the bundle does not ship, and tools the session does not
- * hold. Two sentences say what holds in the launch. A role session of the
+ * hold. Two paragraphs say what holds in the launch. A role session of the
  * daemon has the documents in its system prompt, holds the tools its launch
- * names and is answered by the daemon. A subagent of a pane's session reads
- * the file, holds those of the tools its definition names that the session
- * offers, and is answered by the person's own permission settings.
+ * names, is answered by the daemon, and runs its commands in the operating
+ * system's sandbox, which lets them write where the role's grant names. A
+ * subagent of a pane's session reads the file, holds those of the tools its
+ * definition names that the session offers, and is answered by the person's
+ * own permission settings.
  */
 export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
   return [
@@ -84,7 +98,7 @@ export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "
     "",
     launch === "pane"
       ? "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
-      : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.`,
+      : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. ${COMMANDS_WRITE[grantOf(role).commands]} Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.`,
     "",
     "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
     "",

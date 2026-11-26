@@ -276,11 +276,11 @@ describe("the role bundle", () => {
     expect(sectionOf(`I read the branch.\n\n${filled}`, { run: 3, target })).toBe(filled);
   });
 
-  it("tells the sealer what the owl chain does: it works on the commit the gate passed on, runs no command and writes no file, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
+  it("tells the sealer what the owl chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const definition = read("agents/sealer.md").replace(/\s+/gu, " ");
     for (const named of [
-      "You write no file and run no command that asks for permission: your answer is your run's section of `guarantee.md`",
+      "You write no file of the worktree: your answer is your run's section of `guarantee.md`",
       "the commit you audit is the one your prompt's target line names: the commit the broad gate passed on",
       "The work item names no issue",
       "You check each claim by reading",
@@ -306,6 +306,36 @@ describe("the role bundle", () => {
     ]) expect(form, named).toContain(named);
     for (const gone of ["pull request body", "seal mark", "the orchestrator's broad run"]) expect(form, gone).not.toContain(gone);
     expect(read("README.md")).toContain("a sealer reads the commit Owlery's run of the broad gate passed on and answers with its run's section of the guarantee, which Owlery completes with who built the work and who judged it, writes and commits");
+  });
+
+  it("tells the proofer and the sealer where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the guarantee's form says that they run nothing (scenario 8 of #127)", () => {
+    // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
+    const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
+    const proofer = flat("agents/proofer.md");
+    for (const named of [
+      "You write no file of the worktree: Owlery writes your answer to the record's path and commits it.",
+      "Where your commands run and what they write is **A round changes nothing of the worktree, and its runs stand in a scratch folder.** below.",
+      "**A round changes nothing of the worktree, and its runs stand in a scratch folder.** The folder you work in is the person's worktree, and you write no file there, with a tool or with a command.",
+      "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17.",
+      "Clone the worktree there to run a narrow test or a probe, give each run a row of `## Probes`, and write `executed` on each `evidence:` line that stands on a run.",
+      "The folder is removed when your session ends, so a row says what its run settled. A clone there holds no installed dependency and reaches no host but the loopback.",
+      "In a pane's session a command that asks for permission waits for the person, so there every `evidence:` line is `read`, with each `path:line` you opened, and the `## Probes` table holds no row.",
+      "A claim that no run of yours settled is no finding: it is a row of `## Not judged`, with who answers it.",
+      "- Write a file of the worktree, or commit: the record reaches the tree by Owlery's hand.",
+    ]) expect(proofer, named).toContain(named);
+    const sealer = flat("agents/sealer.md");
+    for (const named of [
+      "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17. In a pane's session a command that asks for permission waits for the person.",
+      "- Write a file of the worktree, run a command, or edit code or a record to make a claim hold: your section reaches the tree by Owlery's hand.",
+    ]) expect(sealer, named).toContain(named);
+    const form = flat("docs/forms/the-guarantee.md");
+    for (const named of [
+      "It reads that record and never runs the broad gate itself, and its order of work and where its commands run are `agents/sealer.md`'s.",
+      "**How it errs.** It checks each claim by reading, so a claim that only a run would refute passes: a case that was never red, a command that does not pass.",
+    ]) expect(form, named).toContain(named);
+    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/sealer.md", sealer], ["docs/forms/the-guarantee.md", form]] as const) {
+      for (const gone of ["run no command", "runs nothing", "**A round reads, and runs nothing.**"]) expect(text, `${file} says ${gone}`).not.toContain(gone);
+    }
   });
 
   it("tells the sealer how a run that follows a broken seal judges: its prompt hands it what changed since that seal's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {

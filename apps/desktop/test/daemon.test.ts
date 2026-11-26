@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, RoleAdapter, RoleStart } from "../src/daemon/adapters/adapter";
 import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
 import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
@@ -276,6 +276,11 @@ const NONE_RUNNING = { panes: [], headless: [] };
 const PROOFER = { role: "proofer", stage: "round" } as const;
 /** What the fake adapter answers a proofer's prompt with. */
 const proofersAnswer = (prompt: string): string => `As the proofer at the stage round, you asked: "${prompt}"`;
+/** The prompt the adapter is given for a session whose commands write in the scratch folder `folder`: the session's prompt, then a paragraph that names the folder (scenario 7 of #127). */
+const withScratch = (prompt: string, folder: string): string =>
+  `${prompt.replace(/\n+$/u, "")}\n\nYour scratch folder is \`${folder}\`, made new for this session. Write with your commands only there: put a clone, a probe and what they print in it, since the system refuses a write to the worktree. Owlery removes the folder once this session's process has ended, so a path in it that your answer names is gone after the session.\n`;
+/** The prompt a session was started with, read from what its adapter was given: the paragraph `withScratch` adds taken off, for a case's adapter that picks what it does by the prompt. */
+const startedWith = (given: RoleStart): string => (given.scratch === undefined ? given.prompt : given.prompt.replace(withScratch("", given.scratch), ""));
 
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
@@ -1786,7 +1791,7 @@ describe("repositories", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (startedWith(options) === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { daemon: d, url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -2520,7 +2525,7 @@ describe("what a person sets on a work item", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (startedWith(options) === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { daemon: d, c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     await d.startRoleSession(workItem.id, "Quick?", PROOFER);
@@ -5801,7 +5806,7 @@ describe("headless sessions", () => {
     const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     await d.startRoleSession(workItem.id, "Where am I?", PROOFER);
     await c.message("headless", (m) => m.headless.state === "finished");
-    expect(seen.started).toEqual([expect.objectContaining({ prompt: "Where am I?", cwd: workItem.worktree, role: PROOFER })]);
+    expect(seen.started).toEqual([expect.objectContaining({ prompt: withScratch("Where am I?", seen.started[0]?.scratch ?? ""), cwd: workItem.worktree, role: PROOFER })]);
   });
 
   it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
@@ -5829,9 +5834,9 @@ describe("headless sessions", () => {
     expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
     expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
     expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
-    expect(byRole.get("proofer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree] }, scratch: proofers });
+    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree] }, scratch: proofers });
     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
-    expect(byRole.get("sealer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree] }, scratch: sealers });
+    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree] }, scratch: sealers });
     expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree] } });
     // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
     expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
@@ -5840,6 +5845,24 @@ describe("headless sessions", () => {
       expect(readdirSync(folder)).toEqual([]);
       expect(statSync(folder).mode & 0o777).toBe(0o700);
     }
+  });
+
+  it("ends the prompt a proofer's and a sealer's session give the adapter with one paragraph that names the session's scratch folder, says that a clone, a probe and what they print go there and that the system refuses a write to the worktree, and that the folder goes once the process has ended; a crafter's and the orchestrator's prompt hold none, and every session lists the prompt it was started with (scenario 7 of #127)", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const prompt = "Review it.\n\nThe paths:\n- `a.ts`\n";
+    const listed: string[] = [];
+    for (const pair of ROLE_STAGES) listed.push((await d.startRoleSession(workItem.id, prompt, pair)).prompt);
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    expect(listed).toEqual(ROLE_STAGES.map(() => prompt));
+    const given = new Map(seen.started.map((started) => [started.role?.role, started]));
+    for (const role of ["proofer", "sealer"] as const) {
+      const scratch = given.get(role)?.scratch ?? "";
+      expect(given.get(role)?.prompt, role).toBe(
+        `Review it.\n\nThe paths:\n- \`a.ts\`\n\nYour scratch folder is \`${scratch}\`, made new for this session. Write with your commands only there: put a clone, a probe and what they print in it, since the system refuses a write to the worktree. Owlery removes the folder once this session's process has ended, so a path in it that your answer names is gone after the session.\n`,
+      );
+    }
+    for (const role of ["crafter", "orchestrator"] as const) expect(given.get(role)?.prompt, role).toBe(prompt);
   });
 
   it("removes a session's scratch folder once the session's process has ended: one that finished, one whose result failed, one that exited without a result, one whose start the adapter refused, and one stopped; and makes it under the system's temporary folder where it has no run folder (scenario 4 of #127)", async () => {
@@ -5997,13 +6020,14 @@ describe("headless sessions", () => {
   });
 
   it("lists a finished session, with its answer, to a client that connects later", async () => {
-    const { daemon: d, c, url, workItem } = await withWorkItem();
+    const adapter = fakeAdapter();
+    const { daemon: d, c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
     await d.startRoleSession(workItem.id, "Remembered?", PROOFER);
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: proofersAnswer("Remembered?"), error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: PROOFER, accountId: 0 });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: proofersAnswer(withScratch("Remembered?", adapter.starts[0]?.scratch ?? "")), error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: PROOFER, accountId: 0 });
   });
 
   it("lists no headless session where none was started, and counts them apart from the panes", async () => {
@@ -6117,7 +6141,7 @@ describe("headless sessions", () => {
   function quickOrSlow() {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
-    return watched({ name: "fake", features: ["role-tools", "permission-requests"], notice: quick.notice, start: (options, listener) => (options.prompt === "Quick?" ? quick : slow).start(options, listener) });
+    return watched({ name: "fake", features: ["role-tools", "permission-requests"], notice: quick.notice, start: (options, listener) => (startedWith(options) === "Quick?" ? quick : slow).start(options, listener) });
   }
 
   it("carries what the agent's process printed on its error stream: every client sees the failed session with it, and `ready` lists it so", async () => {
@@ -6164,7 +6188,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt === "Slow to start?") await pause(400);
+        if (startedWith(options) === "Slow to start?") await pause(400);
         const run = await inner.adapter.start(options, listener);
         return {
           ...run,
@@ -6220,7 +6244,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt !== "Slow?") return quick.start(options, listener);
+        if (startedWith(options) !== "Slow?") return quick.start(options, listener);
         finishSlow = () => {
           listener({ type: "result", text: "slow", isError: false, usage: null });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
@@ -6277,7 +6301,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt !== "First?") return quick.start(options, listener);
+        if (startedWith(options) !== "First?") return quick.start(options, listener);
         setTimeout(() => listener({ type: "result", text: "first", isError: false, usage: null }), 0);
         exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
         return { stop: () => Promise.resolve(), answer: () => {} };
@@ -6304,7 +6328,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: (options, listener) =>
-        options.prompt !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
+        startedWith(options) !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
     };
     const { daemon: d, c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
     const start = async (prompt: string) => (await d.startRoleSession(workItem.id, prompt, PROOFER)).id;
@@ -6367,9 +6391,10 @@ describe("headless sessions", () => {
     it("keeps one entry for each session that ends: its work item, its repository and branch, its stage, no chain's stage, since no chain started it, its two times, how it ended and the usage its result reported", async () => {
       let clock = 1000;
       // The clock moves on while each turn runs, so a session's end is read after its start.
+      // A proofer's and a sealer's prompt reach the adapter with the paragraph that names the scratch folder after them.
       const usage = (prompt: string): Usage => {
         clock += 500;
-        return prompt === "Which owl?" ? USAGE : { ...USAGE, costUsd: 0.5 };
+        return prompt.startsWith("Which owl?\n") ? USAGE : { ...USAGE, costUsd: 0.5 };
       };
       const { daemon: d, c, workItem } = await withWorkItem({ now: () => clock, roleAdapter: fakeAdapter({ usage }) });
       clock = 1500;
@@ -6463,9 +6488,9 @@ describe("headless sessions", () => {
         features: ["role-tools", "permission-requests"],
         notice: () => Promise.resolve(null),
         start: (options, listener) => {
-          if (options.prompt === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
+          if (startedWith(options) === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
           setTimeout(() => {
-            if (options.prompt === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
+            if (startedWith(options) === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
             listener({ type: "exit", exitCode: 1, errorOutput: "" });
           }, 0);
           return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
@@ -6524,7 +6549,9 @@ describe("headless sessions", () => {
     async function answersOf(d: Daemon, c: Client, workItemId: number, role: RoleStage): Promise<string[]> {
       const headless = await d.startRoleSession(workItemId, "Q", role);
       const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
-      return finished.headless.answer.split("\n").slice(0, -1);
+      // The fake's own text quotes the prompt, which runs over several lines where the daemon named a scratch folder in it.
+      const { answer } = finished.headless;
+      return answer.slice(0, answer.indexOf(`As the ${role.role} at the stage ${role.stage}, you asked: "`)).split("\n").slice(0, -1);
     }
     const OUTSIDE = (role: string, path: string) => `Owlery lets the ${role} write only inside the work item's worktree, and ${path} is outside it. Do not work around it: say in your report which step needed the write.`;
     const NO_WRITE = (role: string) => `Owlery gives the ${role} no call that writes a file. Do not work around it: say in your report which step needed the write.`;
@@ -6794,14 +6821,15 @@ describe("the agent's notice", () => {
   it("launches a session all the same while a notice stands", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    const roleAdapter = fakeAdapter({ notice: NOTICE });
+    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, roleAdapter });
     const c = await client(url);
     expect((await c.message("ready")).agentNotice).toBe(NOTICE);
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     await d.startRoleSession(workItem.id, "Which owl?", PROOFER);
     const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-    expect([headless.state, headless.answer]).toEqual(["finished", proofersAnswer("Which owl?")]);
+    expect([headless.state, headless.answer]).toEqual(["finished", proofersAnswer(withScratch("Which owl?", roleAdapter.starts[0]?.scratch ?? ""))]);
   });
 });
 
@@ -7713,7 +7741,7 @@ describe("the caps on the machine", () => {
   function noting(delayMs = 0) {
     const fake = fakeAdapter({ delayMs });
     const starts: string[] = [];
-    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(options.prompt), fake.start(options, listener)) };
+    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(startedWith(options)), fake.start(options, listener)) };
     return { roleAdapter, starts };
   }
 

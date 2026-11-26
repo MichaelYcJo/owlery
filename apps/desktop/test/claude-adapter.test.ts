@@ -685,7 +685,7 @@ describe("a role's rules file", () => {
     ]);
   });
 
-  it("opens with a head that names the role, the stage, the bundle's root, the documents and the session's tools, and says what to do where a call is refused and where a step names what the bundle does not hold", () => {
+  it("opens with a head that names the role, the stage, the bundle's root, the documents, the session's tools and where its commands write in the operating system's sandbox, and says what to do where a call is refused and where a step names what the bundle does not hold (scenario 6 of #127)", () => {
     expect(rulesHead("/app/dist/bundle", PROOFER)).toBe(
       [
         "# Owlery role session: proofer, round",
@@ -700,7 +700,7 @@ describe("a role's rules file", () => {
         "- `skills/agent-contract/SKILL.md`",
         "- `skills/code-review/SKILL.md`",
         "",
-        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.",
+        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root. Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.",
         "",
         "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
@@ -708,15 +708,21 @@ describe("a role's rules file", () => {
     );
     const head = rulesHead("/elsewhere", { role: "crafter", stage: "fix-pass" });
     for (const named of ["# Owlery role session: crafter, fix-pass\n", "the crafter of the Owlery role bundle, at the stage `fix-pass`", "`agents/crafter.md`", "`/elsewhere`", "- `skills/implement/fix-pass.md`\n"]) expect(head, named).toContain(named);
-    // Each pair's head names the tools of its own launch, in the launch's order.
+    // Each pair's head names the tools of its own launch, in the launch's order, and where its grant lets its commands write.
+    const writes: Record<RoleStage["role"], string> = {
+      proofer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
+      sealer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
+      crafter: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
+      orchestrator: "Write nothing with them: the system refuses their writes to the worktree and to the bundle's root.",
+    };
     for (const pair of ROLE_STAGES) {
       expect(rulesHead("/elsewhere", pair), pair.role).toContain(
-        `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Where it refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
+        `\n\nYou hold these tools and no other: ${toolsOf(pair).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. ${writes[pair.role]} Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.\n\n`,
       );
     }
   });
 
-  it("opens the rules of a pane's subagent with a head that differs from a role session's in two sentences: the documents are not said to be in its context, and it holds those of the tools its definition names that the session offers, under the person's own permission settings, with no word of the daemon", () => {
+  it("opens the rules of a pane's subagent with a head that differs from a role session's in two paragraphs: the documents are not said to be in its context, and it holds those of the tools its definition names that the session offers, under the person's own permission settings, with no word of the daemon", () => {
     for (const pair of ROLE_STAGES) {
       const session = rulesHead("/app/dist/bundle", pair).split("\n");
       const pane = rulesHead("/app/dist/bundle", pair, "pane").split("\n");

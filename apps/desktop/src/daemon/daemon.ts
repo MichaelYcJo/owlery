@@ -183,6 +183,18 @@ export const HEADLESS_KEPT = 50;
 /** The folder of the run folder that holds a scratch folder for each headless session whose commands write in one, named by the session's id. */
 const SCRATCH_FOLDER = "scratch";
 
+/**
+ * The prompt the adapter is given for a session whose commands write in the
+ * scratch folder `folder`: the session's own, then one paragraph that names
+ * the folder, what goes there, that the system refuses a write to the
+ * worktree, and that the folder goes with the session. The chain's prompts
+ * name no such place, because the folder is made only when the session
+ * starts, after the prompt was built.
+ */
+function withScratch(prompt: string, folder: string): string {
+  return `${prompt.replace(/\n+$/u, "")}\n\nYour scratch folder is \`${folder}\`, made new for this session. Write with your commands only there: put a clone, a probe and what they print in it, since the system refuses a write to the worktree. Owlery removes the folder once this session's process has ended, so a path in it that your answer names is gone after the session.\n`;
+}
+
 /** How long the daemon's close waits for the commits under way in the worktrees before it ends each one that still runs, where the options name no time. */
 export const COMMIT_CLOSE_WAIT_MS = 3000;
 
@@ -435,7 +447,7 @@ interface HeadlessSession {
   info: HeadlessInfo;
   /** The role the session was launched as, which `info.role` carries to the clients, and whose grant answers each request of the session. */
   role: RoleStage;
-  /** What the session's agent is given: `info.prompt`, and for a stage of a chain the diff after it. */
+  /** What the session's agent is given: `info.prompt`, and for a stage of a chain the diff after it. Where the session has a scratch folder, the adapter is given it with the paragraph that names the folder after it (`withScratch`). */
   prompt: string;
   /** The adapter's run, once it has started. */
   run: RoleRun | undefined;
@@ -2476,7 +2488,7 @@ export class Daemon {
     });
   }
 
-  /** Starts a headless session's run through the adapter, under the account's folder where one is given, with the places its commands write in, and keeps what its events say of it. */
+  /** Starts a headless session's run through the adapter, under the account's folder where one is given, with the places its commands write in and a prompt that names its scratch folder where it has one, and keeps what its events say of it. */
   private startHeadless(session: HeadlessSession, cwd: string, accountDir: string | undefined): void {
     const { info } = session;
     const failed = (message: string): void => {
@@ -2535,7 +2547,7 @@ export class Daemon {
       this.headlessChanged(session);
     };
     const given = this.commandsOf(session, cwd).then(({ commands, scratch }) =>
-      this.options.roleAdapter.start({ prompt: session.prompt, cwd, role: session.role, commands, ...(scratch === null ? {} : { scratch }), ...(accountDir === undefined ? {} : { accountDir }) }, onEvent),
+      this.options.roleAdapter.start({ prompt: scratch === null ? session.prompt : withScratch(session.prompt, scratch), cwd, role: session.role, commands, ...(scratch === null ? {} : { scratch }), ...(accountDir === undefined ? {} : { accountDir }) }, onEvent),
     );
     session.started = given.then(
       (adapted) => {

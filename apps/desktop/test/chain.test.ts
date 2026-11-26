@@ -385,7 +385,7 @@ describe("a stage's prompt", () => {
       `- Earlier round records: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${DIRECTORY}/trail/rounds/round-3.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
+      `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${DIRECTORY}/trail/rounds/round-3.md\` and commits it. Write no file of that worktree: read its files.`,
       "",
       "The reviewed commits changed these paths:",
       "- `src/a.ts`",
@@ -672,7 +672,7 @@ describe("the seal's prompt", () => {
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
+      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file of that worktree: read its files.`,
       "",
       "The branch changed these paths since it left its base:",
       "- `feature.txt`",
@@ -707,7 +707,7 @@ describe("the seal's prompt", () => {
       "- The issue: the work item names none, so no issue's text is among what you read",
       `- The seal this run follows: run 2 of \`${DIRECTORY}/guarantee.md\` sealed \`${B}\`, and a commit after it broke that seal`,
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file and run no command: read the files of that worktree.`,
+      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file of that worktree: read its files.`,
     ]);
     expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 sealed:", "- `later.txt`", ""]);
     expect(after.diff).toBe("Their diff:\n\ndiff --git a/later.txt b/later.txt\n");
