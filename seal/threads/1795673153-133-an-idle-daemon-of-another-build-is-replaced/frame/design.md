@@ -21,7 +21,7 @@ Words this frame uses in one sense each:
 | `docs/architecture.md` *Rules that keep it portable*, rule 1 | Only neutral shapes pass over the protocol, and the phone uses the same protocol. So the daemon's answer to a request it does not know carries a field that says so, and the sentence that names the menu's "Restart Daemon…" is the window's. |
 | `docs/architecture.md` *Open decisions*, the row "Holding the terminals apart from the daemon" | Its criterion counts, in the daemon's log, the restarts that ended a working agent and the crashes. So each line this work writes carries the daemon's process id and the time, and the stop's line carries the counts of live panes and working agents. |
 | `docs/design.md` *A pull request that changes the window carries its screenshots* | The work shows two new sentences where a refusal is shown today, and draws no new form. The screenshot run's daemon is of the app's own build, so no view of the run draws differently. This frame judges that the pull request carries no screenshot. |
-| The issue's comments (`gh issue view 133 --json body,comments`, `executed`, exit 0) | Two comments, both the owner's. The first asks that the sentence of *Overall layout* be rewritten with this work. The second records a move between milestones and changes nothing asked. The issue's milestone is `release: 0.1.0`. |
+| The issue's comments (`gh issue view 133 --json body,comments`, `executed`, exit 0) | Two comments, both the owner's. The first asks that the sentence of *Overall layout* be rewritten with this work. The second records a move between milestones and changes nothing asked. The issue's milestone was `release: 0.1.0` when the framer read it, and on 2026-11-26 the owner moved it to `release: 0.0.5`, the walk release before 0.1.0 (`docs/roadmap.md` *Releases and the tracker*). |
 | `routing.md` *Why this way* | No real `claude` session runs in this work item. The frame names none. |
 
 What the tree says about the code (`read` unless marked):
@@ -174,6 +174,18 @@ Out of scope:
   from: 이 교체와 로그 줄은 이슈 #133이 마일스톤 3에서 만들고, 업데이트 자체는 이슈 #78이 마일스톤 5에서 만듭니다([마일스톤](roadmap.ko.md#마일스톤)).
   to: 업데이트 자체는 이슈 #78이 마일스톤 5에서 만듭니다([마일스톤](roadmap.ko.md#마일스톤)).
     check: apps/desktop/test/daemon-client.test.ts apps/desktop/test/daemon-restart.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts
+- change
+  file: docs/architecture.md
+  section: Screen framework: Electron
+  from: Where no answer comes within 15 seconds, the status line says so, and a daemon of an earlier build, which does not know the message, is told that way.
+  to: Where no answer comes within 15 seconds, the status line says so. Against a daemon of a build before `answersUnknown`, which does not know the message, the window's wait of 10 seconds on each request ends the press first, with its own sentence ([What a session survives](#what-a-session-survives)).
+    check: apps/desktop/test/view.test.ts apps/desktop/test/refresh.test.ts apps/desktop/test/daemon-restart.test.ts
+- change
+  file: docs/architecture.ko.md
+  section: 화면 프레임워크: Electron
+  from: 15초 안에 답이 오지 않으면 상태 줄이 그렇다고 말하고, 이 메시지를 모르는 이전 빌드의 데몬도 그렇게 알립니다.
+  to: 15초 안에 답이 오지 않으면 상태 줄이 그렇다고 말합니다. 이 메시지를 모르는, `answersUnknown` 이전 빌드의 데몬에게는 창이 요청마다 두는 10초 기다림이 먼저 누름을 끝내고 자기 문장을 보입니다([세션이 견디는 것](#세션이-견디는-것)).
+    check: apps/desktop/test/view.test.ts apps/desktop/test/refresh.test.ts apps/desktop/test/daemon-restart.test.ts
 
 ## Removes
 

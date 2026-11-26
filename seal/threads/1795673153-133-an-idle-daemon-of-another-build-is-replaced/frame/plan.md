@@ -14,7 +14,7 @@ The work stands on four places of `apps/desktop`, and `frame/design.md` *Groundi
 Constraints:
 
 - A daemon of a build before this work knows none of what this work adds. So the replacement reads only what such a daemon already sends, its `ready`, and stops it only by the signal it already takes. The answer of *Scope* item 5 exists in a daemon from this build on, so it serves a window of a later build, and item 8 is what a window does until then.
-- The daemon outlives the app, so each part of this work that lives in the daemon reaches a person one update late. That is the ground for building the daemon's parts in release 0.1.0 and not after it.
+- The daemon outlives the app, so each part of this work that lives in the daemon reaches a person one update late. That is the ground for building the daemon's parts in release 0.0.5, before the first public release, 0.1.0, and not after it.
 - `docs/architecture.md` *What a session survives*: an update ends no agent. The judgment of *Scope* item 2 falls toward keeping on every doubt.
 
 The failure scenario of the chosen approach, in six months:
