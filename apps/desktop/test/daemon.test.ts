@@ -1744,7 +1744,8 @@ describe("repositories", () => {
     const { workItem, session } = await c.message("workItemCreated");
     commitFile(workItem.worktree, "work.txt");
     writeFileSync(join(workItem.worktree, "untracked.txt"), "kept\n");
-    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1);
+    // A read of the commit gives the work item its branch in a turn of its own, which can end after the read's inbox (issue #292): the case reads the disk once the branch is made, so nothing the daemon does by itself changes it after.
+    await c.message("inbox", (m) => m.workItems[0]?.newCommits === 1 && m.workItems[0]?.branch === "owlery/runs-a-pane");
     const before = onDisk(repo, workItem.worktree);
     const refusals = [
       [2, { workItems: [], running: NONE_RUNNING }, "A work item was added since you looked. Read it again."],
@@ -3890,13 +3891,16 @@ describe("the inbox", () => {
   it("reads no count while no client is connected, and reads them at the next hello, so its `ready` carries the commits made meanwhile", async () => {
     const { repo, root, base } = repository();
     // The wait is long, so that the first run of the watched git, which the system checks, ends inside it.
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
+    const { daemon: d, url } = await daemon({ worktreesRoot: root, commitPollMs: 20, readyWaitMs: 5000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Unwatched", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await first.message("workItemCreated");
     first.socket.close();
-    await pause(100);
+    // A read that began before the daemon saw the close runs its git in series and may count on after it, under load for longer than any fixed wait (issue #291). No message tells of its end, so the case reads the daemon's own fields: once no client is connected no read begins, and the one under way is waited for.
+    const own = d as unknown as { clients: Map<unknown, unknown>; readingCommits: Promise<void> | undefined };
+    await first.until(() => (own.clients.size === 0 ? true : undefined));
+    await own.readingCommits;
     const watched = watchedGit(base);
     commit(workItem.worktree, "one.txt");
     expect(watched.calls("commit")).toBe(1);
