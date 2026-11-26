@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { TerminalSession, terminalEnv } from "../src/daemon/pty";
 
@@ -83,6 +84,21 @@ describe("TerminalSession", () => {
       left = terminalDescriptors().filter((open) => !before.includes(open));
     }
     expect(left).toEqual([]);
+  });
+
+  it("leaves no pseudo-terminal open in this process after a start whose spawn fails", () => {
+    // A spawn helper that does not exist fails the spawn after the master is open, as the user's process limit does.
+    // No process holds that master, and node-pty 1.1.0 left it open for each try, until the repository's patch of it (`patches/`).
+    // The case takes the module through node-pty's own loader, so it reads the build node-pty runs.
+    const { module: native } = createRequire(import.meta.url)("node-pty/lib/utils").loadNativeModule("pty") as {
+      module: { fork: (...args: unknown[]) => unknown };
+    };
+    const before = terminalDescriptors();
+    for (let i = 0; i < 3; i++) {
+      const start = () => native.fork("/bin/sh", ["-c", "exit 0"], ["PATH=/usr/bin:/bin"], process.cwd(), 80, 24, -1, -1, true, "/nonexistent/spawn-helper", () => {});
+      expect(start).toThrow("posix_spawnp failed.");
+    }
+    expect(terminalDescriptors().filter((open) => !before.includes(open))).toEqual([]);
   });
 });
 

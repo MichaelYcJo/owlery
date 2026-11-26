@@ -1,8 +1,21 @@
 diff --git a/src/unix/pty.cc b/src/unix/pty.cc
-index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..27f99e7297b5d6fe192de7148ca10db5c61166f7 100644
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..e894f4c1a140d2b118712b523a2f9fc3eae73b23 100644
 --- a/src/unix/pty.cc
 +++ b/src/unix/pty.cc
-@@ -778,8 +778,15 @@ done:
+@@ -370,6 +370,12 @@ Napi::Value PtyFork(const Napi::CallbackInfo& info) {
+   int err = -1;
+   pty_posix_spawn(argv, env, term, &winp, &master, &pid, &err);
+   if (err != 0) {
++    // The start failed, so no process holds the master and nothing else
++    // closes it, as node-pty 1.2.0-beta.18 does. pty_posix_spawn sets it
++    // before its first return, to -1 where the open itself failed.
++    if (master != -1) {
++      close(master);
++    }
+     throw Napi::Error::New(napiEnv, "posix_spawnp failed.");
+   }
+   if (pty_nonblock(master) == -1) {
+@@ -778,8 +784,17 @@ done:
    posix_spawn_file_actions_destroy(&acts);
    posix_spawnattr_destroy(&attrs);
  
@@ -11,7 +24,9 @@ index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..27f99e7297b5d6fe192de7148ca10db5
 +  // The child holds the slave as its standard streams, and the spare
 +  // terminals only kept the master off descriptors 0 to 2, so the parent
 +  // closes all of them, as node-pty 1.2.0-beta.18 does. Every path to `done` has
-+  // opened the slave. `count` reaches 3 only where every open failed.
++  // opened the slave. `count` reaches 3 where no open of the spare loop gave
++  // a descriptor of 2 or above, each failing or taking 0 or 1, so the loop
++  // stops at index 2.
 +  close(slave);
 +  for (size_t i = 0; i <= count && i < 3; i++) {
 +    if (low_fds[i] != -1) {
