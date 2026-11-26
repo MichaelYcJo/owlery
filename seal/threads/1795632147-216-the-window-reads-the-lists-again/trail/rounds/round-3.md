@@ -24,6 +24,11 @@ Why it matters: the bullet "Serve the phone with the same message." in *What the
 - **Serve the phone with the same message.** `readLists` names no window, so the phone, which comes after the first version (`docs/product.md` *The phone: the same session as a chat*), can offer a pull to refresh with nothing new in the daemon. This work keeps the message neutral to that end, and builds nothing for the phone.
 ```
 
+```seal
+verdict: fixed 9a0d7f25
+answer: The orchestrator applied the round's sentence to `frame/design.md` word for word. Records alone.
+```
+
 ### 2. The list of what a press reads says each work item's branch, and since #217 a work item may have none, which the press reads at its worktree's HEAD
 
 ```seal
@@ -49,6 +54,11 @@ In `changelog.md:6`, replace
 "That is each work item's branch and record from git,"
 with
 "That is each work item's branch from git, or the commit its worktree stands at where it has no branch yet, and its record,"
+```
+
+```seal
+verdict: fixed 9a0d7f25
+answer: The orchestrator applied the round's three replacements to the English and Korean `to:` of *Rule changes* and to `changelog.md:6` word for word. Records alone.
 ```
 
 ## Confirmations
