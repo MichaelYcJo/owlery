@@ -12,3 +12,17 @@
 ## Not done
 
 The screenshot runs of Phase 2 and of the merge of `783e2331` each wrote a shot of every view, and only the six `narrowed` shots are committed. In each other view the filter stands at "All" with nothing typed and the sidebar lists its repository, so this work draws none of them differently. `docs/design.md` *A pull request that changes the window carries its screenshots* asks for a shot of each view the pull request changed. The other shots stand in the crafter's scratch directory and are not committed.
+
+**Only the `narrowed` view's shots are committed.** This work changes what the sidebar says where a filter and a search leave no repository, and the screenshot run's `narrowed` view is the one view that shows it; its six shots, one for each theme and appearance, are committed under `screenshots/`, taken again at the merge of `783e2331` (`f6520c10`). Grounds: `docs/design.md` *A pull request that changes the window carries its screenshots*.
+
+![The sidebar where a filter and a search leave no repository, in Night watch, dark](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/night-watch-dark-narrowed.png?raw=true)
+
+![The sidebar where a filter and a search leave no repository, in Night watch, light](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/night-watch-light-narrowed.png?raw=true)
+
+![The sidebar where a filter and a search leave no repository, in Register, dark](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/register-dark-narrowed.png?raw=true)
+
+![The sidebar where a filter and a search leave no repository, in Register, light](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/register-light-narrowed.png?raw=true)
+
+![The sidebar where a filter and a search leave no repository, in Desk, dark](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/desk-dark-narrowed.png?raw=true)
+
+![The sidebar where a filter and a search leave no repository, in Desk, light](../blob/f6520c10ab8813ee57e8520a2c7a501d20779e2a/seal/threads/1795632146-215-a-filter-that-hides-everything-says-so/screenshots/desk-light-narrowed.png?raw=true)
