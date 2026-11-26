@@ -14,6 +14,7 @@ type Shown = { cap: string; label: string; value: string; says: string; offersDe
 const AGENTS_SAYS = "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet).";
 const WORKTREES_SAYS = "Nothing is proposed until a worktree is measured on this Mac.";
 const PANES_SAYS = "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB.";
+const SCROLLBACK_SAYS = "The default is 5,000 lines for each pane. A pane on screen holds 12 bytes for each column of a line, about 6 MB at 5,000 lines of 100 columns, and the daemon keeps up to 256 characters of output for each line.";
 const HEAVY_SAYS = "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken.";
 /** The longest status line the screenshot run draws: the agents against their cap, a session that waits, and the Mac kept awake. */
 const LONGEST_STATUS = "Daemon running, 4 agents of 4, 1 waiting, keeping the Mac awake";
@@ -63,11 +64,31 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
       { cap: "agents", label: "Agents at once", value: "6", says: AGENTS_SAYS, offersDefault: false },
       { cap: "worktrees", label: "Worktrees", value: "", says: WORKTREES_SAYS, offersDefault: false },
       { cap: "panes", label: "Panes side by side", value: "8", says: PANES_SAYS, offersDefault: false },
+      { cap: "scrollback", label: "Scrollback lines", value: "5000", says: SCROLLBACK_SAYS, offersDefault: false },
       { cap: "heavyCommands", label: "Heavy commands at once", value: "1", says: HEAVY_SAYS, offersDefault: false },
     ]);
     // A Save that changes nothing sends nothing and closes the dialog.
     await save();
     expect(limits()).toBeNull();
+  });
+
+  it("keeps the scrollback a person types and saves, refuses one outside 1,000 to 50,000 lines in the daemon's sentence, and returns it to 5,000 at \"Use the default\" (scenario B2)", async () => {
+    await open();
+    await type("scrollback", "999");
+    await app.click("#machine-submit");
+    await app.until(`document.getElementById("machine-error").textContent !== ""`, "the refusal");
+    expect(await app.evaluate<string>(`document.getElementById("machine-error").textContent`)).toBe("The scrollback is a whole number from 1,000 to 50,000.");
+    expect(limits()).toBeNull();
+    await type("scrollback", "20000");
+    await save();
+    expect(limits()).toBe('{"scrollback":20000}');
+
+    await open();
+    expect((await shown())[3]).toEqual({ cap: "scrollback", label: "Scrollback lines", value: "20000", says: SCROLLBACK_SAYS, offersDefault: true });
+    await app.click('#machine-caps [data-cap="scrollback"] button');
+    expect((await shown())[3]?.value).toBe("5000");
+    await save();
+    expect(limits()).toBe("{}");
   });
 
   it("keeps a cap a person types and saves in the daemon's run folder, shows it at the next opening with the default offered, and follows the default again after \"Use the default\" (scenario 3)", async () => {
@@ -108,6 +129,7 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
         { value: "4", offersDefault: true },
         { value: "", offersDefault: false },
         { value: "12", offersDefault: true },
+        { value: "5000", offersDefault: false },
         { value: "1", offersDefault: false },
       ]);
       other.send(JSON.stringify({ type: "setCaps", requestId: 2, panes: null }));

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
 import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
@@ -1679,17 +1679,24 @@ export interface CapRow {
 /**
  * What the Machine dialog shows: what the daemon read of the machine, in one
  * sentence, and a row for each cap, whose field holds the value a person set or
- * else the proposal. Nothing against a daemon that sent no `machine`, one of
- * an earlier build or one given no reader, and the Machine button is then
- * hidden.
+ * else the proposal. The scrollback's row stands after the panes', and not
+ * against a daemon of an earlier build, which sends no scrollback. Nothing
+ * against a daemon that sent no `machine`, one of an earlier build or one
+ * given no reader, and the Machine button is then hidden.
  */
 export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
   if (!machine) return null;
-  const { reading, agents, worktrees, panes, heavy } = machine;
+  const { reading, agents, worktrees, panes, heavy, scrollback } = machine;
   const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
   return {
     reading: readingSays(reading),
-    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)), row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy))],
+    rows: [
+      row("agents", agents.set, agents.proposed, agentsSays(reading, agents)),
+      row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)),
+      row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)),
+      ...(scrollback === undefined ? [] : [row("scrollback", scrollback.set, scrollback.proposed, scrollbackSays())]),
+      row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy)),
+    ],
   };
 }
 
@@ -2041,18 +2048,77 @@ export function inboxKey(
  * What a key pressed with the Command key does on every screen, or null
  * where the window leaves it alone: K puts the focus in the search field,
  * N opens the "New work item" form, and W closes the pane in front. The
- * Control key stands for the Command key where the keyboard has none. The
+ * Control key stands for the Command key where the keyboard has none. On a
+ * Mac keyboard alone, F opens the find bar over the pane in front where a
+ * pane is in front, `paneInFront`, and G goes to the next match while the
+ * bar is open, `finding`, and to the previous one with the Shift key as
+ * well. Control+F and Control+G stay the shell's on another keyboard. The
  * key is read by its place on the keyboard, and not while a dialog is open,
- * a menu is open or another modifier key is held as well. The application
- * menu binds none of these keys, since a menu takes its key before the page
- * sees it (src/main/menu.ts).
+ * a menu is open or another modifier key is held as well, the Shift key of
+ * G apart. The application menu binds none of these keys, since a menu
+ * takes its key before the page sees it (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | "closePane" | null {
+export function commandKey(
+  key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean },
+  where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean; paneInFront: boolean; finding: boolean },
+): "search" | "new" | "closePane" | "find" | "findNext" | "findPrevious" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
-  if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
+  if (!command || key.alt || where.dialogOpen || where.menuOpen) return null;
+  if (where.mac && where.finding && key.code === "KeyG") return key.shift ? "findPrevious" : "findNext";
+  if (key.shift) return null;
   if (key.code === "KeyK") return "search";
   if (key.code === "KeyN") return "new";
+  if (where.mac && where.paneInFront && key.code === "KeyF") return "find";
   return key.code === "KeyW" ? "closePane" : null;
+}
+
+/** The most matches the find bar counts. The search add-on is let count one more, so the bar tells 1,000 matches from more (./work-item-view, `searchOf`). */
+export const FIND_LIMIT = 1000;
+
+/** What the find bar holds: the field's text, and whether "Match case" and "Regular expression" are on. */
+export interface FindBar {
+  text: string;
+  matchCase: boolean;
+  regex: boolean;
+}
+
+/**
+ * What the find bar searches for: the field's text, matched in its case
+ * only where "Match case" is on, and read as a regular expression only
+ * where "Regular expression" is on. Where the field is empty nothing is
+ * searched, and the answer is null. A regular expression is read with the
+ * flags the search add-on reads it with, and one that does not read is
+ * refused with the sentence the bar shows in its count's place, since the
+ * add-on would throw on it.
+ */
+export function findQuery(bar: FindBar): { term: string; caseSensitive: boolean; regex: boolean } | { refusal: string } | null {
+  if (bar.text === "") return null;
+  if (bar.regex) {
+    try {
+      new RegExp(bar.text, bar.matchCase ? "g" : "gi");
+    } catch {
+      return { refusal: "Not a regular expression" };
+    }
+  }
+  return { term: bar.text, caseSensitive: bar.matchCase, regex: bar.regex };
+}
+
+/**
+ * The words of the find bar's count, from what the search add-on says of
+ * its results: how many it found, which it orders from the oldest line, and
+ * the index among them of the match in front. The bar counts from the
+ * newest match, the one nearest the end of the output, which is 1: "3 of
+ * 17". Where it found none it says "No match". The add-on counts one past
+ * `FIND_LIMIT` at most, and names no match in front where that match is not
+ * among those it counted, past the limit or printed since it last counted.
+ * Past the limit the bar says "More than 1,000 matches". A match printed
+ * since is counted again before the page draws (./work-item-view, `find`),
+ * so the bar does not show these words for it.
+ */
+export function findCount(results: { resultIndex: number; resultCount: number }): string {
+  if (results.resultCount === 0) return "No match";
+  if (results.resultCount > FIND_LIMIT || results.resultIndex < 0) return `More than ${FIND_LIMIT.toLocaleString("en-US")} matches`;
+  return `${(results.resultCount - results.resultIndex).toLocaleString("en-US")} of ${results.resultCount.toLocaleString("en-US")}`;
 }
 
 /**
@@ -2082,6 +2148,27 @@ export function droppedText(paths: readonly string[]): string {
     .filter((path) => path !== "" && !/[\u0000-\u001f\u007f]/.test(path))
     .map((path) => `${path.replace(/[ -~]/g, (character) => (/[A-Za-z0-9/._\-+=:,@%]/.test(character) ? character : `\\${character}`))} `)
     .join("");
+}
+
+/** What a paste into a pane hands the pane's program: the text of the paths of files, the paste's own text, which the terminal pastes itself, or the path of the image the main process writes from the clipboard. */
+export type PasteAct = { kind: "paths"; text: string } | { kind: "text" } | { kind: "image" } | null;
+
+/**
+ * What a paste into a pane hands the pane's program, from what the paste
+ * holds: `paths`, the path of each file it holds, empty for a file that is
+ * on no disk, whether it holds text, and whether it holds an image. Files
+ * that are on a disk, as after a copy in Finder, are handed as their paths,
+ * written as dropped files' paths are (`droppedText`). Otherwise a paste
+ * that holds text is the terminal's own, though an image stands beside the
+ * text. Otherwise an image is handed as the path of a file the main process
+ * writes from it (src/main/clipboard.ts), so the CLI of any agent reads it
+ * as a file. A paste that holds none of the three hands nothing.
+ */
+export function pasteAct(held: { paths: readonly string[]; text: boolean; image: boolean }): PasteAct {
+  const text = droppedText(held.paths);
+  if (text !== "") return { kind: "paths", text };
+  if (held.text) return { kind: "text" };
+  return held.image ? { kind: "image" } : null;
 }
 
 /** What a key of a pane that the window reads does: it sends a line feed, or one of the three bytes a shell reads as an editing key. */
@@ -2114,7 +2201,7 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
 }
 
 /** What an item of a pane's menu does. */
-export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "account" | "close";
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "find" | "clear" | "reset" | "account" | "close";
 
 /** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
 export interface PaneMenuItem {
@@ -2126,23 +2213,26 @@ export interface PaneMenuItem {
 
 /**
  * The items of a pane's menu, in their order, with null where a rule stands
- * between two groups. On a Mac keyboard "Copy", "Paste" and "Close Pane"
- * show the keys that do the same, and no other item shows one, since no key
- * of the window does what it does. On another keyboard no item shows a key.
+ * between two groups. On a Mac keyboard "Copy", "Paste", "Find…" and
+ * "Close Pane" show the keys that do the same, and no other item shows one,
+ * since no key of the window does what it does. On another keyboard no item
+ * shows a key, and "Find…" is the one way to the find bar (`commandKey`).
  * "Copy" can be pressed only where the terminal holds a `selection`.
  * "Change Account…" stands before "Close Pane" only where the pane's account
  * can be changed (`paneAccountChange`), and shows no key.
  */
 export function paneMenu(mac: boolean, selection: boolean, changesAccount = false): (PaneMenuItem | null)[] {
   const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
-  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), item("Find\u2026", "find", "\u2318F"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
 }
 
-/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
+/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`, and the line and the column the pane printed after it, where it printed them. */
 export interface PathCandidate {
   text: string;
   start: number;
   end: number;
+  line?: number;
+  column?: number;
 }
 
 /**
@@ -2152,7 +2242,8 @@ export interface PathCandidate {
  * mark of an address, which the link add-on finds. Around it are cut the
  * quotes and the brackets a sentence puts there, the punctuation that
  * closes one, and a line number with its column, written as `:12` or
- * `:12:5`. A run that names nothing but its slashes, dots and tildes is no
+ * `:12:5`, which the candidate keeps beside its text and outside the range
+ * it stands at. A run that names nothing but its slashes, dots and tildes is no
  * candidate: `//` opens a comment on every other line of a program, and
  * would read as the root folder. A bare name is none either, since `docs`
  * is a word of a sentence and a folder of most worktrees.
@@ -2165,19 +2256,37 @@ export function pathCandidates(line: string): PathCandidate[] {
     let text = run[0].slice(start);
     // A path that ends in the folder above keeps its dots.
     while (/["'`)\]}>.,;:!?]$/.test(text) && !/\/\.\.?$/.test(text)) text = text.slice(0, -1);
-    text = text.replace(/:\d+(?::\d+)?$/, "");
+    const place = /:(\d+)(?::(\d+))?$/.exec(text);
+    if (place) text = text.slice(0, place.index);
     if (!text.includes("/") || /^[/.~]*$/.test(text)) continue;
     start += run.index;
-    found.push({ text, start, end: start + text.length });
+    found.push({ text, start, end: start + text.length, ...(place ? { line: Number(place[1]), ...(place[2] === undefined ? {} : { column: Number(place[2]) }) } : {}) });
   }
   return found;
 }
 
-/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, or any other path a file or a folder stands at. */
-export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "path"; path: string };
+/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, a file, with the line and the column the pane printed after its path, or any other path a folder stands at. */
+export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "file"; path: string; line?: number; column?: number } | { kind: "path"; path: string };
 
-/** What a person does with a link: open its address in the browser, put its work item's view in front, show its path in Finder, or copy the address or the path. */
-export type LinkAct = "browser" | "workItem" | "finder" | "copy";
+/** What a person does with a link: open its address in the browser, put its work item's view in front, open its file in the editor, show its path in Finder, or copy the address or the path. */
+export type LinkAct = "browser" | "workItem" | "editor" | "finder" | "copy";
+
+/** Who opens a file a pane printed: the editor the person chose, Finder, which shows it in its folder, or nobody yet, where a click asks the person for an editor. */
+export type FileOpener = { editor: string } | "finder" | "ask";
+
+/**
+ * Who opens a file a pane printed, from the editor the main process keeps
+ * as the person's choice, `chosen`, and the editors of its list the Mac
+ * holds, `installed` (src/main/openers.ts). The chosen editor opens it where
+ * the Mac holds it, and Finder shows it where the person chose Finder or
+ * the chosen editor is gone. Where no choice was made a click asks, on a Mac
+ * that holds an editor of the list, and Finder shows the file on one that
+ * holds none, as it shows a folder.
+ */
+export function fileOpener(editor: { chosen: string | null; installed: readonly string[] }): FileOpener {
+  if (editor.chosen === null) return editor.installed.length > 0 ? "ask" : "finder";
+  return editor.chosen !== "finder" && editor.installed.includes(editor.chosen) ? { editor: editor.chosen } : "finder";
+}
 
 /** The target of a link the terminal found as an address: a web address, as the URL's parser writes it, where it is an `http` or `https` one, and none otherwise. The main process opens no other address (src/main/links.ts). */
 export function webTarget(address: string): LinkTarget | null {
@@ -2187,19 +2296,25 @@ export function webTarget(address: string): LinkTarget | null {
 }
 
 /**
- * The target of a path the main process found a file or a folder at, whole:
- * the worktree of a work item the window lists, where it is one, and
- * another path otherwise. The worktree of the work item whose view is on
- * screen, `viewing`, is another path, since a click that opened the view
- * already on screen would do nothing.
+ * The target of a path the main process found a file or a folder at, whole.
+ * Where `file` is given a file stands there, and the target is that file
+ * with the line and the column it holds. A folder is the worktree of a work
+ * item the window lists, where it is one, and another path otherwise. The
+ * worktree of the work item whose view is on screen, `viewing`, is another
+ * path, since a click that opened the view already on screen would do
+ * nothing.
  */
-export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined): LinkTarget {
+export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined, file?: { line?: number; column?: number }): LinkTarget {
+  if (file) return { kind: "file", path, ...(file.line === undefined ? {} : { line: file.line }), ...(file.column === undefined ? {} : { column: file.column }) };
   const workItem = workItems.find((listed) => listed.worktree === path && listed.id !== viewing);
   return workItem ? { kind: "workItem", path, workItemId: workItem.id } : { kind: "path", path };
 }
 
-// What a person can do with a link of each kind of target, in the order the card's rows stand in, and the click that does it: one with the key held, one with the key and the Shift key held, or none. `linkClick` and `linkCard` both read it, so a row never names a click that does something else.
-const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAct; click: "key" | "shiftKey" | null }[]> = {
+/** A row of a link's card: its words, what it does, and the click that does the same: one with the key held, one with the key and the Shift key held, or none. */
+type LinkRow = { text: string; act: LinkAct; click: "key" | "shiftKey" | null };
+
+// What a person can do with a link of each kind of target but a file, in the order the card's rows stand in. `linkRows` gives a file's.
+const LINK_ROWS: Record<Exclude<LinkTarget["kind"], "file">, readonly LinkRow[]> = {
   web: [
     { text: "Open in browser", act: "browser", click: "key" },
     { text: "Copy link", act: "copy", click: null },
@@ -2214,6 +2329,17 @@ const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAc
   ],
 };
 
+/** The rows of a link's card for a kind of target, and for a file the rows its opener gives: a path's where Finder shows it, and otherwise the editor's row on the click with the key and Finder's on the click with the Shift key as well. `linkClick` and `linkCard` both read them, so a row never names a click that does something else. */
+function linkRows(kind: LinkTarget["kind"], opener: FileOpener): readonly LinkRow[] {
+  if (kind !== "file") return LINK_ROWS[kind];
+  if (opener === "finder") return LINK_ROWS.path;
+  return [
+    { text: opener === "ask" ? "Open in an editor\u2026" : `Open in ${opener.editor}`, act: "editor", click: "key" },
+    { text: "Show in Finder", act: "finder", click: "shiftKey" },
+    { text: "Copy path", act: "copy", click: null },
+  ];
+}
+
 /**
  * What a click on a link in a pane does, from the kind of its target and
  * the keys held, or null where the click stays the terminal's, which
@@ -2221,11 +2347,12 @@ const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAc
  * where the keyboard has none: on a Mac the Control key with a click is the
  * secondary click. With the Shift key held as well the click does what the
  * target's rows give that click, and what the click with the key alone does
- * where they give it nothing.
+ * where they give it nothing. A file's rows are its opener's (`linkRows`),
+ * and a file whose opener is not given is shown in Finder, as a path is.
  */
-export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean): LinkAct | null {
+export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean, opener: FileOpener = "finder"): LinkAct | null {
   if (!(mac ? click.meta : click.ctrl)) return null;
-  const rows = LINK_ROWS[kind];
+  const rows = linkRows(kind, opener);
   const row = (click.shift ? rows.find((listed) => listed.click === "shiftKey") : undefined) ?? rows.find((listed) => listed.click === "key");
   return row ? row.act : null;
 }
@@ -2240,12 +2367,12 @@ export interface LinkCard {
 export const CARD_SHOW_MS = 300;
 export const CARD_LEAVE_MS = 200;
 
-/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not. A row that copies names no click. */
-export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
+/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not, for a file with the same `opener`. A row that copies names no click. */
+export function linkCard(target: LinkTarget, mac: boolean, opener: FileOpener = "finder"): LinkCard {
   const keys = { key: mac ? "\u2318 Click" : "Ctrl Click", shiftKey: mac ? "\u21e7 \u2318 Click" : "Shift Ctrl Click" };
   return {
     title: target.kind === "web" ? target.address : target.path,
-    rows: LINK_ROWS[target.kind].map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
+    rows: linkRows(target.kind, opener).map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
   };
 }
 
@@ -2593,6 +2720,11 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
 /** The most panes a work item's view shows side by side: the cap a person set on panes, the proposal where none is set, and `PANES_WITHOUT_CAP` where the daemon keeps no cap. */
 export function paneCap(machine: Machine | null): number {
   return machine === null ? PANES_WITHOUT_CAP : (machine.panes.set ?? machine.panes.proposed);
+}
+
+/** The lines of history a pane's terminal holds: the scrollback a person set, its proposal where none is set, and `SCROLLBACK_WITHOUT_DAEMON` where the daemon sends no scrollback, as one of an earlier build or one given no reader of the machine. */
+export function paneScrollback(machine: Machine | null): number {
+  return machine?.scrollback === undefined ? SCROLLBACK_WITHOUT_DAEMON : (machine.scrollback.set ?? machine.scrollback.proposed);
 }
 
 /** The title of "Side by side", which names the cap on the panes it shows. */

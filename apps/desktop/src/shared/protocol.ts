@@ -846,6 +846,8 @@ export interface Machine {
   panes: { proposed: number; set: number | null };
   /** The limit on heavy commands that hold a turn at once: its proposal, one for each 8 cores (`byCores`) or each 16 GiB of memory (`byMemory`), whichever gives fewer and never under 1, the value a person set, and the heavy commands that run and wait, in the queue's order. */
   heavy: { proposed: number; byCores: number; byMemory: number; set: number | null; queue: HeavyQueued[] };
+  /** How many lines of history a pane on screen holds: its proposal, 5,000 on every machine, and the value a person set. The daemon keeps 256 characters of each pane's output for each of those lines. A daemon of an earlier build sends none, and the window then keeps 1,000 lines and draws no row for it. */
+  scrollback?: { proposed: number; set: number | null };
 }
 
 /** Where a heavy command stands in the order of those that wait: a work item's broad gate, a command of a work item under review, one of a work item still being built, and one in a folder no work item's records name. */
@@ -872,8 +874,8 @@ export interface HeavyRan {
   highestLoad: number | null;
 }
 
-/** The caps a person sets on the machine, the limit on heavy commands among them. */
-export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands";
+/** The caps a person sets on the machine, the limit on heavy commands and the scrollback among them. */
+export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands" | "scrollback";
 
 export type ClientMessage =
   | { type: "hello"; token: string }
@@ -959,8 +961,8 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
-  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16 and a limit on heavy commands over the machine's cores where it read them, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
-  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16, a limit on heavy commands over the machine's cores where it read them and a scrollback outside 1,000 to 50,000 lines, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null; scrollback?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
   // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
