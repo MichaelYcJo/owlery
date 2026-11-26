@@ -61,4 +61,4 @@ The spawn names #215, #216 and #133 (one pull request, worktree `/Users/yc/Docum
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | A work item whose head the daemon has not read yet is listed in `unread` too, with a sentence that its records were not read yet, beside round 1's finding 1. | It has the same defect the finding names: where nothing else is listed, the dialog would say the move refuses no work item's records, of a work item it never read. | `trail/rounds/round-1.md` finding 1; the framer's fold at `3d4a5801` |
