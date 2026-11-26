@@ -37,7 +37,7 @@ The failure scenario of the chosen approach, six months on: a Claude Code releas
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
 | 1 | *Scope* items 1 to 6 | `frame/design.md` *User scenarios* rows 1 to 5, as cases in `test/claude-adapter.test.ts`, `test/daemon.test.ts` and `test/fake-adapter.test.ts`, run narrow by the crafter with `node scripts/test-in-electron.mjs <those files>` in `apps/desktop`, as the `role:run` script passes a file, each new case seen red | `bab4c40f` |
-| 2 | *Scope* items 7 and 8 | Rows 6 to 8, as cases in `test/chain.test.ts`, `test/role-bundle.test.ts`, `test/claude-adapter.test.ts` and `test/daemon.test.ts`, run narrow; and row 8's `git grep`, whose expected output that row states | |
+| 2 | *Scope* items 7 and 8 | Rows 6 to 8, as cases in `test/chain.test.ts`, `test/role-bundle.test.ts`, `test/claude-adapter.test.ts` and `test/daemon.test.ts`, run narrow; and row 8's `git grep`, whose expected output that row states | `2fe22532` |
 | 3 | *Scope* item 9 | Rows 9 to 11: `pnpm --filter @owlery/desktop run role:refusal`, `role:refusal:sealer` and `role:refusal:crafter`, each run once at the phase's close against the stand-in model, their printed JSON read into `trail/phases/phase-3.md`, and `frame/questions.md` Q3, Q4 and Q5 answered from it | |
 
 Phase 3 spends no usage: the CLI talks to the stand-in on the loopback with a key that is no key. It is the one place the system's refusal is shown, and it needs `pnpm run build`'s bundle, which `buildApp` makes. The broad gate is the orchestrator's after the rounds (contract rule 2).
