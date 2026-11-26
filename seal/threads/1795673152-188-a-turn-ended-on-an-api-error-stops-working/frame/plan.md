@@ -33,7 +33,7 @@ The failure scenario of the chosen approach: Claude Code renames the event, stop
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 6 and 8 of `frame/design.md`, in one commit set: the cases first, each seen red, then the code. Item 7 is the settle's. | The cases `frame/design.md` *User scenarios & acceptance* names, run narrow through the machine's runner of heavy commands: `pnpm --filter @owlery/desktop exec vitest run test/agent-state.test.ts test/agent-events.test.ts test/hooks.test.ts`, and the new and changed cases of `test/daemon.test.ts` by their names with `-t`. Where the package's own runner (`scripts/test-in-electron.mjs`) is the only way a case of `daemon.test.ts` runs, the builder runs it with the file and the names as its arguments and says so in the phase record. The typecheck and the whole suite are the orchestrator's broad gate. | 75ef7bc2 |
+| 1 | *Scope* items 1 to 6 and 8 of `frame/design.md`, in one commit set: the cases first, each seen red, then the code. Item 7 is the settle's. | The cases `frame/design.md` *User scenarios & acceptance* names, run narrow through the machine's runner of heavy commands: `cd apps/desktop && node scripts/test-in-electron.mjs test/agent-state.test.ts test/agent-events.test.ts test/hooks.test.ts`, and the new and changed cases of `test/daemon.test.ts` by their names with `-t`. Where the package's own runner (`scripts/test-in-electron.mjs`) is the only way a case of `daemon.test.ts` runs, the builder runs it with the file and the names as its arguments and says so in the phase record. The typecheck and the whole suite are the orchestrator's broad gate. | 75ef7bc2 |
 
 ## Overlap with the release
 
