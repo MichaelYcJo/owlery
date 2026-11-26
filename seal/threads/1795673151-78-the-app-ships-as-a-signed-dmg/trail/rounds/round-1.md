@@ -52,6 +52,11 @@ it("takes the empty signing variables out of the environment the packager reads,
 
 The comment at `.github/workflows/package.yml:57-60` then reads: "The command checks the tag against the app's version and decides the way of signing before it builds anything. A secret that is not set reads as empty, and the command counts it as not set and takes it out of the environment the packager reads. The notarization key is handed to the packager as a file." The search `git grep -n -i -e empty 11ea2efc -- .github/workflows/package.yml apps/desktop/src/package apps/desktop/scripts apps/desktop/test/package.test.ts seal/threads/1795673151-78-the-app-ships-as-a-signed-dmg` printed the statements of the rule: `package.yml:59`, `package.ts:35`, `package.test.ts:26`, `frame/design.md:55`, `:76` and `:117`, `frame/plan.md:25` and two phase records. The frame's lines state the rule this fix makes true and stay. The search is a sample under contract rule 12, since a statement in other words escapes it. Scenario H on the runner (Q4) is the run that shows the fix holds there.
 
+```seal
+verdict: fixed ad72e618
+answer: `packageApp` deletes each signing variable that is set and empty from `env` after `signingWay` and before the build, in the proofer's words with the comment rewritten; its signature takes a mutable `env`, and its docstring says `env` is the environment the packager reads, `process.env` where the command runs it. The proofer's case stands in `apps/desktop/test/package.test.ts` under `describe("packageApp")`; before the fix it failed on its second expectation, "expected { Object (PATH, CSC_LINK, ...) } to deeply equal { PATH: '/usr/bin' }", and `seal mutate` of the `delete` to `void name` read red against it alone (executed). The comment of `.github/workflows/package.yml` above the package step now says the command takes an empty secret out of the environment the packager reads. The round's probe was run again at `8d95474d` on this Mac, `env -u APPLE_API_KEY CSC_LINK= CSC_KEY_PASSWORD= APPLE_API_KEY_ID= APPLE_API_ISSUER= pnpm --filter @owlery/desktop run package --tag v0.0.5-package.1`: exit 0, the packager signed with `identityName=-` and skipped notarization, and the command and the summary file said "Signed ad hoc"; `package:verify` on that `.dmg` then exited 0 with every check `ok` (executed). The finding's search `git grep -n -i -e empty` over the same paths at HEAD prints `package.yml:64`, `package.ts:35`, `:164`, `:166` and `:250` (the last is the status line's empty user data folder, another fact), `package.test.ts:26` and `:83`, `frame/design.md:55`, `:76` and `:117`, `frame/plan.md:25`, `trail/phases/phase-1.md:35`, `trail/phases/phase-2.md:18` and this record's own lines; each states the rule this fix makes true or another fact, and stands. The search is a sample. Whether the run holds on GitHub's runner stays Q4's, the orchestrator's.
+```
+
 ### 2. The checkout leaves the write token in the clone for every later step, the dependencies' install scripts among them
 
 ```seal
@@ -72,6 +77,11 @@ Why it matters: the repository is public, and the job holds `contents: write` (`
 ```
 
 A stronger form gives the write permission to a second job alone that downloads the `.dmg` as an artifact and uploads it, with `contents: read` for the job that installs and packages. It costs an artifact upload of about 125 MB per run. The one line above is the least change.
+
+```seal
+verdict: fixed ad72e618
+answer: `actions/checkout` in `.github/workflows/package.yml` sets `persist-credentials: false`, with the proofer's comment shortened. The upload step keeps its token from `GH_TOKEN`, and no step pushes with git (read at `ad72e618`). The stronger form, a second job with the write permission alone, was not taken, as the finding allows.
+```
 
 ### 3. A third-party action runs by a movable tag inside the job that reads the signing secrets, and the notarization key's file outlives its step
 
@@ -100,6 +110,11 @@ Why it matters: `pnpm/action-setup@v4` is a tag its owner can move. It runs at s
 ```
 
 The `trap` assumes the step's shell is `bash`, GitHub's default for `run` on macOS, where `EXIT` runs at the end of the script whether the command fails or not.
+
+```seal
+verdict: fixed ad72e618
+answer: `pnpm/action-setup` in `.github/workflows/package.yml` is pinned to `b906affcce14559ad1aafd4ab0e942779e9f58b1`, named `v4.3.0` in a comment. Read from GitHub on 2026-11-26 with `gh api` (executed): the tag `v4` dereferences to that commit, and so does `v4.3.0`; the newest `v4.4.0` is one commit ahead, "feat!: run the action on Node.js 24 (#205)", which the `v4` tag does not name. So the pin runs the commit `check.yml`'s `@v4` runs today. The package step sets `trap 'rm -f "$RUNNER_TEMP/notarization-key.p8"' EXIT` before it writes the file, so the file goes at the step's end whether the command fails or not. `check.yml:29` keeps `@v4`: its job reads no secret and holds `contents: read`, as the finding weighs it. The workflow file was parsed with Ruby's YAML (executed); no run of it was made.
+```
 
 ### 4. In the Developer ID way a certificate the packager cannot use is skipped with a warning, and the run's summary still says it signed and notarized
 
@@ -131,6 +146,11 @@ Why it matters: the spawn asked whether the owner's adding five secrets is enoug
 
 Scenario F of `frame/design.md:119` lists the Developer ID way's configuration as "no `identity` with `notarize: true`". The fix adds a value to it, so the sentence gains "and `forceCodeSigning: true`". Whether the packager names `forceCodeSigning` under `mac` in its type was not read; `platformPackager.js:614` reads it from the platform's options first.
 
+```seal
+verdict: fixed ad72e618
+answer: The Developer ID way of `packagerConfig` adds `forceCodeSigning: true` under `mac`, which the installed packager's `PlatformSpecificBuildOptions.d.ts:150` declares and `platformPackager.js:613-615` reads from the platform's options first (read), so the round's open point on the type is settled. Scenario F's case at `apps/desktop/test/package.test.ts`, "names no identity in the Developer ID way …", now expects it; before the fix it failed with "expected undefined to be true", and `seal mutate` of the value away read red against it alone (executed). The docstring of `packagerConfig` says the way forces the signature. No run has made the Developer ID way, which stays Q5's, the owner's.
+```
+
 ### 5. The README says Owlery runs on any Mac with Apple silicon, and the app does not open below macOS 13
 
 ```seal
@@ -157,6 +177,11 @@ The app runs on Apple silicon with macOS 13 or later, and does not open on an In
 ```
 
 The value comes from Electron's version, so a later Electron can raise it. The README states it as of this build, and a change of Electron is where it is read again.
+
+```seal
+verdict: fixed 8d95474d
+answer: `README.md:15`, `README.ko.md:15` and the third sentence of `changelog.md:5` carry the proofer's sentences: macOS 13 Ventura or later, and no open on an Intel Mac or an earlier macOS. The package built at `8d95474d` holds `LSMinimumSystemVersion` 13.0 (executed, `plutil -extract`). The finding's search on "Apple silicon" and "Apple 실리콘" at HEAD prints `README.md:15`, `README.ko.md:15`, `changelog.md:3` and `changelog.md:5`; `changelog.md:3` says only what downloads the `.dmg` and stands. Both READMEs still hold 7 lines that open with `#` and 16 that open with `|` (executed). The same commit adds to `gaps.md`'s row on the Korean labels that this round read them in the Korean edition of Apple's article 102445, as the Confirmations allow. The partial-secrets sentence still names the packager's variables, such as `CSC_LINK`, which the Confirmations record and no finding asks to change, so it stands. The read of the range, after `8d95474d`: `git diff 936373c6 HEAD` was printed and each hunk read with its unit, and `routing.md`, the three frame files, `gaps.md` and `changelog.md` were printed and read whole against HEAD (read). The frame lines HEAD now goes past are `frame/design.md` scenario F, which lacks `forceCodeSigning: true`, and its *Data & interfaces* step "set up pnpm … as `check.yml` does", which the pin and `persist-credentials: false` now part from; both are the orchestrator's to fold. `frame/design.md` *Scope* item 10 and *What a person … meets* do not name macOS 13, and HEAD does not contradict them. The sample search `git grep -n -e "skipped macOS application code signing" -e forceCodeSigning -e notarization-key HEAD`, outside this round record, prints `package.yml:75`, `:77` and `:78`, `package.ts:76`, `package.test.ts:132` and `frame/design.md:35`, the probe's row, which records a run and stands (executed). A statement in other words escapes the sample, and the part it did not reach is the rest of the tree outside the work item's records.
+```
 
 ## Confirmations
 
