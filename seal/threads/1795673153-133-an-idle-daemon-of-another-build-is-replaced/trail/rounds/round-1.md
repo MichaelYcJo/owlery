@@ -45,6 +45,11 @@ The fix adds two `change` entries to this work's `frame/design.md` *Rule changes
 
 The fragment `seal/threads/1795632147-216-the-window-reads-the-lists-again/changelog.md:9` is #216's record, and #216 is sealed. The fix pass owes it a rewrite of its third sentence, or else this work's `changelog.md:8` names the change for the release note. Which of the two the pull request carries is the orchestrator's choice. #216's `frame/design.md:49` (*Scope* item 7) is #216's dated frame, which the settle does not write, so it stays.
 
+```seal
+verdict: fixed 2e3f5704
+answer: The orchestrator added the round's two `change` entries to `frame/design.md` *Rule changes* word for word, and recorded in `frame/plan.md` *Judgments of the run* that this work's `changelog.md:8` names the change for the release note while #216's fragment stays as merged. Records alone.
+```
+
 ### 2. Each load of the window now says hello to the daemon once more, a daemon of the app's own build included, which adds a read of git and up to half a second to every load
 
 ```seal
@@ -93,6 +98,11 @@ and, in the case "keeps a daemon of the script's own build that runs nothing", a
 
 The case is shown red against the code at the target before it is committed (contract rule 15).
 
+```seal
+verdict: fixed b51d9dbb
+answer: The finding holds. `b51d9dbb` rewrites `daemonForLoad` (`apps/desktop/src/main/daemon-client.ts:56-67`) as the paste-ready code gives it. It also adds one comment, which says why only a daemon of another build that this run has not replaced is asked for its lists. The docstring stays as it stands, since it says nothing of the hello. The stand-in of `apps/desktop/test/daemon-client.test.ts` notes each hello it answers in `hellos` (`:149-150`). The case "keeps a daemon of the script's own build that runs nothing …" reads one hello (`:342`), and its name gains "asks it for no lists". Seen red before the fix (executed): `node scripts/test-in-electron.mjs test/daemon-client.test.ts -t "daemonForLoad"` in `apps/desktop` exited 1, failing at `:342` with `expected 'hh' to be 'h'`. The other cases of the group passed. After the commit (executed): `seal mutate src/main/daemon-client.ts` with a mutant that says hello before the build is judged, and hands that `ready` to the judgment, read `red` on the same case and line, and the file was restored. The narrow set ran after the commit (executed). `test/daemon-client.test.ts test/daemon-restart.test.ts` exited 0, 2 files and 39 cases passed. `test/daemon.test.ts -t "idle exit"`, the group whose cases call `runsNothing` on the lists a real daemon sends, exited 0 with 6 passed. The typecheck of the two changed files exited 0 before the commit. `changelog.md` is unchanged: it names no extra hello, and a load that says fewer changes nothing it states.
+```
+
 ### 3. `routing.md` says the branch its table names was cut at `e9fe914c`, and states the move to the fresh branch in a second paragraph beside it
 
 ```seal
@@ -107,6 +117,11 @@ The bullet at `:22`, rewritten in place, with `:23-25` removed:
 
 ```markdown
 - **Branch:** cut from `release/v0.0.5` at `57449b14` on 2026-11-27, carrying the work as one commit (`e651d395`); the pull request merges into `release/v0.0.5` by squash, after #216, whose refresh its phase 2 builds on. The work was built and reviewed first on `feat/133-a-daemon-of-another-build-stays-until-a-person-restarts-it` (`9215cd24`), cut at `e9fe914c`, on which the owner had #215, #216, #133 and #278 ride one pull request on 2026-11-26 ("CI를 계속돌리는건 너무 비효율적인데"), so it holds commits of #215 and #216 (`70c9dae1` and `bec979e2`'s line). The review chain's check seals one work item per pull request and refuses those commits' `Seal-Routing` trailers in a pull request that judges #133 alone, so the owner chose to split them ("C"), and that branch is kept as it was.
+```
+
+```seal
+verdict: fixed 2e3f5704
+answer: The orchestrator rewrote `routing.md`'s Branch bullet in place with the round's text, removed the second paragraph, and ended the file with a line break. Records alone.
 ```
 
 ### 4. The frame places the work in release 0.1.0, and the issue and the roadmap place it in release 0.0.5
@@ -129,6 +144,11 @@ The last sentence of the row at `frame/design.md:24`, rewritten in place:
 
 ```markdown
 The issue's milestone was `release: 0.1.0` when the framer read it, and on 2026-11-26 the owner moved it to `release: 0.0.5`, the walk release before 0.1.0 (`docs/roadmap.md` *Releases and the tracker*).
+```
+
+```seal
+verdict: fixed 2e3f5704
+answer: The orchestrator rewrote `frame/plan.md:17` and the dated sentence of `frame/design.md:24` with the round's text. Records alone.
 ```
 
 ## Confirmations
