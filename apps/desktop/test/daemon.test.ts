@@ -598,7 +598,7 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "chain", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
     expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.repositories[0]!.chain).sort()).toEqual(["chosen", "owl", "plugin"]);
@@ -7585,7 +7585,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);
