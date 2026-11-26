@@ -671,7 +671,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
       const queued = (await listed()).workItems.find((item) => item.title === QUEUED);
       if (!queued) throw new Error(`the daemon lists no work item ${QUEUED}`);
-      const commits = Number(git(queued.worktree, "rev-list", "--count", queued.branch, "--not", `--exclude=${queued.branch}`, "--branches", "--remotes", "--tags").trim());
+      // The run stores it on a branch (`parkedOnAQuestion`), and its commits are on that branch.
+      const { branch } = queued;
+      if (branch === null) throw new Error(`the daemon lists ${QUEUED} with no branch, though the run stored it on one that holds its commits`);
+      const commits = Number(git(queued.worktree, "rev-list", "--count", branch, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags").trim());
       if (commits < QUEUED_COMMITS.length) throw new Error(`the branch of ${QUEUED} holds ${String(commits)} commits no other branch holds, fewer than the run made`);
       await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(queuedHeads(commits))}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted)) && JSON.stringify([...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])) === ${JSON.stringify(JSON.stringify(QUEUED_SESSIONS))}`, `the delete dialog of ${QUEUED}, its heading counting its ${String(commits)} commits, the heads of its untracked file and its ignored file, its shell pane under "Running sessions that end", and its stage that waits for the machine under "Sessions waiting for the machine that leave the queue"`);
     },
