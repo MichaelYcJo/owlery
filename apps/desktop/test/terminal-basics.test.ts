@@ -1160,7 +1160,23 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     }
   }
 
-  it("holds 5,000 lines of history in a pane's terminal where no person set the scrollback (scenario B1)", async () => {
+  /** Has a client of the daemon other than the window set the scrollback, as a second window's Machine dialog would, and waits for the daemon's answer. */
+  async function setScrollbackFromElsewhere(lines: number | null): Promise<void> {
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")), { once: true });
+      socket.addEventListener("message", (event) => {
+        const message = JSON.parse(String(event.data)) as { type: string; requestId?: number };
+        if (message.type === "ready") socket.send(JSON.stringify({ type: "setCaps", requestId: 1, scrollback: lines }));
+        if (message.type === "done" && message.requestId === 1) resolve();
+      });
+      socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })), { once: true });
+    });
+    socket.close();
+  }
+
+  it("holds 5,000 lines of history in a pane's terminal where no person set the scrollback, and as many as a person sets once the daemon says another (scenarios B1 and B2)", async () => {
     writeFileSync(linesFile, `${numbered(6000).join("\n")}\n`);
     await openPane("Shell");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
@@ -1170,6 +1186,18 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(held.length).toBeGreaterThanOrEqual(5000);
     expect(held.length).toBeLessThan(5000 + rows);
     expect(held.at(-1)).toBe("line-6000");
+    // A smaller scrollback set elsewhere reaches the terminal that stands, which drops its oldest lines.
+    await setScrollbackFromElsewhere(1000);
+    try {
+      // The daemon answers `done` before it tells the window the machine, so the window may still hold the 5,000 lines at the first reading.
+      let fewer = await heldLines(6000);
+      for (const deadline = Date.now() + 10_000; fewer.length >= 1000 + rows && Date.now() < deadline; ) fewer = await heldLines(6000);
+      expect(fewer.length).toBeGreaterThanOrEqual(1000);
+      expect(fewer.length).toBeLessThan(1000 + rows);
+      expect(fewer.at(-1)).toBe("line-6000");
+    } finally {
+      await setScrollbackFromElsewhere(null);
+    }
     await pressMenuItem("Close Pane");
     await app.until(`${TABS}.length === 1`, "one tab");
   });
@@ -1192,7 +1220,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
       await app.cdp("Input.insertText", { text: "." });
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
-    console.log(`A pane of 3,000 lines took a key ${String(Date.now() - clicked)} ms after the click that brought it back.`);
+    // Written to the run's own output: the suite's runner shows nothing a case hands to `console.log`.
+    process.stdout.write(`\nA pane of 3,000 lines took a key ${String(Date.now() - clicked)} ms after the click that brought it back.\n`);
     const held = await heldLines(3000);
     expect(held).toEqual(numbered(3000));
     await pressMenuItem("Close Pane");
