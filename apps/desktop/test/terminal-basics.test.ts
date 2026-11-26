@@ -1601,7 +1601,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await closeThePane();
   });
 
-  it.runIf(process.platform === "darwin")("counts a match the pane printed after the search once a step lands on it, while the pane keeps printing (scenario A2)", async () => {
+  it.runIf(process.platform === "darwin")("counts the matches the pane printed after the search at each step, while the pane keeps printing (scenario A2)", async () => {
     writeFileSync(linesFile, "owlprinted one\nbetween\nowlprinted two\n");
     const pane = await openPane("Shell");
     // The pane's process prints only the lines above, so the case prints into its terminal itself.
@@ -1609,15 +1609,20 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
     await findText("owlprinted");
     await app.until(`${FIND_COUNT} === "1 of 2"`, "the newer of two matches");
-    // A match printed after the search, then lines with none more often than the add-on's wait of 200 ms, so the add-on does not count again on its own.
+    // A match printed after the search, then lines with none more often than the add-on's wait of 200 ms, so the add-on does not count again on its own. Where a stall of the printing lets it count all the same, each step below reads the same count, so no assertion rests on the gaps between the lines.
     writeFileSync(terminal, "owlprinted three\r\n");
     const printing = setInterval(() => writeFileSync(terminal, "-\r\n"), 50);
     try {
-      // The lines reach the terminal through the daemon, so the step waits for them to be drawn. The count stays as it was meanwhile.
+      // The lines reach the terminal through the daemon, so each step waits for them to be drawn.
       await new Promise((resolve) => setTimeout(resolve, 1_000));
-      expect(await app.evaluate<string>(FIND_COUNT)).toBe("1 of 2");
+      // A step onto the match printed since counts it.
       await enter(SHIFT);
       await app.until(`${FIND_COUNT} === "1 of 3"`, "the match printed after the search, counted with the others", 5_000);
+      // A step onto a match counted before a fourth was printed counts the fourth too.
+      writeFileSync(terminal, "owlprinted four\r\n");
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await enter(0);
+      await app.until(`${FIND_COUNT} === "3 of 4"`, "the next older match, counted with the match printed since", 5_000);
     } finally {
       clearInterval(printing);
     }

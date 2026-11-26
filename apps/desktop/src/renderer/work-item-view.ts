@@ -637,9 +637,8 @@ function find(step: "fresh" | "older" | "newer"): void {
   // The add-on's own next is toward the end of the output, which is this bar's previous.
   if (step === "newer") search.findNext(query.term, findOptions(query));
   else search.findPrevious(query.term, findOptions(query));
-  // The add-on counts its matches again only where the term or a choice changed, or 200 ms after the pane last printed, so a step can land on a match printed since, outside what it counted. The match in front is then searched for again with the term dropped, which finds that same match, the one the terminal holds selected, and counts every match afresh in the same task, so the page never draws the stale count.
-  const counted = screen.results;
-  if (step !== "fresh" && counted !== undefined && counted.resultIndex < 0 && counted.resultCount > 0 && counted.resultCount <= FIND_LIMIT) {
+  // The add-on counts its matches again only where the term or a choice changed, or 200 ms after the pane last printed. So a step is counted from the list it made before the pane's last lines: the match in front may be outside that list, and the matches printed since are left out of the count and carry no mark. After each step under the limit the match in front, the one the terminal holds selected, is searched for again with the term dropped, which finds that same match and counts and marks every match afresh in the same task, so the page never draws a stale count.
+  if (step !== "fresh" && (screen.results?.resultCount ?? 0) <= FIND_LIMIT) {
     search.clearDecorations();
     search.findPrevious(query.term, findOptions(query));
   }
