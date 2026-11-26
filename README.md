@@ -12,7 +12,7 @@ An owlery is a place where owls live. The owls are the agents. Owlery's emblem i
 
 ## Install
 
-Owlery runs on a Mac with Apple silicon, an M1 chip or later. It does not open on an Intel Mac.
+Owlery runs on a Mac with Apple silicon, an M1 chip or later, and macOS 13 Ventura or later. It does not open on an Intel Mac or on an earlier macOS.
 
 1. Download `Owlery-arm64.dmg` from the newest release: <https://github.com/MichaelYcJo/owlery/releases/latest/download/Owlery-arm64.dmg>. Each release's download is on the [releases page](https://github.com/MichaelYcJo/owlery/releases).
 2. Open the `.dmg` and drag Owlery into Applications.

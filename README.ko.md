@@ -12,7 +12,7 @@ owlery는 올빼미가 사는 곳을 뜻합니다. 올빼미는 에이전트입�
 
 ## 설치
 
-Owlery는 Apple 실리콘, 곧 M1 칩 이후의 칩을 쓰는 Mac에서 돌아갑니다. Intel Mac에서는 열리지 않습니다.
+Owlery는 Apple 실리콘, 곧 M1 칩 이후의 칩을 쓰고 macOS 13 Ventura 이후를 쓰는 Mac에서 돌아갑니다. Intel Mac이나 그보다 이전의 macOS에서는 열리지 않습니다.
 
 1. 최신 릴리스에서 `Owlery-arm64.dmg`를 내려받습니다: <https://github.com/MichaelYcJo/owlery/releases/latest/download/Owlery-arm64.dmg>. 릴리스마다의 다운로드는 [릴리스 페이지](https://github.com/MichaelYcJo/owlery/releases)에 있습니다.
 2. `.dmg`를 열고 Owlery를 응용 프로그램 폴더로 끌어 놓습니다.

@@ -2,7 +2,7 @@
 
 Issue #78. Owlery could be run only from a checkout of the repository, with Node.js and pnpm. From this release a Mac with Apple silicon downloads Owlery as a `.dmg` from the release's page on GitHub.
 
-- **The download.** `Owlery-arm64.dmg` is attached to the GitHub release of each version. A person opens it and drags Owlery into Applications. The app runs on Apple silicon alone, and does not open on an Intel Mac. The README's section "Install" gives the steps and the address of the newest release's `.dmg`.
+- **The download.** `Owlery-arm64.dmg` is attached to the GitHub release of each version. A person opens it and drags Owlery into Applications. The app runs on Apple silicon with macOS 13 or later, and does not open on an Intel Mac or on an earlier macOS. The README's section "Install" gives the steps and the address of the newest release's `.dmg`.
 - **The first open of a build without Apple's Developer ID signature.** Until the project's Developer ID certificate signs the build, macOS refuses its first open with an alert that Apple could not check the app, and the alert has no button that opens it. The person opens System Settings, clicks Privacy & Security, scrolls down, clicks "Open Anyway" and confirms with "Open". A build signed with the certificate and notarized by Apple opens with no such step.
 - **A newer version is installed by hand.** Owlery does not update itself yet. A person chooses "Quit Owlery Completely…" from the Owlery menu, which ends Owlery's background process and its sessions, then downloads the newer `.dmg` and replaces the app.
 - **What Owlery needs on the Mac.** The installed app runs the person's own `claude`, `git` and `gh` through their login shell, so each has to be installed and on that shell's `PATH`.
