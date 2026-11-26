@@ -67,7 +67,7 @@ describe("TerminalSession", () => {
 
   it("leaves no pseudo-terminal open in this process once its processes have ended, by themselves or by kill()", async () => {
     // macOS gives the whole machine 511 pseudo-terminals, and the daemon outlives every pane it starts.
-    // node-pty 1.1.0 kept a spare one open for each start, until the repository's patch of it (`patches/`).
+    // node-pty 1.1.0 left a spare one and the pane's slave open for each start, until the repository's patch of it (`patches/`).
     const before = terminalDescriptors();
     const ending = Array.from({ length: 4 }, () => TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "exit 0"], cwd: process.cwd(), cols: 80, rows: 24 }));
     const killed = Array.from({ length: 4 }, () => TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "echo started; exec /bin/cat"], cwd: process.cwd(), cols: 80, rows: 24 }));
