@@ -105,7 +105,8 @@
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
-      .icon-button.on { color: var(--ink-strong); }
+      /* On is a shape as well as an ink, so it is not told by colour alone. */
+      .icon-button.on { color: var(--ink-strong); box-shadow: var(--on-edge); }
       /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
       svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
@@ -264,6 +265,9 @@
       .repository-icon { flex: none; }
       /* The button under the repositories that says how many are hidden. */
       #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
+      /* What the sidebar says where a search or a filter leaves no repository, and the button under it that shows them all again. */
+      #sidebar-empty { flex: none; margin: 0; padding: var(--space-3) var(--space-4) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      #show-every { align-self: flex-start; margin: var(--space-2) var(--space-4); }
       .repository li .side-item { padding-left: 26px; }
       /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
       .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
@@ -385,7 +389,7 @@
       #pane-buttons button:active, #side-by-side:active, #side-by-side[aria-pressed="true"] { background: var(--pressed); }
       #side-by-side[aria-pressed="true"] { color: var(--ink-strong); }
       /* The tab of each pane on the stage stands on the terminal's ground. The tab in front, whose pane has the keyboard, has its edge and the strong ink as well. */
-      #tabs .tab { flex: none; display: flex; align-items: stretch; }
+      #tabs .tab { position: relative; flex: none; display: flex; align-items: stretch; }
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
       #tabs .tab.shown { background: var(--terminal-ground); }
       #tabs .tab.shown .label { color: var(--terminal-ink); }
@@ -404,6 +408,12 @@
       #tabs .tab.back .label { padding-right: var(--space-4); }
       #tabs .tab.back.active { background: var(--selected); box-shadow: var(--selected-edge); }
       #tabs .tab.back.active .label { color: var(--ink-strong); }
+      /* A colour a person marked a tab with, which the tab's bar and the swatch of the tab's menu are drawn in. */
+      [data-colour="green"] { --colour: var(--tab-green); }
+      [data-colour="blue"] { --colour: var(--tab-blue); }
+      [data-colour="pink"] { --colour: var(--tab-pink); }
+      /* A tab with a colour carries a bar of it 2px high along its bottom edge, across its width, the same shape for every colour, and its tooltip and its name to a screen reader say the colour's word. */
+      #tabs .tab[data-colour]::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--colour); pointer-events: none; }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
@@ -593,6 +603,14 @@
       .menu [aria-haspopup="menu"]::after { content: ""; flex: none; box-sizing: border-box; width: var(--space-3); height: var(--space-3); border-top: 1px solid var(--ink-faint); border-right: 1px solid var(--ink-faint); transform: rotate(45deg); }
       .menu [aria-haspopup="menu"][aria-expanded="true"] { background: var(--hover); }
       .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
+      /* A row of a menu holds its items side by side, each as high as an item and as wide, drawing the mark its press gives a tab and no words: a bar in its colour, or for no colour the same bar outlined in the faint ink. The item that holds has an edge in the muted ink. */
+      .menu .swatches { flex: none; display: flex; gap: var(--space-2); padding: 0 var(--space-3); }
+      .menu [role="menuitemradio"] { flex: none; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: var(--sidebar-line); height: var(--sidebar-line); border: 1px solid transparent; border-radius: var(--radius-line); }
+      .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus { background: var(--hover); }
+      .menu [role="menuitemradio"]:active { background: var(--pressed); }
+      .menu [role="menuitemradio"][aria-checked="true"] { border-color: var(--ink-muted); }
+      .menu [role="menuitemradio"]::before { content: ""; box-sizing: border-box; width: 14px; height: 4px; background: var(--colour); }
+      .menu [role="menuitemradio"]:not([data-colour])::before { border: 1px solid var(--ink-faint); background: none; }
       #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
       #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
       /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
@@ -1151,8 +1169,22 @@
       <p id="close-pane-sentence"></p>
       <div class="row">
         <button type="button" id="close-pane-cancel" class="quiet">Cancel</button>
-        <button type="button" id="close-pane-confirm" class="primary">Close pane</button>
+        <button type="button" id="close-pane-confirm" class="primary"></button>
       </div>
+    </dialog>
+    <dialog id="pane-name-dialog">
+      <form id="pane-name-form">
+        <h2 id="pane-name-head" class="head"></h2>
+        <label>
+          <span class="row"><input id="pane-name-field" aria-label="Name" autocomplete="off" spellcheck="false" /></span>
+        </label>
+        <p class="says">An empty name names the pane by its kind again.</p>
+        <p id="pane-name-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="pane-name-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="pane-name-submit" class="primary">Save</button>
+        </div>
+      </form>
     </dialog>
     <div id="link-card" hidden></div>
     <script src="./renderer.js"></script>

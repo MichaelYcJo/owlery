@@ -4,19 +4,22 @@
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
- * order: "Setup" for `setupPane`, the pane the work item's setup record
- * names, and for any other pane its kind, as the daemon labels it, alone
- * where it is the one pane of its kind but the setup pane, and otherwise
- * followed by its place among those panes, from 1. The daemon's id of a pane
- * counts every pane it started, so it is no tab's to show. The work item's
- * title is the view's header's to say.
+ * order: the name a person gave the tab, where it has one; otherwise
+ * "Setup" for `setupPane`, the pane the work item's setup record names, and
+ * for any other pane its kind, as the daemon labels it, alone where it is
+ * the one pane of its kind but the setup pane, and otherwise followed by its
+ * place among those panes, from 1. A named pane keeps its place among them,
+ * so a name changes no other tab's number. The daemon's id of a pane counts
+ * every pane it started, so it is no tab's to show. The work item's title is
+ * the view's header's to say.
  */
 export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], setupPane: number | null = null): string {
+  if (typeof session.name === "string") return session.name;
   if (session.id === setupPane) return SETUP_HEAD;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const name = kind ? kind.label : session.kind;
@@ -26,6 +29,16 @@ export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], pan
 
 /** The label of the pane a setup runs in, and the head of the section that says the setup. */
 export const SETUP_HEAD = "Setup";
+
+/** The word that names each colour of a tab, in its menu's row, in its tooltip and to a screen reader. */
+export const COLOUR_WORDS: Readonly<Record<TabColour, string>> = { green: "Green", blue: "Blue", pink: "Pink" };
+/** The word of the row's swatch that takes a tab's colour off. */
+export const NO_COLOUR = "No colour";
+
+/** What a pane's tab says to a pointer that rests on it and to a screen reader: its label, followed by its colour's word where it has a colour, as "Shell 2, Blue". */
+export function tabSays(label: string, colour: TabColour | null): string {
+  return colour === null ? label : `${label}, ${COLOUR_WORDS[colour]}`;
+}
 
 /** The words a work item's line carries of its setup, in its second row: "Setting up" while it runs, "Setup failed" where it failed, and nothing where it succeeded or the repository named none. */
 export function setupMark(workItem: WorkItem): string {
@@ -1305,6 +1318,21 @@ export function filterChoices(): { value: StateFilter; label: string }[] {
   return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) })), { value: "decided", label: DECISIONS_HEAD }];
 }
 
+/** The label of a choice of the filter, as `filterChoices` names it. */
+function filterLabel(state: StateFilter): string {
+  return filterChoices().find((choice) => choice.value === state)?.label ?? state;
+}
+
+/**
+ * The sidebar's filter as its control marks it: on while a state other than
+ * All is chosen or a search is typed, and saying to a pointer the state it
+ * shows and what is typed.
+ */
+export function filterMark(query: string, state: StateFilter): { on: boolean; says: string } {
+  const says = `Showing: ${filterLabel(state)}`;
+  return { on: query !== "" || state !== "all", says: query === "" ? says : `${says}, matching "${query}"` };
+}
+
 /**
  * The work items a search and a filter leave, in the order given: those
  * whose title, branch or repository's name holds what is typed, and whose
@@ -1342,6 +1370,23 @@ export function emptyList(screen: "inbox" | "history" | "archived", total: numbe
   if (shown > 0) return "";
   if (total > 0) return "No work item matches.";
   return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
+}
+
+/** The button under the sentence of the empty sidebar, which chooses All in the filter and empties the search field. */
+export const SHOW_EVERY_WORK_ITEM = "Show every work item";
+
+/**
+ * What the sidebar says in place of its repositories, `listed` being how
+ * many it lists: what narrows it, and how many repositories the daemon keeps
+ * that are not hidden. Nothing where nothing narrows it, where it lists a
+ * repository, and where every repository is hidden, which the button of the
+ * hidden repositories says.
+ */
+export function emptySidebar(repositories: readonly Repository[], listed: number, query: string, state: StateFilter): string {
+  const kept = repositories.filter((repository) => !repository.hidden).length;
+  if ((query === "" && state === "all") || listed > 0 || kept === 0) return "";
+  const what = query === "" ? `No work item stands under "${filterLabel(state)}"` : state === "all" ? `No work item matches "${query}"` : `No work item under "${filterLabel(state)}" matches "${query}"`;
+  return `${what}, ${kept === 1 ? "so the sidebar does not list its repository" : `so the sidebar lists none of its ${kept} repositories`}.`;
 }
 
 /** What changed of a work item's seal since the look: a seal was given, or a seal broke. */
@@ -2144,6 +2189,20 @@ export function closeAsks(session: SessionInfo): boolean {
 }
 
 /**
+ * What the dialog that asks before a close of panes says: a sentence that
+ * names each pane of the close whose session is working, `working` being
+ * their tabs' labels in the tabs' order, one at least, and says how many
+ * panes the close ends, `count`, and the words of the button that closes
+ * them. A close of one pane says what the dialog said before a close took
+ * several.
+ */
+export function closeSays(working: readonly string[], count: number): { says: string; confirm: string } {
+  const named = working.length > 1 ? `${working.slice(0, -1).join(", ")} and ${working.at(-1)} are` : `${working[0]} is`;
+  const closing = count === 1 ? "the pane" : `${count} panes`;
+  return { says: `${named} working. Closing ${closing} ends ${working.length > 1 ? "their sessions" : "its session"}.`, confirm: count === 1 ? "Close pane" : `Close ${count} panes` };
+}
+
+/**
  * The text a pane is handed for the files dropped on it, `paths` being each
  * file's path in the order of the drop, empty for a file that is on no
  * disk. Each path is written as a shell reads one word: a backslash stands
@@ -2433,6 +2492,10 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * work items, or, for `group`, opens the dialog of a new group. On both:
  * writes a text to the clipboard, or, from an item of the "Open in" submenu,
  * opens a folder in Finder, where `app` is null, or in an installed app.
+ * On a pane's tab's menu: opens the dialog that renames the pane `id`, sets
+ * its tab's colour, where `colour` null takes the colour off, or closes the
+ * panes `ids` names, in the tabs' order, after one dialog where the session
+ * of any of them is working.
  */
 export type MenuAction =
   | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
@@ -2440,7 +2503,10 @@ export type MenuAction =
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
-  | { do: "pane"; accountId: number | null };
+  | { do: "pane"; accountId: number | null }
+  | { do: "closePanes"; ids: number[] }
+  | { do: "renamePane"; id: number }
+  | { do: "colourPane"; id: number; colour: TabColour | null };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2460,8 +2526,27 @@ export interface Submenu {
   divides: boolean;
 }
 
-/** One entry of a menu: an item a press acts on, or one that opens a submenu. */
-export type MenuEntry = MenuItem | Submenu;
+/** One item of a row of a menu, which a press acts on: its words, which a screen reader is told in place of a label it draws, the sentence a pointer over it is told, what its press does, the colour of the mark it draws, or null for the mark of no colour, and whether it is the one of the row that holds. */
+export interface MenuRowItem {
+  label: string;
+  /** What a press does, opening with the item's words, since the item draws a mark and no words. */
+  description: string;
+  action: MenuAction;
+  colour: TabColour | null;
+  checked: boolean;
+}
+
+/** An entry of a menu that stands as a row of items, one of which holds, in place of one item: the row's words, which a screen reader is told, the sentence a pointer over the row is told, its items, and whether a rule stands above it. The arrow keys reach its items as they reach every other item of the menu. */
+export interface MenuRow {
+  label: string;
+  /** What the row's items choose, in other words than the label's. */
+  description: string;
+  row: readonly MenuRowItem[];
+  divides: boolean;
+}
+
+/** One entry of a menu: an item a press acts on, one that opens a submenu, or a row of items. */
+export type MenuEntry = MenuItem | Submenu | MenuRow;
 
 /**
  * Where a submenu stands, as the left and top of its box: its left edge at
@@ -2725,6 +2810,52 @@ export function renameChoice(plan: RenamePlanned | null, branched: boolean): { e
  */
 export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The menu of a pane's tab, `session` being its pane and `tabs` the panes of
+ * its work item in the tabs' order (`paneTabs`), in its order: "Rename…",
+ * which opens the dialog that names the pane; the row of colours, Green,
+ * Blue, Pink and No colour, which checks the tab's colour, or No colour
+ * where it has none; and, under a rule, "Close Pane"; "Close Other Panes",
+ * which closes every other pane of the work item, exited ones among them,
+ * where the work item has another tab; and "Close Panes to the Right", which
+ * closes every pane whose tab stands after this one, where one does.
+ * "Rename…" and the row stand only where the session carries a `name`
+ * field, null or a name: a daemon of an earlier build sends none, keeps no
+ * name and no colour, and would answer no request to set one. An item that
+ * would close nothing is left out, since the form of a menu draws no item
+ * disabled. Each close item closes its panes through one close, which asks once
+ * where any of them is working (./work-item-view, `closePanes`).
+ */
+export function tabMenu(session: SessionInfo, tabs: readonly SessionInfo[]): MenuEntry[] {
+  const others = tabs.filter((tab) => tab.id !== session.id).map((tab) => tab.id);
+  const at = tabs.findIndex((tab) => tab.id === session.id);
+  const right = at === -1 ? [] : tabs.slice(at + 1).map((tab) => tab.id);
+  const marks = session.name !== undefined;
+  const close = (label: string, description: string, ids: number[], divides = false): MenuItem[] => (ids.length === 0 ? [] : [{ label, description, action: { do: "closePanes", ids }, divides }]);
+  const held = session.colour ?? null;
+  const swatch = (colour: TabColour | null, label: string, description: string): MenuRowItem => ({ label, description, action: { do: "colourPane", id: session.id, colour }, colour, checked: colour === held });
+  const named: MenuEntry[] = marks
+    ? [
+        { label: "Rename…", description: "Give this pane's tab a name of its own, which the window names the pane by everywhere.", action: { do: "renamePane", id: session.id }, divides: false },
+        {
+          label: "Colour",
+          description: "Mark this pane's tab with a colour, which its tooltip names.",
+          row: [
+            ...TAB_COLOURS.map((colour) => swatch(colour, COLOUR_WORDS[colour], `${COLOUR_WORDS[colour]} draws a ${colour} bar along the bottom of this pane's tab.`)),
+            swatch(null, NO_COLOUR, `${NO_COLOUR} takes the colour's bar off this pane's tab.`),
+          ],
+          divides: false,
+        },
+      ]
+    : [];
+  return [
+    ...named,
+    ...close("Close Pane", "End this pane's process and close its tab. Where its session is working, a dialog asks first.", [session.id], marks),
+    ...close("Close Other Panes", "End every other pane of the work item and close their tabs. Where a session among them is working, a dialog asks first.", others),
+    ...close("Close Panes to the Right", "End the panes whose tabs stand after this one and close their tabs. Where a session among them is working, a dialog asks first.", right),
+  ];
 }
 
 /**

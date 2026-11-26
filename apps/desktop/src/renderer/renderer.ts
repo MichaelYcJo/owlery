@@ -108,7 +108,7 @@ import {
   type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -2023,7 +2023,7 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       if (takeAccountsAnswer(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
-      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null)) return;
+      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null) || takePaneName(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -2061,8 +2061,8 @@ function onMessage(message: ServerMessage): void {
       if (takeSettingsPlan(message.requestId, { error: message.message })) return;
       // A read of a loss that was refused is its dialog's to show.
       if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
-      // The refusal of the answers to a parked work item's questions is its view's section's to show.
-      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message)) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show, and the refusal of a pane's new name the rename dialog's.
+      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message) || takePaneName(message.requestId, message.message)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
       if (takeBackRefusal(message.requestId, message.message)) return;
       // A refused plan of the records place is its dialog's to show.
@@ -2153,6 +2153,12 @@ initSidebar(
       if (list) list.focusLine(list.selected());
       // Where no list is in front the keyboard leaves the field for the page.
       if (document.activeElement === byId("search-field")) byId("search-field").blur();
+    },
+    // The person's own press, so the sidebar and the list in front draw at once.
+    showEvery() {
+      held.query = "";
+      held.filter = "all";
+      showNarrowed();
     },
   },
   MAC,
