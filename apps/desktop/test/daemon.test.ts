@@ -4025,6 +4025,68 @@ describe("the inbox", () => {
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "inbox"]);
   });
 
+  /** The four lists as the newest `ready` or `inbox` a client got holds them. */
+  const listsIn = (c: { messages: ServerMessage[] }) => {
+    const newest = c.messages.filter((m) => m.type === "ready" || m.type === "inbox").at(-1) as Inbox | undefined;
+    return newest && { sessions: newest.sessions, repositories: newest.repositories, workItems: newest.workItems, archived: newest.archived };
+  };
+
+  it("answers a `readLists` with the four lists in an inbox to the client that asked alone, though nothing changed, and then `done`, with no wait where no pull request is watched", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Asked again");
+    // An answer that waited for the bound on the pull requests would come after the case's wait for `done`.
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, listsWaitMs: 60_000 });
+    const c = await client(url);
+    const other = await client(url);
+    await other.message("ready");
+    await c.until(() => (listsIn(c)?.workItems[0]?.newCommits === 1 ? true : undefined));
+    const lists = listsIn(c);
+    const [from, otherFrom] = [c.messages.length, other.messages.length];
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(c.messages.slice(from)).toEqual([{ type: "inbox", ...lists }, { type: "done", requestId: 1 }]);
+    await pause(100);
+    expect(other.messages.slice(otherFrom)).toEqual([]);
+  });
+
+  it("reads git again for a `readLists` once the read under way has ended, so its answer holds a commit made while that read ran", async () => {
+    const made = repository();
+    const { runDir, workItem } = await runFolderWithWorkItem(made, "Read again");
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, readyWaitMs: 50, commitPollMs: 60_000 });
+    // The hello's read counts the branch's commits at once and then waits, at the read of the branch's head, until the release.
+    const held = heldGit(made.base, `[ "$1" = rev-parse ] && [ "$4" = "refs/heads/${workItem.branch}" ]`);
+    const c = await client(url);
+    expect((await c.message("ready")).workItems[0]?.newCommits).toBeNull();
+    await c.until(() => (held.waiting() ? true : undefined));
+    await pause(100);
+    commit(workItem.worktree, "two.txt");
+    c.send({ type: "readLists", requestId: 1 });
+    await pause(100);
+    held.release();
+    await c.message("done", (m) => m.requestId === 1);
+    const answer = c.messages.at(-2) as Inbox;
+    expect([answer.type, answer.workItems[0]?.newCommits]).toEqual(["inbox", 2]);
+  });
+
+  it("answers a `readLists` whose read throws with an `error` that says why, and sends no inbox", async () => {
+    const made = repository();
+    const { runDir } = await runFolderWithWorkItem(made, "Unread");
+    let fails = false;
+    const pluginEnabled = (): boolean => {
+      if (fails) throw new Error("the plugins cannot be read.");
+      return false;
+    };
+    const { url } = await daemon({ runDir, worktreesRoot: made.root, commitPollMs: 60_000, pluginEnabled });
+    const c = await client(url);
+    await c.until(() => (listsIn(c)?.workItems[0]?.newCommits === 1 ? true : undefined));
+    fails = true;
+    const from = c.messages.length;
+    c.send({ type: "readLists", requestId: 1 });
+    expect(await c.message("error", (m) => m.requestId === 1)).toEqual({ type: "error", requestId: 1, message: "The work items were not read again: the plugins cannot be read." });
+    await pause(100);
+    expect(c.messages.slice(from).map((m) => m.type)).toEqual(["error"]);
+  });
+
   it("handles nothing of a client that left before its `ready`: a pane it asked for is not started", async () => {
     const made = repository();
     const { runDir } = await runFolderWithWorkItem(made, "Left early");
@@ -6601,6 +6663,25 @@ describe("the agent's notice", () => {
     expect([told(first), told(second), told(third)]).toEqual([[null], [null], []]);
   });
 
+  it("asks the adapter again at a `readLists` while a notice stands, and not once none does, and answers without waiting for it", async () => {
+    const { adapter, asks, answer } = asked();
+    const { url } = await daemon({ roleAdapter: adapter });
+    answer(0, NOTICE);
+    const c = await client(url);
+    await c.message("ready");
+    await c.until(() => (asks() === 2 ? true : undefined));
+    answer(1, NOTICE);
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    // The press asked, and its answer did not wait for the adapter's.
+    expect(asks()).toBe(3);
+    answer(2, null);
+    expect(await c.message("agentNotice")).toEqual({ type: "agentNotice", notice: null });
+    c.send({ type: "readLists", requestId: 2 });
+    await c.message("done", (m) => m.requestId === 2);
+    expect(asks()).toBe(3);
+  });
+
   it("keeps the answer of the adapter's last read where an earlier read answers after it", async () => {
     const { adapter, asks, answer } = asked();
     const { url } = await daemon({ roleAdapter: adapter });
@@ -7917,8 +7998,8 @@ describe("the watch of an open pull request", () => {
     const gh = ghStandIn(cleanups, made.base);
     const seen = { held: 0 };
     const { daemon: d, url } = await daemon({ runDir, worktreesRoot: made.root, gh: gh.gh, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" }, prPollMs: 100, prRestPollMs: 60_000, now: () => 7, holdAwake: () => (seen.held++, { release: () => undefined }), ...options });
-    /** What gh pr view answers for this pull request, with its checks and anything else given. */
-    const answer = (rollup: unknown[], more: Record<string, unknown> = {}) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }) });
+    /** What gh pr view answers for this pull request, with its checks and anything else given, after `seconds` where given. */
+    const answer = (rollup: unknown[], more: Record<string, unknown> = {}, seconds?: number) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup, ...more }), seconds });
     return { d, url, gh, seen, at, stored, answer };
   }
 
@@ -8031,6 +8112,55 @@ describe("the watch of an open pull request", () => {
     const other = await client(archived.url);
     await other.until(() => (archived.gh.calls().length >= 2 ? true : undefined));
     expect(new Set(archived.gh.calls().map((call) => call[2]))).toEqual(new Set([SECOND_URL]));
+  });
+
+  /** The work item's pull request as the inbox just before a client's last message lists it, and that message. */
+  const answered = (c: Awaited<ReturnType<typeof client>>) => {
+    const [inbox, last] = c.messages.slice(-2);
+    return { before: inbox?.type === "inbox" ? inbox.workItems[0]?.pullRequest : inbox?.type, last };
+  };
+
+  it("reads the pull request again at a `readLists` with one call of gh, though its next read is a minute off, and answers with what that call gave once it ended", async () => {
+    // An answer that waited for the bound and not for the call's end would come after the case's wait for `done`.
+    const w = await watched({ listsWaitMs: 60_000 });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    const c = await client(w.url);
+    await c.until(() => (pullRequestIn(c)?.checks === "passed" ? true : undefined));
+    expect(w.gh.calls()).toHaveLength(1);
+    // The call ends after git has been read, so the answer holds what it gave only where it waited for it.
+    w.answer([run("seal", "COMPLETED", "SUCCESS"), run("build", "COMPLETED", "FAILURE")], {}, 1);
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(w.gh.calls()).toEqual([VIEW, VIEW]);
+    expect(answered(c)).toMatchObject({ before: { checks: "failed", failure: null }, last: { type: "done", requestId: 1 } });
+  });
+
+  it("answers a `readLists` once `listsWaitMs` has passed where gh has not answered, with the pull request as the last read gave it", async () => {
+    const w = await watched({ listsWaitMs: 300, githubLimitMs: 10_000 });
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    const c = await client(w.url);
+    const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
+    w.gh.answer("view", { hangs: true });
+    const sent = Date.now();
+    c.send({ type: "readLists", requestId: 1 });
+    await c.message("done", (m) => m.requestId === 1);
+    expect(Date.now() - sent).toBeGreaterThanOrEqual(300);
+    expect(w.gh.calls()).toHaveLength(2);
+    expect(answered(c)).toEqual({ before: passed, last: { type: "done", requestId: 1 } });
+  });
+
+  it("reads the pull request again after the read under way where a `readLists` arrives while gh is asked, since that read began before it", async () => {
+    const w = await watched({ githubLimitMs: 1000, listsWaitMs: 3000 });
+    w.gh.answer("view", { hangs: true });
+    const c = await client(w.url);
+    await c.message("ready");
+    await c.until(() => (w.gh.calls().length === 1 ? true : undefined));
+    c.send({ type: "readLists", requestId: 1 });
+    await pause(50);
+    w.answer([run("seal", "COMPLETED", "SUCCESS")]);
+    await c.message("done", (m) => m.requestId === 1);
+    expect(w.gh.calls()).toHaveLength(2);
+    expect(answered(c)).toMatchObject({ before: { checks: "passed", failure: null }, last: { type: "done", requestId: 1 } });
   });
 });
 

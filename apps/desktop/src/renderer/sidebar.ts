@@ -3,6 +3,7 @@
 // work items, the button that says how many repositories are hidden, and
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
+import { REFRESH_SAYS, REFRESHING_SAYS } from "./refresh";
 import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
 import { ageOf, bellSays, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
@@ -21,6 +22,8 @@ export interface SidebarActions {
   /** Takes what the search field holds, as it is typed. */
   search(query: string): void;
   filter(state: StateFilter): void;
+  /** Has the daemon read the work items again and send the lists back, at a press of the refresh button. It sends nothing before the daemon's `ready`, nor while an answer is on its way (./refresh). */
+  refresh(): void;
   /** Returns the keyboard to the list, after Escape emptied the search field. */
   leaveSearch(): void;
   /** Chooses All in the filter and takes the emptied search, and draws the sidebar and the list in front at once. */
@@ -35,6 +38,7 @@ const inboxCount = byId("nav-inbox-count");
 const summaryNew = byId("nav-summary-count");
 const bell = byId<HTMLButtonElement>("bell");
 const bellCount = byId("bell-count");
+const refreshButton = byId<HTMLButtonElement>("refresh-lists");
 const filterControl = byId("sidebar-filter-control");
 const filter = byId<HTMLSelectElement>("sidebar-filter");
 const repositories = byId("repositories");
@@ -61,7 +65,9 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
   bell.addEventListener("click", () => actions.filter("waiting"));
-  // The one button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
+  refreshButton.addEventListener("click", () => actions.refresh());
+  showRefresh(false);
+  // The "+" button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
   byId("new-work-item").title = NEW_WORK_ITEM_SAYS;
   byId("new-work-item").addEventListener("click", () => actions.openForm());
   showStatus();
@@ -71,6 +77,15 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
 export function focusSearch(): void {
   searchField.focus();
   searchField.select();
+}
+
+/** Draws the refresh button at rest, or working while its answer is on its way: its arrows then turn, and it says so to a pointer and to a screen reader. */
+export function showRefresh(working: boolean): void {
+  const says = working ? REFRESHING_SAYS : REFRESH_SAYS;
+  refreshButton.title = says;
+  refreshButton.setAttribute("aria-label", says);
+  if (working) refreshButton.setAttribute("aria-busy", "true");
+  else refreshButton.removeAttribute("aria-busy");
 }
 
 /** Says `text` in the status line, or the daemon's state again where it is empty. */

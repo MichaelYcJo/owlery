@@ -961,6 +961,8 @@ export type ClientMessage =
   | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null; scrollback?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
+  // Has the daemon read again what a client's hello has it read from outside, from the one list in its code that both read (`Daemon#readOutside` of src/daemon/daemon.ts), git and the open pull requests it watches among them. A read of git under way when the message arrives began before it, so the daemon waits for its end and reads git again. The daemon answers the client that asked alone, with an `inbox` that holds the four lists whole, whether or not anything changed, and then a `done`, once git has been read and its reads of the pull requests have ended or `listsWaitMs` of its options has passed, 5 seconds where none is given. A pull request read after that reaches every client in the watch's own `inbox`. Where a read throws, the daemon answers with an `error` whose sentence says why, and sends no `inbox`. A daemon of an earlier build answers nothing.
+  | { type: "readLists"; requestId: number }
   // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
   | { type: "readHeavyRuns" }
   | { type: "input"; id: number; data: string }
@@ -969,7 +971,7 @@ export type ClientMessage =
 export type ServerMessage =
   // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap.
   | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine }
-  // The whole of the four lists, sent to every client whenever one of them changes.
+  // The whole of the four lists, sent to every client whenever one of them changes, and to the client that sent a `readLists` alone, as its answer, before that request's `done`.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }
   // Answers a creation and carries the pane the creation named, whose output the creating client receives. The setup pane, where the repository names a command, is listed in the inbox and named by `workItem.setup`, and the creating client receives its output too.
@@ -1006,7 +1008,7 @@ export type ServerMessage =
   | { type: "agentNotice"; notice: string | null }
   // How an add without a folder ended, sent once to the client that asked, after the `accounts` that carries the account where one came of it: `id` is its sign-in pane, `accountId` the account that now stands, or null where none does, and `says` a sentence a window shows as it is where no account named from a login came of it, and null otherwise.
   | { type: "addEnded"; id: number; accountId: number | null; says: string | null }
-  // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
+  // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed. A `readLists`'s `done` follows the `inbox` that answers it.
   | { type: "done"; requestId: number }
   // Answers a request that failed; nothing was created or started.
   | { type: "error"; requestId: number; message: string }
