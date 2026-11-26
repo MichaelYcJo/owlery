@@ -1481,7 +1481,7 @@ describe("repositories", () => {
     expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 2, repositories: [{ id: 1, folder: repo, workItems: [] }] });
   });
 
-  it("keeps aside a `repositories.json` it cannot read, writes the first change to a new one beside it, and says where the file was kept in each `ready`", async () => {
+  it("keeps aside a `repositories.json` it cannot read, writes a new one beside it that goes on from the refused file's counts, and says where the file was kept in each `ready`", async () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
@@ -1497,7 +1497,8 @@ describe("repositories", () => {
     const kept = join(runDir, "repositories-unread-20261126T123005Z.json");
     expect(readFileSync(kept, "utf8")).toBe(refused);
     expect(readdirSync(runDir).filter((name) => name.startsWith("repositories")).sort()).toEqual(["repositories-unread-20261126T123005Z.json", "repositories.json"]);
-    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 2, repositories: [{ id: 1, folder: repo, workItems: [] }] });
+    // The repository takes the id the refused file's count gives, and not one that file already gave.
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 3, repositories: [{ id: 2, folder: repo, workItems: [] }] });
     const notice = `Owlery could not read its list of repositories, so it kept the file as ${kept} and started with none. Nothing in that file was changed.`;
     expect(ready.storeNotice).toBe(notice);
     // The notice stands while the daemon runs, a change of the store notwithstanding: a window that connects later is told too.

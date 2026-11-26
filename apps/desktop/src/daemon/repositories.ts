@@ -181,6 +181,11 @@ function isStored(value: unknown): value is Counts & { repositories: WrittenRepo
   return isRecord(value) && typeof value.nextWorkItemId === "number" && typeof value.nextRepositoryId === "number" && typeof value.nextGroupId === "number" && Array.isArray(value.repositories) && value.repositories.every(isStoredRepository);
 }
 
+/** Whether a value holds the three counts of a store, whatever its repositories hold. */
+function isCounted(value: unknown): value is Counts {
+  return isRecord(value) && typeof value.nextWorkItemId === "number" && typeof value.nextRepositoryId === "number" && typeof value.nextGroupId === "number";
+}
+
 /** One past the highest of the ids, and 1 where there is none. */
 function past(ids: readonly number[]): number {
   return ids.reduce((highest, id) => Math.max(highest, id), 0) + 1;
@@ -252,9 +257,13 @@ function readJson(file: string): unknown {
  * time of its start, with `-2`, `-3` and on where a file or a folder stands
  * at that name, so no file kept earlier is replaced. It then starts with no
  * repository, does not read `work-items.json` in its place, and writes a new
- * `repositories.json` at its first change. Where the rename fails, the file
- * stays as it stands and the store keeps its repositories in memory alone,
- * so nothing writes over the file it refused. `setAside()` answers which it
+ * `repositories.json`, with no repository, at once, so the next start reads
+ * that file; a write that fails there is thrown at the next change. A
+ * refused file that states the three counts keeps them, so no id it gave is
+ * given again; one that states none, such as a file that holds no JSON,
+ * gives ids from 1 again. Where the rename fails, the file stays as it
+ * stands and the store keeps its repositories in memory alone, under the
+ * same counts, so nothing writes over the file it refused. `setAside()` answers which it
  * did, and `setAsideNotice` says it to a person. A work item written before
  * the setup was recorded is read with none, and
  * one whose setup was running is read with that setup failed: its pane
@@ -302,6 +311,8 @@ export class RepositoryStore {
     }
     const repositories = isStored(value) ? value.repositories : value;
     if (!Array.isArray(repositories) || !repositories.every(isStoredRepository)) {
+      // The ids a refused file gave stay given where it states its counts, so no work item made now takes one of them, and nothing the daemon keeps under such an id is dropped or read as the new work item's.
+      if (isCounted(value)) this.counts = { nextWorkItemId: value.nextWorkItemId, nextRepositoryId: value.nextRepositoryId, nextGroupId: value.nextGroupId };
       this.keepAside(runDir, this.file);
       return;
     }
@@ -331,7 +342,7 @@ export class RepositoryStore {
     return this.setAsideFile;
   }
 
-  /** Renames the refused `file` to a name nothing stands at in `runDir`. Where that fails, the store keeps no file, so nothing writes over the one it refused. */
+  /** Renames the refused `file` to a name nothing stands at in `runDir`, and writes the empty store in its place, so the next start reads that store and not `work-items.json`. Where the rename fails, the store keeps no file, so nothing writes over the one it refused. */
   private keepAside(runDir: string, file: string): void {
     let keptAs: string | null = null;
     try {
@@ -342,6 +353,12 @@ export class RepositoryStore {
       this.file = undefined;
     }
     this.setAsideFile = { refused: file, keptAs };
+    // A store whose rename failed keeps no file, so the write writes nothing.
+    try {
+      this.write();
+    } catch {
+      // The kept file is whole either way. The next change writes again, and throws what refuses it, as any change does.
+    }
   }
 
   /** Raises each count that is not past every id of its kind the store holds. None is lowered. */

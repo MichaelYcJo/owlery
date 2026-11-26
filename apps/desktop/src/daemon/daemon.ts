@@ -1021,7 +1021,7 @@ export class Daemon {
             const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its folder is, the number it got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
-            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or kept aside, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
+            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost, or was refused and stated no counts, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start. A refused file that states its counts keeps them (`repositories.ts#RepositoryStore`), so no id given after it is one of that file's.
             this.times.drop([stored.item.id]);
             this.flushTimes();
             // What an earlier work item's broad gate printed is kept under its id too, and is none of this one's.
