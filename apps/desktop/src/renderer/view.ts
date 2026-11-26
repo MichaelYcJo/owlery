@@ -1988,18 +1988,74 @@ export function inboxKey(
  * What a key pressed with the Command key does on every screen, or null
  * where the window leaves it alone: K puts the focus in the search field,
  * N opens the "New work item" form, and W closes the pane in front. The
- * Control key stands for the Command key where the keyboard has none. The
+ * Control key stands for the Command key where the keyboard has none. On a
+ * Mac keyboard alone, F opens the find bar over the pane in front where a
+ * pane is in front, `paneInFront`, and G goes to the next match while the
+ * bar is open, `finding`, and to the previous one with the Shift key as
+ * well. Control+F and Control+G stay the shell's on another keyboard. The
  * key is read by its place on the keyboard, and not while a dialog is open,
- * a menu is open or another modifier key is held as well. The application
- * menu binds none of these keys, since a menu takes its key before the page
- * sees it (src/main/menu.ts).
+ * a menu is open or another modifier key is held as well, the Shift key of
+ * G apart. The application menu binds none of these keys, since a menu
+ * takes its key before the page sees it (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | "closePane" | null {
+export function commandKey(
+  key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean },
+  where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean; paneInFront: boolean; finding: boolean },
+): "search" | "new" | "closePane" | "find" | "findNext" | "findPrevious" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
-  if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
+  if (!command || key.alt || where.dialogOpen || where.menuOpen) return null;
+  if (where.mac && where.finding && key.code === "KeyG") return key.shift ? "findPrevious" : "findNext";
+  if (key.shift) return null;
   if (key.code === "KeyK") return "search";
   if (key.code === "KeyN") return "new";
+  if (where.mac && where.paneInFront && key.code === "KeyF") return "find";
   return key.code === "KeyW" ? "closePane" : null;
+}
+
+/** The most matches the find bar counts. The search add-on is let count one more, so the bar tells 1,000 matches from more (./work-item-view, `searchOf`). */
+export const FIND_LIMIT = 1000;
+
+/** What the find bar holds: the field's text, and whether "Match case" and "Regular expression" are on. */
+export interface FindBar {
+  text: string;
+  matchCase: boolean;
+  regex: boolean;
+}
+
+/**
+ * What the find bar searches for: the field's text, matched in its case
+ * only where "Match case" is on, and read as a regular expression only
+ * where "Regular expression" is on. Where the field is empty nothing is
+ * searched, and the answer is null. A regular expression is read with the
+ * flags the search add-on reads it with, and one that does not read is
+ * refused with the sentence the bar shows in its count's place, since the
+ * add-on would throw on it.
+ */
+export function findQuery(bar: FindBar): { term: string; caseSensitive: boolean; regex: boolean } | { refusal: string } | null {
+  if (bar.text === "") return null;
+  if (bar.regex) {
+    try {
+      new RegExp(bar.text, bar.matchCase ? "g" : "gi");
+    } catch {
+      return { refusal: "Not a regular expression" };
+    }
+  }
+  return { term: bar.text, caseSensitive: bar.matchCase, regex: bar.regex };
+}
+
+/**
+ * The words of the find bar's count, from what the search add-on says of
+ * its results: how many it found, which it orders from the oldest line, and
+ * the index among them of the match in front. The bar counts from the
+ * newest match, the one nearest the end of the output, which is 1: "3 of
+ * 17". Where it found none it says "No match". The add-on counts one past
+ * `FIND_LIMIT` at most, and names no match in front where that match is not
+ * among those it counted, and then the bar says "More than 1,000 matches".
+ */
+export function findCount(results: { resultIndex: number; resultCount: number }): string {
+  if (results.resultCount === 0) return "No match";
+  if (results.resultCount > FIND_LIMIT || results.resultIndex < 0) return `More than ${FIND_LIMIT.toLocaleString("en-US")} matches`;
+  return `${(results.resultCount - results.resultIndex).toLocaleString("en-US")} of ${results.resultCount.toLocaleString("en-US")}`;
 }
 
 /**
@@ -2061,7 +2117,7 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
 }
 
 /** What an item of a pane's menu does. */
-export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "account" | "close";
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "find" | "clear" | "reset" | "account" | "close";
 
 /** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
 export interface PaneMenuItem {
@@ -2073,16 +2129,17 @@ export interface PaneMenuItem {
 
 /**
  * The items of a pane's menu, in their order, with null where a rule stands
- * between two groups. On a Mac keyboard "Copy", "Paste" and "Close Pane"
- * show the keys that do the same, and no other item shows one, since no key
- * of the window does what it does. On another keyboard no item shows a key.
+ * between two groups. On a Mac keyboard "Copy", "Paste", "Find…" and
+ * "Close Pane" show the keys that do the same, and no other item shows one,
+ * since no key of the window does what it does. On another keyboard no item
+ * shows a key, and "Find…" is the one way to the find bar (`commandKey`).
  * "Copy" can be pressed only where the terminal holds a `selection`.
  * "Change Account…" stands before "Close Pane" only where the pane's account
  * can be changed (`paneAccountChange`), and shows no key.
  */
 export function paneMenu(mac: boolean, selection: boolean, changesAccount = false): (PaneMenuItem | null)[] {
   const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
-  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), item("Find\u2026", "find", "\u2318F"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
 }
 
 /** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */

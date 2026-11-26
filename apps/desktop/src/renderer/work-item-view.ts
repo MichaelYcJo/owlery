@@ -7,8 +7,10 @@
 // person to allow are answered, and the seal's place with the sentence of
 // the work item's chain, with the work item's pull request under it. The
 // pool of terminal screens the window holds lives here, and so
-// do the card of the link under the pointer and the menu of a pane.
+// do the card of the link under the pointer, the menu of a pane and the
+// find bar over a pane's screen.
 import { FitAddon } from "@xterm/addon-fit";
+import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
@@ -29,6 +31,9 @@ import {
   chainSays,
   closeAsks,
   droppedText,
+  FIND_LIMIT,
+  findCount,
+  findQuery,
   GATE_HEAD,
   GATE_OUTPUT_SHOWS,
   type GateLine,
@@ -88,6 +93,8 @@ interface Screen {
   element: HTMLElement;
   /** The pane on the screen, and the pane that what the terminal hands the window goes to. */
   turns: ScreenTurns;
+  /** The search add-on of the terminal, loaded at the screen's first find (`searchOf`). A screen nobody searched holds none. */
+  search?: SearchAddon;
 }
 
 // The size a pane's process starts at where no terminal is on screen to measure: xterm's own default.
@@ -148,6 +155,9 @@ let cardLeaveTimer: ReturnType<typeof setTimeout> | undefined;
 // The menu of a pane, while it is open, and the terminal of the pane it is for, which takes the keyboard back when the menu closes.
 let paneMenuElement: HTMLElement | undefined;
 let paneMenuTerm: Terminal | undefined;
+// The screen the find bar searches, while the bar is open, and the selection its last search made in that screen's terminal.
+let findScreen: Screen | undefined;
+let findSelected: ReturnType<Terminal["getSelectionPosition"]>;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -192,6 +202,13 @@ const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
 let accountChange: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
 const linkCardElement = byId("link-card");
+const findBar = byId("find-bar");
+const findField = byId<HTMLInputElement>("find-field");
+const findCase = byId<HTMLButtonElement>("find-case");
+const findRegex = byId<HTMLButtonElement>("find-regex");
+const findCountElement = byId("find-count");
+const findNextButton = byId<HTMLButtonElement>("find-next");
+const findPreviousButton = byId<HTMLButtonElement>("find-previous");
 
 /** The work item whose view is on screen, where the window holds it. */
 function viewed(): WorkItem | undefined {
@@ -443,7 +460,8 @@ function closeMenu(giveKeyboard = true): void {
  * as the cleared terminal has them now. A reset asks it to keep nothing,
  * since the reset ends those modes in the terminal.
  */
-function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
+function menuAct(chosen: PaneMenuAct, screen: Screen): void {
+  const { term, turns } = screen;
   const pane = turns.pane;
   if (pane === undefined) return;
   if (chosen === "copy") void window.owlery.copyText(term.getSelection());
@@ -453,6 +471,7 @@ function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
       if (text !== "" && turns.pane === pane) term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
+  else if (chosen === "find") openFind(screen);
   else if (chosen === "account") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) openAccountChange(session);
@@ -526,6 +545,126 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
   menu.style.left = `${Math.max(0, Math.min(at.x, window.innerWidth - box.width))}px`;
   menu.style.top = `${Math.max(0, Math.min(at.y, window.innerHeight - box.height))}px`;
   menu.focus();
+}
+
+/**
+ * The search add-on of a screen's terminal, loaded at the screen's first
+ * find. It counts one match past `FIND_LIMIT` (./view), so the bar can say
+ * that more matched, and each count it gives reaches the bar while the bar
+ * searches that screen. The add-on searches again as the pane prints, and
+ * the match it then selects is the bar's as well.
+ */
+function searchOf(screen: Screen): SearchAddon {
+  if (screen.search) return screen.search;
+  const search = new SearchAddon({ highlightLimit: FIND_LIMIT + 1 });
+  search.onDidChangeResults((results) => {
+    if (findScreen !== screen) return;
+    findSelected = screen.term.getSelectionPosition();
+    findCountElement.textContent = findCount(results);
+    findNextButton.disabled = findPreviousButton.disabled = results.resultCount === 0;
+  });
+  screen.term.loadAddon(search);
+  screen.search = search;
+  return search;
+}
+
+/** The search options of what the bar's field holds: every match is outlined in the terminal's ink and the match in front in its strong ink, as the theme in use has them. The add-on asks for the colours of an overview ruler as well, which no terminal here draws, and they are the same inks. */
+function findOptions(query: { caseSensitive: boolean; regex: boolean }): ISearchOptions {
+  const ink = look("--terminal-ink");
+  const strong = look("--terminal-strong");
+  return { caseSensitive: query.caseSensitive, regex: query.regex, decorations: { matchBorder: ink, matchOverviewRuler: ink, activeMatchBorder: strong, activeMatchColorOverviewRuler: strong } };
+}
+
+/** Whether the terminal's selection is the one the bar's last search made. */
+function selectedByFind(term: Terminal): boolean {
+  const now = term.getSelectionPosition();
+  return now !== undefined && JSON.stringify(now) === JSON.stringify(findSelected);
+}
+
+/**
+ * Searches the terminal of the bar's screen for what the bar holds (./view,
+ * `findQuery`), from the newest output to the oldest: `fresh` from the end
+ * of the output, as where the field or a choice changed, so the match in
+ * front is the newest one, `older` to the next older match, which is what
+ * "Next match" goes to, and `newer` back toward the newest. Each wraps. The
+ * match in front is the terminal's selection, scrolled into view. Where the
+ * field is empty, or holds a pattern that is no regular expression, the
+ * marks and the selection go, and the count's place says the refusal or
+ * nothing.
+ */
+function find(step: "fresh" | "older" | "newer"): void {
+  const screen = findScreen;
+  if (!screen) return;
+  const query = findQuery({ text: findField.value, matchCase: findCase.getAttribute("aria-pressed") === "true", regex: findRegex.getAttribute("aria-pressed") === "true" });
+  const search = searchOf(screen);
+  // A fresh search drops the add-on's last term as well: the add-on keeps the options it is handed before it compares them with the last ones, so a choice changed over the same text would not mark the matches again.
+  if (step === "fresh" || query === null || "refusal" in query) {
+    screen.term.clearSelection();
+    search.clearDecorations();
+  }
+  if (query === null || "refusal" in query) {
+    findSelected = undefined;
+    findCountElement.textContent = query === null ? "" : query.refusal;
+    findNextButton.disabled = findPreviousButton.disabled = true;
+    return;
+  }
+  // The add-on's own next is toward the end of the output, which is this bar's previous.
+  if (step === "newer") search.findNext(query.term, findOptions(query));
+  else search.findPrevious(query.term, findOptions(query));
+  findSelected = screen.term.getSelectionPosition();
+}
+
+/**
+ * Opens the find bar over the screen of a pane, the pane in front where
+ * none is given, and puts the keyboard in the bar's field with what it
+ * holds selected. A bar open over another pane closes there first, and its
+ * marks go with it.
+ */
+export function openFind(screen = screenOf(front)): void {
+  if (!screen) return;
+  if (findScreen !== screen) {
+    closeFind(false);
+    findScreen = screen;
+    screen.element.append(findBar);
+    findBar.hidden = false;
+  }
+  findField.focus();
+  findField.select();
+}
+
+/**
+ * Closes the find bar: the marks of its search go, and so does the
+ * selection its last search made, where the terminal still holds that one,
+ * and the field's text is not kept. The pane's terminal takes the keyboard
+ * back, unless `giveKeyboard` is false, as where the pane leaves the stage.
+ */
+function closeFind(giveKeyboard = true): void {
+  const screen = findScreen;
+  if (!screen) return;
+  findScreen = undefined;
+  screen.search?.clearDecorations();
+  if (selectedByFind(screen.term)) screen.term.clearSelection();
+  findSelected = undefined;
+  findBar.hidden = true;
+  findField.value = "";
+  findCountElement.textContent = "";
+  findNextButton.disabled = findPreviousButton.disabled = true;
+  if (giveKeyboard) screen.term.focus();
+}
+
+/** Goes to the next older match, `older`, or back toward the newest, where the find bar is open, as ⌘G and ⇧⌘G do wherever the keyboard is in the view. */
+export function stepFind(older: boolean): void {
+  find(older ? "older" : "newer");
+}
+
+/** Whether the find bar is open. */
+export function finding(): boolean {
+  return findScreen !== undefined;
+}
+
+/** Whether a pane of the view on screen is in front, over whose screen ⌘F opens the find bar. */
+export function findable(): boolean {
+  return screenOf(front) !== undefined;
 }
 
 /**
@@ -623,9 +762,11 @@ function newScreen(): Screen {
     if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
     showSize();
   });
-  element.addEventListener("focusin", () => {
+  element.addEventListener("focusin", (event) => {
     if (turns.pane === undefined || turns.pane === front || held.viewing === undefined) return;
     broughtToFront(held.viewing, turns.pane);
+    // The find bar's field keeps the keyboard it took: the view puts in front the pane it holds, and would give that pane's terminal the keyboard.
+    if (event.target instanceof Node && findBar.contains(event.target)) front = turns.pane;
     showView();
   });
   pool.push(screen);
@@ -656,6 +797,8 @@ function giveBack(screen: Screen): void {
   if (screen.turns.pane === undefined) return;
   // A menu open for this pane closes as the pane leaves the stage: the screen goes to the next pane that comes, and the menu's items would act on that one. The terminal is not given the keyboard, since its pane is leaving.
   if (paneMenuTerm === screen.term) closeMenu(false);
+  // So does the find bar over it, with its marks and what was typed in it.
+  if (findScreen === screen) closeFind(false);
   send({ type: "detach", id: screen.turns.pane });
   screen.turns.giveBack();
   screen.element.hidden = true;
@@ -1460,6 +1603,31 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true },
   );
+  // The find bar searches as it is typed in. In its field Enter is "Next match", Shift+Enter "Previous match" and Escape closes it, except while a composition is under way. A press on its buttons leaves the keyboard in the field.
+  findField.addEventListener("input", () => find("fresh"));
+  findField.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape") closeFind();
+    else if (event.key === "Enter") find(event.shiftKey ? "newer" : "older");
+    else return;
+    event.preventDefault();
+  });
+  for (const choice of [findCase, findRegex])
+    choice.addEventListener("click", () => {
+      choice.setAttribute("aria-pressed", String(choice.getAttribute("aria-pressed") !== "true"));
+      find("fresh");
+    });
+  findNextButton.addEventListener("click", () => find("older"));
+  findPreviousButton.addEventListener("click", () => find("newer"));
+  byId("find-close").addEventListener("click", () => closeFind());
+  findBar.addEventListener("mousedown", (event) => {
+    if (event.target !== findField) event.preventDefault();
+  });
+  // A press of the right button on the bar opens neither the pane's menu nor the system's.
+  findBar.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
   byId("view-seal-place").replaceWith(viewSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);

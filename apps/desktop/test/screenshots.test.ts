@@ -3,8 +3,9 @@
 // repository with seven work items, one in each state a work item has, one
 // parked with questions, a finished one whose seal holds, and one whose seal
 // a later commit broke, and writes one PNG file for each view (the summary,
-// the inbox, a work item's view, the view of the parked work item, the view
-// of the finished work item, the view of the broken one, a work item's menu,
+// the inbox, a work item's view, the find bar over that view's pane, the
+// view of the parked work item, the view of the finished work item, the
+// view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog, the Machine dialog and the
 // delete dialog of a work item with many commits) in each
@@ -308,6 +309,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-summary.png",
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
+      "night-watch-dark-find.png",
       "night-watch-dark-parked.png",
       "night-watch-dark-finished.png",
       "night-watch-dark-broken.png",
@@ -321,6 +323,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
+      "night-watch-light-find.png",
       "night-watch-light-parked.png",
       "night-watch-light-finished.png",
       "night-watch-light-broken.png",
@@ -333,9 +336,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(78);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(78);
-    expect(all[77]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(84);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(84);
+    expect(all[83]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -526,6 +529,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
+    find: async () => {
+      await show.view();
+      // Command+F, as a person's key arrives: the bar opens over the pane in front, the Claude Code pane, whose lines name the login's files three times.
+      const key = { modifiers: 4, windowsVirtualKeyCode: 70, code: "KeyF", key: "f" };
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+      await app.until(`document.getElementById("find-bar").hidden === false && document.activeElement === document.getElementById("find-field")`, "the find bar with the keyboard in its field");
+      await app.cdp("Input.insertText", { text: "login" });
+      await app.until(`document.getElementById("find-count").textContent === "1 of 3" && document.querySelectorAll("#stage .pane:not([hidden]) .xterm-find-result-decoration").length === 4`, 'the find bar over the pane, with the three matches of "login" marked and the newest in front');
+    },
     parked: async () => {
       await app.click(PARKED_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate, which passed");
@@ -587,6 +600,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
   const leave: Partial<Record<View, () => Promise<void>>> = {
+    find: async () => {
+      // Escape in the bar's field closes it, with its marks.
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.until(`document.getElementById("find-bar").hidden === true`, "the find bar closed");
+    },
     menu: async () => {
       await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
       await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });

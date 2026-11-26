@@ -5,9 +5,11 @@
 // its path, a link opens at a click with the Command key, Shift+Enter
 // sends a line feed, a path a pane printed is a link where something stands
 // at it, a link under the pointer shows a card of what a click does, a
-// press of the right button on a pane opens the pane's menu, and the left
+// press of the right button on a pane opens the pane's menu, the left
 // arrow, the right arrow and Backspace with the Command key are the editing
-// keys of macOS.
+// keys of macOS, a pane's terminal holds the lines of history the scrollback
+// names, and holds them again once it came back onto the stage, and the find
+// bar searches them.
 // One start of the app serves every case, so the cases run in the order
 // they stand in. No case opens the system's browser or Finder: the app is
 // started with `OWLERY_OPENER` naming a program that notes the address or
@@ -132,9 +134,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     return panes;
   }
 
-  /** A press and a release of a letter's key with the Command key, sent to the page as a person's key arrives there. */
-  async function command(letter: "W" | "N"): Promise<void> {
-    const key = { modifiers: COMMAND, windowsVirtualKeyCode: letter.charCodeAt(0), code: `Key${letter}`, key: letter.toLowerCase() };
+  /** A press and a release of a letter's key with the Command key, and the Shift key as well where `shift`, sent to the page as a person's key arrives there. */
+  async function command(letter: "W" | "N" | "F" | "G", shift = false): Promise<void> {
+    const key = { modifiers: COMMAND | (shift ? SHIFT : 0), windowsVirtualKeyCode: letter.charCodeAt(0), code: `Key${letter}`, key: shift ? letter : letter.toLowerCase() };
     await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
@@ -186,10 +188,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     })()`);
     expect(built, "the app has no application menu").not.toBeNull();
     const entries = built as Built[];
-    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`), and the three a pane reads with it (`paneKey`). A menu entry on one of them takes the key before the page sees it.
+    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`), G with the Shift key as well among them, and the three a pane reads with it (`paneKey`). A menu entry on one of them takes the key before the page sees it.
     const taken = entries.filter(({ accelerator }) => {
       const { key, modifiers } = keyOf(accelerator);
-      return ["K", "N", "W", "LEFT", "RIGHT", "BACKSPACE"].includes(key) && modifiers.join("+") === "command";
+      return (["K", "N", "W", "F", "G", "LEFT", "RIGHT", "BACKSPACE"].includes(key) && modifiers.join("+") === "command") || (key === "G" && modifiers.join("+") === "command+shift");
     });
     expect(taken.map(({ path, accelerator }) => `${path}: ${accelerator}`)).toEqual([]);
     const closeWindow = entries.find(({ path }) => path === "File / Close Window");
@@ -1005,7 +1007,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const corner = await app.evaluate<{ left: number; top: number }>(`(() => { const box = document.getElementById("pane-menu").getBoundingClientRect(); return { left: box.left, top: box.top }; })()`);
     expect(Math.abs(corner.left - other.x)).toBeLessThan(1);
     expect(Math.abs(corner.top - other.y)).toBeLessThan(1);
-    expect(await menu()).toEqual([["Copy", "\u2318C"], ["Paste", "\u2318V"], ["Select All", ""], "-", ["Clear Screen", ""], ["Reset Terminal", ""], "-", ["Close Pane", "\u2318W"]].map((item) => (process.platform === "darwin" || typeof item === "string" ? item : [item[0], ""])));
+    expect(await menu()).toEqual([["Copy", "\u2318C"], ["Paste", "\u2318V"], ["Select All", ""], ["Find\u2026", "\u2318F"], "-", ["Clear Screen", ""], ["Reset Terminal", ""], "-", ["Close Pane", "\u2318W"]].map((item) => (process.platform === "darwin" || typeof item === "string" ? item : [item[0], ""])));
     expect(await app.evaluate<string | null>(`document.getElementById("pane-menu").getAttribute("role")`)).toBe("menu");
     // Nothing is selected in a pane whose empty row was pressed, so there is nothing to copy.
     expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].filter((item) => item.disabled).map((item) => item.firstChild.textContent)`)).toEqual(["Copy"]);
@@ -1224,7 +1226,264 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     process.stdout.write(`\nA pane of 3,000 lines took a key ${String(Date.now() - clicked)} ms after the click that brought it back.\n`);
     const held = await heldLines(3000);
     expect(held).toEqual(numbered(3000));
+    // The find bar, opened from the pane's menu, finds the first line in the history the replay drew.
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar with the keyboard in its field");
+    await app.cdp("Input.insertText", { text: "line-0001" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match of the first line");
+    expect(await selected()).toBe("line-0001");
     await pressMenuItem("Close Pane");
     await app.until(`${TABS}.length === 1`, "one tab");
+  });
+
+  const FIND_OPEN = `document.getElementById("find-bar")?.hidden === false`;
+  const FIELD_HAS_KEYBOARD = `document.activeElement === document.getElementById("find-field")`;
+  const FIND_COUNT = `document.getElementById("find-count").textContent`;
+  /** A column of the screen that no line of these cases reaches. */
+  const PAST_THE_LINES = 60;
+
+  /**
+   * What the terminal of the pane in front holds selected, read by its
+   * menu's "Copy", or null where "Copy" cannot be pressed, since nothing is
+   * selected. The menu opens at a press of the right button on a cell no line
+   * reaches: on a Mac such a press selects the word under it, and an empty
+   * cell holds none, so the press keeps a selection and makes none. The
+   * terminal has the keyboard afterwards.
+   */
+  async function selected(): Promise<string | null> {
+    await openMenu(PAST_THE_LINES, EMPTY_ROW);
+    const copies = await app.evaluate<boolean>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].some((item) => item.firstChild.textContent === "Copy" && !item.disabled)`);
+    if (!copies) {
+      await press("Escape", 27);
+      await app.until(`!(${MENU_OPEN})`, "the menu closed");
+      return null;
+    }
+    const at = await menuItem("Copy");
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    await app.until(`!(${MENU_OPEN})`, `the menu closed at "Copy"`);
+    return clipboard();
+  }
+
+  /**
+   * The marks the find bar's search draws on the screen of the pane in
+   * front, from its top: each mark's top in the window, and the ink of its
+   * outline, `strong` for `--terminal-strong`, `ink` for `--terminal-ink`
+   * and the colour itself for any other. The match in front carries a mark
+   * of its own over the mark every match carries.
+   */
+  function marks(): Promise<{ top: number; outline: string }[]> {
+    return app.evaluate(`(() => {
+      const colour = (property) => {
+        const probe = document.createElement("span");
+        probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+        document.body.append(probe);
+        const read = getComputedStyle(probe).color;
+        probe.remove();
+        return read;
+      };
+      const strong = colour("--terminal-strong");
+      const ink = colour("--terminal-ink");
+      return [...document.querySelectorAll("#stage .pane:not([hidden]) .xterm-find-result-decoration")]
+        .filter((mark) => mark.style.display !== "none")
+        .map((mark) => {
+          const outline = getComputedStyle(mark).outlineColor;
+          return { top: Math.round(mark.getBoundingClientRect().top), outline: outline === strong ? "strong" : outline === ink ? "ink" : outline };
+        })
+        .sort((one, other) => one.top - other.top);
+    })()`);
+  }
+
+  /**
+   * Which of the matches the marks of the screen in front draw is the match
+   * in front, counted from the top of the screen, or -1 where none is. The
+   * terminal draws its marks at its next frame, after the count changed, so
+   * the read waits up to five seconds for `expected` and then answers what it
+   * read last.
+   */
+  async function frontMatch(expected: number): Promise<number> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const drawn = await marks();
+      const front = drawn.find((mark) => mark.outline === "strong");
+      const index = front === undefined ? -1 : drawn.filter((mark) => mark.outline === "ink").findIndex((mark) => mark.top === front.top);
+      if (index === expected || Date.now() >= deadline) return index;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /** The inks of the marks the screen in front draws, in their order on the screen, once the terminal has drawn `count` of them, or what it drew after five seconds. */
+  async function marksDrawn(count: number): Promise<string[]> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const drawn = await marks();
+      if (drawn.length === count || Date.now() >= deadline) return drawn.map((mark) => mark.outline);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /** Opens a shell pane that prints `lines` under its two links, waits until the keyboard is in it, and answers with the bytes its process is handed from then on. */
+  async function paneWith(lines: string[]): Promise<Received> {
+    writeFileSync(linesFile, `${lines.join("\n")}\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    const handed = new Received(`${receivedFile}-${pane}`);
+    await handed.next(0);
+    return handed;
+  }
+
+  /** Replaces what the find bar's field holds with `text`: ⌘F selects what the field holds, and the text is typed over it. */
+  async function findText(text: string): Promise<void> {
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD} && document.getElementById("find-field").selectionEnd - document.getElementById("find-field").selectionStart === document.getElementById("find-field").value.length`, "the find bar's field with what it holds selected");
+    await app.cdp("Input.insertText", { text });
+  }
+
+  /** Closes the pane in front from its menu and waits for the one tab that is left. */
+  async function closeThePane(): Promise<void> {
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  }
+
+  it.runIf(process.platform === "darwin")("finds a line past the first screen at Command+F, selects the match in front, scrolls up to it, and outlines it in the terminal's strong ink (scenario A1)", async () => {
+    await paneWith(["a haystack-owlneedle-haystack", ...numbered(200)]);
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar with the keyboard in its field");
+    // It stands over the top right corner of the pane's screen.
+    const placed = await app.evaluate<{ top: number; right: number }>(`(() => { const bar = document.getElementById("find-bar").getBoundingClientRect(); const pane = document.querySelector("#stage .pane:not([hidden])").getBoundingClientRect(); return { top: Math.round(bar.top - pane.top), right: Math.round(pane.right - bar.right) }; })()`);
+    expect(placed).toEqual({ top: 0, right: 0 });
+    await app.cdp("Input.insertText", { text: "owlneedle" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match");
+    // The terminal scrolled up from the end of its output to the match.
+    expect(await app.evaluate<boolean>(`(() => { const bar = document.querySelector("#stage .pane:not([hidden]) .xterm-scrollable-element > .scrollbar.vertical"); const slider = bar?.querySelector(".slider"); return slider !== undefined && slider !== null && slider.offsetTop + slider.offsetHeight < bar.clientHeight - 1; })()`)).toBe(true);
+    // The match carries the mark of every match, and the mark of the match in front over it.
+    expect((await marksDrawn(2)).sort()).toEqual(["ink", "strong"]);
+    expect(await selected()).toBe("owlneedle");
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("goes to the next older match at Enter and back at Shift+Enter in its field, and at Command+G and Shift+Command+G from the terminal (scenario A2)", async () => {
+    await paneWith(["owltriple one", "between", "owltriple two", "between", "owltriple three"]);
+    await findText("owltriple");
+    // The match in front is the newest, the lowest of the three.
+    await app.until(`${FIND_COUNT} === "1 of 3"`, "the first of three matches");
+    expect(await frontMatch(2)).toBe(2);
+    await enter(0);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match");
+    expect(await frontMatch(1)).toBe(1);
+    await enter(0);
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the third match");
+    expect(await frontMatch(0)).toBe(0);
+    await enter(SHIFT);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match again");
+    expect(await frontMatch(1)).toBe(1);
+    // Each wraps: past the newest is the oldest.
+    await enter(SHIFT);
+    await enter(SHIFT);
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the oldest match, after the newest");
+    expect(await frontMatch(0)).toBe(0);
+    // The keyboard goes to the terminal without a press on it, which would end the selection the bar steps from.
+    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the terminal");
+    await command("G", true);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match at Shift+Command+G");
+    expect(await frontMatch(1)).toBe(1);
+    await command("G");
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the third match at Command+G");
+    expect(await frontMatch(0)).toBe(0);
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")('counts one spelling with "Match case", searches no pattern that is no regular expression and throws nothing, and says where it stops counting (scenario A3)', async () => {
+    await paneWith(["an Error here", "an error there", ...Array.from({ length: 1001 }, (_, index) => `owlmany ${String(index)}`)]);
+    await app.evaluate(`void (window.__findErrors = [], window.addEventListener("error", (event) => window.__findErrors.push(String(event.message))))`);
+    await findText("Error");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "both spellings");
+    await app.click("#find-case");
+    await app.until(`${FIND_COUNT} === "1 of 1" && document.getElementById("find-case").getAttribute("aria-pressed") === "true"`, "one spelling with the case matched");
+    // The press left the keyboard in the field.
+    expect(await app.evaluate<boolean>(FIELD_HAS_KEYBOARD)).toBe(true);
+    await app.click("#find-case");
+    await app.click("#find-regex");
+    await findText("err(or");
+    await app.until(`${FIND_COUNT} === "Not a regular expression"`, "the refusal of the pattern");
+    expect(await marksDrawn(0)).toEqual([]);
+    expect(await app.evaluate<boolean>(`document.getElementById("find-next").disabled && document.getElementById("find-previous").disabled`)).toBe(true);
+    await findText("err(or)?");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "both spellings, read as a regular expression");
+    await app.click("#find-regex");
+    // The add-on counts one past 1,000, so the bar tells 1,000 matches from more, at the newest and at the one before it.
+    await findText("owlmany");
+    await app.until(`${FIND_COUNT} === "More than 1,000 matches"`, "the count past the limit");
+    await enter(0);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await app.evaluate<string>(FIND_COUNT)).toBe("More than 1,000 matches");
+    expect(await app.evaluate<string[]>("window.__findErrors")).toEqual([]);
+    await press("Escape", 27);
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("closes at Escape in its field with its marks and its selection, and gives the program the keyboard, where Escape in the terminal stays the program's (scenario A4)", async () => {
+    const handed = await paneWith(["owlescape here", "owlescape there"]);
+    await findText("owlescape");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "the two matches");
+    // With the keyboard in the terminal, Escape is the program's, and the bar stays.
+    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
+    await press("Escape", 27);
+    expect((await handed.next(1)).toString("hex")).toBe("1b");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
+    await command("F");
+    await app.until(FIELD_HAS_KEYBOARD, "the keyboard in the bar's field again");
+    await press("Escape", 27);
+    await app.until(`!(${FIND_OPEN})`, "the bar closed");
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    expect(await marksDrawn(0)).toEqual([]);
+    expect(await app.evaluate<number>(`document.querySelectorAll("#stage .xterm-find-result-decoration").length`)).toBe(0);
+    // The Escape in the field reached no program.
+    expect((await handed.next(0)).toString("hex")).toBe("");
+    await app.cdp("Input.insertText", { text: "k" });
+    expect((await handed.next(1)).toString("utf8")).toBe("k");
+    expect(await selected()).toBeNull();
+    await closeThePane();
+  });
+
+  it("leaves with its pane and keeps nothing typed in it, opens from the pane's menu, and closes at its button (scenario A5)", async () => {
+    await paneWith(["owlleaves here"]);
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar from the menu");
+    await app.cdp("Input.insertText", { text: "owlleaves" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match");
+    // A press of the right button on the bar opens no menu.
+    await rightPress(await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.getElementById("find-count").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(false);
+    // Side by side, a press in the bar's field over the pane not in front puts that pane in front, and the field keeps the keyboard.
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
+    await app.click(`#stage .pane[data-tile="1"] .xterm-screen`);
+    await app.until(`${TAB_IN_FRONT} === "Shell 1"`, "the first pane in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
+    await app.click("#find-field");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2"`, "the bar's pane in front");
+    expect(await app.evaluate<boolean>(FIELD_HAS_KEYBOARD)).toBe(true);
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "1" && ${FIND_OPEN}`, "the bar's pane alone on the stage, with its bar");
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(false);
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the pane back in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(false);
+    await untilReplayDrawn();
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar from the menu again");
+    expect(await app.evaluate<string>(`document.getElementById("find-field").value`)).toBe("");
+    expect(await app.evaluate<string>(FIND_COUNT)).toBe("");
+    await app.click("#find-close");
+    await app.until(`!(${FIND_OPEN}) && ${PANE_HAS_KEYBOARD}`, "the bar closed and the keyboard in the terminal");
+    await closeThePane();
   });
 });

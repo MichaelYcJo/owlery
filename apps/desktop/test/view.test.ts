@@ -61,6 +61,9 @@ import {
   emptyList,
   fileLines,
   filterChoices,
+  FIND_LIMIT,
+  findCount,
+  findQuery,
   gainedSince,
   GATE_HEAD,
   GATE_OUTPUT_SHOWS,
@@ -3885,7 +3888,7 @@ describe("noticeWithout", () => {
 
 describe("commandKey", () => {
   const plain = { code: "KeyK", meta: false, ctrl: false, alt: false, shift: false };
-  const free = { mac: true, dialogOpen: false, menuOpen: false };
+  const free = { mac: true, dialogOpen: false, menuOpen: false, paneInFront: false, finding: false };
 
   it("reads K with the Command key as the search's key, by the key's place on the keyboard", () => {
     expect(commandKey({ ...plain, meta: true }, free)).toBe("search");
@@ -3928,6 +3931,37 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, ctrl: true }, free)).toBeNull();
+  });
+
+  it("reads F with the Command key as the find bar's key on a Mac keyboard where a pane is in front, and not on another keyboard", () => {
+    const f = { ...plain, code: "KeyF" };
+    const pane = { ...free, paneInFront: true };
+    expect(commandKey({ ...f, meta: true }, pane)).toBe("find");
+    expect(commandKey({ ...f, meta: true }, { ...pane, finding: true })).toBe("find");
+    expect(commandKey({ ...f, meta: true }, free)).toBeNull();
+    // Control+F is the shell's key on a keyboard without the Command key.
+    expect(commandKey({ ...f, ctrl: true }, { ...pane, mac: false })).toBeNull();
+    expect(commandKey({ ...f, meta: true }, { ...pane, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...f, meta: true }, { ...pane, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...f, meta: true, shift: true }, pane)).toBeNull();
+    expect(commandKey({ ...f, meta: true, alt: true }, pane)).toBeNull();
+  });
+
+  it("reads G with the Command key as the step to the next match, and with the Shift key as well as the step to the previous one, only while the find bar is open", () => {
+    const g = { ...plain, code: "KeyG" };
+    const finding = { ...free, paneInFront: true, finding: true };
+    expect(commandKey({ ...g, meta: true }, finding)).toBe("findNext");
+    expect(commandKey({ ...g, meta: true, shift: true }, finding)).toBe("findPrevious");
+    // The bar's pane need not be the one in front.
+    expect(commandKey({ ...g, meta: true }, { ...finding, paneInFront: false })).toBe("findNext");
+    expect(commandKey({ ...g, meta: true }, { ...finding, finding: false })).toBeNull();
+    expect(commandKey({ ...g, meta: true, shift: true }, { ...finding, finding: false })).toBeNull();
+    expect(commandKey({ ...g, ctrl: true }, { ...finding, mac: false })).toBeNull();
+    expect(commandKey({ ...g, meta: true }, { ...finding, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...g, meta: true }, { ...finding, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...g, meta: true, alt: true }, finding)).toBeNull();
+    // The Shift key still keeps K, N and W from the window while the bar is open.
+    expect(commandKey({ ...plain, code: "KeyW", meta: true, shift: true }, finding)).toBeNull();
   });
 });
 
@@ -4042,20 +4076,21 @@ describe("paneKey", () => {
 describe("paneMenu", () => {
   const texts = (mac: boolean, selection: boolean) => paneMenu(mac, selection).map((item) => (item === null ? "-" : item.text));
 
-  it("holds the six items in their order, with a rule before the two that clear and before the one that closes", () => {
-    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
+  it("holds the seven items in their order, \"Find\u2026\" after \"Select All\", with a rule before the two that clear and before the one that closes", () => {
+    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "Find\u2026", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
     expect(texts(false, true)).toEqual(texts(true, false));
   });
 
   it("names each item's act", () => {
-    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "clear", "reset", "close"]);
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "find", "clear", "reset", "close"]);
   });
 
-  it("shows the keys of Copy, Paste and Close Pane on a Mac keyboard, and no key on any other item", () => {
+  it("shows the keys of Copy, Paste, Find\u2026 and Close Pane on a Mac keyboard, and no key on any other item", () => {
     expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [[item.text, item.keys]]))).toEqual([
       ["Copy", "\u2318C"],
       ["Paste", "\u2318V"],
       ["Select All", ""],
+      ["Find\u2026", "\u2318F"],
       ["Clear Screen", ""],
       ["Reset Terminal", ""],
       ["Close Pane", "\u2318W"],
@@ -4063,13 +4098,49 @@ describe("paneMenu", () => {
   });
 
   it("shows no key on a keyboard without the Command key", () => {
-    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", ""]);
+    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", "", ""]);
   });
 
   it("disables Copy where the terminal holds no selection, and no other item", () => {
     const disabled = (selection: boolean) => paneMenu(true, selection).flatMap((item) => (item !== null && !item.enabled ? [item.text] : []));
     expect(disabled(false)).toEqual(["Copy"]);
     expect(disabled(true)).toEqual([]);
+  });
+});
+
+describe("findQuery and findCount (scenario A3)", () => {
+  const bar = { text: "Error", matchCase: false, regex: false };
+
+  it("searches what the field holds, with the case only where \"Match case\" is on, and as a regular expression only where \"Regular expression\" is on", () => {
+    expect(findQuery(bar)).toEqual({ term: "Error", caseSensitive: false, regex: false });
+    expect(findQuery({ ...bar, matchCase: true })).toEqual({ term: "Error", caseSensitive: true, regex: false });
+    expect(findQuery({ ...bar, text: "err(or" })).toEqual({ term: "err(or", caseSensitive: false, regex: false });
+    expect(findQuery({ ...bar, text: "err(or)?", regex: true, matchCase: true })).toEqual({ term: "err(or)?", caseSensitive: true, regex: true });
+  });
+
+  it("searches nothing where the field is empty", () => {
+    expect(findQuery({ ...bar, text: "" })).toBeNull();
+    expect(findQuery({ ...bar, text: "", regex: true })).toBeNull();
+  });
+
+  it("refuses a pattern that is no regular expression with a sentence, where \"Regular expression\" is on, and searches nothing", () => {
+    expect(findQuery({ ...bar, text: "err(or", regex: true })).toEqual({ refusal: "Not a regular expression" });
+    expect(findQuery({ ...bar, text: "[a-", regex: true, matchCase: true })).toEqual({ refusal: "Not a regular expression" });
+    expect(findQuery({ ...bar, text: "a{2,1}", regex: true })).toEqual({ refusal: "Not a regular expression" });
+  });
+
+  it("counts from the newest match, which the add-on gives as the last of its results", () => {
+    expect(findCount({ resultIndex: 16, resultCount: 17 })).toBe("1 of 17");
+    expect(findCount({ resultIndex: 14, resultCount: 17 })).toBe("3 of 17");
+    expect(findCount({ resultIndex: 0, resultCount: 17 })).toBe("17 of 17");
+    expect(findCount({ resultIndex: 0, resultCount: FIND_LIMIT })).toBe("1,000 of 1,000");
+  });
+
+  it("says that nothing matched, and that it stopped counting past the limit, where the add-on counts one past it or names no match in front", () => {
+    expect(findCount({ resultIndex: -1, resultCount: 0 })).toBe("No match");
+    expect(findCount({ resultIndex: 3, resultCount: FIND_LIMIT + 1 })).toBe("More than 1,000 matches");
+    expect(findCount({ resultIndex: -1, resultCount: FIND_LIMIT + 1 })).toBe("More than 1,000 matches");
+    expect(findCount({ resultIndex: -1, resultCount: 12 })).toBe("More than 1,000 matches");
   });
 });
 

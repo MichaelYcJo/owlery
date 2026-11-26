@@ -610,6 +610,12 @@
       #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
       #pane-menu .keys { color: var(--ink-faint); }
       #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
+      /* A pane's find bar: a card over the top right corner of the pane's screen, above the terminal's own layers, its scroll bar among them. Its field is a field, its six controls are icons' buttons, and its count is a fact in the muted ink. A choice that is on, "Match case" or "Regular expression", draws its icon in the strong ink. */
+      #find-bar { position: absolute; top: 0; right: 0; z-index: 12; display: flex; align-items: center; gap: var(--space-1); box-sizing: border-box; padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      #find-field { width: 200px; height: var(--icon-button); margin-right: var(--space-2); padding: 0 var(--space-3); font-size: var(--size-second); }
+      #find-bar .glyph { display: block; min-width: var(--icon); font-family: var(--font-mono); font-size: var(--size-caption); font-weight: 600; line-height: var(--icon); text-align: center; }
+      #find-bar [aria-pressed="true"] { color: var(--ink-strong); }
+      #find-count { flex: none; min-width: 11ch; padding: 0 var(--space-3); font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
@@ -758,7 +764,18 @@
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
-          <div id="stage"></div>
+          <div id="stage">
+            <!-- The find bar stands in the screen of the pane it searches while it is open (./work-item-view.ts, `openFind`). -->
+            <div id="find-bar" role="search" aria-label="Find in the pane's output" hidden>
+              <input id="find-field" autocomplete="off" spellcheck="false" placeholder="Find" aria-label="Find in the pane's output" />
+              <button id="find-case" class="icon-button" type="button" aria-pressed="false" aria-label="Match case" title="Match case"><span class="glyph" aria-hidden="true">Aa</span></button>
+              <button id="find-regex" class="icon-button" type="button" aria-pressed="false" aria-label="Regular expression" title="Regular expression"><span class="glyph" aria-hidden="true">.*</span></button>
+              <span id="find-count" aria-live="polite"></span>
+              <button id="find-next" class="icon-button" type="button" aria-label="Next match" title="Next match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9M4 7.5l4-4 4 4" /></svg></button>
+              <button id="find-previous" class="icon-button" type="button" aria-label="Previous match" title="Previous match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M4 8.5l4 4 4-4" /></svg></button>
+              <button id="find-close" class="icon-button" type="button" aria-label="Close" title="Close"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
+            </div>
+          </div>
           <section id="back" aria-label="Back of the seal" hidden></section>
           <p id="view-strip" class="hint">
             <span id="strip-size"></span>

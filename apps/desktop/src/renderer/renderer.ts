@@ -102,7 +102,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -358,14 +358,17 @@ function dialogOpen(): boolean {
   return document.querySelector('dialog[open], [role="menu"]') !== null;
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, W closes the pane in front, F opens the find bar over the pane in front, and G with or without the Shift key goes to the previous or the next match while the bar is open (./view, `commandKey`). The key is kept from the terminal whatever it did. */
 function onCommandKey(event: KeyboardEvent): void {
-  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen() });
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen(), paneInFront: findable(), finding: finding() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
   if (key === "search") focusSearch();
   else if (key === "new") openWorkItemForm();
+  else if (key === "find") openFind();
+  else if (key === "findNext") stepFind(true);
+  else if (key === "findPrevious") stepFind(false);
   else closeFront();
 }
 
