@@ -1247,13 +1247,13 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 
-  /** Dispatches a paste into the terminal of the pane in front, holding the text given and an image file with no path where `image`, as a paste of a screenshot arrives. */
-  function pasteInto(text: string | null, image: boolean): Promise<unknown> {
+  /** Dispatches a paste into the terminal of the pane in front, or into the element an expression of the page gives, holding the text given and an image file with no path where `image`, as a paste of a screenshot arrives. */
+  function pasteInto(text: string | null, image: boolean, into = `document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea")`): Promise<unknown> {
     return app.evaluate(`void (() => {
       const data = new DataTransfer();
       if (${JSON.stringify(text)} !== null) data.setData("text/plain", ${JSON.stringify(text)});
       if (${image}) data.items.add(new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" }));
-      document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+      (${into}).dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     })()`);
   }
 
@@ -1284,6 +1284,14 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await pasteInto(null, false);
     expect(await handedMeanwhile()).toBe("");
     expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // A paste into the field of the find bar, which stands in the pane's screen, is the field's.
+    await command("F");
+    await app.until(`document.activeElement === document.getElementById("find-field")`, "the find bar with the keyboard in its field");
+    await pasteInto(null, true, `document.getElementById("find-field")`);
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    await press("Escape", 27);
+    await app.until(`document.getElementById("find-bar").hidden && ${PANE_HAS_KEYBOARD}`, "the find bar closed, with the keyboard in the pane");
 
     // "Paste" of the menu: the clipboard holds no text, so the pane is handed the image's path.
     await app.evaluate(`window.owlery.copyText("")`);
