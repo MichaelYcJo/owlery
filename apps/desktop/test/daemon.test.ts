@@ -2743,6 +2743,8 @@ describe("agent events", () => {
     expect(agentEventFor("PermissionRequest")).toBe("permission");
     expect(agentEventFor("Notification")).toBe("notification");
     expect(agentEventFor("Stop")).toBe("turn-end");
+    expect(agentEventFor("StopFailure")).toBe("turn-failed");
+    expect(agentEventFor("StopFailure", { hook_event_name: "StopFailure", agent_id: "a1b2", error: "rate_limit", last_assistant_message: "API Error: Rate limit reached" })).toBeUndefined();
     expect(agentEventFor("SubagentStop")).toBeUndefined();
   });
 });
@@ -2863,6 +2865,56 @@ describe("the inbox", () => {
     clock = 500;
     d.agentEvent(session.id, "SessionStart", {});
     expect(await listed()).toEqual({ ...session, ...NO_STATE });
+  });
+
+  it("lists a Claude Code session whose turn ended on an API error as waiting with the error's text, from the event as the hooks reference gives it, and as working again from the next prompt", async () => {
+    let clock = 100;
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const { payload } = JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-stop-failure.json"), "utf8")) as { payload: { hook_event_name: string; last_assistant_message: string } };
+    d.agentEvent(session.id, "UserPromptSubmit", { prompt: "Go on." });
+    clock = 200;
+    d.agentEvent(session.id, payload.hook_event_name, payload);
+    const waiting = { ...session, state: "waiting", stateSince: 200, stateText: "API Error: Rate limit reached", stateTool: null, stateQuestions: null };
+    expect((await c.message("inbox", (m) => stateOf(m, session.id) === "waiting")).sessions).toEqual([waiting]);
+    expect((await (await client(url)).message("ready")).sessions).toEqual([waiting]);
+    clock = 300;
+    d.agentEvent(session.id, "UserPromptSubmit", { prompt: "Try again." });
+    expect((await (await client(url)).message("ready")).sessions).toEqual([{ ...session, state: "working", stateSince: 300, stateText: null, stateTool: null, stateQuestions: null }]);
+  });
+
+  it("leaves a working Claude Code session working at the API error of one of its subagents, whose hook input names the subagent's agent_id", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    d.agentEvent(session.id, "StopFailure", { agent_id: "a1b2", error: "rate_limit", last_assistant_message: "API Error: Rate limit reached" });
+    await pause(100);
+    expect(c.messages.filter((m) => m.type === "agent" && m.event === "turn-failed")).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions[0]).toMatchObject({ state: "working", stateText: null });
+  });
+
+  it("reads no session log of a pane whose turn ended on an API error: an interruption entry the log gains afterwards tells nobody", async () => {
+    const { daemon: d, url } = await daemonWithWorkItem();
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
+    const { session } = await c.message("started");
+    const log = sessionLog(cleanups);
+    writeFileSync(log, lines(0, SECOND_PROMPT));
+    d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    // The watch is given time to begin, as in the case of an interrupted reply, so an entry it read would be told.
+    await pause(60);
+    d.agentEvent(session.id, "StopFailure", { transcript_path: log, last_assistant_message: "API Error: Rate limit reached" });
+    appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
+    await pause(300);
+    expect(interruptions(c)).toEqual([]);
+    expect((await (await client(url)).message("ready")).sessions[0]).toMatchObject({ state: "waiting", stateText: "API Error: Rate limit reached" });
   });
 
   it("keeps 2000 characters of a state's text, and cuts inside no character", async () => {

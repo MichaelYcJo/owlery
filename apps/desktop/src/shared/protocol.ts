@@ -15,6 +15,8 @@ export type AgentEvent =
   | "permission"
   | "notification"
   | "turn-end"
+  /** The agent's turn ended on an error of its provider before the agent finished, so it waits for the person to ask again. The event's text is the error's. */
+  | "turn-failed"
   /** The person interrupted the agent's turn. No hook says so: the daemon reads it from the session's log. */
   | "interrupted";
 
