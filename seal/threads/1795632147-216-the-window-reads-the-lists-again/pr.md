@@ -5,6 +5,7 @@ Closes #216.
 - "**The answer waits for the reads of the pull requests that the press asked for, up to `listsWaitMs`, 5 s by default, counted from the call of `readOutside`.**" (`frame/design.md` *Scope*, item 4)
 - "**A press sends one `readLists`, and the button shows it is working until the answer ends.**" (`frame/design.md` *Scope*, item 6)
 - "**A refusal and a missing answer are said in the status line.**" (`frame/design.md` *Scope*, item 7)
+- "The pull request's title takes the prefix `feat:`." (`frame/plan.md` *Judgments of the run*)
 - "(a), the head row at rest. Taken under the routing answer Automation yes, with the owner asleep." (`frame/questions.md` Q1)
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)

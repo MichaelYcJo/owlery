@@ -93,7 +93,7 @@ Out:
 **Window.**
 
 - `apps/desktop/src/renderer/index.html`: `<button id="refresh-lists" class="icon-button">`, after `#bell` in `#repositories-head`. Its icon is two arrows round a circle, in the 16-unit `viewBox` the other icons use. A rule turns the icon at 1.1s while the button carries `aria-busy="true"`, with the page's `@keyframes turn`.
-- `apps/desktop/src/renderer/refresh.ts`, a module that touches no page when it is imported, as `press.ts` does, so the unit project imports it. It holds the request's life: a press sends one `readLists` where none is under way, the request ends at its `done` or its `error`, and it ends after `REFRESH_ANSWER_MS`, 15 000, with the sentence of no answer. It exports the words below; the tests pin them as literals, and import only `REFRESH_ANSWER_MS` and `NO_ANSWER_SAYS`, the second to check it against its literal.
+- `apps/desktop/src/renderer/refresh.ts`, a module that touches no page when it is imported, as `press.ts` does, so the unit project imports it. It holds the request's life: a press sends one `readLists` where none is under way, the request ends at its `done` or its `error`, and it ends after `REFRESH_ANSWER_MS`, 15 000, with the sentence of no answer. It exports the window's three sentences of the table below, and the daemon's refusal is written in `daemon.ts#answerReadLists`; the tests pin them as literals, and import only `REFRESH_ANSWER_MS` and `NO_ANSWER_SAYS`, the second to check it against its literal.
 - `apps/desktop/src/renderer/sidebar.ts`: `SidebarActions` gains `refresh()`, wired in `initSidebar`, and the module gains a function that draws the button at rest or working.
 - `apps/desktop/src/renderer/renderer.ts`: the `done` and `error` cases of `onMessage` end the refresh's request where the id is its own. The `error` case already says an unclaimed refusal in the status line (`tell(message.message)`, line 1995).
 
@@ -104,6 +104,7 @@ Out:
 | The button at rest, as its `title` and its `aria-label` | "Read the work items again from git and GitHub." |
 | The button while it works | "Reading the work items again…" |
 | The status line where no answer came | "The daemon did not answer in 15 seconds, so the lists stand as they were." |
+| The status line where no answer came and the daemon is of another build | "The daemon did not answer in 15 seconds, so the lists stand as they were." followed, after one space, by the notice of a daemon of another build (`view.ts#daemonNotice`), so the press does not take "Restart Daemon…" out of the status line |
 | The daemon's refusal, which the status line shows as it is | "The work items were not read again: <the read's sentence>." |
 
 **The row of *Components and their states*, English edition**, after the row "A group's head":

@@ -52,10 +52,13 @@ Read: the issues of #215, #217, #224, #227 and #236 (executed: `gh issue view`, 
 
 ## Operational impact
 
-The protocol gains one client message, `readLists`, and one daemon option, `listsWaitMs`. A window of this build against a running daemon of an earlier build gets no answer to a press. After 15 s its status line says that the daemon did not answer, beside the notice it already shows for a daemon of another build, which names "Restart Daemon…" (`docs/architecture.md` *Overall layout*). No migration, no environment variable, no dependency and no move of the version.
+The protocol gains one client message, `readLists`, and one daemon option, `listsWaitMs`. A window of this build against a running daemon of an earlier build gets no answer to a press. After 15 s its status line says that the daemon did not answer, followed by the notice it already shows for a daemon of another build, which names "Restart Daemon…" (`docs/architecture.md` *Overall layout*). No migration, no environment variable, no dependency and no move of the version.
 
 ## Judgments of the run
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | The pull request's title takes the prefix `feat:`. | The work adds a control to the window and a client message to the daemon, which let a person do what the window did not offer before. `fix:` came closest, since the issue names a window that looks wrong, but nothing that existed was broken. | the plugin's `skills/commit-pr-convention/SKILL.md` |
+| 2026-11-26 | Round 1 finding 3 is repaired in the code: where the window holds the notice of a daemon of another build, the sentence of no answer is followed by that notice, rather than the plan saying the notice leaves the status line. | The person who meets the 15-second wait is the one whose daemon is of an earlier build, and "Restart Daemon…" is what that person needs next; a press must not take it away. The cost is one argument of the refresh's world and one unit case. | `docs/design.md` *Components and their states*, the round's finding 3 |
+| 2026-11-26 | Round 1 finding 1: the six shots are linked in `gaps.md`, under the paragraph that names them, at the commit that holds them; where the shots are taken again after #215 merges, the links name the new commit. | `pr.md` holds only quotes, the changelog fragment feeds the release notes where a `../blob/` link resolves elsewhere, and `gaps.md` is copied whole into the body. | `docs/design.md` *A pull request that changes the window carries its screenshots*, the plugin's `skills/code-review/orchestration.md` |
+| 2026-11-26 | This item merges after #215, and its branch merges the release then. | They share the sidebar's head (`frame/plan.md` *Order against other work items*); the release tail runs one item at a time. | the run's rule of one tail at a time |
