@@ -199,7 +199,7 @@ import {
   wordOwedMark,
   wordOwedSays,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -1631,7 +1631,7 @@ describe("the approval line", () => {
     expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
   });
 
-  it("is composed from the work item alone, so no pane's state and no headless session changes it", () => {
+  it("is composed from the work item alone, so no pane's agent state and no headless session changes it", () => {
     expect(approvalPlaces.length).toBe(1);
     const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
     const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
@@ -1738,6 +1738,55 @@ describe("the approval line", () => {
     expect(under(again)).toEqual([]);
     // A failed gate marks no other role's place, and a failed round after it leaves the sealer's place to the records.
     expect(read(chained("stopped", failedGate, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE })))?.[3]).toEqual(read(RECORDED)?.[3]);
+  });
+
+  /** The work item of the records with the stage a pane's session runs: round 1, told 4 minutes ago, but for the fields given. */
+  const inPane = (workItem: WorkItem, fields: Partial<PaneStage> = {}): WorkItem => ({ ...workItem, paneStage: { kind: "round", round: 1, since: NOW - 4 * MINUTE, ...fields } });
+
+  it("marks the place of the role whose stage a pane's session runs working, the proofer's at its round, the crafter's at its fix pass and the sealer's at its seal and at its broad gate, each with the stage's age in the mark's words, and leaves every place to the records where the work item carries no such stage", () => {
+    const round = inPane(RECORDED);
+    expect(read(round)?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"]);
+    expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(round)).toEqual([]);
+    const fix = inPane(RECORDED, { kind: "fix-pass", round: 2 });
+    expect(read(fix)?.[1]).toEqual(["crafter", "working", "Fix pass", "Crafter: Fix pass on round 2, 4 min"]);
+    expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
+    const seal = inPane(RECORDED, { kind: "seal", round: 2 });
+    expect(read(seal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
+    expect(read(seal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    const gate = inPane(RECORDED, { kind: "gate", round: 2 });
+    expect(read(gate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(gate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    // A work item whose records hold nothing yet: the pane's round stands where the place said "Not started".
+    expect(read(inPane(EMPTY))).toEqual([NONE_STARTED[0], NONE_STARTED[1], ["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"], NONE_STARTED[3]]);
+    // No stage, and a daemon of an earlier build, which sends no such field: the records say every place.
+    expect(read({ ...RECORDED, paneStage: null })).toEqual(read(RECORDED));
+    const { paneStage: _paneStage, ...earlier } = round;
+    expect(read(earlier as WorkItem)).toEqual(read(RECORDED));
+  });
+
+  it("puts an open question of the role over a pane's stage, the stage the daemon's chain runs over a pane's stage of any role, the broad gate the daemon's chain runs over the pane's broad gate its own ask gives, and a pane's stage over a failed stage of the daemon's chain", () => {
+    const told = { since: NOW - 9 * MINUTE };
+    expect(read({ ...inPane(RECORDED, told), questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under({ ...inPane(RECORDED, told), questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    // The daemon's chain runs round 2, from 4 minutes ago: it says the proofer's place, and a pane's stage of another role marks nothing while it runs.
+    expect(read(inPane(RUNS_ROUND, told))).toEqual(read(RUNS_ROUND));
+    expect(read(inPane(RUNS_ROUND, { ...told, kind: "seal" }))).toEqual(read(RUNS_ROUND));
+    // The daemon's own broad gate asks the keeper with the place of a gate, so the work item carries a pane's gate from that ask: the place keeps the daemon's stage and its age.
+    const runsGate = chained("running", ROUND_ONE, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
+    expect(read(inPane(runsGate, { kind: "gate", round: 1, since: NOW - MINUTE }))?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    // A chain a restarted daemon reads as stopped runs no stage, though its newest says it works: the pane's stage says the place.
+    expect(read(inPane(chained("stopped", ROUND_ONE, stage({})), told))?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"]);
+    // The daemon chain's round failed and the pane's session runs it again: the place works, and the failure leaves the line.
+    const failed = chained("stopped", ROUND_ONE, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE }));
+    expect(read(inPane(failed, { ...told, round: 2 }))?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 9 min"]);
+    expect(under(inPane(failed, { ...told, round: 2 }))).toEqual([]);
+    // A failed broad gate of the daemon's chain keeps the sealer's place while the pane's session runs a round.
+    const failedGate = chained("stopped", ROUND_ONE, stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } }));
+    expect(read(inPane(failedGate, told))?.slice(2)).toEqual([
+      ["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"],
+      ["sealer", "waiting", "Gate failed", "Sealer: Gate failed"],
+    ]);
   });
 
   it("says a failed stage's failure under the places as a sentence: a capital on a first word of letters alone and a full stop where the text ends with none, and no other change", () => {

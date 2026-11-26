@@ -1,0 +1,45 @@
+# Phase 2: 1795636142-223-a-stage-a-pane-runs-shows-at-work
+
+## What this phase found
+
+**The release merged cleanly.** The phase began by merging `origin/release/v0.0.5` at `c80b900a` into the branch, as `9ae0ddec`, with no conflict. That release adds #215 and #278 since phase 1's base `f683c693`. #215 changes `renderer/view.ts` and `test/view.test.ts` in the sidebar's functions, away from the approval line. The merge is a merge, so what it can break is the broad gate's to find (`skills/verify/SKILL.md` *The narrow command still has to be able to fail*, the row for a merge).
+
+**The frame holds for this phase.** Each coordinate of `frame/design.md` *Grounding* that the phase builds on was opened at `9ae0ddec` and holds, with its line moved by the merges: `view.ts#approvalPlaces`, `#byChain`, `#runningStage` and `STAGES`, `chain-records.ts:4-5`, and `WorkItem.paneStage` in `shared/protocol.ts`, which phase 1 added. Phase 1's record named the two sentences this phase must rewrite, and both still stated the old fact at `9ae0ddec`.
+
+**`byChain` takes the state it answers for, and `byPane` stands between its two calls.** `frame/design.md` *Scope* item 6 orders the place's sources as a question, then the daemon chain's running stage, then the pane's stage, then the daemon chain's failed stage, then the records. The old `byChain` answered for a failed stage and a running stage in one call. It now takes `"working"` or `"failed"`, and `approvalPlaces` calls it twice, with `byPane` between the two calls. The newest stage holds one state at a time, so a work item with no `paneStage` reads as before. Judged against `frame/design.md` *Scope* item 6.
+
+**A pane's stage marks no place while the daemon's chain runs any stage.** *Scope* item 6 reads "the pane's stage of its role, where the daemon's chain runs no stage". So `byPane` returns null wherever `runningStage` gives a stage, of any role. A pane's seal therefore leaves the sealer's place to the records while the daemon's chain runs a round. In this release no client message starts the daemon's chain (`frame/design.md` *Grounding*, the row of `shared/protocol.ts:497-498`), so the two meet only in the cases. Judged against `frame/design.md` *Scope* item 6.
+
+**One departure from the frame: the title of the case at `view.test.ts:1551` is reworded.** `frame/design.md` *Removes* says the case "stays as it reads". Its title said the line is composed so that "no pane's state and no headless session changes it". Once the window draws `paneStage`, a pane's stage does change the line, so "a pane's state" has two readings. The title now reads "no pane's agent state", the words the rewritten docstring of `approvalPlaces` uses. The case's body is unchanged and still holds. Judged against `skills/writing-style/SKILL.md` *에이전트와 검사가 읽는 글은 한 가지로만 읽히게 쓴다* and contract rule 19.
+
+**The built-app case's stand-in is a Claude Code pane whose session the login shell stands in for.** *Scope* item 8 leaves the choice to this phase. Only a Claude Code pane carries the owl chain. `hooks.ts#paneCommands` gives `OWLERY_CHAIN` to such a pane and to no shell's pane, and `pane-chain.ts#carriedIn` gives the chain only in a folder that `records-place.ts#onOwlChain` reads as on the owl chain. So the login shell's script of `test/approval-line.test.ts` now does two things. Asked for a Claude Code pane's command (`exec claude …`), it runs `"$OWLERY_CHAIN" start --automation yes` and `owed` with the pane's environment, notes what each printed, and stays in `sleep`. Asked anything else, it prints the CLI's lookup as before. No real `claude` runs. The case makes a work item of its own, Delta, so the places that the other cases pin for Alpha and Gamma do not move.
+
+**Found by trying: the repository of the built-app file was on no owl chain.** The first run of the new case failed with `shell: line 2: : command not found`, the stand-in's `start` run with an empty `OWLERY_CHAIN`. The file's repository holds the records root and no `.github/workflows/owlery-seal.yml`, which `onOwlChain` reads. The case now commits Owlery's workflow (`records-place.ts#workflowText`) on Delta's branch before it opens the pane. That leaves the other work items of the file as they were.
+
+**The built-app case closes `gaps.md`'s row on the handler `main.ts` passes to `TurnServer.listen`.** In the built app the stand-in's `owed` told the daemon round 1, and the second client read `paneStage` `{ kind: "round", round: 1 }` in the lists. That runs the built chain command, the launcher's folder as the turn socket's place, `main.ts`'s handler and `Daemon#stageTold` (executed, below). The red run below also passed that assertion and failed only at the window.
+
+**Each new case was seen red** (executed):
+
+| Case | File | Red |
+|---|---|---|
+| marks the place of the role whose stage a pane's session runs working … | `test/view.test.ts:1663` | against `9ae0ddec` with the cases added: `expected [ 'proofer', 'finished', …(2) ] to deeply equal [ 'proofer', 'working', …(2) ]` |
+| puts an open question of the role over a pane's stage … | `test/view.test.ts:1685` | against `9ae0ddec`, the same message at the line of the chain a restarted daemon reads as stopped. Its lines that say a pane's stage marks no place were green against the old code, which draws no `paneStage`, and were shown red by the `seal mutate` runs below, each on its own guard. |
+| marks the proofer's place working with the note Round 1 … | `test/approval-line.test.ts:316` | `seal mutate` of `view.ts`, with `?? byPane(role, workItem) ??` changed to `??`, run with the case alone in the built app: `Error: the window never showed the proofer's place at work on round 1` at `approval-line.test.ts:335`, after the case's assertion of `paneStage` had passed |
+
+**`seal mutate` over `view.ts`, after commit `b8bf9bdf`** (executed; each run's output is in the scratch directory `phase-2/mutate-view-*.txt` and `phase-2/mutate-built.txt`). Every mutant went red, and each was read for its failing line:
+
+- `byPane`'s test of the daemon's running stage removed: red at `view.test.ts:1691`, a pane's seal beside the daemon's running round. That line alone holds the guard, since the daemon's running stage of the same role stands first in the order anyway.
+- `byPane`'s test of the role removed: red at `:1666`, where the framer's place worked at a pane's round.
+- The pane's stage and the daemon chain's failed stage swapped in the order: red at `:1699`.
+- The stage's time dropped (`since: null`): red at `:1665`, the age.
+- `byPane` removed from the order: red at `:1665`.
+- `byPane` put above the open question: red at `:1687`.
+- In the built app, `byPane` removed from the order: red at `approval-line.test.ts:335`, as the table says.
+
+**The built app ran four times, against the spawn's one batch.** A first run of `test/approval-line.test.ts` failed at the new case for want of Owlery's workflow. After that fix, the new case ran alone once to see it green, and once more under `seal mutate` to see it red (contract rule 15). The last run is the phase's batch: the whole file at `08713da8`, 7 of 7 passed (executed). `fb05ba7d`, after it, rewords a sentence of `byPane`'s docstring and nothing else. The other built-app files that import `renderer/view.ts` were not run (`gaps.md` *Not verified*).
+
+**No screenshot is owed, as `frame/design.md` *Scope* says.** No work item of the screenshot scene carries a `paneStage`, so no view of the run draws otherwise. The scene's heavy commands ask for their turns with the places `review` and `outside` (`test/screenshots.test.ts:993`), never `gate`. The daemon's chain that the scene resumes waits under the cap on agents, not in the keeper's queue of heavy commands. No fixture of `test/fixtures` runs the chain command, and `git grep` for `OWLERY_CHAIN` and `owl-chain` there prints nothing (executed).
+
+**The other statements of the rules this phase reworded, a sample.** `git grep` over `apps` and `docs` for "no pane's state", "no hook and no session", "draws the approval line", "approval line from" and "reads the work item alone" printed the two sentences this phase rewrote, the case title above, `docs/architecture.md:355` and `docs/design.md:468`. The two policy sentences are the settle's, through `frame/design.md` *Rule changes*. `seal/threads/1795610690-224-the-ask-section-goes/trail/rounds/round-2.md:71` quotes the old title as a record of its round, which stays. The absence search of scenario 9 still prints nothing at `fb05ba7d`: `git grep -n -i 'for one thing' -- apps` (executed). The search did not reach the renderer's other comments under other wordings.
+
+**The phase boundary set** (executed at `fb05ba7d`): `test/view.test.ts test/chain-records.test.ts` in one command, 2 files and 597 cases passed. A `git grep` under `test/` for imports of `renderer/view` and `daemon/chain-records` listed these two and the three built-app files `gaps.md` *Not verified* names. The change to `chain-records.ts` is a comment. `tsc --noEmit` over `apps/desktop` passed at `fb05ba7d` (executed). The repository configures no linter and no formatter.

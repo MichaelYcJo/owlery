@@ -7,7 +7,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -82,7 +82,7 @@ import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./
 import { LastLook } from "./last-look";
 import { addHeavyRun, heavyRan, readHeavyRuns, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
-import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
+import { type GivenTurn, type HeavyRunTaken, type StageLine, type TurnGiver, turnGiver } from "./turn-socket";
 import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
 import { AgentMemoryStore, CAPS, LimitsStore, type MachineReader } from "./machine";
 import { agentsProposal, capRefusal, CHARS_PER_LINE, heavyProposal, KEEP_FREE_BYTES, panesProposal, SCROLLBACK_DEFAULT, worktreesProposal } from "../shared/machine";
@@ -548,6 +548,8 @@ export class Daemon {
   private readonly ledger: Ledger;
   // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
   private readonly recordsRead = new Map<number, RecordRead>();
+  // The stage a pane's session runs in each work item, by the work item's id, as the chain command told it on the turn socket, with the pane that told it (`stageTold`). It lives in memory alone, since a pane's process lives as long as the daemon that started it.
+  private readonly paneStages = new Map<number, { paneId: number; kind: Exclude<PaneStage["kind"], "gate">; round: number; since: number }>();
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
   // Whether the hold that stands holds the display too.
@@ -2160,6 +2162,7 @@ export class Daemon {
     this.endLog(session);
     session.ended = true;
     if (session.info.alive) session.terminal.kill();
+    this.dropStageOf(session.info.id);
     this.broadcastInbox();
     this.checkIdle();
   }
@@ -2388,7 +2391,10 @@ export class Daemon {
    * pane's has not within the wait, it refuses with the sentence `late`, and
    * goes on where `late` is null; a headless run that has not ended by then
    * refuses nothing. It refuses where a session started in one of the work
-   * items while it waited. The panes stay listed, as exited ones.
+   * items while it waited. The panes stay listed, as exited ones. The stage
+   * a pane it ends told is dropped as the pane ends, since an ended pane runs
+   * no stage (`stageTold`), and the lists that say so are sent then, before
+   * the wait, so a pane whose process outlives the wait holds none.
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
@@ -2400,10 +2406,13 @@ export class Daemon {
       const stopping = this.stopGate(id, "request", `the command was ${why}`);
       if (stopping !== undefined) stops.push(stopping);
     }
+    let dropped = false;
     for (const session of panes) {
       session.ended = true;
       session.terminal.kill();
+      dropped = this.dropStageOf(session.info.id) || dropped;
     }
+    if (dropped) this.broadcastInbox();
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
@@ -2787,6 +2796,8 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
+      // The session that told a stage is gone with its process; the lists that follow the exit carry the drop.
+      this.dropStageOf(id);
       // A change of the account waits on this exit, unless the pane's close, an archive or a removal ended the pane meanwhile: then the exit is the pane's end.
       if (session.replacing && !session.ended) {
         clearTimeout(session.silentStart);
@@ -3107,7 +3118,64 @@ export class Daemon {
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
       machineWait: this.turns.waitOf(item.worktree),
       wordOwed: this.wordOwedOf(item),
+      paneStage: this.paneStageOf(item),
     };
+  }
+
+  /**
+   * The stage a pane's session runs in the work item, as the lists carry it
+   * (`WorkItem.paneStage`): a broad gate where the keeper lists an ask of the
+   * place `gate` in its worktree, holding a turn or waiting, from that ask's
+   * time and of the rounds its records hold; otherwise the stage a pane of it
+   * told (`stageTold`); otherwise null.
+   */
+  private paneStageOf(item: Held["item"]): PaneStage | null {
+    const gate = this.turns.queue().find(({ folder, place }) => place === "gate" && folder === item.worktree);
+    if (gate !== undefined) return { kind: "gate", round: (this.recordsRead.get(item.id) ?? NO_RECORD).recorded.rounds, since: gate.since };
+    const held = this.paneStages.get(item.id);
+    return held === undefined ? null : { kind: held.kind, round: held.round, since: held.since };
+  }
+
+  /**
+   * Takes a line the chain command told on the turn socket
+   * (`turn-socket.ts#StageLine`), for the work item that is not archived
+   * whose worktree the folder is, by its real path, and does nothing for a
+   * folder that is no such work item's. A `stage` line is held only where its
+   * pane is listed, alive, in that work item, and not ended by the daemon at
+   * an archive or a removal (`endSessions`, which drops the stage a pane it
+   * ends told), and replaces the stage held
+   * before, keeping that one's time where the kind and the round are the
+   * same. A `stage-ended` line drops the work item's stage, whichever pane
+   * told it, and reads the work item's records again first, so the lists do
+   * not carry a reading older than the record just committed. Every client
+   * is sent the lists where anything changed.
+   */
+  stageTold(line: StageLine): void {
+    if (this.closed) return;
+    const real = realPathOf(line.folder);
+    const held = this.store.workItems().find(({ item }) => item.archivedAt === null && realPathOf(item.worktree) === real);
+    if (held === undefined) return;
+    const { id } = held.item;
+    if (line.is === "stage-ended") {
+      const dropped = this.paneStages.delete(id);
+      const read = this.readRecord(held);
+      this.flushTimes();
+      if (dropped || read) this.broadcastInbox();
+      return;
+    }
+    const pane = this.sessions.get(line.pane);
+    if (pane === undefined || !pane.info.alive || pane.ended || pane.info.workItemId !== id) return;
+    const was = this.paneStages.get(id);
+    const same = was !== undefined && was.kind === line.kind && was.round === line.round;
+    this.paneStages.set(id, { paneId: line.pane, kind: line.kind, round: line.round, since: same ? was.since : (this.options.now ?? Date.now)() });
+    if (!same) this.broadcastInbox();
+  }
+
+  /** Drops the stage the pane told, where one stands, and says whether one stood. The caller sends the lists. */
+  private dropStageOf(paneId: number): boolean {
+    let dropped = false;
+    for (const [workItemId, stage] of this.paneStages) if (stage.paneId === paneId) dropped = this.paneStages.delete(workItemId) || dropped;
+    return dropped;
   }
 
   /**

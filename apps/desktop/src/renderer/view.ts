@@ -692,21 +692,39 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
 }
 
 /**
- * How far a role came by the newest stage of the work item's chain, or null
- * where that stage says nothing of the role: it is of another role's kind
- * or of the orchestrator's, it finished, or no chain ran. The role's place
- * failed where the stage failed, with the stage's failure as a sentence for
- * its text, and works where the chain runs the stage, with the stage's
- * start as the time its age counts from. A broad gate that failed is no
+ * How far a role came by the newest stage of the work item's chain, where
+ * that stage is in the state `state`, or null where it says nothing of the
+ * role: it is of another role's kind or of the orchestrator's, it is in
+ * the other state or finished, or no chain ran. The role's place works
+ * where the chain runs the stage, with the stage's start as the time its
+ * age counts from, and failed where the stage failed, with the stage's
+ * failure as a sentence for its text. A broad gate that failed is no
  * failure of the sealer: its place then waits, and reads "Gate failed".
  */
-function byChain(role: Role, workItem: WorkItem): Reached | null {
+function byChain(role: Role, workItem: WorkItem, state: "working" | "failed"): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
   const marks = newest === undefined ? null : STAGES[newest.kind].marks;
   if (newest === undefined || marks === null || marks.role !== role) return null;
-  if (newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
-  if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
+  if (state === "failed" && newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
+  if (state === "working" && runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
   return null;
+}
+
+/**
+ * How far a role came by the stage a pane's session runs through the chain
+ * command (`WorkItem.paneStage`), or null where the work item carries none,
+ * the stage is of another role, or the daemon's chain runs a stage. The
+ * role's place works, with the note and the words of the stage's kind and
+ * the time the daemon was first told of it, or its broad gate asked for its
+ * turn, as the time its age counts from. The daemon's own broad gate asks
+ * for its turn as a pane's does, so while the daemon's chain runs a stage,
+ * that stage says the place and the pane's stage says none.
+ */
+function byPane(role: Role, workItem: WorkItem): Reached | null {
+  const stage = workItem.paneStage ?? null;
+  const marks = stage === null ? null : STAGES[stage.kind].marks;
+  if (stage === null || marks === null || marks.role !== role || runningStage(workItem) !== null) return null;
+  return { state: "working", note: marks.note(stage.round), label: marks.label(stage.round), since: stage.since, text: null };
 }
 
 /**
@@ -716,14 +734,16 @@ function byChain(role: Role, workItem: WorkItem): Reached | null {
  * place's state is the first of these that holds. It waits where an open
  * question of the work item names its role, exactly, as the asker, with
  * that question's text under the line. It works where the work item's chain
- * runs a stage of its role, and it failed where the chain's newest stage is
- * of its role and failed, with the stage's failure under the line. The
+ * runs a stage of its role, and where the daemon's chain runs no stage and
+ * the work item's `paneStage`, the stage a pane's session runs through the
+ * chain command, is of its role. It failed where the chain's newest stage
+ * is of its role and failed, with the stage's failure under the line. The
  * broad gate and the seal are the sealer's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
  * gate that failed. Otherwise the records say how far it came, and for the
  * sealer the seal the branch's head holds: finished where it holds, and
  * waiting, with "Seal broken" and the seal's sentence under the line, where
- * a later commit broke it. It reads the work item alone, so no pane's
+ * a later commit broke it. It reads the work item alone, so no pane's agent
  * state, no hook and no session changes it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
@@ -732,7 +752,7 @@ export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
   const open = parkedWith(workItem) ?? [];
   return ROLES.map((role) => {
     const asked = open.find(({ by }) => by === role);
-    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem) ?? byRecords(role, workItem, recorded));
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem, "working") ?? byPane(role, workItem) ?? byChain(role, workItem, "failed") ?? byRecords(role, workItem, recorded));
     const name = ROLE_NAME[role];
     const { text, ...shown } = reached;
     return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
