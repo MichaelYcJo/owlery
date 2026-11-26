@@ -386,13 +386,14 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
-  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in until its process ends, in the dialog opened again too, so no pane replaces the one the dialog draws", async () => {
+  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in from its press, while its request waits on the daemon and until its process ends, in the dialog opened again too, so no pane replaces the one the dialog draws", async () => {
     writeFileSync(join(standIn, "hold-login"), "");
     const signIn = `[...document.querySelectorAll('#accounts-list li[data-account="1"] button')].find((button) => button.textContent === "Sign in")`;
     try {
       await app.click("#accounts-button");
       await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
-      await app.evaluate(`${signIn}.click()`);
+      // Read in the same turn as the press, before the daemon's `started` can reach the page: only the request that waits holds the two buttons disabled here.
+      expect(await app.evaluate<[boolean, boolean]>(`(() => { const button = ${signIn}; button.click(); return [document.getElementById("accounts-add").disabled, button.disabled]; })()`)).toEqual([true, true]);
       await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to stand-in@example.com"`, "the sign-in pane of the account the login named");
       expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
       // The rows are drawn anew when the dialog opens again, and the row's "Sign in" stays disabled while the sign-in runs.
