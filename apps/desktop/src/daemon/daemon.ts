@@ -1667,7 +1667,7 @@ export class Daemon {
         this.send(socket, { type: "done", requestId: message.requestId });
         if (Object.keys(changes).length > 0) {
           // A changed scrollback moves the size of every pane's buffer, and a smaller one drops the older output at once.
-          if (changes.scrollback !== undefined) for (const session of this.sessions.values()) session.output.setLimit(this.bufferChars());
+          if (changes.scrollback !== undefined) for (const session of this.sessions.values()) session.output.setLimit(this.outputLimit());
           // A cap that rose starts the sessions that waited for it first, so the machine every client is told holds them as running.
           this.drainQueue();
           // A changed limit on heavy commands gives the next turns at once where it rose, and the keeper's watcher then tells every client the machine.
@@ -2433,7 +2433,7 @@ export class Daemon {
     const session: Session = {
       info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal: this.spawnPane(launch, cwd, size, signsIn === null),
-      output: new OutputBuffer(this.bufferChars()),
+      output: new OutputBuffer(this.outputLimit()),
       silentStart: undefined,
       log: undefined,
       logUnread: false,
@@ -3952,7 +3952,7 @@ export class Daemon {
   }
 
   /** The characters each pane's buffer keeps: `CHARS_PER_LINE` for each line of the scrollback a person set, or of its default. A daemon given no reader of the machine keeps the default. */
-  private bufferChars(): number {
+  private outputLimit(): number {
     return CHARS_PER_LINE * (this.limits.get().scrollback ?? SCROLLBACK_DEFAULT);
   }
 
