@@ -4773,7 +4773,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
 
 describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
   /** A daemon whose clock the case moves, with work items of these titles and no pass of reads while the case runs, and a pane's command the case names before each start. */
-  async function stagesOn(titles: string[], options: { linked?: boolean; endWaitMs?: number } = {}) {
+  async function stagesOn(titles: string[], options: { linked?: boolean; apart?: boolean; endWaitMs?: number } = {}) {
     const clock = { now: NOW };
     const pane = { command: "sleep 30" };
     const stood = await standing(cleanups, titles, { ...options, commitPollMs: 60_000, now: () => clock.now, commandFor: () => ({ command: "/bin/sh", args: ["-c", pane.command], env: {} }) });
@@ -4833,21 +4833,31 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
     expect((await on.sent(a.id))?.paneStage).toBeNull();
   });
 
-  it("holds no stage told for an archived work item, by a pane that outlived the archive's wait for it to end (issue #223)", async () => {
-    const on = await stagesOn(["Archived work", "Other work"], { endWaitMs: 200 });
+  it("holds no stage told by a pane the daemon ended that outlives the wait for its end, and does nothing at a line for an archived work item (issue #223)", async () => {
+    const on = await stagesOn(["Ended work", "Other work"], { apart: true, endWaitMs: 200 });
     const [a, b] = on.workItems as [(typeof on.workItems)[number], (typeof on.workItems)[number]];
+    const other = await on.opened(b.id);
     // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
     on.pane.command = "trap '' HUP; echo deaf; sleep 3";
     const deaf = await on.opened(a.id);
     await on.c.until(() => (on.c.messages.some((m) => m.type === "output" && m.id === deaf && m.data.includes("deaf")) ? true : undefined));
-    expect((await on.c.asked({ type: "archiveWorkItem", requestId: 1, id: a.id, running: { panes: [deaf], headless: [] } })).type).toBe("done");
-    await on.c.until(() => (on.c.workItem(a.id)?.archivedAt !== null ? true : undefined));
+    const running = { panes: [deaf], headless: [] };
+    // A removal ends the pane and is refused once the pane outlives its wait, so the pane stays listed and alive in a work item that is not archived.
+    expect((await on.c.asked({ type: "removeRepository", requestId: 1, id: 1, workItems: [a.id], running })).type).toBe("error");
+    expect(on.c.workItem(a.id)?.archivedAt).toBeNull();
     on.d.stageTold({ is: "stage", folder: a.worktree, pane: deaf, kind: "round", round: 1 });
-    on.pane.command = "sleep 30";
-    const other = await on.opened(b.id);
     on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "round", round: 1 });
     await on.carried(b.id, (stage) => stage !== null);
     expect(on.c.workItem(a.id)?.paneStage).toBeNull();
+
+    // An archived work item's records are not read again at a `stage-ended` line.
+    expect((await on.c.asked({ type: "archiveWorkItem", requestId: 2, id: a.id, running })).type).toBe("done");
+    write(a.worktree, "seal/threads/1-work/routing.md", routingText("1-work", branchOf(a), "2026-11-26"));
+    write(a.worktree, "seal/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    on.d.stageTold({ is: "stage-ended", folder: a.worktree });
+    on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "fix-pass", round: 1 });
+    await on.carried(b.id, (stage) => stage?.kind === "fix-pass");
+    expect(on.c.workItem(a.id)?.recorded?.rounds).toBe(0);
     await on.c.message("exit", (m) => m.id === deaf);
   });
 
