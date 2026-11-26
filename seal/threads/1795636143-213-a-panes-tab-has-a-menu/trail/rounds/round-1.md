@@ -66,6 +66,12 @@ The sentences, each in place of the one it names:
 
 The case belongs in `view.test.ts`. Its red is owed with only the `trimmed === byKind` test removed from `paneNameSent`, where its first, second and fourth lines fail. A built-app step in `terminal-basics.test.ts` *renames a pane at "Rename…"* (Save on the untouched field, then the tabs read as before) would hold the wiring and is the fix pass's to weigh.
 
+```seal
+verdict: fixed af5227e7
+location: `apps/desktop/src/renderer/work-item-view.ts`, `apps/desktop/test/terminal-basics.test.ts`, `docs/design.md`, `docs/design.ko.md`, `seal/threads/1795636143-213-a-panes-tab-has-a-menu/changelog.md`
+answer: `sendPaneName` now sends `name: null` where the trimmed text is empty or is `tabLabel` of the pane with no name, written into its body and not as the paste-ready `paneNameSent`: that function is a unit the frame held nowhere at `faee6ea4`, and `skills/implement/fix-pass.md` *A fix that needs a unit the frame does not name waits for the fold* stops a fix pass from building one, while code written into an existing body is outside that stop. So the case is the built-app step the finding offered, not a `view.test.ts` case: in `terminal-basics.test.ts` *renames a pane at "Rename…"* a Save of the untouched "Shell 3" field, then the close of "Shell 2", must leave the third tab reading "Shell 2"; `seal mutate` with the `trimmed === byKind` test removed was red there at "the third pane numbered as the second of its kind", baseline green (executed). The row of both editions of `docs/design.md` and the changelog's line 7 take the finding's sentences; `frame/design.md` *Scope* item 5 is the framer's fold.
+```
+
 ### 2. The changelog says a given name reaches a notification's title, and no notification of a named pane carries it
 
 ```seal
@@ -81,6 +87,11 @@ The account change dialog (`work-item-view.ts:1273`, `accountOffer`) and the Res
 ```md
 changelog.md line 7: "The name then names the pane wherever the window names it by its tab's label: on its tab, in the close dialog, in the account change dialog, in the delete dialog and in the list of the Restart Daemon dialog."
 frame/plan.md line 34, the Verdict cell: "A second function would leave the delete dialog, the Restart Daemon dialog and the account change dialog naming a renamed pane by its kind."
+```
+
+```seal
+verdict: fixed af5227e7
+answer: `changelog.md` line 7 now names the close dialog, the account change dialog, the delete dialog and the list of the Restart Daemon dialog, and no notification. `frame/plan.md` line 34 is the framer's fold. Rerun of the finding's search, `git grep -n -i -e notification -- seal/threads/1795636143-213-a-panes-tab-has-a-menu`, after af5227e7 prints `frame/design.md:29`, which the finding keeps as a fact dated to `5b20b1c6`, `frame/plan.md:34`, the framer's, and this round record's own lines.
 ```
 
 ### 3. The frame's absence search reads `\|` as alternation when an agent types it from the raw text
@@ -101,6 +112,11 @@ frame/design.md line 74, after the command: "The `.` stands for the `|` of the c
 frame/design.md line 120, the Coordinate cell: `apps/desktop/src/renderer/work-item-view.ts`, `let asking`, which held one pane's id or `undefined`
 ```
 
+```seal
+verdict: fixed 23e4790a
+answer: The framer rewrote the absence search to `'let asking: number . undefined'` at the acceptance row and the phase 1 *Verified by* cell, and the *Removes* row's coordinate (`23e4790a`). At `5b20b1c6` it prints `work-item-view.ts:137` and `:1236`; at HEAD it prints nothing. Records alone.
+```
+
 ### 4. `## Rule changes` writes the pane record's sentence into the English edition alone, though *Scope* item 11 says both
 
 ```seal
@@ -119,6 +135,11 @@ Why it matters: *Scope* item 11 says the settle writes the rule "into both editi
   to: 데몬은 칸마다 기록을 실행 폴더에 둡니다. 그 칸의 작업, 종류, 폴더, 사람이 그 탭에 준 이름과 색, 그리고 에이전트의 훅 이벤트에 실려 오는 세션 ID입니다. 그 기록이 생기기 전까지 칸의 이름과 색은 데몬의 세션에 있고, 칸이 있는 동안만 있습니다.
 ```
 
+```seal
+verdict: fixed 23e4790a
+answer: The framer added the `change` of `docs/architecture.ko.md` *세션이 견디는 것* to `## Rule changes` from the round's block (`23e4790a`); its `from:` sentence stands once in that file. Records alone.
+```
+
 ### 5. Phase 2 hands back five unit files as the whole list of those that read the changed modules, and `gate.test.ts` is missing from it
 
 ```seal
@@ -132,6 +153,11 @@ Why it matters: phase 2 says "Those five are the unit files besides `view.test.t
 ```md
 trail/phases/phase-2.md line 46, in place of the sentence that opens "Those five are the unit files":
 "Those five were picked by `grep -ln` over `test/*.test.ts` for the changed modules' names, a sample: three of them match only a string, and `gate.test.ts`, which constructs a `Daemon`, matched and was not run in this phase. Round 1 ran it at `faee6ea4` beside `view.test.ts` and `themes.test.ts`, 631 passed."
+```
+
+```seal
+verdict: fixed af5227e7
+answer: `trail/phases/phase-2.md` line 46 takes the finding's sentence: the five files were a sample picked by `grep -ln`, `gate.test.ts` matched and was not run in phase 2, and round 1 ran it at `faee6ea4`, 631 passed. Line 21 of the same record said the dialog sends the field as it stands, which finding 1's fix made false, and now says where the trim and the `null` stand.
 ```
 
 ## Confirmations
