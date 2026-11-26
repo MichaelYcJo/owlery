@@ -179,7 +179,7 @@ describe("AccountStore", () => {
     store.addHanded("Work", handed, "claude");
     store.setDefault(1);
     expect(statSync(join(runDir, "accounts.json")).mode & 0o777).toBe(0o600);
-    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toEqual({ nextId: 2, defaultId: 1, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false, signedIn: null, loginEndsAt: null, limits: [] }], systemLimits: [] });
+    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toEqual({ nextId: 2, defaultId: 1, accounts: [{ id: 1, name: "Work", adapter: "claude", folder: handed, made: false, signedIn: null, loginEndsAt: null, limits: [] }], adding: [], systemLimits: [] });
     const again = new AccountStore(runDir);
     expect(again.listed()).toEqual(store.listed());
     expect(again.defaultId()).toBe(1);
@@ -244,6 +244,92 @@ describe("AccountStore", () => {
     expect(() => new AccountStore(undefined).addMade("Work", "claude")).toThrow("This daemon keeps no run folder to make an account's folder in.");
     expect(readdirSync(join(runDir, "accounts")).sort()).toEqual(["1", "2", "3"]);
     expect(new AccountStore(runDir).account(3)).toMatchObject({ made: true, folder: join(runDir, "accounts", "3") });
+  });
+
+  it("makes the folder of an account whose first sign-in has not ended, accounts/<id> of the run folder, empty and readable by the user alone, notes its id under adding in accounts.json, which a second store reads, answers for it as no account, gives its id to no other add, passes over an id whose folder stands already, and refuses a store with no run folder, making nothing (scope item 2)", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    expect(store.beginMade()).toEqual({ id: 1, folder: join(runDir, "accounts", "1") });
+    expect(statSync(join(runDir, "accounts")).mode & 0o777).toBe(0o700);
+    expect(statSync(join(runDir, "accounts", "1")).mode & 0o777).toBe(0o700);
+    expect(readdirSync(join(runDir, "accounts", "1"))).toEqual([]);
+    expect([store.account(1), store.holds(1), store.accounts(), store.listed()]).toEqual([undefined, false, [], [SYSTEM_DEFAULT]]);
+    expect(() => store.setDefault(1)).toThrow("No account 1 is kept.");
+    expect(() => store.rename(1, "Work")).toThrow("No account 1 is kept.");
+    expect(() => store.remove(1)).toThrow("No account 1 is kept.");
+    expect(() => store.setLogin(1, { signedIn: true, loginEndsAt: null })).toThrow("No account 1 is kept.");
+    expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ nextId: 2, accounts: [], adding: [1] });
+    expect(new AccountStore(runDir).adding()).toEqual([{ id: 1, folder: join(runDir, "accounts", "1") }]);
+    // A second store's next id passes the noted one, as the first store's does.
+    expect(new AccountStore(runDir).addHanded("Handed", handedFolder(), "claude").id).toBe(2);
+    expect(store.addHanded("Handed", handedFolder(), "claude").id).toBe(2);
+    // A folder a lost accounts.json left behind is no account's to take.
+    mkdirSync(join(runDir, "accounts", "3"));
+    expect(store.beginMade().id).toBe(4);
+    expect(store.adding().map((noted) => noted.id)).toEqual([1, 4]);
+    expect(() => new AccountStore(undefined).beginMade()).toThrow("This daemon keeps no run folder to make an account's folder in.");
+    // A file of a build before this list holds no folder whose sign-in has not ended.
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 2, defaultId: 0, accounts: [] }));
+    expect(new AccountStore(runDir).adding()).toEqual([]);
+  });
+
+  it("turns a folder whose first sign-in has not ended into an account Owlery made, under its id, the name it is given and the login the agent named, in one write a second store reads, and removes another such folder with everything in it, a link in it as a link, adding no account; it refuses an id it noted no folder under, keeping and removing nothing (scope items 2 and 3, the store's part)", () => {
+    const runDir = folder();
+    const store = new AccountStore(runDir);
+    const own = handedFolder();
+    store.beginMade();
+    const dropped = store.beginMade().folder;
+    symlinkSync(join(own, "settings.json"), join(dropped, "settings.json"));
+    writeFileSync(join(dropped, ".claude.json"), "{}\n");
+    const before = contents(own);
+    expect(store.keepMade(1, " person@example.com ", "claude", { signedIn: true, loginEndsAt: 1_800_000_000_000 })).toEqual({ id: 1, name: "person@example.com", adapter: "claude", folder: join(runDir, "accounts", "1"), made: true, signedIn: true, loginEndsAt: 1_800_000_000_000, limits: [] });
+    const read = new AccountStore(runDir);
+    expect([read.account(1), read.adding().map((noted) => noted.id)]).toEqual([store.account(1), [2]]);
+    store.dropMade(2);
+    expect(readdirSync(join(runDir, "accounts"))).toEqual(["1"]);
+    expect(contents(own)).toEqual(before);
+    expect([store.adding(), new AccountStore(runDir).adding(), store.accounts().map((account) => account.id)]).toEqual([[], [], [1]]);
+    // An account's id, an id dropped and one never noted take neither act.
+    for (const id of [1, 2, 7]) {
+      expect(() => store.keepMade(id, "Again", "claude", { signedIn: null, loginEndsAt: null })).toThrow(`No folder ${String(id)} waits on its first sign-in.`);
+      expect(() => store.dropMade(id)).toThrow(`No folder ${String(id)} waits on its first sign-in.`);
+    }
+    expect([readdirSync(join(runDir, "accounts")), store.accounts().map((account) => account.name)]).toEqual([["1"], ["person@example.com"]]);
+  });
+
+  it("reads under adding only an id that is a whole number above System default's and no account's, so an edited accounts.json never has the store remove a folder but accounts/<id> of the run folder, nor one an account keeps (scenario H's store)", () => {
+    const runDir = folder();
+    const handed = handedFolder();
+    const made = join(runDir, "accounts", "1");
+    mkdirSync(made, { recursive: true });
+    writeFileSync(join(made, ".claude.json"), "{}\n");
+    mkdirSync(join(runDir, "outside"));
+    mkdirSync(join(runDir, "accounts", "refresh"));
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 3, defaultId: 0, accounts: [{ id: 1, name: "Made", adapter: "claude", folder: made, made: true }, { id: 2, name: "Handed", adapter: "claude", folder: handed, made: false }], adding: [1, 2, 0, -1, 1.5, "../outside", "refresh", 3, 3] }));
+    const store = new AccountStore(runDir);
+    expect(store.adding()).toEqual([{ id: 3, folder: join(runDir, "accounts", "3") }]);
+    for (const id of [1, 2, 0, -1, 1.5, "../outside", "refresh"] as number[]) {
+      expect(() => store.dropMade(id)).toThrow(`No folder ${String(id)} waits on its first sign-in.`);
+      expect(() => store.keepMade(id, "Again", "claude", { signedIn: null, loginEndsAt: null })).toThrow(`No folder ${String(id)} waits on its first sign-in.`);
+    }
+    expect([readFileSync(join(made, ".claude.json"), "utf8"), existsSync(join(runDir, "outside")), existsSync(join(runDir, "accounts", "refresh")), contents(handed)]).toEqual(["{}\n", true, true, { "settings.json": "{}\n" }]);
+    expect(store.accounts().map((account) => [account.id, account.made])).toEqual([
+      [1, true],
+      [2, false],
+    ]);
+  });
+
+  it("gives an added account whose name another account holds, System default among them, that name with the first number from 2 in brackets that no account's name holds, and gives none at a rename (scope items 4 and 5, the store's part)", () => {
+    const store = new AccountStore(folder());
+    expect(store.addHanded("person@example.com", handedFolder(), "claude").name).toBe("person@example.com");
+    store.beginMade();
+    expect(store.keepMade(2, "person@example.com", "claude", { signedIn: true, loginEndsAt: null }).name).toBe("person@example.com (2)");
+    expect(store.addHanded(" person@example.com ", handedFolder(), "claude").name).toBe("person@example.com (3)");
+    expect(store.rename(2, "Other")).toBe(true);
+    expect(store.addHanded("person@example.com", handedFolder(), "claude").name).toBe("person@example.com (2)");
+    expect(store.addHanded("System default", handedFolder(), "claude").name).toBe("System default (2)");
+    expect(store.rename(2, "person@example.com")).toBe(true);
+    expect(store.listed().map((account) => account.name)).toEqual(["System default", "person@example.com", "person@example.com", "person@example.com (3)", "person@example.com (2)", "System default (2)"]);
   });
 
   it("keeps the agent's last word on an account's login, writes it, says whether it changed, refuses an id it keeps no account under, and reads a file of a build before sign-in as no word", () => {
@@ -817,19 +903,24 @@ describe("Claude Code's part of the accounts", () => {
     expect([conversationsOf?.(own), conversationsOf?.(linked), conversationsOf?.(handedFolder())]).toEqual([realpathSync(join(own, "projects")), realpathSync(join(own, "projects")), null]);
   });
 
-  it("reads the CLI's word on a login from how `auth status` exited and the end it printed, and nothing from any other exit", () => {
+  it("reads the CLI's word on a login from how `auth status` exited, the end it printed and the email it printed for a login that stands, kept without the white space at its ends, and nothing from any other exit (scope item 4 and scenario E, the adapter's part)", () => {
     expect(authArgs("login")).toEqual(["auth", "login"]);
     expect(authArgs("status")).toEqual(["auth", "status"]);
     expect(authArgs("logout")).toEqual(["auth", "logout"]);
-    expect(loginStatusOf(0, '{"loggedIn":true,"loginExpiresAt":"2026-12-20T09:30:00.000Z"}')).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z") });
-    expect(loginStatusOf(0, '{"loggedIn":true,"loginExpiresAt":null}')).toEqual({ signedIn: true, loginEndsAt: null });
-    expect(loginStatusOf(0, '{"loggedIn":true,"authMethod":"api_key"}')).toEqual({ signedIn: true, loginEndsAt: null });
-    expect(loginStatusOf(0, '{"loginExpiresAt":"soon"}')).toEqual({ signedIn: true, loginEndsAt: null });
-    expect(loginStatusOf(1, "not json")).toEqual({ signedIn: false, loginEndsAt: null });
-    expect(loginStatusOf(2, '{"loggedIn":true}')).toBeUndefined();
+    expect(loginStatusOf(0, '{"loggedIn":true,"email":"person@example.com","loginExpiresAt":"2026-12-20T09:30:00.000Z"}')).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), name: "person@example.com" });
+    expect(loginStatusOf(0, '{"loggedIn":true,"email":"  person@example.com\\n","loginExpiresAt":null}')).toEqual({ signedIn: true, loginEndsAt: null, name: "person@example.com" });
+    expect(loginStatusOf(0, '{"loggedIn":true,"authMethod":"api_key"}')).toEqual({ signedIn: true, loginEndsAt: null, name: null });
+    expect(loginStatusOf(0, '{"loginExpiresAt":"soon"}')).toEqual({ signedIn: true, loginEndsAt: null, name: null });
+    // An email that is empty once trimmed, or no string, names no login, and the daemon names the account itself.
+    for (const email of ['""', '" "', "null", "7", '["person@example.com"]', '{"address":"person@example.com"}']) expect(loginStatusOf(0, `{"loggedIn":true,"email":${email}}`)?.name).toBeNull();
+    expect(loginStatusOf(0, "not json")).toEqual({ signedIn: true, loginEndsAt: null, name: null });
+    // No login stands where the command exited 1, so an email it printed names none.
+    expect(loginStatusOf(1, '{"loggedIn":false,"email":"person@example.com"}')).toEqual({ signedIn: false, loginEndsAt: null, name: null });
+    expect(loginStatusOf(1, "not json")).toEqual({ signedIn: false, loginEndsAt: null, name: null });
+    expect(loginStatusOf(2, '{"loggedIn":true,"email":"person@example.com"}')).toBeUndefined();
   });
 
-  it("signs a folder in by a pane's command, reads its login, and signs it out through the CLI with the folder as CLAUDE_CONFIG_DIR, links only once the person's folder is known, and rejects with the CLI's words where it failed", async () => {
+  it("signs a folder in by a pane's command, reads its login and the email the CLI names it by, and signs it out through the CLI with the folder as CLAUDE_CONFIG_DIR, links only once the person's folder is known, and rejects with the CLI's words where it failed (scope item 12)", async () => {
     const { cli, here, calls } = authStandIn();
     const account = folder("owlery-made-");
     const own = ownFolder();
@@ -840,7 +931,7 @@ describe("Claude Code's part of the accounts", () => {
     known = own;
     logins.furnish(account);
     expect(Object.keys(linksIn(account)).sort()).toEqual(["CLAUDE.md", "history.jsonl", "projects", "settings.json", "skills"]);
-    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null, name: null });
     const signIn = await logins.signIn(account);
     expect(signIn).toEqual({ command: cli, args: ["auth", "login"], env: claudeEnv(process.env, process.env.PATH ?? "/usr/bin:/bin", account) });
     expect(signIn.env.CLAUDE_CONFIG_DIR).toBe(account);
@@ -848,16 +939,20 @@ describe("Claude Code's part of the accounts", () => {
     await new Promise<void>((resolve, reject) => {
       execFile(signIn.command, signIn.args, { env: signIn.env }, (error) => (error ? reject(error) : resolve()));
     });
-    expect(await logins.status(account)).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z") });
+    expect(await logins.status(account)).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), name: "stand-in@example.com" });
+    // A login the CLI names no email for, as a case makes the stand-in print.
+    writeFileSync(join(here, "no-email"), "");
+    expect(await logins.status(account)).toEqual({ signedIn: true, loginEndsAt: Date.parse("2026-12-20T09:30:00.000Z"), name: null });
+    rmSync(join(here, "no-email"));
     writeFileSync(join(here, "refuse-logout"), "");
     await expect(logins.signOut(account)).rejects.toThrow("claude auth logout exited with 2: Logout failed.");
     rmSync(join(here, "refuse-logout"));
     await logins.signOut(account);
-    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    expect(await logins.status(account)).toEqual({ signedIn: false, loginEndsAt: null, name: null });
     // A CLI given no folder exits otherwise than 0 or 1, which says nothing of a login.
     const unnamed = claudeLogins({ locate: () => Promise.resolve({ cli, path: process.env.PATH ?? "/usr/bin:/bin" }), envOf: (path) => ({ PATH: path }), ownFolder: () => own });
     await expect(unnamed.status(account)).rejects.toThrow("claude auth status exited with 64.");
-    expect(calls()).toEqual([`auth status|${account}`, `auth login|${account}`, `auth status|${account}`, `auth logout|${account}`, `auth logout|${account}`, `auth status|${account}`, "auth status|"]);
+    expect(calls()).toEqual([`auth status|${account}`, `auth login|${account}`, `auth status|${account}`, `auth status|${account}`, `auth logout|${account}`, `auth logout|${account}`, `auth status|${account}`, "auth status|"]);
     const lost = claudeLogins({ locate: () => Promise.reject(new Error("claude was not found by the login shell (/bin/zsh)")), envOf: (path, at) => claudeEnv(process.env, path, at), ownFolder: () => own });
     await expect(lost.signIn(account)).rejects.toThrow("claude was not found by the login shell (/bin/zsh)");
     await expect(lost.status(account)).rejects.toThrow("claude was not found by the login shell (/bin/zsh)");

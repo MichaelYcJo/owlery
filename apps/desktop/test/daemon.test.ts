@@ -8018,7 +8018,7 @@ describe("a Claude Code pane and the owl chain", () => {
       release = resolve;
     });
     cleanups.push(() => release());
-    const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null }), signOut: () => Promise.resolve() };
+    const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null, name: null }), signOut: () => Promise.resolve() };
     const { c, launches, answer, pid } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins, work: () => held }) });
     c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
     c.send({ type: "addAccount", requestId: 2, name: "Other", folder: other });
