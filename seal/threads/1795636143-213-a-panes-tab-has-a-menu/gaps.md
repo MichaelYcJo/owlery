@@ -14,3 +14,29 @@
 ## Not done
 
 In the `tabs` screenshots the open menu covers part of the blue tab's bar and of the pink one's, since the menu opens at the pointer, which stands on the tab. The `rename` shots of the same scene show the three bars whole, so no further view was added to show the bars without a menu.
+
+**The shots of the two views this work adds are committed.** The screenshot run gains `tabs` (the tabs carry each colour and the blue tab's menu is open) and `rename` (the rename dialog over the coloured tabs); their twelve shots, one for each theme and appearance, are committed under `screenshots/`. Grounds: `docs/design.md` *A pull request that changes the window carries its screenshots*.
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Night watch, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/night-watch-dark-tabs.png?raw=true)
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Night watch, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/night-watch-light-tabs.png?raw=true)
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Register, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/register-dark-tabs.png?raw=true)
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Register, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/register-light-tabs.png?raw=true)
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Desk, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/desk-dark-tabs.png?raw=true)
+
+![A pane's tabs in each colour, with the blue tab's menu open, in Desk, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/desk-light-tabs.png?raw=true)
+
+![The rename dialog of a pane, in Night watch, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/night-watch-dark-rename.png?raw=true)
+
+![The rename dialog of a pane, in Night watch, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/night-watch-light-rename.png?raw=true)
+
+![The rename dialog of a pane, in Register, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/register-dark-rename.png?raw=true)
+
+![The rename dialog of a pane, in Register, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/register-light-rename.png?raw=true)
+
+![The rename dialog of a pane, in Desk, dark](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/desk-dark-rename.png?raw=true)
+
+![The rename dialog of a pane, in Desk, light](../blob/0fa29bac5c9a23b6891e8714b8ad5a6e3d812ccd/seal/threads/1795636143-213-a-panes-tab-has-a-menu/screenshots/desk-light-rename.png?raw=true)
