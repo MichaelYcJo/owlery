@@ -2980,7 +2980,9 @@ export class Daemon {
    * (`turn-socket.ts#StageLine`), for the work item that is not archived
    * whose worktree the folder is, by its real path, and does nothing for a
    * folder that is no such work item's. A `stage` line is held only where its
-   * pane is listed, alive, in that work item, and replaces the stage held
+   * pane is listed, alive, in that work item, and not ended by the daemon at
+   * an archive or a removal (`endSessions`, which drops the stage a pane it
+   * ends told), and replaces the stage held
    * before, keeping that one's time where the kind and the round are the
    * same. A `stage-ended` line drops the work item's stage, whichever pane
    * told it, and reads the work item's records again first, so the lists do
