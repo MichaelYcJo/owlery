@@ -472,7 +472,7 @@ function namedRows(lines: readonly string[]): HTMLLIElement[] {
   });
 }
 
-// What each kept part of a dialog was last drawn from. A draw of the daemon's lists leaves a part alone while those values are the same, so a list keeps its scroll and the row under the pointer keeps its tooltip.
+// What each kept part of a dialog was last drawn from. A draw of the daemon's lists leaves a part alone while those values are the same, so a list keeps its scroll and the row under the pointer keeps its tooltip. A part is kept across a close and an opening too, so `opened` starts every list at its top.
 const drawnFrom = new WeakMap<HTMLElement, readonly unknown[]>();
 
 /** Draws a part of a dialog anew only where the values it is drawn from are not ./view's `sameValues` as those it was last drawn from. `build` reads no value that `from` does not hold, so no value the drawing reads is left out of the comparison. */
