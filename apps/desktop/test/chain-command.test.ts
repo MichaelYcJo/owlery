@@ -3,12 +3,14 @@
 // temporary repository, in the case's own process, and reads the commits
 // they made. No case starts an agent or reaches a remote.
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { createServer } from "node:net";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { BASE_RECORDED, ROUNDS_CEILING, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
 import { BASE_OPTION, NO_DEFAULT, USAGE, ceilingRefusesSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
 import { BROAD_GATE_NAME, MachineTurns } from "../src/daemon/machine-turns";
-import { TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
+import { inside } from "../src/daemon/hooks";
+import { type StageLine, TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
 import { routingAnswer } from "../src/daemon/decision-record";
 import { rulesText } from "../src/daemon/adapters/claude-roles";
 import { BACK_OPEN, SECTION_OPEN } from "../src/daemon/github";
@@ -57,6 +59,14 @@ async function findingTo(on: ReturnType<typeof commandOn>, last: number, options
     closesFixed(on.repo, round);
     await on.said(["fix-pass", "--by", "the session"]);
   }
+}
+
+/** A daemon's turn socket in the run folder of the command's repository, which gives each ask its turn and keeps each stage line the command tells it, in the order it read them; `count` waits until it has read that many. */
+async function stagesTold(on: ReturnType<typeof commandOn>): Promise<{ told: StageLine[]; count: (lines: number) => Promise<StageLine[]> }> {
+  const told: StageLine[] = [];
+  const server = await TurnServer.listen(join(on.runDir, TURN_SOCKET), turnGiver(new MachineTurns({ limit: 1 }), { cores: null, load: () => null }), (line) => told.push(line));
+  cleanups.push(() => server.close());
+  return { told, count: (lines) => until(() => (told.length >= lines ? told : undefined)) };
 }
 
 describe("the chain command", { timeout: 60_000 }, () => {
@@ -285,6 +295,70 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(existsSync(join(on.folder, "gate.ran"))).toBe(true);
     // The gate's turn ended with its command.
     expect(turns.queue()).toEqual([]);
+  });
+
+  it("tells the daemon on the turn socket the stage `owed` hands, with the pane's id, its kind and its round, and that the stage ended once `round`, `fix-pass` or `seal` recorded the role's answer or `owed` handed no stage; a refused call tells nothing (issue #223)", async () => {
+    const on = commandOn(cleanups, { env: { OWLERY_PANE_ID: "7" } });
+    const { told, count } = await stagesTold(on);
+    const stage = (kind: string, round: number): StageLine => ({ is: "stage", folder: on.repo, pane: 7, kind, round }) as StageLine;
+    const ended: StageLine = { is: "stage-ended", folder: on.repo };
+    const lines: StageLine[] = [];
+    /** Runs a subcommand, and waits until the daemon has read the line it tells, or none. */
+    const step = async (args: string[], line: StageLine | null): Promise<Owed> => {
+      const said = await on.said(args);
+      if (line !== null) lines.push(line);
+      await count(lines.length);
+      return said;
+    };
+    expect(await step(["owed"], ended)).toEqual({ step: "start" });
+    await step(["start"], null);
+    const first = await step(["owed"], stage("round", 1));
+    expect(await on.run(["round", on.answer("none.md", "I found nothing.\n")])).toMatchObject({ code: 1 });
+    await step(["round", on.answer("round-1.md", proofs(givenRound(read(first.prompt))))], ended);
+    const pass = await step(["owed"], stage("fix-pass", 1));
+    const fix = commitFix(on.repo);
+    for (const finding of givenFix(read(pass.prompt)).open) closeFinding(on.repo, recordOf(1), finding, `fixed ${fix}`);
+    await step(["fix-pass", "--by", "the session"], ended);
+    const second = await step(["owed"], stage("round", 2));
+    await step(["round", on.answer("round-2.md", proofs(givenRound(read(second.prompt))))], ended);
+    expect(await step(["owed"], ended)).toMatchObject({ step: "gate", round: 2 });
+    await step(["gate"], null);
+    const seal = await step(["owed"], stage("seal", 2));
+    const answer = on.answer("seal-1.md", sealSection(givenSeal(read(seal.prompt))));
+    expect(await on.run(["seal", answer, "--judged-by", "the session", "--model", "owl-large"])).toMatchObject({ code: 1 });
+    await step(["seal", answer, "--judged-by", "agent-sealer", "--model", "owl-large"], ended);
+    expect(await step(["owed"], ended)).toMatchObject({ step: "sealed" });
+    // A refused call told nothing, so the daemon read each line the calls told and no other.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(told).toEqual(lines);
+  });
+
+  it("tells no stage where `OWLERY_PANE_ID` holds no whole number, and still tells that the stage ended, and an `owed` the ceiling of rounds stops tells that it ended (issue #223)", async () => {
+    const on = commandOn(cleanups, { roundsCeiling: 1 });
+    const { told, count } = await stagesTold(on);
+    await on.said(["start"]);
+    for (const pane of [undefined, "", "seven", "-1", "1.5", "7 "]) expect(await on.said(["owed"], { OWLERY_PANE_ID: pane })).toMatchObject({ step: "round", round: 1 });
+    const first = await on.said(["owed"], { OWLERY_PANE_ID: "nine" });
+    await on.said(["round", on.answer("round-1.md", finds(givenRound(read(first.prompt))))]);
+    expect(await on.said(["owed"], { OWLERY_PANE_ID: "nine" })).toEqual({ step: "ceiling", round: 1, ceiling: 1, open: [1] });
+    const ended: StageLine = { is: "stage-ended", folder: on.repo };
+    await count(2);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(told).toEqual([ended, ended]);
+  });
+
+  it("prints what it prints with no daemon where the turn socket closes each connection at once, as a daemon of an earlier build closes a line that is no ask, and where the socket's path holds a file that is no socket (issue #223)", async () => {
+    const on = commandOn(cleanups, { env: { OWLERY_PANE_ID: "7" } });
+    await on.said(["start"]);
+    const alone = await on.run(["owed"]);
+    expect(alone).toMatchObject({ code: 0, err: "" });
+    const socketPath = join(on.runDir, TURN_SOCKET);
+    const earlier = createServer((socket) => socket.destroy());
+    await new Promise<void>((resolve) => inside(dirname(socketPath), () => earlier.listen(basename(socketPath), resolve)));
+    expect(await on.run(["owed"])).toEqual(alone);
+    await new Promise((resolve) => inside(dirname(socketPath), () => earlier.close(resolve)));
+    writeFileSync(socketPath, "");
+    expect(await on.run(["owed"])).toEqual(alone);
   });
 
   it("runs a broad gate that failed while the machine was over its load once more, alone, and commits the pass with the earlier run's sentence, refuses one that failed twice with a sentence that names both runs, and runs one that failed with the machine calm once (scenarios F, G and H)", async () => {

@@ -91,8 +91,8 @@ async function main(): Promise<void> {
     roleAdapter: claudeAdapter(process.env, { bundleDir: beside === undefined ? undefined : join(beside, "bundle"), rulesDir: join(runDir, "roles") }),
     onIdle: () => void stop(0),
   });
-  // Each command a session runs through the runner, and each gate a pane's chain runs, asks the daemon's keeper for its turn on this socket.
-  turns = await TurnServer.listen(join(runDir, TURN_SOCKET), daemon.turnGiver());
+  // Each command a session runs through the runner, and each gate a pane's chain runs, asks the daemon's keeper for its turn on this socket, and a pane's chain command tells the daemon there the stage its session runs and when that stage ended.
+  turns = await TurnServer.listen(join(runDir, TURN_SOCKET), daemon.turnGiver(), (line) => daemon.stageTold(line));
   hooks.onEvent(({ paneId, name, payload }) => {
     // Event and field names only: a hook's values carry the person's prompts.
     if (process.env.OWLERY_DEBUG_HOOKS === "1") console.log(`hook pane=${paneId} ${name} ${Object.keys(payload).sort().join(",")}`);

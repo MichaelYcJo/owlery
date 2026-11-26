@@ -327,6 +327,17 @@ export interface WorkItem {
   machineWait?: MachineWait | null;
   /** What the commit of a word of the person's waits for, where the work item's record in its worktree holds one, a reversal or an answer, that the record at the worktree's HEAD does not hold. Null where it holds none, and where the first try to commit it is due or under way. The daemon reads it from the tree and stores none, so a look keeps none, and it is no change of the work item since the look. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   wordOwed?: WordOwed | null;
+  /** The stage a pane's session runs, or null where none runs. The daemon stores none, so a look keeps none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  paneStage?: PaneStage | null;
+}
+
+/** A stage of the work item's chain that a pane's session runs through the chain command, as the daemon holds it: the kind and the round `owed` handed, from the daemon's time of its word, or the broad gate the command's `gate` waits for or runs, from its ask. */
+export interface PaneStage {
+  kind: "round" | "fix-pass" | "seal" | "gate";
+  /** The round a round is, the round a fix pass answers, the last round recorded before a seal or a broad gate. */
+  round: number;
+  /** The daemon's clock when the stage was first told, or when the gate asked for its turn. */
+  since: number;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,9 +23,11 @@ import { readSetup } from "../src/daemon/worktree-setup";
 import { COMMIT_END_GRACE_MS, createWorktree, readLoss } from "../src/daemon/worktrees";
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
-import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PaneStage, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
 import { branchedWorktree, branchOf, commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin, writeStore } from "./repositories";
-import { client as chainClient, commitSeal, ghStandIn, PULL_REQUEST_URL, roundRecord, standing } from "./chain-run";
+import { client as chainClient, commitAll, commitSeal, ghStandIn, NOW, PULL_REQUEST_URL, roundRecord, standing, write } from "./chain-run";
+import { routingText } from "../src/daemon/chain";
+import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { VIEW_FIELDS } from "../src/daemon/github";
 
 const TOKEN = "t".repeat(64);
@@ -34,7 +36,7 @@ const NO_STATE = { state: null, stateSince: null, stateText: null, stateTool: nu
 /** What a work item just made holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["accountId", "alive", "id", "kind", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "wordOwed", "worktree"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "paneStage", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "wordOwed", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -533,7 +535,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`. No branch was picked, so the creation made none.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, wordOwed: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, wordOwed: null, paneStage: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\nHEAD ${baseCommit}\ndetached\n`);
     expect([branches(), git(worktree, "branch", "--show-current").trim()]).toEqual([before, ""]);
@@ -589,8 +591,8 @@ describe("work items", () => {
       // The look keeps no account a pane was launched under, as it keeps none set on a work item.
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor what a heavy command or a word of the person's waits for, nor whether Owlery made its branch, and keeps the seal reading the lists carried.
-      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait" && key !== "wordOwed" && key !== "ownsBranch") : WORK_ITEM_FIELDS);
+      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor what a heavy command or a word of the person's waits for, nor whether Owlery made its branch, nor the stage a pane's session runs, and keeps the seal reading the lists carried.
+      expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait" && key !== "wordOwed" && key !== "ownsBranch" && key !== "paneStage") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
         expect(Object.keys(workItem.recorded!.verdict!).sort()).toEqual(["commit", "is", "says"]);
@@ -4769,6 +4771,130 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
   });
 });
 
+describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
+  /** A daemon whose clock the case moves, with work items of these titles and no pass of reads while the case runs, and a pane's command the case names before each start. */
+  async function stagesOn(titles: string[], options: { linked?: boolean } = {}) {
+    const clock = { now: NOW };
+    const pane = { command: "sleep 30" };
+    const stood = await standing(cleanups, titles, { ...options, commitPollMs: 60_000, now: () => clock.now, commandFor: () => ({ command: "/bin/sh", args: ["-c", pane.command], env: {} }) });
+    let requestId = 700;
+    /** Opens a shell pane in the work item with the command `pane.command` names, and gives its id. */
+    const opened = async (workItemId: number): Promise<number> => {
+      const asked = requestId++;
+      stood.c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: asked, workItemId });
+      return (await stood.c.message("started", (m) => m.requestId === asked)).session.id;
+    };
+    /** The work item's `paneStage` once the newest lists carry one that holds `where`. */
+    const carried = (workItemId: number, where: (stage: PaneStage | null) => boolean): Promise<PaneStage | null> =>
+      stood.c.until(() => {
+        const item = stood.c.workItem(workItemId);
+        const stage = item?.paneStage;
+        return item !== undefined && stage !== undefined && where(stage) ? { stage } : undefined;
+      }).then(({ stage }) => stage);
+    /** Has the daemon send the lists for a change of its own, and gives the work item as they carry it. */
+    const sent = async (workItemId: number): Promise<WorkItem | undefined> => {
+      const pinned = !(stood.c.workItem(workItemId)?.pinned ?? false);
+      expect((await stood.c.asked({ type: "setWorkItem", requestId: requestId++, id: workItemId, pinned })).type).toBe("done");
+      return stood.c.until(() => (stood.c.workItem(workItemId)?.pinned === pinned ? stood.c.workItem(workItemId) : undefined));
+    };
+    return { ...stood, clock, pane, opened, carried, sent };
+  }
+
+  it("holds the stage a live pane of the work item tells, from the daemon's time of the line, for a folder that names the worktree through its real path, keeps that time where the same kind and round is told again, replaces it with another stage, and sends it in the lists (issue #223)", async () => {
+    const on = await stagesOn(["Built work"], { linked: true });
+    const [item] = on.workItems as [(typeof on.workItems)[number]];
+    const folder = realpathSync(item.worktree);
+    expect(folder).not.toBe(item.worktree);
+    const pane = await on.opened(item.id);
+    expect(on.c.workItem(item.id)?.paneStage).toBeNull();
+    on.d.stageTold({ is: "stage", folder, pane, kind: "round", round: 1 });
+    expect(await on.carried(item.id, (stage) => stage !== null)).toEqual({ kind: "round", round: 1, since: NOW });
+    on.clock.now = NOW + 240_000;
+    on.d.stageTold({ is: "stage", folder, pane, kind: "round", round: 1 });
+    expect((await on.sent(item.id))?.paneStage).toEqual({ kind: "round", round: 1, since: NOW });
+    on.d.stageTold({ is: "stage", folder, pane, kind: "fix-pass", round: 1 });
+    expect(await on.carried(item.id, (stage) => stage?.kind === "fix-pass")).toEqual({ kind: "fix-pass", round: 1, since: NOW + 240_000 });
+    on.d.stageTold({ is: "stage", folder, pane, kind: "seal", round: 1 });
+    expect(await on.carried(item.id, (stage) => stage?.kind === "seal")).toEqual({ kind: "seal", round: 1, since: NOW + 240_000 });
+  });
+
+  it("holds no stage told with the id of another work item's pane, of a pane whose process exited or of no pane, and none for a folder that is no work item's worktree (issue #223)", async () => {
+    const on = await stagesOn(["Built work", "Other work"]);
+    const [a, b] = on.workItems as [(typeof on.workItems)[number], (typeof on.workItems)[number]];
+    const other = await on.opened(b.id);
+    on.pane.command = "exit 0";
+    const exited = await on.opened(a.id);
+    await on.c.message("exit", (m) => m.id === exited);
+    for (const pane of [other, exited, 999]) on.d.stageTold({ is: "stage", folder: a.worktree, pane, kind: "round", round: 1 });
+    on.d.stageTold({ is: "stage", folder: on.made.base, pane: other, kind: "round", round: 1 });
+    on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "round", round: 2 });
+    await on.carried(b.id, (stage) => stage !== null);
+    expect([a, b].map(({ id }) => on.c.workItem(id)?.paneStage)).toEqual([null, { kind: "round", round: 2, since: NOW }]);
+    expect((await on.sent(a.id))?.paneStage).toBeNull();
+  });
+
+  it("drops the stage at a `stage-ended` line, and sends in the same lists the work item's records read again (issue #223)", async () => {
+    const on = await stagesOn(["Built work"]);
+    const [item] = on.workItems as [(typeof on.workItems)[number]];
+    const pane = await on.opened(item.id);
+    on.d.stageTold({ is: "stage", folder: item.worktree, pane, kind: "round", round: 1 });
+    await on.carried(item.id, (stage) => stage !== null);
+    // The proofer's answer, as `round` commits it.
+    write(item.worktree, "seal/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
+    write(item.worktree, "seal/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    commitAll(item.worktree, "chore: record review round 1");
+    expect(on.c.workItem(item.id)?.recorded?.rounds).toBe(0);
+    on.d.stageTold({ is: "stage-ended", folder: item.worktree });
+    await on.carried(item.id, (stage) => stage === null);
+    expect(on.c.workItem(item.id)?.recorded?.rounds).toBe(1);
+  });
+
+  it("drops the stage a pane told once the pane is closed, and once its process exits (issue #223)", async () => {
+    const on = await stagesOn(["Built work"]);
+    const [item] = on.workItems as [(typeof on.workItems)[number]];
+    const closed = await on.opened(item.id);
+    on.d.stageTold({ is: "stage", folder: item.worktree, pane: closed, kind: "round", round: 1 });
+    await on.carried(item.id, (stage) => stage !== null);
+    on.c.send({ type: "close", id: closed });
+    await on.carried(item.id, (stage) => stage === null);
+
+    const go = join(on.made.base, "go");
+    on.pane.command = `while [ ! -e '${go}' ]; do sleep 0.05; done`;
+    const ending = await on.opened(item.id);
+    on.d.stageTold({ is: "stage", folder: item.worktree, pane: ending, kind: "fix-pass", round: 1 });
+    await on.carried(item.id, (stage) => stage !== null);
+    writeFileSync(go, "");
+    await on.c.message("exit", (m) => m.id === ending);
+    expect(await on.carried(item.id, (stage) => stage === null)).toBeNull();
+  });
+
+  it("carries a broad gate that asks for its turn in the worktree as a stage of the kind `gate` of the rounds recorded, from its ask's time, while it waits and while it runs, over the stage the daemon holds, which stands again once the gate's turn ends (issue #223)", async () => {
+    const on = await stagesOn(["Built work"]);
+    const [item] = on.workItems as [(typeof on.workItems)[number]];
+    write(item.worktree, "seal/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
+    write(item.worktree, "seal/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    commitAll(item.worktree, "chore: record review round 1");
+    const pane = await on.opened(item.id);
+    on.d.stageTold({ is: "stage-ended", folder: item.worktree });
+    await on.c.until(() => (on.c.workItem(item.id)?.recorded?.rounds === 1 ? true : undefined));
+    on.d.stageTold({ is: "stage", folder: item.worktree, pane, kind: "seal", round: 1 });
+    await on.carried(item.id, (stage) => stage !== null);
+    const giver = on.d.turnGiver();
+    const held = giver.ask({ folder: on.made.base, name: "held", place: "build" });
+    on.clock.now = NOW + 5_000;
+    const gate = giver.ask({ folder: item.worktree, name: BROAD_GATE_NAME, place: "gate" });
+    expect(gate.waits).toBe(true);
+    const asked = { kind: "gate", round: 1, since: NOW + 5_000 };
+    expect(await on.carried(item.id, (stage) => stage?.kind === "gate")).toEqual(asked);
+    on.clock.now = NOW + 9_000;
+    (await held.turn)?.end();
+    const turn = await gate.turn;
+    expect((await on.sent(item.id))?.paneStage).toEqual(asked);
+    turn?.end();
+    expect(await on.carried(item.id, (stage) => stage?.kind === "seal")).toEqual({ kind: "seal", round: 1, since: NOW });
+  });
+});
+
 describe("the records of the back of a seal", { timeout: 60_000 }, () => {
   const NAME = "1795400730-sealed-work";
   const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
@@ -5462,8 +5588,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command, without what a word of the person's waits for and without whether Owlery made its branch, which the look does not keep, and with its seal reading. */
-  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, wordOwed: _wordOwed, ownsBranch: _ownsBranch, ...kept }: WorkItem): WorkItem => kept;
+  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command, without what a word of the person's waits for, without whether Owlery made its branch and without the stage a pane's session runs, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, wordOwed: _wordOwed, ownsBranch: _ownsBranch, paneStage: _paneStage, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
