@@ -5004,8 +5004,8 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain and without the wait of a heavy command, which the look does not keep, and with its seal reading. */
-  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, ...kept }: WorkItem): WorkItem => kept;
+  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command and without what a word of the person's waits for, which the look does not keep, and with its seal reading. */
+  const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, wordOwed: _wordOwed, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
     const { url } = await daemon();
