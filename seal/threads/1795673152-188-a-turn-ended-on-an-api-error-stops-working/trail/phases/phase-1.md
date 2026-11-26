@@ -11,7 +11,7 @@
 - `hooks.test.ts`, "adds one command hook for every event": `expected [...] to include 'StopFailure'`. The matcher `*` assertion added to that case is green before and after, and pins what the scenario table names.
 - `daemon.test.ts`, "maps each Claude Code hook": `expected undefined to be 'turn-failed'`.
 - `daemon.test.ts`, "lists a Claude Code session whose turn ended on an API error as waiting ...": timed out at the inbox, the session staying `working`.
-- `daemon.test.ts`, "reads no session log of a pane whose turn ended on an API error ...": the state was `working` with no text, and the log's watch was still on.
+- `daemon.test.ts`, "reads no session log of a pane whose turn ended on an API error ...": against the unchanged source it failed on the state, which was `working` with no text. In its first form its append came before the watch could report it, so it passed with the watch left on at a failed turn. Round 1 found that, and the case now waits 60 ms after the prompt, as the case of an interrupted reply does. With the watch left on at a failed turn it fails at `interruptions(c)`.
 
 The two lists of every event in `agent-state.test.ts` (the interrupted-state case and the `asks` case) gain `"turn-failed"`. Both pass against the old source as well, because the old function returned `undefined` for both sides of the first and `asks` returns `waiting` first in the second, so they pin nothing of the new arm; the case "is waiting after a turn that ended on an error" does.
 

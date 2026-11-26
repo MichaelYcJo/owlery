@@ -2894,6 +2894,8 @@ describe("the inbox", () => {
     const log = sessionLog(cleanups);
     writeFileSync(log, lines(0, SECOND_PROMPT));
     d.agentEvent(session.id, "UserPromptSubmit", { transcript_path: log });
+    // The watch is given time to begin, as in the case of an interrupted reply, so an entry it read would be told.
+    await pause(60);
     d.agentEvent(session.id, "StopFailure", { transcript_path: log, last_assistant_message: "API Error: Rate limit reached" });
     appendFileSync(log, lines(TOOL_ESC, TOOL_ESC + 1));
     await pause(300);
