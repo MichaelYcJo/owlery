@@ -54,4 +54,4 @@ No migration, variable, dependency or version move. The orchestrator, which alon
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | The pull request's title takes the prefix `docs:`. | The work changes the policy documents and the README alone; no code, test or workflow changes. | the plugin's `skills/commit-pr-convention/SKILL.md` |
