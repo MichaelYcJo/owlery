@@ -25,6 +25,11 @@ Why it matters: the fourth row of `frame/plan.md` *Judgments of the run* grounds
 | 2026-11-26 | This item merges after #215. Its branch merged the release at `783e2331` (`7951da31`) while #224, #217 and #215 waited for their tails, to take its conflicts early, and merges the release again once #215 has merged. | They share the sidebar's head (`frame/plan.md` *Overlap with the release*, the row of #215); the release tail runs one item at a time. | the run's rule of one tail at a time |
 ```
 
+```seal
+verdict: fixed 53d8f62d
+answer: The orchestrator replaced the row with the round's paste-ready row, which cites *Overlap with the release*, the row of #215. The change is to the work item's records alone.
+```
+
 ### 2. The frame's undated sections cite line numbers of `8c7eb798`, and the target contradicts each of them
 
 ```seal
@@ -58,6 +63,11 @@ A coordinate in this table is the line at `8c7eb798`, the tree *Technical contex
 
 In `frame/plan.md` *Overlap with the release*, as the last sentence of the paragraph that opens "Read:":
 A line number in the table below is a line at `8c7eb798`, or a line of a named branch's hunks as `git diff -U0` printed them then.
+```
+
+```seal
+verdict: fixed 53d8f62d
+answer: The orchestrator put the round's four dating sentences at the heads of the four sections, as the paste-ready block places them. The change is to the work item's records alone.
 ```
 
 ## Confirmations
