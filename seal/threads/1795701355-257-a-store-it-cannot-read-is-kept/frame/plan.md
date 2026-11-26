@@ -58,4 +58,5 @@ Each item the spawn names was read on its branch at `origin` after `git fetch` o
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-27 | Q1 and Q2 of `frame/questions.md` are built on their defaults: the notice stands while the daemon that kept the file runs, and no screenshot is taken (the notice uses the status line's existing form). | The owner sleeps under the agentic run; each question's default is stated with its grounds in `frame/questions.md`. | `frame/questions.md` Q1, Q2 |
+| 2026-11-27 | Round 1's three findings are routed to a fix pass: the counts of a refused file are taken up where it holds them (a unit the frame names first), the empty store is written right after a rename succeeds, and a built-app case reads the notice in the status line. | Finding 1 would let a new work item's id delete a kept work item's gate output and record times; finding 2 would let the next start read `work-items.json` and say nothing of the kept file; finding 3 leaves the window's two lines in no case. | `trail/rounds/round-1.md` |
