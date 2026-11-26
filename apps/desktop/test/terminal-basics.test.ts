@@ -18,6 +18,7 @@
 // address or the path it was handed. No case reads or writes the system's
 // clipboard: the app starts in the background, where it keeps a clipboard
 // of its own.
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -1561,6 +1562,29 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#find-previous");
     await app.until(`${FIND_COUNT} === "3 of 3"`, 'the oldest match at "Previous match", after the newest');
     expect(await frontMatch(0)).toBe(0);
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("counts a match the pane printed after the search once a step lands on it, while the pane keeps printing (scenario A2)", async () => {
+    writeFileSync(linesFile, "owlprinted one\nbetween\nowlprinted two\n");
+    const pane = await openPane("Shell");
+    // The pane's process prints only the lines above, so the case prints into its terminal itself.
+    const terminal = `/dev/${execFileSync("ps", ["-o", "tty=", "-p", String(await pidOf(pane))], { encoding: "utf8" }).trim()}`;
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    await findText("owlprinted");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "the newer of two matches");
+    // A match printed after the search, then lines with none more often than the add-on's wait of 200 ms, so the add-on does not count again on its own.
+    writeFileSync(terminal, "owlprinted three\r\n");
+    const printing = setInterval(() => writeFileSync(terminal, "-\r\n"), 50);
+    try {
+      // The lines reach the terminal through the daemon, so the step waits for them to be drawn. The count stays as it was meanwhile.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      expect(await app.evaluate<string>(FIND_COUNT)).toBe("1 of 2");
+      await enter(SHIFT);
+      await app.until(`${FIND_COUNT} === "1 of 3"`, "the match printed after the search, counted with the others", 5_000);
+    } finally {
+      clearInterval(printing);
+    }
     await closeThePane();
   });
 

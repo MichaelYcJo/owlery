@@ -98,6 +98,8 @@ interface Screen {
   turns: ScreenTurns;
   /** The search add-on of the terminal, loaded at the screen's first find (`searchOf`). A screen nobody searched holds none. */
   search?: SearchAddon;
+  /** What the add-on last said of its results on this screen (`searchOf`). */
+  results?: { resultIndex: number; resultCount: number };
 }
 
 // The size a pane's process starts at where no terminal is on screen to measure: xterm's own default.
@@ -582,6 +584,7 @@ function searchOf(screen: Screen): SearchAddon {
   if (screen.search) return screen.search;
   const search = new SearchAddon({ highlightLimit: FIND_LIMIT + 1 });
   search.onDidChangeResults((results) => {
+    screen.results = results;
     if (findScreen !== screen) return;
     findCountElement.textContent = findCount(results);
     findNextButton.disabled = findPreviousButton.disabled = results.resultCount === 0;
@@ -634,6 +637,12 @@ function find(step: "fresh" | "older" | "newer"): void {
   // The add-on's own next is toward the end of the output, which is this bar's previous.
   if (step === "newer") search.findNext(query.term, findOptions(query));
   else search.findPrevious(query.term, findOptions(query));
+  // The add-on counts its matches again only where the term or a choice changed, or 200 ms after the pane last printed, so a step can land on a match printed since, outside what it counted. The match in front is then searched for again with the term dropped, which finds that same match, the one the terminal holds selected, and counts every match afresh in the same task, so the page never draws the stale count.
+  const counted = screen.results;
+  if (step !== "fresh" && counted !== undefined && counted.resultIndex < 0 && counted.resultCount > 0 && counted.resultCount <= FIND_LIMIT) {
+    search.clearDecorations();
+    search.findPrevious(query.term, findOptions(query));
+  }
   findSelected = screen.term.getSelectionPosition();
 }
 

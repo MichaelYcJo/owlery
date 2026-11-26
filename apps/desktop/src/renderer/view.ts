@@ -2050,7 +2050,10 @@ export function findQuery(bar: FindBar): { term: string; caseSensitive: boolean;
  * newest match, the one nearest the end of the output, which is 1: "3 of
  * 17". Where it found none it says "No match". The add-on counts one past
  * `FIND_LIMIT` at most, and names no match in front where that match is not
- * among those it counted, and then the bar says "More than 1,000 matches".
+ * among those it counted, past the limit or printed since it last counted.
+ * Past the limit the bar says "More than 1,000 matches". A match printed
+ * since is counted again before the page draws (./work-item-view, `find`),
+ * so the bar does not show these words for it.
  */
 export function findCount(results: { resultIndex: number; resultCount: number }): string {
   if (results.resultCount === 0) return "No match";
