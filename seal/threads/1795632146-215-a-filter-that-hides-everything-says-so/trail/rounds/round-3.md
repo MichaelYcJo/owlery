@@ -56,6 +56,11 @@ to
 
 Neither edition gains a heading or a table row, so the broad gate's counts stay equal.
 
+```seal
+verdict: fixed dffc5cef
+answer: The paste-ready fix was read against `frame/design.md` *Scope* item 9, which at `013f9624` says the view chooses "Decided without asking" and types "history", and against `screenshots.test.ts#NARROWED_QUERY` and `show.narrowed`, which type that word. It writes no count and no universal, so it was applied as written to `screenshots.ts:10`, `docs/design.md:512` and `docs/design.ko.md:512`. It adds no unit. Both editions still hold the same number of heading lines and table-row lines (`grep -c '^#'` and `grep -c '^|'` each print the same for both). `node scripts/test-in-electron.mjs test/screenshots.test.ts test/view.test.ts` in `apps/desktop` passed at `dffc5cef`: 2 files, 590 cases passed and 1 skipped. Re-run after the fix commit, the evidence's `git grep -n -F -e 'a filter leaves no repository' -e '필터가 저장소를 하나도 남기지 않은' -e "chosen in the sidebar's filter, which leaves" HEAD -- apps docs` prints two lines. `index.html:268` and `sidebar.ts:129` say "a search or a filter leaves no repository". That is the sidebar's general rule, and it stays true, as the finding says. A wider search on "filter leaves", "filter alone" and "필터가" over `docs`, `apps/desktop/test` and this work item's frame and top-level records found no other description of the view. That search is a sample.
+```
+
 ## Confirmations
 
 What matched: *Figure against its text*. The six `*-narrowed.png` files at `f6520c10` were opened one by one. Each shows "history" in the search field with "0 of 7", the filter's icon inside its edge next to the bell, and the sentence `No work item under "Decided without asking" matches "history", so the sidebar does not list its repository.` Under the sentence stands "Show every work item", and no repository row is listed. That is the sentence `NARROWED_SAYS` pins (`screenshots.test.ts:463`) and the one-repository form *Data & interfaces* gives. The inbox's own filter reads "Decided without asking" and its list says "No work item matches.", since the sidebar and the list share one narrowing. (read)
