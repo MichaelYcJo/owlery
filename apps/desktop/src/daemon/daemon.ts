@@ -98,6 +98,7 @@ import { verdictOn } from "./role-grants";
 import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
+import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
@@ -993,7 +994,7 @@ export class Daemon {
     // A client that connects reads the load and the free disk as they are now.
     this.readMachineNow();
     const machine = this.machineNow();
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}) });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -1816,8 +1817,12 @@ export class Daemon {
         if (session && typeof message.cols === "number" && typeof message.rows === "number") session.size = { cols: message.cols, rows: message.rows };
         return;
       }
-      default:
+      default: {
+        // A window of a later build sends requests this daemon does not know. It is refused at once, through the path every refusal takes, so nothing in the window waits for it, and `unknown` lets the window say that a restart of the daemon brings the request in. A message of such a type with no numeric `requestId` names nothing to answer, and is dropped.
+        const { type, requestId } = message as { type?: unknown; requestId?: unknown };
+        if (typeof requestId === "number") this.send(socket, { type: "error", requestId, unknown: true, message: `This daemon does not know the request "${String(type)}".` });
         return;
+      }
     }
   }
 
@@ -2922,6 +2927,13 @@ export class Daemon {
 
   private headlessList(): HeadlessInfo[] {
     return [...this.headless.values()].map((s) => s.info);
+  }
+
+  /** What the line of the daemon's stop counts (./stop-record): the panes alive, and the agents working, a pane alive whose state is `working` and a headless session that is. A stop reads it before it closes the daemon, which ends the panes. */
+  stopCounts(): StopCounts {
+    const panes = [...this.sessions.values()].filter((session) => session.info.alive);
+    const headless = [...this.headless.values()].filter((session) => session.info.state === "working");
+    return { panesAlive: panes.length, agentsWorking: panes.filter((session) => session.info.state === "working").length + headless.length };
   }
 
   /** The work items that are not archived, as an `inbox` and a look list them. */

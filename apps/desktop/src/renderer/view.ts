@@ -4,7 +4,7 @@
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
@@ -941,6 +941,82 @@ export function repoNameOf(workItem: WorkItem): string {
  */
 export function daemonNotice(otherBuild: boolean): string {
   return otherBuild ? `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.` : "";
+}
+
+/** What the window shows where a request's refusal goes, in place of the daemon's sentence, where the daemon does not know the request. The daemon's own sentence names the request's type and no entry of a menu, since the phone speaks the same protocol. */
+export const UNKNOWN_REQUEST_SAYS = `Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`;
+/** What the window shows where a request's refusal goes, once the wait of `answerWaits` ended a request the daemon has not answered. */
+export const NOT_ANSWERED_SAYS = `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.`;
+/** How long the window waits for the answer to a request, against a daemon whose `ready` holds no `answersUnknown`. It is the time the daemon gives a silent pane before the window says it waits (src/daemon/daemon.ts, `SILENT_START_MS`). */
+export const ANSWER_WAIT_MS = 10_000;
+
+/** The sentence the window shows for a refusal: its own, which names "Restart Daemon…", where the daemon said it does not know the request (`unknown`), and the daemon's otherwise. */
+export function refusalSays(refusal: { message: string; unknown?: true }): string {
+  return refusal.unknown === true ? UNKNOWN_REQUEST_SAYS : refusal.message;
+}
+
+/** What the waits of `answerWaits` do in the window around them. */
+export interface AnswerWaitsWorld {
+  /** Runs `run` after `ms`, and gives what stops it. */
+  after(ms: number, run: () => void): () => void;
+  /** Takes the refusal a wait that ended made, which the window hands on as the daemon's own (src/renderer/renderer.ts, `onMessage`). */
+  refuse(error: Extract<ServerMessage, { type: "error" }>): void;
+}
+
+/** The waits on the daemon's answers, told of each request the window sends and of each message the daemon sends. */
+export interface AnswerWaits {
+  /** Takes the daemon's `ready`. Against one that holds no `answersUnknown`, each request sent from then on but a creation has a wait. */
+  ready(message: { answersUnknown?: true }): void;
+  /** Takes a message the window sent. A request is one that carries a numeric `requestId`. */
+  sent(message: ClientMessage): void;
+  /** Takes a message of the daemon. One that names a request with a wait ends that wait. */
+  answered(message: ServerMessage): void;
+}
+
+/**
+ * The waits that end a request a daemon of an earlier build leaves open. A
+ * daemon whose `ready` holds `answersUnknown` answers each request, a
+ * refusal among the answers, so against it no request has a wait. Against
+ * one whose `ready` holds none, each request but a creation has a wait of
+ * `ANSWER_WAIT_MS`: an answer that names the request before it is over
+ * ends it, and otherwise it ends the request as a refusal that says
+ * `NOT_ANSWERED_SAYS`, once. An answer that comes after it is the window's
+ * to take as an answer to a request it no longer waits for. A creation
+ * (`createWorkItem`) has no wait: every daemon from 0.0.2 on knows it and
+ * answers it by its id, after a fetch of the base and a copy of the included
+ * paths that can outlast the wait, and a refusal before that answer would
+ * turn the form's Create button back on while the daemon still creates, so
+ * a second press would make a second work item. Nothing is armed before
+ * the daemon's `ready`.
+ */
+export function answerWaits(world: AnswerWaitsWorld): AnswerWaits {
+  let armed = false;
+  /** What stops each wait under way, by its request's id. */
+  const open = new Map<number, () => void>();
+  const requestOf = (message: object): number | undefined => {
+    const { requestId } = message as { requestId?: unknown };
+    return typeof requestId === "number" ? requestId : undefined;
+  };
+  return {
+    ready(message) {
+      armed = message.answersUnknown !== true;
+    },
+    sent(message) {
+      const requestId = requestOf(message);
+      if (!armed || requestId === undefined || message.type === "createWorkItem" || open.has(requestId)) return;
+      const stop = world.after(ANSWER_WAIT_MS, () => {
+        if (!open.delete(requestId)) return;
+        world.refuse({ type: "error", requestId, message: NOT_ANSWERED_SAYS });
+      });
+      open.set(requestId, stop);
+    },
+    answered(message) {
+      const requestId = requestOf(message);
+      if (requestId === undefined) return;
+      open.get(requestId)?.();
+      open.delete(requestId);
+    },
+  };
 }
 
 /**
@@ -3340,7 +3416,7 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
  */
 export type BaseAnswer = "awaited" | BaseFetch | { error: string };
 
-/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of an earlier build never answers. */
+/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of a build before the fetch never answers, and against it `answerWaits` ends the request first, after `ANSWER_WAIT_MS`. */
 export const BASE_ANSWER_MS = BASE_FETCH_MS + 2_000;
 
 /** The name the form keeps the fetch of a base under: the repository field's text without the spaces around it, and the base. No branch's name holds a line break. */

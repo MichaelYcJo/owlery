@@ -5,7 +5,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { ensureDaemon, otherBuild, stopDaemon } from "../src/main/daemon-client";
+import { buildOf, readDiscovery } from "../src/daemon/discovery";
+import { daemonForLoad, ensureDaemon, otherBuild, runsNothing, stopDaemon } from "../src/main/daemon-client";
 import { alive } from "./built-app";
 
 const dirs: string[] = [];
@@ -16,8 +17,8 @@ function scratch(): string {
   return dir;
 }
 /** Writes a script that stands in for the daemon's, and returns its path. */
-function script(dir: string, body: string): string {
-  const file = join(dir, "daemon.cjs");
+function script(dir: string, body: string, name = "daemon.cjs"): string {
+  const file = join(dir, name);
   writeFileSync(file, body);
   return file;
 }
@@ -127,27 +128,32 @@ async function started(dir: string, file: string, wrote: string): Promise<number
  * A script that stands in for the daemon: it answers `ready` to a hello that
  * carries `token` and closes the socket of any other, and writes its port
  * into the file `port` of its run folder once it listens. `atSigterm` is
- * what it does at SIGTERM, and without it the signal ends it.
+ * what it does at SIGTERM, and without it the signal ends it. `lists` are
+ * the fields its `ready` carries beside the type.
  */
-function standIn(dir: string, token: string, atSigterm?: string): string {
+function standIn(dir: string, token: string, atSigterm?: string, lists: object = {}): string {
   const ws = createRequire(import.meta.url).resolve("ws");
   return script(
     dir,
     `const { WebSocketServer } = require(${JSON.stringify(ws)});
-     const { writeFileSync } = require("node:fs");
+     const { renameSync, writeFileSync } = require("node:fs");
      const { join } = require("node:path");
      ${atSigterm === undefined ? "" : `process.on("SIGTERM", () => { ${atSigterm} });`}
-     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => writeFileSync(join(process.env.OWLERY_RUN_DIR, "port"), String(server.address().port)));
+     // Written whole, by a rename: the case reads the file as soon as it stands.
+     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => {
+       writeFileSync(join(process.env.OWLERY_RUN_DIR, "port.part"), String(server.address().port));
+       renameSync(join(process.env.OWLERY_RUN_DIR, "port.part"), join(process.env.OWLERY_RUN_DIR, "port"));
+     });
      server.on("connection", (socket) => socket.on("message", (raw) => {
-       if (JSON.parse(String(raw)).token === ${JSON.stringify(token)}) socket.send(JSON.stringify({ type: "ready" }));
+       if (JSON.parse(String(raw)).token === ${JSON.stringify(token)}) socket.send(JSON.stringify({ ...${JSON.stringify(lists)}, type: "ready" }));
        else socket.close();
      }));`,
   );
 }
 
 /** Starts a stand-in daemon in `dir`, and gives its process id and its port. It writes no `daemon.json`: the case does. */
-async function standingIn(dir: string, token: string, atSigterm?: string): Promise<{ pid: number; port: number }> {
-  const pid = await started(dir, standIn(dir, token, atSigterm), "port");
+async function standingIn(dir: string, token: string, atSigterm?: string, lists?: object): Promise<{ pid: number; port: number }> {
+  const pid = await started(dir, standIn(dir, token, atSigterm, lists), "port");
   return { pid, port: Number(readFileSync(join(dir, "port"), "utf8")) };
 }
 
@@ -163,7 +169,7 @@ function deadPort(): Promise<number> {
   });
 }
 
-function names(dir: string, discovery: { port: number; token: string; pid: number }): void {
+function names(dir: string, discovery: { port: number; token: string; pid: number; build?: string }): void {
   writeFileSync(join(dir, "daemon.json"), JSON.stringify(discovery));
 }
 
@@ -228,5 +234,146 @@ describe("stopDaemon", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(400);
     expect(alive(pid)).toBe(true);
     expect(readFileSync(join(dir, "signals"), "utf8")).toBe("t");
+  }, WAIT);
+});
+
+/** What a daemon that runs nothing lists in its `ready`: a pane that ended, which keeps its last state, headless sessions that ended, and chains that do not run. */
+const IDLE = {
+  sessions: [{ id: 1, alive: false, state: "working" }],
+  headless: [
+    { id: 1, state: "finished" },
+    { id: 2, state: "failed" },
+  ],
+  workItems: [
+    { id: 1, chain: null },
+    { id: 2, chain: { state: "stopped" } },
+    { id: 3, chain: { state: "parked" } },
+    { id: 4, chain: { state: "rested" } },
+  ],
+};
+
+/** What a daemon lists that runs one thing beside what `IDLE` lists, by the thing it runs. */
+const RUNS: [string, object][] = [
+  ["a live pane", { ...IDLE, sessions: [...IDLE.sessions, { id: 2, alive: true, state: null }] }],
+  ["a working headless session", { ...IDLE, headless: [...IDLE.headless, { id: 3, state: "working" }] }],
+  ["a queued headless session", { ...IDLE, headless: [...IDLE.headless, { id: 3, state: "queued" }] }],
+  ["a running chain", { ...IDLE, workItems: [...IDLE.workItems, { id: 5, chain: { state: "running" } }] }],
+];
+
+describe("runsNothing", () => {
+  it("is true of lists that hold no live pane, no headless session but one that finished or failed, and no running chain, and of empty lists", () => {
+    expect(runsNothing({ type: "ready", ...IDLE })).toBe(true);
+    expect(runsNothing({ type: "ready", sessions: [], headless: [], workItems: [] })).toBe(true);
+  });
+
+  it.each(RUNS)("is false of lists that hold %s", (_what, lists) => {
+    expect(runsNothing({ type: "ready", ...lists })).toBe(false);
+  });
+
+  it("is false where one of the three lists is missing or no list, as a daemon of a build before the repositories sends them", () => {
+    expect(runsNothing({ type: "ready" })).toBe(false);
+    expect(runsNothing({ type: "ready", ...IDLE, sessions: undefined })).toBe(false);
+    expect(runsNothing({ type: "ready", ...IDLE, headless: {} })).toBe(false);
+    expect(runsNothing({ type: "ready", ...IDLE, workItems: "none" })).toBe(false);
+  });
+
+  it("counts an entry that is not of the shape it reads as one that runs", () => {
+    for (const sessions of [[{ id: 1 }], [{ id: 1, alive: "no" }], [null]]) expect(runsNothing({ type: "ready", ...IDLE, sessions }), JSON.stringify(sessions)).toBe(false);
+    for (const headless of [[{ id: 1 }], [7]]) expect(runsNothing({ type: "ready", ...IDLE, headless }), JSON.stringify(headless)).toBe(false);
+    for (const workItems of [[{ id: 1 }], [{ id: 1, chain: {} }], [{ id: 1, chain: "stopped" }], ["work"]]) expect(runsNothing({ type: "ready", ...IDLE, workItems }), JSON.stringify(workItems)).toBe(false);
+  });
+});
+
+/**
+ * The script the app would start, in a stand-in: it notes that it started,
+ * writes the run folder's `daemon.json` with its own build, the SHA-256 of
+ * its bytes, once it listens, and answers any hello with lists that hold
+ * nothing.
+ */
+function thisBuild(dir: string): string {
+  const ws = createRequire(import.meta.url).resolve("ws");
+  return script(
+    dir,
+    `const { WebSocketServer } = require(${JSON.stringify(ws)});
+     const { createHash } = require("node:crypto");
+     const { readFileSync, writeFileSync } = require("node:fs");
+     const { join } = require("node:path");
+     writeFileSync(join(process.env.OWLERY_RUN_DIR, "this-build-started"), "");
+     const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => {
+       const build = createHash("sha256").update(readFileSync(__filename)).digest("hex");
+       writeFileSync(join(process.env.OWLERY_RUN_DIR, "daemon.json"), JSON.stringify({ port: server.address().port, token: "this", pid: process.pid, build }));
+     });
+     server.on("connection", (socket) => socket.on("message", () => socket.send(JSON.stringify({ type: "ready", sessions: [], headless: [], workItems: [] }))));`,
+    "this-build.cjs",
+  );
+}
+
+/** What a stand-in that stays at SIGTERM does: it notes the signal in the file `signals` of its run folder. */
+const NOTES_SIGTERM = `require("node:fs").appendFileSync(require("node:path").join(process.env.OWLERY_RUN_DIR, "signals"), "t");`;
+
+describe("daemonForLoad", () => {
+  it("replaces a daemon of another build whose lists show it runs nothing: it ends it, starts the script, and gives the daemon it started, which is of the script's build", async () => {
+    const dir = scratch();
+    const earlier = await standingIn(dir, "earlier", undefined, IDLE);
+    names(dir, { port: earlier.port, token: "earlier", pid: earlier.pid });
+    const app = thisBuild(dir);
+    const found = await daemonForLoad(dir, app, new Set());
+    pids.push(found.pid);
+    expect(alive(earlier.pid)).toBe(false);
+    expect(found.pid).not.toBe(earlier.pid);
+    expect(found.token).toBe("this");
+    expect(otherBuild(found, app)).toBe(false);
+    expect(readDiscovery(dir)).toEqual(found);
+  }, WAIT);
+
+  it("keeps a daemon of the script's own build that runs nothing, signals it nothing, starts nothing, and gives it", async () => {
+    const dir = scratch();
+    const app = thisBuild(dir);
+    const own = await standingIn(dir, "own", NOTES_SIGTERM, IDLE);
+    names(dir, { port: own.port, token: "own", pid: own.pid, build: buildOf(app) });
+    expect(await daemonForLoad(dir, app, new Set())).toEqual({ port: own.port, token: "own", pid: own.pid, build: buildOf(app) });
+    expect(alive(own.pid)).toBe(true);
+    expect(existsSync(join(dir, "signals"))).toBe(false);
+    expect(existsSync(join(dir, "this-build-started"))).toBe(false);
+  }, WAIT);
+
+  it.each([...RUNS, ["no lists", {}] as [string, object]])("keeps a daemon of another build whose ready holds %s, signals it nothing, starts nothing, and gives it", async (_what, lists) => {
+    const dir = scratch();
+    const kept = await standingIn(dir, "kept", NOTES_SIGTERM, lists);
+    names(dir, { port: kept.port, token: "kept", pid: kept.pid });
+    expect(await daemonForLoad(dir, thisBuild(dir), new Set())).toEqual({ port: kept.port, token: "kept", pid: kept.pid });
+    expect(alive(kept.pid)).toBe(true);
+    expect(existsSync(join(dir, "signals"))).toBe(false);
+    expect(existsSync(join(dir, "this-build-started"))).toBe(false);
+  }, WAIT);
+
+  it.each([
+    ["of one build", "0a1b"],
+    ["whose daemon.json holds no build", undefined],
+  ])("replaces a daemon %s once: a second daemon of that build that runs nothing is kept and signalled nothing, as another app of that build on the run folder would leave it", async (_what, build) => {
+    const dir = scratch();
+    const replaced = new Set<string | undefined>();
+    const first = await standingIn(dir, "first", undefined, IDLE);
+    names(dir, { port: first.port, token: "first", pid: first.pid, build });
+    pids.push((await daemonForLoad(dir, thisBuild(dir), replaced)).pid);
+    expect(alive(first.pid)).toBe(false);
+
+    // The second runs in a folder of its own, so its files stand apart from the first's.
+    const own = scratch();
+    const second = await standingIn(own, "second", NOTES_SIGTERM, IDLE);
+    names(dir, { port: second.port, token: "second", pid: second.pid, build });
+    expect(await daemonForLoad(dir, thisBuild(dir), replaced)).toEqual({ port: second.port, token: "second", pid: second.pid, ...(build === undefined ? {} : { build }) });
+    expect(alive(second.pid)).toBe(true);
+    expect(existsSync(join(own, "signals"))).toBe(false);
+  }, WAIT);
+
+  it("starts nothing where the stop of a daemon it replaces fails, and rejects with the stop's sentence", async () => {
+    const dir = scratch();
+    const stays = await standingIn(dir, "stays", NOTES_SIGTERM, IDLE);
+    names(dir, { port: stays.port, token: "stays", pid: stays.pid });
+    await expect(daemonForLoad(dir, thisBuild(dir), new Set(), { stopMs: 400 })).rejects.toThrow(new Error(`Owlery's background process did not stop. It is process ${stays.pid}.`));
+    expect(readFileSync(join(dir, "signals"), "utf8")).toBe("t");
+    expect(existsSync(join(dir, "this-build-started"))).toBe(false);
+    expect(readDiscovery(dir)?.pid).toBe(stays.pid);
   }, WAIT);
 });
