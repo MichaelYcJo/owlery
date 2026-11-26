@@ -11,9 +11,16 @@ const CLAUDE_CODE: Record<string, AgentEvent> = {
   PermissionRequest: "permission",
   Notification: "notification",
   Stop: "turn-end",
+  StopFailure: "turn-failed",
 };
 
-export function agentEventFor(hookName: string): AgentEvent | undefined {
+/**
+ * The neutral event of a Claude Code hook. A `StopFailure` whose input names an `agent_id` fired inside a
+ * subagent: it ends the subagent's turn and not the session's, and the agent the person asked works on, so it
+ * maps to no event.
+ */
+export function agentEventFor(hookName: string, payload: Record<string, unknown> = {}): AgentEvent | undefined {
+  if (hookName === "StopFailure" && typeof payload.agent_id === "string") return undefined;
   return Object.hasOwn(CLAUDE_CODE, hookName) ? CLAUDE_CODE[hookName] : undefined;
 }
 
@@ -22,6 +29,7 @@ const CLAUDE_CODE_SAID: Record<string, { text?: string; tool?: string } | undefi
   PermissionRequest: { tool: "tool_name" },
   Notification: { text: "message" },
   Stop: { text: "last_assistant_message" },
+  StopFailure: { text: "last_assistant_message" },
 };
 
 /**

@@ -6,15 +6,18 @@
 // (src/main/links.ts), what stands on the disk at a path a pane printed and
 // the showing of one in Finder (src/main/paths.ts), what a menu's "Open in"
 // items need of the Mac: the editors and terminals it holds and a folder
-// opened in Finder or in one of them, the Trash a removed repository's
-// folder moves to where the person chose it (src/main/openers.ts), the
-// clipboard, which a start in the background keeps to itself
-// (src/main/clipboard.ts), whether the app started in the background, which
+// opened in Finder or in one of them, a file a pane printed opened in an
+// editor at its line, the Trash a removed repository's folder moves to
+// where the person chose it (src/main/openers.ts), the editor a person chose
+// in the Settings dialog, which the main process keeps (src/main/editor.ts),
+// the clipboard, which a start in the background keeps to itself, and the
+// file a pasted image is written to (src/main/clipboard.ts), whether the app started in the background, which
 // the page reads before its first script runs so that such a start raises no
 // notification of the system's (src/renderer/notifier.ts), and the window's
 // coming forward, which a
 // sandboxed page cannot do itself, which of the menu's two entries that end
-// the daemon a person chose, which the main process tells the window, and
+// the daemon a person chose, and the clicks of its "Accounts…" and
+// "Settings…", which the main process tells the window, and
 // the end of the daemon the window then asks for, since the main process is
 // the one that stops it (src/main/daemon-client.ts). Everything else goes
 // between the window and the daemon, over the protocol in ./protocol.
@@ -36,12 +39,18 @@ export const Channel = {
   showInFinder: "owlery:show-in-finder",
   copyText: "owlery:copy-text",
   clipboardText: "owlery:clipboard-text",
+  pastedImage: "owlery:pasted-image",
+  editor: "owlery:editor",
+  saveEditor: "owlery:save-editor",
+  openInEditor: "owlery:open-in-editor",
   comeForward: "owlery:come-forward",
   endDaemon: "owlery:end-daemon",
   /** Sent by the main process without being asked, at a click on one of the menu's two entries that end the daemon. */
   daemonMenu: "owlery:daemon-menu",
   /** Sent by the main process without being asked, at a click on the menu's "Accounts…". */
   accountsMenu: "owlery:accounts-menu",
+  /** Sent by the main process without being asked, at a click on the menu's "Settings…". */
+  settingsMenu: "owlery:settings-menu",
 } as const;
 
 /** What follows the daemon's end: the daemon of the running build is started again, or the app quits and starts none. */
@@ -63,6 +72,14 @@ export interface DaemonConnection {
 /** Why no daemon could be reached, as a sentence the window shows as it is. */
 export interface DaemonFailure {
   error: string;
+}
+
+/** The editor a person chose to open the files a pane printed in, and the editors the Mac holds that one can be chosen among. */
+export interface EditorState {
+  /** The name of the editor `editor.json` keeps, `"finder"` where the person chose Finder, or null where no choice was made or the file names no editor of the list. */
+  chosen: string | null;
+  /** The names of the editors of the main process's list that the Mac holds, in the list's order. */
+  installed: string[];
 }
 
 /** What the main process found at a path a pane printed: the whole path, and whether a folder stands there or a file. */
@@ -98,6 +115,14 @@ export interface OwleryApi {
   copyText(text: string): Promise<void>;
   /** The text that clipboard holds. */
   clipboardText(): Promise<string>;
+  /** Has the main process write the image the clipboard holds as a PNG file the person alone reads, and answers the file's path, or null where the clipboard holds no image. An app started in the background reads no image of the system's clipboard, and answers null. */
+  pastedImage(): Promise<string | null>;
+  /** The editor the person chose, and the editors of the main process's list the Mac holds. */
+  editor(): Promise<EditorState>;
+  /** Has the main process keep the editor the person chose, the name of an editor of its list or `"finder"`, and answers whether it was kept: any other value is not. */
+  saveEditor(chosen: string): Promise<boolean>;
+  /** Asks the main process to open a file a pane printed in the editor the person chose, at a line and a column where the pane named them. It answers null, or why nothing was opened, as a sentence the window shows as it is. An app started in the background opens no editor. */
+  openInEditor(path: string, line: number | undefined, column: number | undefined): Promise<string | null>;
   /** The path of a file a person dropped on the window, or an empty string for a file that is on no disk. A page cannot read it. */
   pathOf(file: File): string;
   /** Asks the main process to bring the window in front of the person, and answers whether it did: an app started in the background brings nothing forward. */
@@ -108,4 +133,6 @@ export interface OwleryApi {
   onDaemonMenu(listener: (chosen: DaemonEnd) => void): void;
   /** Has `listener` called whenever a person chooses "Accounts…" in the application menu. */
   onAccountsMenu(listener: () => void): void;
+  /** Has `listener` called whenever a person chooses "Settings…" in the application menu. */
+  onSettingsMenu(listener: () => void): void;
 }

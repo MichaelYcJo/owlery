@@ -58,9 +58,10 @@ function runHook(settings: ReturnType<typeof hookSettings>, env: Record<string, 
 describe("hookSettings", () => {
   it("adds one command hook for every event the inbox and the phone read", () => {
     const settings = hookSettings();
-    for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Notification", "Stop"]) {
+    for (const event of ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "Notification", "Stop", "StopFailure"]) {
       expect(HOOK_EVENTS).toContain(event);
       expect(settings.hooks[event]?.[0]?.hooks[0]?.type).toBe("command");
+      expect(settings.hooks[event]?.[0]?.matcher).toBe("*");
     }
   });
 

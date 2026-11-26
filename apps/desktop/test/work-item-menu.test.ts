@@ -6,7 +6,9 @@
 // a repository's settings, its icon and hiding it; then a work item's
 // archive, the screen of a repository's archived work items and a restore;
 // then a work item's delete, and the delete of a work item whose commits
-// are more than its dialog's list shows at once; a repository's new group, and a work item's
+// are more than its dialog's list shows at once, whose lists the delete
+// dialog and the repository's removal dialog keep in place at a draw that
+// changes none of them; a repository's new group, and a work item's
 // move into it and out of it; and a removal that deletes a repository's work
 // items from disk, and one that is refused after its first delete; then
 // a repository's removal that leaves everything on disk; and last a delete
@@ -23,6 +25,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeF
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import WebSocket from "ws";
+import { readDiscovery } from "../src/daemon/discovery";
 import { installedApps } from "../src/main/openers";
 import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
@@ -825,6 +829,35 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   const lossIn = (id: string): Promise<[string, string[][]][]> => value(`[...document.querySelectorAll("#${id} section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => [...item.children].map((part) => part.textContent))])`);
   /** What a token resolves to in the delete dialog, read off a part that takes it for a property, as the browser computes the property. */
   const RESOLVED = `((property, token) => { const probe = document.createElement("span"); probe.style.setProperty(property, "var(" + token + ")"); document.getElementById("delete-dialog").append(probe); const got = getComputedStyle(probe).getPropertyValue(property); probe.remove(); return got; })`;
+  /** The heading of the commits' list of the work item of twelve commits no other branch holds. */
+  const TWELVE = "12 commits no other branch, no remote and no tag holds";
+  /** The list under that heading, within an element. */
+  const twelveIn = (within: string): string => `[...document.querySelectorAll("${within} section")].find((section) => section.querySelector("h3").textContent === ${JSON.stringify(TWELVE)}).querySelector("ul")`;
+
+  /** Sends the daemon one message from a second client, as another window would, and waits until the window shows what it changed: the daemon sends this window an `inbox` for it. */
+  async function fromElsewhere(message: object, shown: string, what: string): Promise<void> {
+    const discovery = readDiscovery(join(app.userData, "run"));
+    if (!discovery) throw new Error("the daemon wrote no discovery file");
+    const other = new WebSocket(`ws://127.0.0.1:${String(discovery.port)}`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        other.once("open", () => resolve());
+        other.once("error", reject);
+      });
+      other.send(JSON.stringify({ type: "hello", token: discovery.token }));
+      other.send(JSON.stringify(message));
+      await app.until(shown, what);
+    } finally {
+      other.close();
+    }
+  }
+
+  /** Mutes or unmutes the first work item from a second client, which changes nothing an open dialog of the work items names. The first work item is muted at this point of the file, by the case that mutes it. */
+  const mutedElsewhere = (muted: boolean): Promise<void> =>
+    fromElsewhere({ type: "setWorkItem", requestId: 1, id: 1, muted }, `(document.querySelector('${line(SIDEBAR, 1)} .line-mark[aria-label="Notifications muted"]') !== null) === ${String(muted)}`, muted ? "the first work item muted again" : "the first work item unmuted");
+
+  /** Renames the first work item from a second client, and waits until its line in the sidebar says the name. */
+  const renamedElsewhere = (title: string): Promise<void> => fromElsewhere({ type: "renameWorkItem", requestId: 2, id: 1, title, branch: false }, `document.querySelector('${line(SIDEBAR, 1)} .title').textContent === ${JSON.stringify(title)}`, `the first work item renamed ${title}`);
 
   it("names in the delete dialog the branch, the folder, the commit no other branch holds by its hash and its subject apart, the untracked file and the ignored file, each under a heading that counts them, on rows of one height, and the session the delete ends, with its lead in the ink of what is read and Delete off until Force delete is checked; shows a refusal there and reads the loss again; and after Delete the line is gone from the sidebar and from the inbox, and the clone holds no such branch and no such folder", async () => {
     await create("Doomed");
@@ -869,7 +902,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     ).toEqual({ hash: [true, true, true], subject: ["nowrap", "ellipsis", "hidden", true, true], path: [true, "nowrap", "ellipsis", true, true], titles: ["owlery/doomed", worktree, "add work.txt", "notes.txt", ".env"] });
     // Every row of every list is one line of one height, whether its text is cut or not.
     expect(await value<number[]>(`[...new Set([...document.querySelectorAll("#delete-loss li")].map((item) => item.offsetHeight))]`)).toEqual([Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`))]);
-    expect(await value<string[]>(`[...document.querySelectorAll("#delete-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell"]);
+    expect(await value<[string, string[]][]>(`[...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])`)).toEqual([["Running sessions that end", ["Shell"]]]);
     expect(await value<string[]>(`[document.getElementById("delete-says").textContent, document.getElementById("delete-remote").textContent]`)).toEqual(["A delete would lose the work named below. It runs only with Force delete checked.", "Nothing on a remote is removed."]);
     // The first sentence is the dialog's lead, in the ink of what is read, and the sentence on the remote stays a muted note.
     expect(await value<boolean[]>(`(() => { const resolved = ${RESOLVED}; const lead = getComputedStyle(document.getElementById("delete-says")); return [lead.color === resolved("color", "--ink"), lead.fontSize === resolved("font-size", "--size-text"), getComputedStyle(document.getElementById("delete-remote")).color === resolved("color", "--ink-muted")]; })()`)).toEqual([true, true, true]);
@@ -897,7 +930,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect([existsSync(worktree), git(clone.repo, "branch", "--list", "owlery/doomed"), existsSync(join(clone.repo, "README.md"))]).toEqual([false, "", true]);
   });
 
-  it("shows in the delete dialog a list of more commits than ten rows as ten whole rows, counts every commit in its heading, keeps a row one line high where its subject or its path is longer than the dialog, and comes to rest on whole rows after a turn of the wheel", async () => {
+  it("shows in the delete dialog a list of more commits than ten rows as ten whole rows, counts every commit in its heading, keeps a row one line high where its subject or its path is longer than the dialog, and comes to rest on whole rows after a turn of the wheel; where the daemon sends lists that change nothing the dialog names, and where Force delete is checked, the list keeps its scroll and its rows, and the list of sessions stands as it is drawn; opened again, the dialog starts the list of sessions it kept at its top", async () => {
     await create("Long list");
     const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((button) => button.querySelector(".title").textContent === "Long list").dataset.workItem)`);
     const worktree = join(clone.root, "project", "long-list");
@@ -914,8 +947,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await pressItem("Delete");
     await menuGone();
     await dialogOpen("delete-dialog");
-    const COMMITS = `[...document.querySelectorAll("#delete-loss section")].find((section) => section.querySelector("h3").textContent === "12 commits no other branch, no remote and no tag holds").querySelector("ul")`;
-    await app.until(`[...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === "12 commits no other branch, no remote and no tag holds")`, "the heading that counts the twelve commits");
+    const COMMITS = twelveIn("#delete-loss");
+    await app.until(`[...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)})`, "the heading that counts the twelve commits");
     const row = Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`));
     // Ten rows of the twelve show, whole, and every row of every list is of one height.
     expect(await value<number[]>(`(() => { const list = ${COMMITS}; return [list.children.length, list.clientHeight, list.scrollHeight]; })()`)).toEqual([12, 10 * row, 12 * row]);
@@ -934,9 +967,65 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.until(`window.__rested !== null`, "the commits' list at rest after the wheel");
     const rested = await value<number>(`window.__rested`);
     expect([rested > 0, rested % row]).toEqual([true, 0]);
+    // The dialog draws again at each `inbox` and at a check of Force delete. Neither changes the loss or the sessions, so the lists stay the elements they are, and the commits' list stays where the wheel left it.
+    await value(`void (window.__kept = { list: ${COMMITS}, row: ${COMMITS}.children[6], sessions: document.querySelector("#delete-sessions ul") })`);
+    const kept = (): Promise<[number, boolean, boolean, boolean]> => value(`[${COMMITS}.scrollTop, ${COMMITS} === window.__kept.list, window.__kept.row.isConnected, document.querySelector("#delete-sessions ul") === window.__kept.sessions]`);
+    expect(await marks(SIDEBAR, 1)).toEqual(["Notifications muted"]);
+    await mutedElsewhere(false);
+    expect(await kept()).toEqual([rested, true, true, true]);
+    await mutedElsewhere(true);
+    await app.until(`!document.getElementById("delete-force-label").hidden`, "the choice to force the delete");
+    await app.click("#delete-force");
+    expect(await value<boolean>(`document.getElementById("delete-force").checked`)).toBe(true);
+    expect(await kept()).toEqual([rested, true, true, true]);
+    // The list of sessions is kept across a close and an opening as well, since the work item's sessions are the same. Its one line scrolls under a style that makes the list lower than the line, and the list is left scrolled. The dialog opened again starts it at its top.
+    const sessions = `document.querySelector("#delete-sessions ul")`;
+    expect(await value<number>(`(() => { const list = ${sessions}; list.style.maxHeight = "6px"; list.scrollTop = 4; return list.scrollTop; })()`)).toBeGreaterThan(0);
     await app.click("#delete-cancel");
     await dialogClosed("delete-dialog");
-    // The work item leaves as the delete before left, so the cases after this one meet the lists they met before it.
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    await app.until(`[...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)})`, "the heading that counts the twelve commits, read again");
+    expect(await value<[boolean, number]>(`[${sessions} === window.__kept.sessions, ${sessions}.scrollTop]`)).toEqual([true, 0]);
+    await value(`void (${sessions}.style.maxHeight = "")`);
+    await app.click("#delete-cancel");
+    await dialogClosed("delete-dialog");
+  });
+
+  it("keeps in the removal's dialog each work item's loss, the list of its work items and the list of its sessions as they are drawn where the daemon sends lists that change none of them and where Force delete is checked: a list of commits keeps its scroll and its rows; and draws the list of sessions anew where a session's line changes", async () => {
+    // The work item of the case above, whose twelve commits are more than a list shows at once.
+    const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((button) => button.querySelector(".title").textContent === "Long list").dataset.workItem)`);
+    await fromMenu(1, "Remove");
+    await dialogOpen("remove-dialog");
+    await app.click("#remove-delete");
+    const COMMITS = twelveIn("#remove-losses");
+    await app.until(`[...document.querySelectorAll("#remove-losses h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)}) && !document.getElementById("remove-force-label").hidden`, "the loss of twelve commits, and the choice to force the deletes");
+    const row = Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`));
+    // The list is scrolled past its top to a whole row, where a turn of the wheel comes to rest.
+    expect(await value<number>(`(() => { const list = ${COMMITS}; list.scrollTop = 2 * ${row}; return list.scrollTop; })()`)).toBe(2 * row);
+    await value(`void (window.__kept = { list: ${COMMITS}, row: ${COMMITS}.children[6], workItems: document.querySelector("#remove-work-items ul"), sessions: document.querySelector("#remove-sessions ul") })`);
+    const kept = (): Promise<[number, boolean, boolean, boolean, boolean]> => value(`[${COMMITS}.scrollTop, ${COMMITS} === window.__kept.list, window.__kept.row.isConnected, document.querySelector("#remove-work-items ul") === window.__kept.workItems, document.querySelector("#remove-sessions ul") === window.__kept.sessions]`);
+    expect(await marks(SIDEBAR, 1)).toEqual(["Notifications muted"]);
+    await mutedElsewhere(false);
+    expect(await kept()).toEqual([2 * row, true, true, true, true]);
+    await mutedElsewhere(true);
+    await value(`document.getElementById("remove-force").scrollIntoView({ block: "center" })`);
+    await app.click("#remove-force");
+    expect(await value<boolean>(`document.getElementById("remove-force").checked`)).toBe(true);
+    expect(await kept()).toEqual([2 * row, true, true, true, true]);
+    // A session's line that changes is drawn anew, though its list holds as many lines as before.
+    const sessions = (): Promise<string[]> => value(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`);
+    const before = await sessions();
+    await renamedElsewhere("Renamed there");
+    expect(await sessions()).toEqual(before.map((words) => words.replace("Renamed here", "Renamed there")));
+    expect(before).toContain("Shell in Renamed here");
+    await renamedElsewhere("Renamed here");
+    await app.click("#remove-cancel");
+    await dialogClosed("remove-dialog");
+    // The work item leaves as the delete before left, so the cases after this one meet the lists they met before the case above.
     await rightPress(line(SIDEBAR, id));
     await menuShown();
     await pressItem("Delete");

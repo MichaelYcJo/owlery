@@ -34,8 +34,7 @@ function lastModes(text: string): string {
 
 /**
  * The most recent output of one session, so a window that reconnects can draw
- * what it missed. Older output is dropped; the disk log that keeps all of it
- * comes later (docs/architecture.md, "Memory design").
+ * what it missed. Older output is dropped, and nothing else keeps it.
  *
  * What it keeps after a drop opens at a line's start, so a replay never opens
  * inside an escape sequence that stands on one line. Where the first line
@@ -47,11 +46,22 @@ export class OutputBuffer {
   private chunks: string[] = [];
   private size = 0;
 
-  constructor(private readonly maxChars: number) {}
+  constructor(private maxChars: number) {}
 
   append(data: string): void {
     this.chunks.push(data);
     this.size += data.length;
+    this.drop();
+  }
+
+  /** Gives the buffer another size. A smaller one drops the older output at once, as an append past the size does; a larger one keeps more of what is appended afterwards. */
+  setLimit(maxChars: number): void {
+    this.maxChars = maxChars;
+    this.drop();
+  }
+
+  /** Drops the oldest output past the size, and the rest of the line the kept output then opens in. */
+  private drop(): void {
     if (this.size <= this.maxChars) return;
     // The last character the count of characters dropped.
     let dropped = "";

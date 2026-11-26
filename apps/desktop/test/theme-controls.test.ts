@@ -3,11 +3,13 @@
 // Accounts dialog, where an account is added with no folder. The app starts
 // once, in the background, on a temporary repository with one work item and
 // one shell pane, so a case reads a terminal's colours too. The pane's
-// process is the receiver, so no shell of the person's and no agent starts.
-// The last case presses an account's Rename button and holds it while a
-// second client of the daemon adds an account, and then releases on the
-// same point.
-import { existsSync, readFileSync } from "node:fs";
+// process is the receiver, so no shell of the person's and no agent starts,
+// and the CLI the daemon's lookup finds is a copy of the stand-in for
+// `claude auth`, so a press of "Add an account" opens no browser and reads no
+// login of the person's. The last case presses an account's Rename button
+// and holds it while a second client of the daemon adds an account, and then
+// releases on the same point.
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GROUNDS } from "../src/main/appearance";
@@ -39,6 +41,8 @@ interface Shown {
 describe("the theme and the appearance in the built app", { timeout: 60_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
+  // The folder of the stand-in for the CLI, where a case holds its login.
+  let standIn: string;
 
   const shown = (): Promise<Shown> =>
     app.evaluate(
@@ -63,7 +67,11 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
-    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: made.root, OWLERY_RECEIVER_FILE: join(made.base, "received") }, { inspectMain: true });
+    standIn = join(made.base, "claude-stand-in");
+    mkdirSync(standIn);
+    copyFileSync(join(__dirname, "fixtures", "claude-auth-stand-in", "claude"), join(standIn, "claude"));
+    chmodSync(join(standIn, "claude"), 0o755);
+    app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_RECEIVER_CLI: join(standIn, "claude"), OWLERY_WORKTREES: made.root, OWLERY_RECEIVER_FILE: join(made.base, "received") }, { inspectMain: true });
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -310,24 +318,121 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     expect(seen["night-watch"]?.waiting?.fillColour).toBe(rgb("#e9b61a"));
   });
 
-  it("adds an account with no folder from the Accounts dialog the sidebar's foot opens: the daemon makes its folder in the run folder, and the row names it with its sign-in not read yet and offers to sign it in, check its sign-in, refresh its usage with what a refresh spends said beside it, rename it and remove it (scenario 5 in the window, and scenario 15's control drawn and not pressed)", async () => {
+  it("adds an account at one press of Add an account, with no field to fill: the dialog opens the sign-in pane of a new account under the list at once and disables the press while it runs, and once the login ends the list holds the row the login named, signed in, its folder in the run folder, offering to sign it in, check its sign-in, refresh its usage with what a refresh spends said beside it, rename it and remove it (scenario K, and scenario 15's control drawn and not pressed)", async () => {
+    writeFileSync(join(standIn, "hold-login"), "");
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open`, "the Accounts dialog");
-    await app.click("#accounts-name");
-    await app.cdp("Input.insertText", { text: "Work" });
+    expect(await app.evaluate<number>(`document.querySelectorAll("#accounts-form input").length`)).toBe(0);
     await app.click("#accounts-add");
-    await app.until(`document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the account added");
+    await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to a new account"`, "the sign-in pane of a new account");
+    expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, document.querySelector('#accounts-list li[data-account="1"]') === null]`)).toEqual([true, true]);
+    rmSync(join(standIn, "hold-login"));
+    await app.until(`document.querySelector('#accounts-list li[data-account="1"]') !== null && document.getElementById("accounts-sign-in").hidden`, "the row the login named, with the sign-in closed");
     const folder = join(app.userData, "run", "accounts", "1");
-    expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["Work", folder, "Sign-in not read yet", REFRESH_SAYS, "Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
+    expect(await app.evaluate<(string | null)[]>(`[...document.querySelectorAll('#accounts-list li[data-account="1"] .account-name > span, #accounts-list li[data-account="1"] button')].map((part) => part.textContent)`)).toEqual(["stand-in@example.com", folder, expect.stringMatching(/^Signed in, the login ends in /), REFRESH_SAYS, "Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
     expect(existsSync(folder)).toBe(true);
-    expect(await app.evaluate<string>(`document.getElementById("accounts-name").value`)).toBe("");
+    expect(await app.evaluate<[boolean, string]>(`[document.getElementById("accounts-add").disabled, document.getElementById("accounts-error").textContent]`)).toEqual([false, ""]);
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
+  it("gives the record of an account's row the row's whole width, so the email the login named stands on one line, and stands the row's six buttons on a line of their own under the record, wrapped inside the row where the dialog is too narrow for them (Scope item 14)", async () => {
+    await app.click("#accounts-button");
+    await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
+    interface Laid {
+      name: string;
+      nameLines: number;
+      rowWidth: number;
+      rowRight: number;
+      recordWidth: number;
+      recordBottom: number;
+      buttons: { text: string | null; top: number; right: number }[];
+    }
+    // The row as drawn in the dialog of the width given, or of its own width where none is given.
+    const laid = (width: string): Promise<Laid> =>
+      app.evaluate<Laid>(`(() => {
+        const dialog = document.getElementById("accounts-dialog");
+        dialog.style.width = ${JSON.stringify(width)};
+        const row = document.querySelector('#accounts-list li[data-account="1"]');
+        const record = row.querySelector(".account-name");
+        const name = record.firstElementChild;
+        const range = document.createRange();
+        range.selectNodeContents(name);
+        const style = getComputedStyle(row);
+        const box = row.getBoundingClientRect();
+        const laid = {
+          name: name.textContent,
+          nameLines: new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size,
+          rowWidth: row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          rowRight: box.right - parseFloat(style.paddingRight),
+          recordWidth: record.getBoundingClientRect().width,
+          recordBottom: record.getBoundingClientRect().bottom,
+          buttons: [...row.querySelectorAll("button")].map((button) => { const at = button.getBoundingClientRect(); return { text: button.textContent, top: at.top, right: at.right }; }),
+        };
+        dialog.style.width = "";
+        return laid;
+      })()`);
+    const wide = await laid("");
+    expect(wide.name).toBe("stand-in@example.com");
+    expect(wide.nameLines).toBe(1);
+    expect(wide.recordWidth).toBeCloseTo(wide.rowWidth, 0);
+    expect(wide.buttons.map((button) => button.text)).toEqual(["Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
+    for (const button of wide.buttons) expect(button.top).toBeGreaterThanOrEqual(wide.recordBottom);
+    // At 360px the six buttons do not fit on one line, so they take a second one and none stands past the row's edge.
+    const narrow = await laid("360px");
+    expect(new Set(narrow.buttons.map((button) => Math.round(button.top))).size).toBeGreaterThan(1);
+    for (const button of narrow.buttons) expect(button.right).toBeLessThanOrEqual(narrow.rowRight + 0.5);
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
+  it("starts no second sign-in from the dialog while one it started runs: a row's sign-in disables Add an account and every row's Sign in from its press, while its request waits on the daemon and until its process ends, in the dialog opened again too, so no pane replaces the one the dialog draws", async () => {
+    writeFileSync(join(standIn, "hold-login"), "");
+    const signIn = `[...document.querySelectorAll('#accounts-list li[data-account="1"] button')].find((button) => button.textContent === "Sign in")`;
+    try {
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
+      // Read in the same turn as the press, before the daemon's `started` can reach the page: only the request that waits holds the two buttons disabled here.
+      expect(await app.evaluate<[boolean, boolean]>(`(() => { const button = ${signIn}; button.click(); return [document.getElementById("accounts-add").disabled, button.disabled]; })()`)).toEqual([true, true]);
+      await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to stand-in@example.com"`, "the sign-in pane of the account the login named");
+      expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
+      // The rows are drawn anew when the dialog opens again, and the row's "Sign in" stays disabled while the sign-in runs.
+      await app.click("#accounts-close");
+      await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed during the sign-in");
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog open again during the sign-in");
+      expect(await app.evaluate<[boolean, boolean]>(`[document.getElementById("accounts-add").disabled, ${signIn}.disabled]`)).toEqual([true, true]);
+    } finally {
+      rmSync(join(standIn, "hold-login"), { force: true });
+    }
+    await app.until(`!document.getElementById("accounts-add").disabled && document.getElementById("accounts-sign-in-head").textContent === "The sign-in of stand-in@example.com has ended"`, "the row's sign-in ended, with Add an account enabled again");
+    expect(await app.evaluate<boolean>(`${signIn}.disabled`)).toBe(false);
+    await app.click("#accounts-sign-in-close");
+    await app.until(`document.getElementById("accounts-sign-in").hidden`, "the ended sign-in closed");
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
+  it("says in the dialog's refusal line why an add left no account once its sign-in ended with no login, heads the ended pane as a new account's, and enables Add an account again (scope item 8 and scenario C, in the window)", async () => {
+    writeFileSync(join(standIn, "refuse-login"), "");
+    try {
+      await app.click("#accounts-button");
+      await app.until(`document.getElementById("accounts-dialog").open`, "the Accounts dialog");
+      await app.click("#accounts-add");
+      await app.until(`document.getElementById("accounts-error").textContent === "The sign-in ended with no login, so no account was added."`, "the sentence of an add whose sign-in ended with no login");
+      expect(await app.evaluate<[string | null, boolean, boolean]>(`[document.getElementById("accounts-sign-in-head").textContent, document.getElementById("accounts-sign-in").hidden, document.getElementById("accounts-add").disabled]`)).toEqual(["The sign-in of a new account has ended", false, false]);
+      await app.click("#accounts-sign-in-close");
+      await app.until(`document.getElementById("accounts-sign-in").hidden`, "the ended sign-in closed");
+    } finally {
+      rmSync(join(standIn, "refuse-login"), { force: true });
+    }
     await app.click("#accounts-close");
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
   it("opens the rename field of an account whose Rename button is pressed while another client adds an account, and draws the added account after the release", async () => {
     await app.click("#accounts-button");
-    await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account Work");
+    await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
     // The window's own socket is found from outside, as in seal-back-view.test.ts, and notes the `accounts` message that lists the account Home.
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const prototype = await app.cdp<{ result: { objectId: string } }>("Runtime.evaluate", { expression: "WebSocket.prototype" });
@@ -343,6 +448,8 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
       returnByValue: true,
     });
     expect(listened.result.value).toBe(1);
+    const home = join(made.base, "Home");
+    mkdirSync(home);
     const homeDrawn = `[...document.querySelectorAll("#accounts-list li")].some((row) => row.textContent.includes("Home"))`;
     await app.evaluate(`(() => { for (const button of document.querySelectorAll('#accounts-list li[data-account="1"] button')) button.toggleAttribute("data-pressed-here", button.textContent === "Rename"); })()`);
     const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector("#accounts-list button[data-pressed-here]").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
@@ -355,12 +462,13 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     });
     try {
       await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 });
-      other.send(JSON.stringify({ type: "addAccount", requestId: 1, name: "Home" }));
+      // A folder handed over that holds no login is named by its last name.
+      other.send(JSON.stringify({ type: "addAccount", requestId: 1, folder: home }));
       await app.until("window.tookHome", "the window's socket taking the accounts message that lists Home");
       // The window took the accounts, and holds the dialog's drawing while the button is down.
       const drawnWhilePressed = await app.evaluate<boolean>(homeDrawn);
       await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
-      await app.until(`document.querySelector('#accounts-list li[data-account="1"] input') !== null`, "the rename field of the account Work");
+      await app.until(`document.querySelector('#accounts-list li[data-account="1"] input') !== null`, "the rename field of the account the login named");
       expect(drawnWhilePressed).toBe(false);
       await app.until(homeDrawn, "the account Home in the dialog after the release");
     } finally {

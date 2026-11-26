@@ -39,6 +39,10 @@ const api: OwleryApi = {
   showInFinder: (path) => ipcRenderer.invoke(Channel.showInFinder, path),
   copyText: (text) => ipcRenderer.invoke(Channel.copyText, text),
   clipboardText: () => ipcRenderer.invoke(Channel.clipboardText),
+  pastedImage: () => ipcRenderer.invoke(Channel.pastedImage),
+  editor: () => ipcRenderer.invoke(Channel.editor),
+  saveEditor: (chosen) => ipcRenderer.invoke(Channel.saveEditor, chosen),
+  openInEditor: (path, line, column) => ipcRenderer.invoke(Channel.openInEditor, path, line, column),
   pathOf: (file) => webUtils.getPathForFile(file),
   comeForward: () => ipcRenderer.invoke(Channel.comeForward),
   endDaemon: (then) => ipcRenderer.invoke(Channel.endDaemon, then),
@@ -49,6 +53,9 @@ const api: OwleryApi = {
   },
   onAccountsMenu: (listener) => {
     ipcRenderer.on(Channel.accountsMenu, () => listener());
+  },
+  onSettingsMenu: (listener) => {
+    ipcRenderer.on(Channel.settingsMenu, () => listener());
   },
 };
 

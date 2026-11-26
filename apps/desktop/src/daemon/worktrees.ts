@@ -851,6 +851,125 @@ function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; sai
   });
 }
 
+/** How long, in milliseconds, the `git add` and the `git commit` of one commit of Owlery's may run together before the one under way is ended. */
+export const COMMIT_LIMIT_MS = 5 * 60_000;
+
+/** How long, in milliseconds, after the SIGTERM that ends a commit's git its group is sent SIGKILL, where git has not exited by then or the pipe it printed to is still open. */
+export const COMMIT_END_GRACE_MS = 2000;
+
+/** How much of what a commit's git printed is kept. */
+const COMMIT_PRINTED_CHARS = 64 * 1024;
+
+/** The bounds of one commit: how long its commands may run together, `COMMIT_LIMIT_MS` where none is given, and a signal that ends it. */
+export interface CommitBounds {
+  limitMs?: number;
+  ended?: AbortSignal;
+}
+
+/** What one git run under a commit's bounds gave: its exit code, null where a signal ended it or it was not started; what it printed; and why it was ended, or null where it was not. */
+export interface BoundedGit {
+  code: number | null;
+  said: string;
+  ended: string | null;
+}
+
+/**
+ * A runner of the git commands of one commit under its bounds, which
+ * starts each git in the folder given and gives what `BoundedGit` states.
+ * The limit is counted from the call that makes the runner, so the commands
+ * it runs share it.
+ *
+ * Each git is started as the leader of a process group of its own, with no
+ * input, so what the repository runs for it, a hook, a clean filter or a
+ * signer, is in that group and reads the end of its input at once. Where the
+ * limit passes or `ended` fires while git runs, the group is sent SIGTERM,
+ * and `COMMIT_END_GRACE_MS` later SIGKILL where git has not exited or the
+ * pipe git printed to is still open. The first signal is never SIGKILL,
+ * since a git killed by it in the middle of a commit leaves `index.lock`,
+ * and every later git that writes the index fails until a person removes
+ * it. The SIGKILL follows, since a hook that ignores SIGTERM outlives git
+ * and holds the pipe open. An ended git is over once it has exited and the
+ * SIGKILL was sent, since a process that left git's group, such as one in a
+ * session of its own, can hold the pipe open past both signals. A git whose
+ * turn comes after `ended` fired is not started, and one whose turn comes
+ * after the limit is ended as it starts. A git that is not ended is over
+ * when the pipe closes, which is when all it printed has arrived.
+ */
+export function commitRunner(bounds: CommitBounds = {}): (folder: string, args: string[]) => Promise<BoundedGit> {
+  const limitMs = bounds.limitMs ?? COMMIT_LIMIT_MS;
+  const until = Date.now() + limitMs;
+  const { ended } = bounds;
+  return (folder, args) =>
+    new Promise((resolve) => {
+      const overdue = `git ${args[0] ?? ""} did not end in ${String(limitMs / 1000)} seconds and was ended`;
+      if (ended?.aborted) {
+        resolve({ code: null, said: "", ended: "the commit was ended" });
+        return;
+      }
+      const child = spawn("git", args, { cwd: folder, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      let why: string | null = null;
+      let code: number | null = null;
+      let exited = false;
+      let killed = false;
+      let settled = false;
+      let grace: NodeJS.Timeout | undefined;
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (text: string) => {
+        if (stdout.length < COMMIT_PRINTED_CHARS) stdout += text;
+      });
+      child.stderr.on("data", (text: string) => {
+        if (stderr.length < COMMIT_PRINTED_CHARS) stderr += text;
+      });
+      const signal = (name: NodeJS.Signals): void => {
+        if (child.pid === undefined) return;
+        try {
+          // The negative id names the group git leads. While a process of the group runs, the id names no other group.
+          process.kill(-child.pid, name);
+        } catch {
+          // The group is gone already.
+        }
+      };
+      const settle = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(grace);
+        ended?.removeEventListener("abort", onEnded);
+        resolve({ code, said: `${stderr}${stdout}`.trim(), ended: why });
+      };
+      const end = (reason: string): void => {
+        if (settled || why !== null) return;
+        why = reason;
+        signal("SIGTERM");
+        grace = setTimeout(() => {
+          killed = true;
+          signal("SIGKILL");
+          // Git has exited where only what it started holds the pipe, and that may be a process outside the group.
+          if (exited) settle();
+        }, COMMIT_END_GRACE_MS);
+      };
+      const timer = setTimeout(() => end(overdue), Math.max(0, until - Date.now()));
+      const onEnded = (): void => end("the commit was ended");
+      ended?.addEventListener("abort", onEnded, { once: true });
+      child.on("error", (error) => {
+        stderr = error.message;
+        settle();
+      });
+      child.on("exit", (exitCode) => {
+        exited = true;
+        code = exitCode;
+        if (killed) settle();
+      });
+      child.on("close", (exitCode) => {
+        code ??= exitCode;
+        settle();
+      });
+    });
+}
+
 /**
  * Why a file of a worktree cannot now be written and committed on the
  * branch named, or null where it can: a rebase, a merge, a cherry-pick, a
@@ -889,21 +1008,39 @@ export async function whyNoCommit(worktree: string, branch: string): Promise<str
  * either command fails it throws git's words, a hook's output among them,
  * for a path that names no file as well, and every path is first taken out
  * of the index again, so each file stands written and not staged.
+ *
+ * The `git add` and the `git commit` run under `bounds`, as `commitRunner`
+ * states: together they have `limitMs`, `COMMIT_LIMIT_MS` where none is
+ * given, and `ended` ends the one under way, or starts neither where it
+ * fired before. A command ended so fails as above, with the sentence that
+ * it did not end in the limit and was ended, or that the commit was ended.
+ * A `git commit` ended after it made the commit, in a hook that runs after
+ * it such as `post-commit`, leaves the index holding each path as the
+ * branch's newest commit does, and the commit stands: `commitPaths`
+ * returns as after a commit that ended by itself. No `index.lock` is ever
+ * removed.
  */
-export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailers: readonly [string, ...string[]]): Promise<void> {
+export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailers: readonly [string, ...string[]], bounds: CommitBounds = {}): Promise<void> {
   const run = (args: string[]) => gitIn(worktree, args);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Error(why);
+  const bounded = commitRunner(bounds);
   const refused = async (said: string): Promise<never> => {
     await run(["reset", "--quiet", "--", ...paths]);
     throw new Error(said);
   };
-  const added = await run(["add", "--", ...paths]);
-  if (added.failed) return refused(added.said);
-  // Git exits 0 where the index holds each path as the branch's newest commit does: an earlier commit carried the files as they stand.
-  if (!(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed) return;
-  const committed = await run(["commit", "-m", subject, "-m", trailers.join("\n"), "--", ...paths]);
-  if (committed.failed) return refused(committed.said);
+  // Git exits 0 where the index holds each path as the branch's newest commit does: a commit carried the files as they stand.
+  const carried = async (): Promise<boolean> => !(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed;
+  const added = await bounded(worktree, ["add", "--", ...paths]);
+  if (added.ended !== null) return refused(added.ended);
+  if (added.code !== 0) return refused(added.said || "git add failed");
+  if (await carried()) return;
+  const committed = await bounded(worktree, ["commit", "-m", subject, "-m", trailers.join("\n"), "--", ...paths]);
+  if (committed.ended !== null) {
+    if (await carried()) return;
+    return refused(committed.ended);
+  }
+  if (committed.code !== 0) return refused(committed.said || "git commit failed");
 }
 
 /** The commit a worktree's HEAD names, whole. It throws git's words where git cannot say. */
