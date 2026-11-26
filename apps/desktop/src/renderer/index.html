@@ -312,10 +312,11 @@
       .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
       .line.selected .account { color: var(--ink-muted); }
-      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
+      /* A row of the Accounts dialog: its record, the name with its folder, its sign-in and its usage under it, takes the row's whole width, so a name breaks only where it is longer than the row. Under the record the default said in words and the row's buttons stand on a line of their own, and wrap where they do not fit. A row being renamed or asked to be removed stands the same way: its field or its question, then its two buttons. */
+      #accounts-list li { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-3) 0; }
       #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
       #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
-      #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #accounts-list li .account-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
       #accounts-list li .is-default { color: var(--ink-muted); }
       #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
       /* A limit value, the last refresh and what a refresh spends are sentences, so they wrap where a folder is cut. */

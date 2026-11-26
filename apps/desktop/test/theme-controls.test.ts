@@ -336,6 +336,34 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
+  it("gives the record of an account's row the row's whole width, so the email the login named stands on one line, and stands the row's six buttons on a line of their own under the record (Scope item 14)", async () => {
+    await app.click("#accounts-button");
+    await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
+    const laid = await app.evaluate<{ name: string; nameLines: number; rowWidth: number; recordWidth: number; recordBottom: number; buttons: { text: string | null; top: number }[] }>(`(() => {
+      const row = document.querySelector('#accounts-list li[data-account="1"]');
+      const record = row.querySelector(".account-name");
+      const name = record.firstElementChild;
+      const range = document.createRange();
+      range.selectNodeContents(name);
+      const style = getComputedStyle(row);
+      return {
+        name: name.textContent,
+        nameLines: new Set([...range.getClientRects()].map((box) => Math.round(box.top))).size,
+        rowWidth: row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        recordWidth: record.getBoundingClientRect().width,
+        recordBottom: record.getBoundingClientRect().bottom,
+        buttons: [...row.querySelectorAll("button")].map((button) => ({ text: button.textContent, top: button.getBoundingClientRect().top })),
+      };
+    })()`);
+    expect(laid.name).toBe("stand-in@example.com");
+    expect(laid.nameLines).toBe(1);
+    expect(laid.recordWidth).toBeCloseTo(laid.rowWidth, 0);
+    expect(laid.buttons.map((button) => button.text)).toEqual(["Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
+    for (const button of laid.buttons) expect(button.top).toBeGreaterThanOrEqual(laid.recordBottom);
+    await app.click("#accounts-close");
+    await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
+  });
+
   it("opens the rename field of an account whose Rename button is pressed while another client adds an account, and draws the added account after the release", async () => {
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
