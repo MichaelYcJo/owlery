@@ -11,6 +11,7 @@ const CLAUDE_CODE: Record<string, AgentEvent> = {
   PermissionRequest: "permission",
   Notification: "notification",
   Stop: "turn-end",
+  StopFailure: "turn-failed",
 };
 
 export function agentEventFor(hookName: string): AgentEvent | undefined {
@@ -22,6 +23,7 @@ const CLAUDE_CODE_SAID: Record<string, { text?: string; tool?: string } | undefi
   PermissionRequest: { tool: "tool_name" },
   Notification: { text: "message" },
   Stop: { text: "last_assistant_message" },
+  StopFailure: { text: "last_assistant_message" },
 };
 
 /**
