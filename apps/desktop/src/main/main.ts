@@ -10,6 +10,7 @@ import { closeHides, quitsWithLastWindow, showInBackground, takeBackground } fro
 import { chooseClipboard, pastedImage } from "./clipboard";
 import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
 import { daemonControl } from "./daemon-control";
+import { dockImage } from "./dock-image";
 import { readEditor, writeEditor } from "./editor";
 import { chooseOpener, openLink, takeOpener } from "./links";
 import { ACCOUNTS, type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON, SETTINGS } from "./menu";
@@ -244,11 +245,13 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.openInEditor, (_event, path: unknown, line: unknown, column: unknown): Promise<string | null> => openInEditor(path, line, column, readEditor(userData), openers, { program, background }));
   // The window asks at a person's click on its notification, so the app takes the front from whichever app the person is in.
   ipcMain.handle(Channel.comeForward, (event): boolean => comeForward(BrowserWindow.fromWebContents(event.sender), background, () => app.focus({ steal: true })));
-  if (process.platform === "darwin") {
+  // A packaged app is given no image, and the Dock shows its bundle's icon file (./dock-image).
+  const dockIcon = dockImage(app.isPackaged, __dirname);
+  if (process.platform === "darwin" && dockIcon !== null) {
     try {
-      app.dock?.setIcon(join(__dirname, "app-icon.png"));
+      app.dock?.setIcon(dockIcon);
     } catch {
-      // setIcon throws on a file it cannot load. The Dock then keeps Electron's icon, and the window opens all the same.
+      // setIcon throws on a file it cannot load. The Dock of an app started from a checkout then keeps Electron's icon, and the window opens all the same.
     }
   }
   // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.

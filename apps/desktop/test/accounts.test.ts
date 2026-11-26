@@ -453,12 +453,12 @@ async function client(url: string) {
     }
   };
   let nextRequest = 1000;
-  /** Sends a request and gives the daemon's answer to it: its `done`, its `error`, its `asked`, its `workItemCreated` or its `started`. */
+  /** Sends a request and gives the daemon's answer to it: its `done`, its `error`, its `workItemCreated` or its `started`. */
   const request = (message: object) => {
     const requestId = nextRequest++;
     socket.send(JSON.stringify({ ...message, requestId }));
-    type Answer = Extract<ServerMessage, { type: "done" | "error" | "asked" | "workItemCreated" | "started" }>;
-    return until(() => messages.find((m): m is Answer => (m.type === "done" || m.type === "error" || m.type === "asked" || m.type === "workItemCreated" || m.type === "started") && m.requestId === requestId));
+    type Answer = Extract<ServerMessage, { type: "done" | "error" | "workItemCreated" | "started" }>;
+    return until(() => messages.find((m): m is Answer => (m.type === "done" || m.type === "error" || m.type === "workItemCreated" || m.type === "started") && m.requestId === requestId));
   };
   return {
     messages,
@@ -502,11 +502,13 @@ async function workItemIn(c: Client): Promise<{ workItemId: number; repositoryId
   return { workItemId: answer.workItem.id, repositoryId: answer.workItem.repoId };
 }
 
-/** Asks a prompt in the work item, with the session's own account where one is given, and gives the session once it has ended. */
-async function asked(c: Client, workItemId: number, accountId?: number): Promise<HeadlessInfo> {
-  const answer = await c.request({ type: "ask", workItemId, prompt: "Who am I?", ...(accountId === undefined ? {} : { accountId }) });
-  if (answer.type !== "asked") throw new Error(`no session: ${JSON.stringify(answer)}`);
-  return (await c.message("headless", (m) => m.headless.id === answer.headless.id && m.headless.state !== "working")).headless;
+/** The role the cases start a headless session as. */
+const PROOFER = { role: "proofer", stage: "round" } as const;
+
+/** Starts a proofer's session in the work item, with the session's own account where one is given, and gives the session once it has ended. */
+async function ended(d: Daemon, c: Client, workItemId: number, accountId?: number): Promise<HeadlessInfo> {
+  const started = await d.startRoleSession(workItemId, "Who am I?", PROOFER, accountId);
+  return (await c.message("headless", (m) => m.headless.id === started.id && m.headless.state !== "working")).headless;
 }
 
 /** Adds an account Owlery makes, as the Accounts dialog's press does, with no name: the sign-in pane the daemon answers with, and the daemon's word on how the add ended once the pane's process did. */
@@ -532,7 +534,7 @@ function noted(inner: RoleAdapter = fakeAdapter()): { adapter: RoleAdapter; star
 
 describe("the daemon's accounts", () => {
   it("launches each work item's session with the folder of its repository's account, and the session and its entry of the ledger name that account (scenario 1)", async () => {
-    const { c } = await daemon();
+    const { d, c } = await daemon();
     const work = handedFolder("Work");
     const home = handedFolder("Home");
     expect(await c.request({ type: "addAccount", folder: work })).toMatchObject({ type: "done" });
@@ -541,11 +543,11 @@ describe("the daemon's accounts", () => {
     const two = await workItemIn(c);
     expect(await c.request({ type: "setRepository", id: one.repositoryId, accountId: 1 })).toMatchObject({ type: "done" });
     expect(await c.request({ type: "setRepository", id: two.repositoryId, accountId: 2 })).toMatchObject({ type: "done" });
-    const first = await asked(c, one.workItemId);
-    const second = await asked(c, two.workItemId);
+    const first = await ended(d, c, one.workItemId);
+    const second = await ended(d, c, two.workItemId);
     expect([first.accountId, second.accountId]).toEqual([1, 2]);
-    expect(first.answer).toBe(`You asked: "Who am I?" under the config folder ${work}`);
-    expect(second.answer).toBe(`You asked: "Who am I?" under the config folder ${home}`);
+    expect(first.answer).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${work}`);
+    expect(second.answer).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${home}`);
     for (const [workItemId, account] of [
       [one.workItemId, { id: 1, name: "Work" }],
       [two.workItemId, { id: 2, name: "Home" }],
@@ -560,14 +562,14 @@ describe("the daemon's accounts", () => {
 
   it("takes the session's own account, then the work item's, then the repository's, then the default, and the next one above once a nearer setting is cleared (scenario 2)", async () => {
     const { adapter, started } = noted();
-    const { c } = await daemon({ roleAdapter: adapter });
+    const { d, c } = await daemon({ roleAdapter: adapter });
     const folders = ["A", "B", "C", "D"].map((name) => handedFolder(name));
     for (const at of folders) await c.request({ type: "addAccount", folder: at });
     const { workItemId, repositoryId } = await workItemIn(c);
     await c.request({ type: "setDefaultAccount", id: 4 });
     await c.request({ type: "setRepository", id: repositoryId, accountId: 1 });
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 2 });
-    const launched = async (own?: number): Promise<number | null | undefined> => (await asked(c, workItemId, own)).accountId;
+    const launched = async (own?: number): Promise<number | null | undefined> => (await ended(d, c, workItemId, own)).accountId;
     expect(await launched(3)).toBe(3);
     expect(await launched()).toBe(2);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: null });
@@ -606,7 +608,7 @@ describe("the daemon's accounts", () => {
   });
 
   it("refuses with a sentence a folder that is not absolute, no folder or already an account's, and an id it keeps no account under at every request that names one, and changes nothing at any of them (the adding half of scenario 7)", async () => {
-    const { c, runDir } = await daemon();
+    const { d, c, runDir } = await daemon();
     const work = handedFolder("Work");
     await c.request({ type: "addAccount", folder: work });
     const { workItemId, repositoryId } = await workItemIn(c);
@@ -621,7 +623,7 @@ describe("the daemon's accounts", () => {
     expect(await c.request({ type: "setRepository", id: repositoryId, accountId: 9, name: "Renamed" })).toMatchObject({ type: "error", message: "No account 9 is kept." });
     expect(await c.request({ type: "setWorkItem", id: workItemId, accountId: 9, pinned: true })).toMatchObject({ type: "error", message: "No account 9 is kept." });
     expect(await c.request({ type: "setWorkItem", id: workItemId, accountId: "1" })).toMatchObject({ type: "error", message: "An account is named by its id, or null for none." });
-    expect(await c.request({ type: "ask", workItemId, prompt: "Q", accountId: 9 })).toMatchObject({ type: "error", message: "No account 9 is kept." });
+    await expect(d.startRoleSession(workItemId, "Q", PROOFER, 9)).rejects.toThrow("No account 9 is kept.");
     expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8")).accounts).toHaveLength(1);
     const stored = JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0];
     expect(stored).toMatchObject({ name: null, accountId: null });
@@ -632,12 +634,12 @@ describe("the daemon's accounts", () => {
   it("gives the folder only to an adapter that declares accounts: one that does not launches the session under none, whatever the nearest setting names, so it carries no account, its ledger entry names none, and its limit values are kept as System default's (scope item 8)", async () => {
     const limit = { status: "ok", used: 0.1, resetsAt: null, window: "five_hour" } as const;
     const { adapter, started } = noted(fakeAdapter({ features: ["role-tools", "permission-requests"], limits: () => [limit] }));
-    const { c, runDir } = await daemon({ roleAdapter: adapter, now: () => 1_000_000 });
+    const { d, c, runDir } = await daemon({ roleAdapter: adapter, now: () => 1_000_000 });
     await c.request({ type: "addAccount", folder: handedFolder("Work") });
     const { workItemId } = await workItemIn(c);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 1 });
-    const session = await asked(c, workItemId);
-    expect([session.answer, session.accountId]).toEqual(['You asked: "Who am I?"', null]);
+    const session = await ended(d, c, workItemId);
+    expect([session.answer, session.accountId]).toEqual(['As the proofer at the stage round, you asked: "Who am I?"', null]);
     expect(started).toHaveLength(1);
     expect("accountDir" in started[0]!).toBe(false);
     c.send({ type: "readLedger", requestId: 78, workItemId });
@@ -679,11 +681,11 @@ describe("the daemon's accounts", () => {
   });
 
   it("renames an account at a request, answers before it sends every client the accounts, refuses an empty name, System default and an id it keeps none of with a sentence, and leaves a ledger entry written before the rename with the name it had (the rename of scenario 11)", async () => {
-    const { c } = await daemon();
+    const { d, c } = await daemon();
     await c.request({ type: "addAccount", folder: handedFolder("Work") });
     const { workItemId } = await workItemIn(c);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 1 });
-    await asked(c, workItemId);
+    await ended(d, c, workItemId);
     const before = c.messages.length;
     expect(await c.request({ type: "renameAccount", id: 1, name: " Office " })).toMatchObject({ type: "done" });
     expect((await c.message("accounts", (m) => m.accounts[1]?.name === "Office")).accounts.map((account) => account.name)).toEqual(["System default", "Office"]);
@@ -870,7 +872,7 @@ describe("a refresh of an account's usage", () => {
   it("refuses with its reason, and starts nothing, a refresh while a pane or a working session runs under the account or a refresh of it runs, for an id it keeps none of, and through an adapter that declares no refresh; and starts none at the daemon's start, at a client's hello, or as the daemon's clock passes an hour with no press (scenario 15)", async () => {
     let now = 1_000_000;
     const { adapter, started } = noted(fakeAdapter({ delayMs: 300 }));
-    const { c, url } = await daemon({ roleAdapter: adapter, now: () => now });
+    const { d, c, url } = await daemon({ roleAdapter: adapter, now: () => now });
     await c.request({ type: "addAccount", folder: handedFolder("Work") });
     const { workItemId } = await workItemIn(c);
     await client(url).then((other) => other.message("ready"));
@@ -882,9 +884,9 @@ describe("a refresh of an account's usage", () => {
     expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: 'The usage of "Work" is not refreshed while something runs under it, which hands over its values itself: the Claude Code pane in "A work item".' });
     c.send({ type: "close", id: pane.id });
     await c.message("inbox", (m) => !m.sessions.some((session) => session.id === pane.id));
-    const ask = await c.request({ type: "ask", workItemId, prompt: "Who am I?", accountId: 1 });
-    expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: 'The usage of "Work" is not refreshed while something runs under it, which hands over its values itself: a session asked in "A work item".' });
-    await c.message("headless", (m) => ask.type === "asked" && m.headless.id === ask.headless.id && m.headless.state !== "working");
+    const session = await d.startRoleSession(workItemId, "Who am I?", PROOFER, 1);
+    expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: `The usage of "Work" is not refreshed while something runs under it, which hands over its values itself: the proofer's session in "A work item".` });
+    await c.message("headless", (m) => m.headless.id === session.id && m.headless.state !== "working");
     expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "done" });
     expect(await c.request({ type: "refreshUsage", id: 1 })).toMatchObject({ type: "error", message: 'The usage of "Work" is being refreshed already.' });
     // A refresh runs under its account, so the account is not removed meanwhile.
@@ -898,12 +900,12 @@ describe("a refresh of an account's usage", () => {
 
   it("keeps the values every headless session of an account hands over, so the account shows them with no refresh, and keeps them for the account the session started under (scope item 13)", async () => {
     let now = 7_000;
-    const { c } = await daemon({ roleAdapter: fakeAdapter({ limits: () => [{ status: "ok", used: 0.25, resetsAt: null, window: "seven_day" }] }), now: () => now });
+    const { d, c } = await daemon({ roleAdapter: fakeAdapter({ limits: () => [{ status: "ok", used: 0.25, resetsAt: null, window: "seven_day" }] }), now: () => now });
     await c.request({ type: "addAccount", folder: handedFolder("Work") });
     const { workItemId } = await workItemIn(c);
     const from = c.messages.length;
     now = 9_000;
-    await asked(c, workItemId, 1);
+    await ended(d, c, workItemId, 1);
     expect((await accountsAfter(c, from, 1, (account) => account.limits.length > 0)).accounts.map((account) => account.limits)).toEqual([[], [{ status: "ok", used: 0.25, resetsAt: null, window: "seven_day", at: 9_000 }]]);
     expect(c.messages.slice(from).some((m) => m.type === "accounts" && m.accounts.some((account) => account.refresh !== null))).toBe(false);
   });
@@ -999,7 +1001,7 @@ describe("the accounts Owlery makes", () => {
     const before = contents(own);
     let known: string | null = null;
     const { cli } = authStandIn();
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => known) }) });
+    const { d, c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => known) }) });
     expect((await added(c)).ended).toMatchObject({ accountId: 1 });
     const early = join(runDir, "accounts", "1");
     // The lookup had not answered, so no link was made.
@@ -1017,7 +1019,7 @@ describe("the accounts Owlery makes", () => {
     ]);
     rmSync(join(work, "skills"));
     const { workItemId } = await workItemIn(c);
-    await asked(c, workItemId, 2);
+    await ended(d, c, workItemId, 2);
     expect(linksIn(work)).toEqual(linked);
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 800, workItemId, accountId: 1 });
     await c.message("started", (m) => m.requestId === 800);
@@ -1147,7 +1149,7 @@ describe("the accounts Owlery makes", () => {
 
   it("refuses a removal while a pane or a working session runs under the account, naming each, for System default and an id it keeps none of, and where the sign-out fails, removing nothing (scenario 13's refusal)", async () => {
     const { cli, here, calls } = authStandIn();
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null), delayMs: 300 }) });
+    const { d, c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null), delayMs: 300 }) });
     await added(c);
     await c.request({ type: "renameAccount", id: 1, name: "Work" });
     const work = join(runDir, "accounts", "1");
@@ -1155,9 +1157,8 @@ describe("the accounts Owlery makes", () => {
     const { workItemId } = await workItemIn(c);
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 810, workItemId, accountId: 1 });
     const pane = (await c.message("started", (m) => m.requestId === 810)).session;
-    const ask = await c.request({ type: "ask", workItemId, prompt: "Who am I?", accountId: 1 });
-    expect(ask.type).toBe("asked");
-    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: '"Work" is not removed while something runs under it: the Claude Code pane in "A work item"; a session asked in "A work item".' });
+    await d.startRoleSession(workItemId, "Who am I?", PROOFER, 1);
+    expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "error", message: `"Work" is not removed while something runs under it: the Claude Code pane in "A work item"; the proofer's session in "A work item".` });
     c.send({ type: "close", id: pane.id });
     await c.message("inbox", (m) => !m.sessions.some((session) => session.id === pane.id));
     await c.message("headless", (m) => m.headless.state !== "working");
@@ -1172,14 +1173,14 @@ describe("the accounts Owlery makes", () => {
 
   it("removes an account handed over by its folder without signing it out, and leaves the folder and every file in it (the removing half of scenario 7)", async () => {
     const { cli, calls } = authStandIn();
-    const { c } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => ownFolder()) }) });
+    const { d, c } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => ownFolder()) }) });
     const handed = handedFolder();
     mkdirSync(join(handed, "projects"));
     writeFileSync(join(handed, "projects", "a.jsonl"), "{}\n");
     const before = contents(handed);
     await c.request({ type: "addAccount", folder: handed });
     const { workItemId } = await workItemIn(c);
-    await asked(c, workItemId, 1);
+    await ended(d, c, workItemId, 1);
     expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "done" });
     expect((await c.message("accounts", (m) => m.accounts.length === 1)).accounts).toEqual([{ ...SYSTEM_DEFAULT, conversations: null }]);
     expect(contents(handed)).toEqual(before);
@@ -1381,7 +1382,7 @@ describe("the accounts Owlery makes", () => {
   it("refuses every request that names a folder whose first sign-in has not ended as one that names no account, and sets nothing (scenario J)", async () => {
     const { cli, here } = authStandIn();
     writeFileSync(join(here, "hold-login"), "");
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
+    const { d, c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => null) }) });
     const answer = await c.request({ type: "addAccount", cols: 80, rows: 24 });
     if (answer.type !== "started") throw new Error(`no sign-in: ${JSON.stringify(answer)}`);
     const { workItemId, repositoryId } = await workItemIn(c);
@@ -1394,10 +1395,11 @@ describe("the accounts Owlery makes", () => {
       { type: "refreshUsage", id: 1 },
       { type: "setRepository", id: repositoryId, accountId: 1 },
       { type: "setWorkItem", id: workItemId, accountId: 1 },
-      { type: "ask", workItemId, prompt: "Who am I?", accountId: 1 },
       { type: "start", kind: "claude", cols: 80, rows: 24, workItemId, accountId: 1 },
     ])
       expect(await c.request(request)).toMatchObject({ type: "error", message: "No account 1 is kept." });
+    // No client message starts a headless session; the start the cases hold refuses the account as the requests do.
+    await expect(d.startRoleSession(workItemId, "Who am I?", PROOFER, 1)).rejects.toThrow("No account 1 is kept.");
     const stored = JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8")).repositories[0];
     expect([stored.accountId, stored.workItems[0].accountId]).toEqual([null, null]);
     expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ defaultId: 0, accounts: [], adding: [1] });

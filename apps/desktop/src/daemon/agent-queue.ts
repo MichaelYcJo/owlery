@@ -4,13 +4,13 @@
 // that a second queue of the machine can read for its shape.
 
 /**
- * What a queued session waits as, in the order a place goes to: a session a
- * person asked for, a stage of a chain that has already run a stage since
- * the chain started, and a chain's first stage.
+ * What a queued session waits as, in the order a place goes to: a stage of
+ * a chain that has already run a stage since the chain started, then a
+ * chain's first stage.
  */
-export type QueueRank = "asked" | "running-chain" | "first-stage";
+export type QueueRank = "running-chain" | "first-stage";
 
-const RANKS: readonly QueueRank[] = ["asked", "running-chain", "first-stage"];
+const RANKS: readonly QueueRank[] = ["running-chain", "first-stage"];
 
 /** One session in the queue: its id, what it waits as, and the order it joined in, a count that only grows, so that two that joined in the same millisecond keep their order. */
 export interface Queued {

@@ -17,6 +17,7 @@ import { MARKER } from "../src/daemon/records-place";
 import { sectionOf } from "../src/daemon/seal-records";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
+import { parkedOnAQuestion } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 const APP_DIR = join(__dirname, "..");
@@ -357,10 +358,11 @@ describe("the built app's role bundle", () => {
     return file;
   };
 
-  /** Starts the built daemon with a run folder of the case's own and `shell` as the person's shell, and gives the run folder, a way to send it a message, and a wait for one of its messages. */
-  async function builtDaemon(made: { base: string; root: string }, shell: string) {
+  /** Starts the built daemon with a run folder of the case's own, into which `writeRun` writes before the start where it is given, and `shell` as the person's shell, and gives the run folder, a way to send it a message, and a wait for one of its messages. */
+  async function builtDaemon(made: { base: string; root: string }, shell: string, writeRun?: (runDir: string) => void) {
     const runDir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-role-run-")));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+    writeRun?.(runDir);
     const daemon = spawn(process.execPath, [join(APP_DIR, "dist", "daemon.js")], {
       env: { ELECTRON_RUN_AS_NODE: "1", OWLERY_RUN_DIR: runDir, OWLERY_WORKTREES: made.root, SHELL: shell, HOME: made.base, USER: "person", PATH: process.env.PATH ?? "/usr/bin:/bin" },
       stdio: "ignore",
@@ -400,6 +402,18 @@ describe("the built app's role bundle", () => {
   it("is what the built daemon launches a role with: the bundle beside its script, and a rules file it writes into its run folder", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
+    // A repository with a place for work records, and a work item stored parked on one question, whose answer has the daemon resume its chain at round 1, the proofer's.
+    for (const [path, text] of [
+      ["seal/README.md", `${MARKER}\n`],
+      ["seal/config.json", '{ "Broad gate": "true" }\n'],
+    ] as const) {
+      mkdirSync(dirname(join(made.repo, path)), { recursive: true });
+      writeFileSync(join(made.repo, path), text);
+    }
+    git(made.repo, "add", "--all");
+    git(made.repo, "commit", "--quiet", "-m", "chore: the records place");
+    const { stored, questionId } = await parkedOnAQuestion({ repo: made.repo, root: made.root, id: 1, title: "Reviewed", workItem: "1795396360-reviewed", asks: "Which base does the work merge into?", at: Date.now() - 60_000 });
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60_000, groups: [], workItems: [stored] };
     // Stands for the CLI: records a session's arguments, then prints the first line of a session that holds the bundle's agents, and a result.
     // The daemon also runs it at its start, to read its version, and that run records nothing.
     const cli = script(
@@ -414,19 +428,17 @@ describe("the built app's role bundle", () => {
         "cat > /dev/null",
       ].join("\n"),
     );
-    // Stands for the login shell, and is the shell of the work item's pane too: it names the CLI and ends.
+    // Stands for the login shell: it names the CLI and ends.
     const shell = script(made, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
-    const { runDir, message, send } = await builtDaemon(made, shell);
-    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Reviewed", kind: "shell", cols: 80, rows: 24 });
-    const { workItem } = await message("workItemCreated");
+    const { runDir, message, send } = await builtDaemon(made, shell, (runDir) => writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] })));
+    send({ type: "answerQuestions", requestId: 1, workItemId: stored.id, answers: [{ questionId, answer: "main" }] });
     const role = { role: "proofer", stage: "round" } as const;
-    send({ type: "ask", requestId: 2, workItemId: workItem.id, prompt: "Read it.", role });
-    const { headless } = await message("headless", (m) => m.headless.state !== "working");
+    const { headless } = await message("headless", (m) => m.headless.state === "finished" || m.headless.state === "failed");
     expect([headless.state, headless.answer, headless.error, headless.role]).toEqual(["finished", "read", null, role]);
 
     const bundleDir = join(APP_DIR, "dist", "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
-    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(workItem.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
+    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
@@ -446,6 +458,8 @@ describe("the built app's role bundle", () => {
     }
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: the check and the records place");
+    // The branch the work item checks out, so the chain command finds one at the pane's start: a work item with no branch yet has none until its first commit.
+    git(made.repo, "branch", "--quiet", "carried");
     // Stands for the login shell and for the pane's shell. Asked for a Claude Code pane's command, and for no other the daemon runs through a shell, it runs no `claude`: it asks the chain command its environment names for the step owed, as a pane's session would, and writes the answer after the command it was given.
     const out = join(made.base, "pane.txt");
     const shell = script(
@@ -457,7 +471,7 @@ describe("the built app's role bundle", () => {
       ].join("\n"),
     );
     const { runDir, message, send } = await builtDaemon(made, shell);
-    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Carried", kind: "claude", cols: 80, rows: 24 });
+    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Carried", branch: "carried", kind: "claude", cols: 80, rows: 24 });
     await message("workItemCreated");
     const end = Date.now() + 10_000;
     while (!existsSync(out) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
