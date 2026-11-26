@@ -2,7 +2,9 @@
 // the work item's directory of its worktree, committed or not: whether the
 // frame stands, how many rounds are recorded, the commit of the gate's last
 // run and the sealer's last verdict. The window draws the approval line from
-// these facts and the work item's questions; no hook and no session is read.
+// these facts, the work item's questions, its chain and the stage a pane's
+// session runs through the chain command (`WorkItem.paneStage`); no hook and
+// no session is read.
 //
 // The two files read are input the daemon did not write, so each is read
 // through `repository-file.ts#repositoryFileText`, which refuses a link, what
