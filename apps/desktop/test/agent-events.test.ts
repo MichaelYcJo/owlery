@@ -12,6 +12,12 @@ describe("agentSaid", () => {
     expect(agentSaid("Stop", { last_assistant_message: "The form is in src/form.ts.", tool_name: "Bash", message: "not read here" })).toEqual({ text: "The form is in src/form.ts.", tool: null, questions: null });
   });
 
+  it("reads the error text of a Claude Code turn that ended on an API error, from the event as the hooks reference gives it, and no tool", () => {
+    const { payload } = JSON.parse(readFileSync(join(__dirname, "fixtures", "claude-stop-failure.json"), "utf8")) as { payload: Record<string, unknown> };
+    expect(agentSaid("StopFailure", payload)).toEqual({ text: "API Error: Rate limit reached", tool: null, questions: null });
+    expect(agentSaid("StopFailure", { error: "rate_limit", error_details: "429 Too Many Requests" })).toEqual({ text: null, tool: null, questions: null });
+  });
+
   it("reads the message of a Claude Code notification where it is text, and no tool", () => {
     expect(agentSaid("Notification", { message: "Claude needs your permission to use Bash", tool_name: "Bash", last_assistant_message: "not read here" })).toEqual({ text: "Claude needs your permission to use Bash", tool: null, questions: null });
     expect(agentSaid("Notification", { message: { text: "an object" } })).toEqual({ text: null, tool: null, questions: null });

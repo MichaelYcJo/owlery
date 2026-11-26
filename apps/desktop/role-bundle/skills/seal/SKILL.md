@@ -40,6 +40,7 @@ work around it.
 | `start` | Run `start`. It makes the work item's directory and commits its `routing.md`. *A run under `Automation` `yes`* below says when it takes `--automation`. |
 | `round` | Start the role as *A role is a subagent of the bundle* says. Write its answer, unchanged, to a file outside the worktree, and run `round <file>`. The answer's `asks` holds each question the proofer asked: decide each as *What you judge* says. |
 | `fix-pass` | The round left open the findings `open` lists. Judge first what *What you judge* asks before a fix pass. Then make the pass yourself, or start the role, as *The fix pass* says, and run `fix-pass --by <id>`. |
+| `ceiling` | Round `round` left open the findings `open` lists, and the chain stops for the person from round `ceiling` on, with no judgment. Tell the person the round, its open findings and what the rounds kept finding, and run nothing more of the chain. Once the person has said in this run, after that stop, to go on, run `owed --persons-word <round>` with the round the step named, and pass the same option to `fix-pass` for that pass. Pass the option on no other ground. |
 | `gate` | Run `gate`. The command runs the repository's broad gate itself and reads its exit code, so a run of yours is no gate. Where the gate fails, the command prints what the gate printed: fix that, commit, and run `owed`. |
 | `seal` | Start the role. Write its answer, unchanged, to a file outside the worktree, and run `seal <file> --judged-by <id> --model <name>`: the id your subagent tool gave for the sealer, and the model the sealer's definition names. A session that built the work judges none of it, so the command refuses `the session` and the id of a fix pass's subagent. |
 | `sealed` | The branch holds its seal at the commit `commit` names. Where the work goes to a pull request, run `body` and hand the file its `body` names to `gh pr create --body-file`. |
@@ -86,10 +87,12 @@ You make the two judgments that Owlery's daemon asks its orchestrator agent
 in its own chain. `agents/orchestrator.md` holds the rule of each, and you
 judge by that rule.
 
-- Before a fix pass on the record of round 2 or a later round, judge
-  whether the review rounds are converging, by *The rounds are converging
-  where each round leaves less to do than the round before it*. Where they
-  are not, stop and tell the person your grounds.
+- Before a fix pass on the record of round 2 or a later round below the
+  ceiling of rounds, judge whether the review rounds are converging, by
+  *The rounds are converging where each round leaves less to do than the
+  round before it*. Where they are not, stop and tell the person your
+  grounds. A fix pass that `owed` handed on the person's word follows no
+  judgment, since the person's word is the answer.
 - For each question a stage asks, rule by *A question is first decided from
   the code and the policy* and *Only what a person alone can give parks a
   work item*. A question you cannot decide goes to the person in the pane.
@@ -105,6 +108,10 @@ of its questions opens with the words `No default can be taken: ` and the
 reason after them. Use that form only for what *Only what a person alone
 can give parks a work item* names, and write the reason as a sentence the
 person can check.
+
+**The step `ceiling` is no question, and takes no default.** Under
+`Automation` `yes` the run stops there as well, and waits for the person's
+word.
 
 `start` writes that row. Pass `--automation yes` where the person said in
 this run that it goes on without stopping for questions, and

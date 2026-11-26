@@ -4,19 +4,27 @@
 // session is working asks before it closes, a file dropped on a pane types
 // its path, a link opens at a click with the Command key, Shift+Enter
 // sends a line feed, a path a pane printed is a link where something stands
-// at it, a link under the pointer shows a card of what a click does, a
-// press of the right button on a pane opens the pane's menu, and the left
+// at it, a file's link opens in the editor the person chose at the line the
+// pane printed, a link under the pointer shows a card of what a click does,
+// a paste of an image hands the pane a file's path, Control+V stays the
+// program's, a press of the right button on a pane opens the pane's menu, the left
 // arrow, the right arrow and Backspace with the Command key are the editing
-// keys of macOS.
+// keys of macOS, a pane's terminal holds the lines of history the scrollback
+// names, and holds them again once it came back onto the stage, and the find
+// bar searches them.
 // One start of the app serves every case, so the cases run in the order
-// they stand in. No case opens the system's browser or Finder: the app is
-// started with `OWLERY_OPENER` naming a program that notes the address or
-// the path it was handed. No case reads or writes the system's clipboard:
-// the app starts in the background, where it keeps a clipboard of its own.
+// they stand in. No case opens the system's browser, Finder or an editor:
+// the app is started with `OWLERY_OPENER` naming a program that notes the
+// address or the path it was handed. No case reads or writes the system's
+// clipboard: the app starts in the background, where it keeps a clipboard
+// of its own.
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { installedApps } from "../src/main/openers";
 import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
@@ -51,6 +59,21 @@ const OVER_LINK = overLink(FIRST_TILE);
 /** The keys a card's row names for a click with the key that opens a link, and for one with the Shift key as well. */
 const KEY_CLICK = process.platform === "darwin" ? "\u2318 Click" : "Ctrl Click";
 const SHIFT_KEY_CLICK = process.platform === "darwin" ? "\u21e7 \u2318 Click" : "Shift Ctrl Click";
+/** The editors of the main process's list this Mac holds, which the Settings dialog offers. */
+const EDITORS = installedApps(existsSync, homedir()).flatMap(({ name, kind }) => (kind === "editor" ? [name] : []));
+/** The rows of a file's card before an editor is chosen: the first asks for one on a Mac that holds an editor of the list, and a file's card is a path's on one that holds none. */
+const FILE_ROWS =
+  EDITORS.length > 0
+    ? [
+        ["Open in an editor…", KEY_CLICK],
+        ["Show in Finder", SHIFT_KEY_CLICK],
+        ["Copy path", ""],
+      ]
+    : [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ];
+const SETTINGS_OPEN = `document.getElementById("app-settings-dialog")?.open === true`;
 /** A row of the screen no case prints on, where the pointer is over no link. */
 const EMPTY_ROW = 15;
 const SCREEN_IN_FRONT = `["summary-screen", "inbox-screen", "history-screen", "work-item-view"].find((id) => document.getElementById(id)?.hidden === false)`;
@@ -132,9 +155,9 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     return panes;
   }
 
-  /** A press and a release of a letter's key with the Command key, sent to the page as a person's key arrives there. */
-  async function command(letter: "W" | "N"): Promise<void> {
-    const key = { modifiers: COMMAND, windowsVirtualKeyCode: letter.charCodeAt(0), code: `Key${letter}`, key: letter.toLowerCase() };
+  /** A press and a release of a letter's key with the Command key, and the Shift key as well where `shift`, sent to the page as a person's key arrives there. */
+  async function command(letter: "W" | "N" | "F" | "G", shift = false): Promise<void> {
+    const key = { modifiers: COMMAND | (shift ? SHIFT : 0), windowsVirtualKeyCode: letter.charCodeAt(0), code: `Key${letter}`, key: shift ? letter : letter.toLowerCase() };
     await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
     await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
   }
@@ -186,10 +209,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     })()`);
     expect(built, "the app has no application menu").not.toBeNull();
     const entries = built as Built[];
-    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`), and the three a pane reads with it (`paneKey`). A menu entry on one of them takes the key before the page sees it.
+    // The keys the page reads with the Command key (src/renderer/view.ts, `commandKey`), G with the Shift key as well among them, and the three a pane reads with it (`paneKey`). A menu entry on one of them takes the key before the page sees it.
     const taken = entries.filter(({ accelerator }) => {
       const { key, modifiers } = keyOf(accelerator);
-      return ["K", "N", "W", "LEFT", "RIGHT", "BACKSPACE"].includes(key) && modifiers.join("+") === "command";
+      return (["K", "N", "W", "F", "G", "LEFT", "RIGHT", "BACKSPACE"].includes(key) && modifiers.join("+") === "command") || (key === "G" && modifiers.join("+") === "command+shift");
     });
     expect(taken.map(({ path, accelerator }) => `${path}: ${accelerator}`)).toEqual([]);
     const closeWindow = entries.find(({ path }) => path === "File / Close Window");
@@ -784,10 +807,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await linkAt(3, 1)).toBe(true);
   });
 
-  it("shows a path's file in Finder at a click with the Command key held, and copies the whole path from its card", async () => {
+  it("shows a path's file in Finder at a click with the Command and the Shift keys held, and copies the whole path from its card (scenario C2)", async () => {
     const file = join(await worktreeInFront(), PRINTED_PATH);
     const before = await opened(2);
-    await clickLink(2, COMMAND);
+    await clickLink(2, COMMAND | SHIFT);
     expect(await opened(3)).toEqual([...before, file]);
     await clickLink(2, 0);
     await clickLink(2, SHIFT);
@@ -797,19 +820,13 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await opened(4)).toEqual([...before, file, wrapped]);
 
     await restOn(9, 3);
-    expect(await card()).toEqual({
-      title: file,
-      rows: [
-        ["Show in Finder", KEY_CLICK],
-        ["Copy path", ""],
-      ],
-    });
-    await pressCardRow(1);
+    expect(await card()).toEqual({ title: file, rows: FILE_ROWS });
+    await pressCardRow(FILE_ROWS.length - 1);
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     expect(await clipboard()).toBe(file);
     expect(await opened(4)).toHaveLength(4);
     await restOn(9, 2);
-    await pressCardRow(0);
+    await pressCardRow(FILE_ROWS.length - 2);
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     expect(await opened(5)).toEqual([...before, file, wrapped, file]);
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
@@ -921,6 +938,92 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 
+  /** The editor "Open files in" holds in the Settings dialog. */
+  const editorField = (): Promise<string> => app.evaluate<string>(`document.getElementById("app-settings-editor").value`);
+  /** Chooses an editor, or "finder", in the open Settings dialog and presses Save, and waits until the dialog has closed. */
+  async function saveEditor(chosen: string): Promise<void> {
+    await app.evaluate(`void (document.getElementById("app-settings-editor").value = ${JSON.stringify(chosen)})`);
+    await app.click("#app-settings-submit");
+    await app.until(`!(${SETTINGS_OPEN})`, "the Settings dialog closed at Save");
+  }
+  /** What `editor.json` of the app's user data folder holds, or null where it stands nowhere. */
+  const keptEditor = (): unknown => (existsSync(join(app.userData, "editor.json")) ? JSON.parse(readFileSync(join(app.userData, "editor.json"), "utf8")) : null);
+
+  it.runIf(EDITORS.length > 0)("asks for an editor at the first click on a file with the Command key, keeps the one chosen, opens the file in it at the line and the column the pane printed, and shows it in Finder with the Shift key as well (scenarios C1, C2 and C3)", async () => {
+    const file = join(await worktreeInFront(), PRINTED_PATH);
+    writeFileSync(linesFile, `${PRINTED_PATH}:12:5\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    await comeOnto(9, 2, OVER_LINK, "the link of the file the pane printed");
+    // The link is the path, and the line and the column after it are not.
+    expect(await linkAt(PRINTED_PATH.length - 1, 2)).toBe(true);
+    expect(await linkAt(PRINTED_PATH.length, 2)).toBe(false);
+    expect(keptEditor()).toBeNull();
+    await restOn(9, 2);
+    expect(await card()).toEqual({ title: file, rows: FILE_ROWS });
+    await pointAway();
+    const before = await opened(0);
+
+    // No editor is chosen, so the click asks, and opens nothing.
+    await clickLink(2, COMMAND);
+    await app.until(SETTINGS_OPEN, "the Settings dialog, at the first click on a file");
+    expect(await app.evaluate<string[]>(`[...document.getElementById("app-settings-editor").options].map((option) => option.textContent)`)).toEqual([...EDITORS, "Show in Finder"]);
+    expect(await editorField()).toBe(EDITORS[0]);
+    await app.click("#app-settings-cancel");
+    await app.until(`!(${SETTINGS_OPEN})`, "the Settings dialog closed at Cancel");
+    expect(keptEditor()).toBeNull();
+    expect(await opened(before.length)).toEqual(before);
+
+    // A Save that names an editor keeps it and opens the file, at its line and its column, in the stand-in the start runs in the editor's place.
+    const chosen = EDITORS.at(-1) ?? "";
+    await clickLink(2, COMMAND);
+    await app.until(SETTINGS_OPEN, "the Settings dialog, at the click again");
+    await saveEditor(chosen);
+    expect(keptEditor()).toEqual({ editor: chosen });
+    expect(await opened(before.length + 1)).toEqual([...before, `${file}:12:5`]);
+    // The next click opens the file and asks nothing.
+    await clickLink(2, COMMAND);
+    expect(await app.evaluate<boolean>(SETTINGS_OPEN)).toBe(false);
+    expect(await opened(before.length + 2)).toEqual([...before, `${file}:12:5`, `${file}:12:5`]);
+    await restOn(9, 2);
+    expect(await card()).toEqual({
+      title: file,
+      rows: [
+        [`Open in ${chosen}`, KEY_CLICK],
+        ["Show in Finder", SHIFT_KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pressCardRow(0);
+    expect(await opened(before.length + 3)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`]);
+    await clickLink(2, COMMAND | SHIFT);
+    expect(await opened(before.length + 4)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`, file]);
+
+    // "Settings…" of the application menu opens the dialog on the choice kept. A Save of Finder gives the file a path's card and clicks.
+    await app.evaluateMain(`electron.Menu.getApplicationMenu().getMenuItemById("settings").click()`);
+    await app.until(SETTINGS_OPEN, 'the Settings dialog, at "Settings…" of the menu');
+    expect(await editorField()).toBe(chosen);
+    await saveEditor("finder");
+    expect(keptEditor()).toEqual({ editor: "finder" });
+    expect(await opened(before.length + 4)).toHaveLength(before.length + 4);
+    await restOn(9, 2);
+    expect(await card()).toEqual({
+      title: file,
+      rows: [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pointAway();
+    await clickLink(2, COMMAND);
+    expect(await opened(before.length + 5)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`, file, file]);
+
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
   it.runIf(process.platform === "darwin")("sends Control+A, Control+E and Control+U for the left arrow, the right arrow and Backspace with the Command key, and nothing else", async () => {
     // The case before closed the pane in front, and the first pane came back onto the stage.
     await untilReplayDrawn();
@@ -1005,7 +1108,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const corner = await app.evaluate<{ left: number; top: number }>(`(() => { const box = document.getElementById("pane-menu").getBoundingClientRect(); return { left: box.left, top: box.top }; })()`);
     expect(Math.abs(corner.left - other.x)).toBeLessThan(1);
     expect(Math.abs(corner.top - other.y)).toBeLessThan(1);
-    expect(await menu()).toEqual([["Copy", "\u2318C"], ["Paste", "\u2318V"], ["Select All", ""], "-", ["Clear Screen", ""], ["Reset Terminal", ""], "-", ["Close Pane", "\u2318W"]].map((item) => (process.platform === "darwin" || typeof item === "string" ? item : [item[0], ""])));
+    expect(await menu()).toEqual([["Copy", "\u2318C"], ["Paste", "\u2318V"], ["Select All", ""], ["Find\u2026", "\u2318F"], "-", ["Clear Screen", ""], ["Reset Terminal", ""], "-", ["Close Pane", "\u2318W"]].map((item) => (process.platform === "darwin" || typeof item === "string" ? item : [item[0], ""])));
     expect(await app.evaluate<string | null>(`document.getElementById("pane-menu").getAttribute("role")`)).toBe("menu");
     // Nothing is selected in a pane whose empty row was pressed, so there is nothing to copy.
     expect(await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].filter((item) => item.disabled).map((item) => item.firstChild.textContent)`)).toEqual(["Copy"]);
@@ -1143,5 +1246,478 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`!(${MENU_OPEN})`, "the menu closed with its pane");
     // The menu had the keyboard, and the pane that is left has it now.
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  /** Dispatches a paste into the terminal of the pane in front, or into the element an expression of the page gives, holding the text given and an image file with no path where `image`, as a paste of a screenshot arrives. */
+  function pasteInto(text: string | null, image: boolean, into = `document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea")`): Promise<unknown> {
+    return app.evaluate(`void (() => {
+      const data = new DataTransfer();
+      if (${JSON.stringify(text)} !== null) data.setData("text/plain", ${JSON.stringify(text)});
+      if (${image}) data.items.add(new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" }));
+      (${into}).dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    })()`);
+  }
+
+  it('pastes the path of the file the main process writes for an image with no text, at a paste and at "Paste" of the pane\'s menu, leaves a text to the terminal, leaves Control+V to the pane\'s program, and hands the path to no pane that took the screen while the file was written (scenarios D1, D2 and D5)', async () => {
+    await untilReplayDrawn();
+    await received.next(0);
+    // An app started in the background reads no image of the system's clipboard, so the main process's answer to the window is replaced, and counts the window's requests. No case after this one pastes.
+    const image = join(repository.base, "pasted shot.png");
+    writeFileSync(image, "");
+    await app.evaluateMain(`void (() => {
+      globalThis.__pasted = 0;
+      electron.ipcMain.removeHandler("owlery:pasted-image");
+      electron.ipcMain.handle("owlery:pasted-image", () => {
+        globalThis.__pasted += 1;
+        return ${JSON.stringify(image)};
+      });
+    })()`);
+    const path = pasted(`${repository.base}/pasted\\ shot.png `);
+
+    await pasteInto(null, true);
+    expect((await received.next(Buffer.byteLength(path))).toString("utf8")).toBe(path);
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // Text beside an image is the terminal's own paste, and the main process writes no file for it.
+    await pasteInto("owl text", true);
+    expect((await received.next(Buffer.byteLength(pasted("owl text")))).toString("utf8")).toBe(pasted("owl text"));
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // A paste of nothing hands nothing, not an empty paste either.
+    await pasteInto(null, false);
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // A paste into the field of the find bar, which stands in the pane's screen, is the field's.
+    await command("F");
+    await app.until(`document.activeElement === document.getElementById("find-field")`, "the find bar with the keyboard in its field");
+    await pasteInto(null, true, `document.getElementById("find-field")`);
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    await press("Escape", 27);
+    await app.until(`document.getElementById("find-bar").hidden && ${PANE_HAS_KEYBOARD}`, "the find bar closed, with the keyboard in the pane");
+
+    // "Paste" of the menu: the clipboard holds no text, so the pane is handed the image's path.
+    await app.evaluate(`window.owlery.copyText("")`);
+    await pressMenuItem("Paste");
+    expect((await received.next(Buffer.byteLength(path))).toString("utf8")).toBe(path);
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(2);
+
+    // Control+V reaches the program as its byte, and the window does nothing else with it.
+    await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", windowsVirtualKeyCode: 86, code: "KeyV", key: "v", modifiers: 2 });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: 86, code: "KeyV", key: "v", modifiers: 2 });
+    expect((await received.next(1)).toString("hex")).toBe("16");
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(2);
+
+    // The main process holds its answer while the screen of the pane pasted into passes to another pane: the path is handed to neither.
+    await app.evaluateMain(`void (() => {
+      electron.ipcMain.removeHandler("owlery:pasted-image");
+      electron.ipcMain.handle("owlery:pasted-image", () => {
+        globalThis.__pasted += 1;
+        return new Promise((resolve) => {
+          globalThis.__release = () => resolve(${JSON.stringify(image)});
+        });
+      });
+    })()`);
+    const second = await openPane("Shell");
+    await pidOf(second);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the second pane");
+    // The screen the second pane took is marked, so the step reads that the third pane takes that same screen.
+    await app.evaluate(`document.activeElement.closest(".pane").dataset.pastedInto = ""`);
+    await pasteInto(null, true, "document.activeElement");
+    for (const deadline = Date.now() + 5_000; (await app.evaluateMain<number>("globalThis.__pasted")) !== 3; await new Promise((resolve) => setTimeout(resolve, 50))) {
+      if (Date.now() >= deadline) throw new Error("the window never asked the main process for the image's path");
+    }
+    await closeFromElsewhere(second);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    // A pane that comes on takes the first free screen, which is the one the second pane gave back.
+    const third = await openPane("Shell");
+    await pidOf(third);
+    await app.until(`${PANE_HAS_KEYBOARD} && document.activeElement.closest(".pane[data-pasted-into]") !== null`, "the keyboard in the third pane, on the screen the second pane held");
+    const thirdHanded = new Received(`${receivedFile}-${third}`);
+    await thirdHanded.next(0);
+    await app.evaluateMain("globalThis.__release()");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect((await thirdHanded.next(0)).toString("hex")).toBe("");
+    expect(await handedMeanwhile()).toBe("");
+    await app.evaluate(`delete document.querySelector(".pane[data-pasted-into]").dataset.pastedInto`);
+    await closeFromElsewhere(third);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  /** The numbered lines a pane is to print under its links, `line-0001` and on. */
+  const numbered = (count: number): string[] => Array.from({ length: count }, (_, index) => `line-${String(index + 1).padStart(4, "0")}`);
+  /** The numbered lines the terminal of the pane in front holds, its history among them, read by "Select All" and "Copy" of its menu, once the last of `count` is there, fifteen seconds at most. A press of the right button inside the selection keeps it. */
+  async function heldLines(count: number): Promise<string[]> {
+    const last = numbered(count).at(-1);
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await pressMenuItem("Select All");
+      await pressMenuItem("Copy");
+      const held = (await clipboard()).split("\n").filter((line) => /^line-\d+$/.test(line.trimEnd()));
+      if (held.at(-1) === last || Date.now() >= deadline) return held;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
+  /** Has a client of the daemon other than the window set the scrollback, as a second window's Machine dialog would, and waits for the daemon's answer. */
+  async function setScrollbackFromElsewhere(lines: number | null): Promise<void> {
+    const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
+    const socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    await new Promise<void>((resolve, reject) => {
+      socket.addEventListener("error", () => reject(new Error("the daemon refused a second client")), { once: true });
+      socket.addEventListener("message", (event) => {
+        const message = JSON.parse(String(event.data)) as { type: string; requestId?: number };
+        if (message.type === "ready") socket.send(JSON.stringify({ type: "setCaps", requestId: 1, scrollback: lines }));
+        if (message.type === "done" && message.requestId === 1) resolve();
+      });
+      socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })), { once: true });
+    });
+    socket.close();
+  }
+
+  it("holds 5,000 lines of history in a pane's terminal where no person set the scrollback, and as many as a person sets once the daemon says another (scenarios B1 and B2)", async () => {
+    writeFileSync(linesFile, `${numbered(6000).join("\n")}\n`);
+    await openPane("Shell");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    const [, rows] = (await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×").map(Number) as [number, number];
+    const held = await heldLines(6000);
+    // The terminal holds the scrollback's lines and the screen's rows, the last of them the cursor's.
+    expect(held.length).toBeGreaterThanOrEqual(5000);
+    expect(held.length).toBeLessThan(5000 + rows);
+    expect(held.at(-1)).toBe("line-6000");
+    // A smaller scrollback set elsewhere reaches the terminal that stands, which drops its oldest lines.
+    await setScrollbackFromElsewhere(1000);
+    try {
+      // The daemon answers `done` before it tells the window the machine, so the window may still hold the 5,000 lines at the first reading.
+      let fewer = await heldLines(6000);
+      for (const deadline = Date.now() + 10_000; fewer.length >= 1000 + rows && Date.now() < deadline; ) fewer = await heldLines(6000);
+      expect(fewer.length).toBeGreaterThanOrEqual(1000);
+      expect(fewer.length).toBeLessThan(1000 + rows);
+      expect(fewer.at(-1)).toBe("line-6000");
+    } finally {
+      await setScrollbackFromElsewhere(null);
+    }
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  });
+
+  it("holds again the 3,000 lines a pane printed once it left the stage and came back, drawn from the daemon's replay (scenario B4, and the time of the return for Q2)", async () => {
+    writeFileSync(linesFile, `${numbered(3000).join("\n")}\n`);
+    const pane = await openPane("Shell");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    expect(await heldLines(3000)).toHaveLength(3000);
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+    // The screen of a pane that came back sends nothing a person types until its terminal has drawn the replay (src/renderer/view.ts, `screenTurns`), so the first key the pane's process receives marks the return.
+    const handed = `${receivedFile}-${String(pane)}`;
+    const before = readFileSync(handed).length;
+    const clicked = Date.now();
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(PANE_HAS_KEYBOARD, "the pane back in front");
+    while (readFileSync(handed).length === before) {
+      if (Date.now() - clicked > 15_000) throw new Error("the pane that came back took no key in 15 seconds");
+      await app.cdp("Input.insertText", { text: "." });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    // Written to the run's own output: the suite's runner shows nothing a case hands to `console.log`.
+    process.stdout.write(`\nA pane of 3,000 lines took a key ${String(Date.now() - clicked)} ms after the click that brought it back.\n`);
+    const held = await heldLines(3000);
+    expect(held).toEqual(numbered(3000));
+    // The find bar, opened from the pane's menu, finds the first line in the history the replay drew.
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar with the keyboard in its field");
+    await app.cdp("Input.insertText", { text: "line-0001" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match of the first line");
+    expect(await selected()).toBe("line-0001");
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  });
+
+  const FIND_OPEN = `document.getElementById("find-bar")?.hidden === false`;
+  const FIELD_HAS_KEYBOARD = `document.activeElement === document.getElementById("find-field")`;
+  const FIND_COUNT = `document.getElementById("find-count").textContent`;
+  /** A column of the screen that no line of these cases reaches. */
+  const PAST_THE_LINES = 60;
+
+  /**
+   * What the terminal of the pane in front holds selected, read by its
+   * menu's "Copy", or null where "Copy" cannot be pressed, since nothing is
+   * selected. The menu opens at a press of the right button on a cell no line
+   * reaches: on a Mac such a press selects the word under it, and an empty
+   * cell holds none, so the press keeps a selection and makes none. The
+   * terminal has the keyboard afterwards.
+   */
+  async function selected(): Promise<string | null> {
+    await openMenu(PAST_THE_LINES, EMPTY_ROW);
+    const copies = await app.evaluate<boolean>(`[...document.querySelectorAll("#pane-menu [role=menuitem]")].some((item) => item.firstChild.textContent === "Copy" && !item.disabled)`);
+    if (!copies) {
+      await press("Escape", 27);
+      await app.until(`!(${MENU_OPEN})`, "the menu closed");
+      return null;
+    }
+    const at = await menuItem("Copy");
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    await app.until(`!(${MENU_OPEN})`, `the menu closed at "Copy"`);
+    return clipboard();
+  }
+
+  /**
+   * The marks the find bar's search draws on the screen of the pane in
+   * front, from its top: each mark's top in the window, and the ink of its
+   * outline, `strong` for `--terminal-strong`, `ink` for `--terminal-ink`
+   * and the colour itself for any other. The match in front carries a mark
+   * of its own over the mark every match carries.
+   */
+  function marks(): Promise<{ top: number; outline: string }[]> {
+    return app.evaluate(`(() => {
+      const colour = (property) => {
+        const probe = document.createElement("span");
+        probe.style.color = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+        document.body.append(probe);
+        const read = getComputedStyle(probe).color;
+        probe.remove();
+        return read;
+      };
+      const strong = colour("--terminal-strong");
+      const ink = colour("--terminal-ink");
+      return [...document.querySelectorAll("#stage .pane:not([hidden]) .xterm-find-result-decoration")]
+        .filter((mark) => mark.style.display !== "none")
+        .map((mark) => {
+          const outline = getComputedStyle(mark).outlineColor;
+          return { top: Math.round(mark.getBoundingClientRect().top), outline: outline === strong ? "strong" : outline === ink ? "ink" : outline };
+        })
+        .sort((one, other) => one.top - other.top);
+    })()`);
+  }
+
+  /**
+   * Which of the matches the marks of the screen in front draw is the match
+   * in front, counted from the top of the screen, or -1 where none is. The
+   * terminal draws its marks at its next frame, after the count changed, so
+   * the read waits up to five seconds for `expected` and then answers what it
+   * read last.
+   */
+  async function frontMatch(expected: number): Promise<number> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const drawn = await marks();
+      const front = drawn.find((mark) => mark.outline === "strong");
+      const index = front === undefined ? -1 : drawn.filter((mark) => mark.outline === "ink").findIndex((mark) => mark.top === front.top);
+      if (index === expected || Date.now() >= deadline) return index;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /** The inks of the marks the screen in front draws, in their order on the screen, once the terminal has drawn `count` of them, or what it drew after five seconds. */
+  async function marksDrawn(count: number): Promise<string[]> {
+    const deadline = Date.now() + 5_000;
+    for (;;) {
+      const drawn = await marks();
+      if (drawn.length === count || Date.now() >= deadline) return drawn.map((mark) => mark.outline);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+
+  /** Opens a shell pane that prints `lines` under its two links, waits until the keyboard is in it, and answers with the bytes its process is handed from then on. */
+  async function paneWith(lines: string[]): Promise<Received> {
+    writeFileSync(linesFile, `${lines.join("\n")}\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    const handed = new Received(`${receivedFile}-${pane}`);
+    await handed.next(0);
+    return handed;
+  }
+
+  /** Replaces what the find bar's field holds with `text`: ⌘F selects what the field holds, and the text is typed over it. */
+  async function findText(text: string): Promise<void> {
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD} && document.getElementById("find-field").selectionEnd - document.getElementById("find-field").selectionStart === document.getElementById("find-field").value.length`, "the find bar's field with what it holds selected");
+    await app.cdp("Input.insertText", { text });
+  }
+
+  /** Closes the pane in front from its menu and waits for the one tab that is left. */
+  async function closeThePane(): Promise<void> {
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  }
+
+  it.runIf(process.platform === "darwin")("finds a line past the first screen at Command+F, selects the match in front, scrolls up to it, and outlines it in the terminal's strong ink (scenario A1)", async () => {
+    await paneWith(["a haystack-owlneedle-haystack", ...numbered(200)]);
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar with the keyboard in its field");
+    // It stands over the top right corner of the pane's screen.
+    const placed = await app.evaluate<{ top: number; right: number }>(`(() => { const bar = document.getElementById("find-bar").getBoundingClientRect(); const pane = document.querySelector("#stage .pane:not([hidden])").getBoundingClientRect(); return { top: Math.round(bar.top - pane.top), right: Math.round(pane.right - bar.right) }; })()`);
+    expect(placed).toEqual({ top: 0, right: 0 });
+    await app.cdp("Input.insertText", { text: "owlneedle" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match");
+    // The terminal scrolled up from the end of its output to the match.
+    expect(await app.evaluate<boolean>(`(() => { const bar = document.querySelector("#stage .pane:not([hidden]) .xterm-scrollable-element > .scrollbar.vertical"); const slider = bar?.querySelector(".slider"); return slider !== undefined && slider !== null && slider.offsetTop + slider.offsetHeight < bar.clientHeight - 1; })()`)).toBe(true);
+    // The match carries the mark of every match, and the mark of the match in front over it.
+    expect((await marksDrawn(2)).sort()).toEqual(["ink", "strong"]);
+    expect(await selected()).toBe("owlneedle");
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("goes to the next older match at Enter and back at Shift+Enter in its field, and at Command+G and Shift+Command+G from the terminal (scenario A2)", async () => {
+    await paneWith(["owltriple one", "between", "owltriple two", "between", "owltriple three"]);
+    await findText("owltriple");
+    // The match in front is the newest, the lowest of the three.
+    await app.until(`${FIND_COUNT} === "1 of 3"`, "the first of three matches");
+    expect(await frontMatch(2)).toBe(2);
+    await enter(0);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match");
+    expect(await frontMatch(1)).toBe(1);
+    await enter(0);
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the third match");
+    expect(await frontMatch(0)).toBe(0);
+    await enter(SHIFT);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match again");
+    expect(await frontMatch(1)).toBe(1);
+    // Each wraps: past the newest is the oldest.
+    await enter(SHIFT);
+    await enter(SHIFT);
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the oldest match, after the newest");
+    expect(await frontMatch(0)).toBe(0);
+    // The keyboard goes to the terminal without a press on it, which would end the selection the bar steps from.
+    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the terminal");
+    await command("G", true);
+    await app.until(`${FIND_COUNT} === "2 of 3"`, "the second match at Shift+Command+G");
+    expect(await frontMatch(1)).toBe(1);
+    await command("G");
+    await app.until(`${FIND_COUNT} === "3 of 3"`, "the third match at Command+G");
+    expect(await frontMatch(0)).toBe(0);
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    // The bar's buttons take the same steps: "Next match" wraps from the oldest to the newest, and "Previous match" back.
+    await app.click("#find-next");
+    await app.until(`${FIND_COUNT} === "1 of 3"`, 'the newest match at "Next match", after the oldest');
+    expect(await frontMatch(2)).toBe(2);
+    await app.click("#find-previous");
+    await app.until(`${FIND_COUNT} === "3 of 3"`, 'the oldest match at "Previous match", after the newest');
+    expect(await frontMatch(0)).toBe(0);
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("counts the matches the pane printed after the search at each step, while the pane keeps printing (scenario A2)", async () => {
+    writeFileSync(linesFile, "owlprinted one\nbetween\nowlprinted two\n");
+    const pane = await openPane("Shell");
+    // The pane's process prints only the lines above, so the case prints into its terminal itself.
+    const terminal = `/dev/${execFileSync("ps", ["-o", "tty=", "-p", String(await pidOf(pane))], { encoding: "utf8" }).trim()}`;
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    await findText("owlprinted");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "the newer of two matches");
+    // A match printed after the search, then lines with none more often than the add-on's wait of 200 ms, so the add-on does not count again on its own. Where a stall of the printing lets it count all the same, each step below reads the same count, so no assertion rests on the gaps between the lines.
+    writeFileSync(terminal, "owlprinted three\r\n");
+    const printing = setInterval(() => writeFileSync(terminal, "-\r\n"), 50);
+    try {
+      // The lines reach the terminal through the daemon, so each step waits for them to be drawn.
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      // A step onto the match printed since counts it.
+      await enter(SHIFT);
+      await app.until(`${FIND_COUNT} === "1 of 3"`, "the match printed after the search, counted with the others", 5_000);
+      // A step onto a match counted before a fourth was printed counts the fourth too.
+      writeFileSync(terminal, "owlprinted four\r\n");
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      await enter(0);
+      await app.until(`${FIND_COUNT} === "3 of 4"`, "the next older match, counted with the match printed since", 5_000);
+    } finally {
+      clearInterval(printing);
+    }
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")('counts one spelling with "Match case", searches no pattern that is no regular expression and throws nothing, and says where it stops counting (scenario A3)', async () => {
+    await paneWith(["an Error here", "an error there", ...Array.from({ length: 1001 }, (_, index) => `owlmany ${String(index)}`)]);
+    await app.evaluate(`void (window.__findErrors = [], window.addEventListener("error", (event) => window.__findErrors.push(String(event.message))))`);
+    await findText("Error");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "both spellings");
+    await app.click("#find-case");
+    await app.until(`${FIND_COUNT} === "1 of 1" && document.getElementById("find-case").getAttribute("aria-pressed") === "true"`, "one spelling with the case matched");
+    // The press left the keyboard in the field.
+    expect(await app.evaluate<boolean>(FIELD_HAS_KEYBOARD)).toBe(true);
+    await app.click("#find-case");
+    await app.click("#find-regex");
+    await findText("err(or");
+    await app.until(`${FIND_COUNT} === "Not a regular expression"`, "the refusal of the pattern");
+    expect(await marksDrawn(0)).toEqual([]);
+    expect(await app.evaluate<boolean>(`document.getElementById("find-next").disabled && document.getElementById("find-previous").disabled`)).toBe(true);
+    await findText("err(or)?");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "both spellings, read as a regular expression");
+    await app.click("#find-regex");
+    // The add-on counts one past 1,000, so the bar tells 1,000 matches from more, at the newest and at the one before it.
+    await findText("owlmany");
+    await app.until(`${FIND_COUNT} === "More than 1,000 matches"`, "the count past the limit");
+    await enter(0);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await app.evaluate<string>(FIND_COUNT)).toBe("More than 1,000 matches");
+    expect(await app.evaluate<string[]>("window.__findErrors")).toEqual([]);
+    await press("Escape", 27);
+    await closeThePane();
+  });
+
+  it.runIf(process.platform === "darwin")("closes at Escape in its field with its marks and its selection, and gives the program the keyboard, where Escape in the terminal stays the program's (scenario A4)", async () => {
+    const handed = await paneWith(["owlescape here", "owlescape there"]);
+    await findText("owlescape");
+    await app.until(`${FIND_COUNT} === "1 of 2"`, "the two matches");
+    // The selection is read before any key reaches the terminal, since a key typed there ends the terminal's selection itself.
+    await press("Escape", 27);
+    await app.until(`!(${FIND_OPEN})`, "the bar closed");
+    expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    expect(await marksDrawn(0)).toEqual([]);
+    expect(await app.evaluate<number>(`document.querySelectorAll("#stage .xterm-find-result-decoration").length`)).toBe(0);
+    expect(await selected()).toBeNull();
+    // The Escape in the field reached no program, and the next key typed does.
+    expect((await handed.next(0)).toString("hex")).toBe("");
+    await app.cdp("Input.insertText", { text: "k" });
+    expect((await handed.next(1)).toString("utf8")).toBe("k");
+    // With the keyboard in the terminal, Escape is the program's, and the bar stays.
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar open again");
+    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the terminal");
+    await press("Escape", 27);
+    expect((await handed.next(1)).toString("hex")).toBe("1b");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
+    await closeThePane();
+  });
+
+  it("leaves with its pane and keeps nothing typed in it, opens from the pane's menu, and closes at its button (scenario A5)", async () => {
+    await paneWith(["owlleaves here"]);
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar from the menu");
+    await app.cdp("Input.insertText", { text: "owlleaves" });
+    await app.until(`${FIND_COUNT} === "1 of 1"`, "the one match");
+    // A press of the right button on the bar opens no menu.
+    await rightPress(await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.getElementById("find-count").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await app.evaluate<boolean>(MENU_OPEN)).toBe(false);
+    // Side by side, a press in the bar's field over the pane not in front puts that pane in front, and the field keeps the keyboard.
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "2"`, "two panes side by side");
+    await app.click(`#stage .pane[data-tile="1"] .xterm-screen`);
+    await app.until(`${TAB_IN_FRONT} === "Shell 1"`, "the first pane in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
+    await app.click("#find-field");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2"`, "the bar's pane in front");
+    expect(await app.evaluate<boolean>(FIELD_HAS_KEYBOARD)).toBe(true);
+    await app.click("#side-by-side");
+    await app.until(`document.getElementById("stage").dataset.tiles === "1" && ${FIND_OPEN}`, "the bar's pane alone on the stage, with its bar");
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(false);
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 2" && ${PANE_HAS_KEYBOARD}`, "the pane back in front");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(false);
+    await untilReplayDrawn();
+    await pressMenuItem("Find…");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar from the menu again");
+    expect(await app.evaluate<string>(`document.getElementById("find-field").value`)).toBe("");
+    expect(await app.evaluate<string>(FIND_COUNT)).toBe("");
+    await app.click("#find-close");
+    await app.until(`!(${FIND_OPEN}) && ${PANE_HAS_KEYBOARD}`, "the bar closed and the keyboard in the terminal");
+    await closeThePane();
   });
 });

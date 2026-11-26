@@ -97,7 +97,7 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
-      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
+      /* On a line, how many decisions made without asking the person has not seen, how many reversals wait for a stage, and that a word of the person's was not committed where its commit failed. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
       .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
       .line .decided:empty { display: none; }
       /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
@@ -189,6 +189,9 @@
       .decision .age { flex: 1; }
       /* A line of the work item's record that was not read, under the decisions: a fault of the record, in the colour of a failure. */
       .decisions .unread { padding: var(--space-2) 0; font-size: var(--size-second); color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      /* Above the decisions, a word of the person's that no commit holds yet: in the muted ink while it waits for a session, in the colour of a failure where its commit failed. Git's reason is plain text the person can select. */
+      .detail .word-owed { font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .word-owed.failed { color: var(--state-failed); }
       .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .decision .grounds, .decision .reversal { color: var(--ink-muted); }
       .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
@@ -314,10 +317,11 @@
       .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
       .line.selected .account { color: var(--ink-muted); }
-      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
+      /* A row of the Accounts dialog: its record, the name with its folder, its sign-in and its usage under it, takes the row's whole width, so a name breaks only where it is longer than the row. Under the record the default said in words and the row's buttons stand on a line of their own, and wrap where they do not fit. A row being renamed or asked to be removed stands the same way: its field or its question, then its two buttons. */
+      #accounts-list li { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-3) 0; }
       #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
       #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
-      #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #accounts-list li .account-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
       #accounts-list li .is-default { color: var(--ink-muted); }
       #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
       /* A limit value, the last refresh and what a refresh spends are sentences, so they wrap where a folder is cut. */
@@ -360,7 +364,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .approval, .preview .detail .word-owed, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
@@ -612,6 +616,12 @@
       #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
       #pane-menu .keys { color: var(--ink-faint); }
       #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
+      /* A pane's find bar: a card over the top right corner of the pane's screen, above the terminal's own layers, its scroll bar among them. Its field is a field, its other controls are icons' buttons, and its count is a fact in the muted ink. A choice that is on, "Match case" or "Regular expression", draws its icon in the strong ink. */
+      #find-bar { position: absolute; top: 0; right: 0; z-index: 12; display: flex; align-items: center; gap: var(--space-1); box-sizing: border-box; padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      #find-field { width: 200px; height: var(--icon-button); margin-right: var(--space-2); padding: 0 var(--space-3); font-size: var(--size-second); }
+      #find-bar .glyph { display: block; min-width: var(--icon); font-family: var(--font-mono); font-size: var(--size-caption); font-weight: 600; line-height: var(--icon); text-align: center; }
+      #find-bar [aria-pressed="true"] { color: var(--ink-strong); }
+      #find-count { flex: none; min-width: 11ch; padding: 0 var(--space-3); font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
       #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
       #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
@@ -763,7 +773,18 @@
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
-          <div id="stage"></div>
+          <div id="stage">
+            <!-- The find bar stands in the screen of the pane it searches while it is open (./work-item-view.ts, `openFind`). -->
+            <div id="find-bar" role="search" aria-label="Find in the pane's output" hidden>
+              <input id="find-field" autocomplete="off" spellcheck="false" placeholder="Find" aria-label="Find in the pane's output" />
+              <button id="find-case" class="icon-button" type="button" aria-pressed="false" aria-label="Match case" title="Match case"><span class="glyph" aria-hidden="true">Aa</span></button>
+              <button id="find-regex" class="icon-button" type="button" aria-pressed="false" aria-label="Regular expression" title="Regular expression"><span class="glyph" aria-hidden="true">.*</span></button>
+              <span id="find-count" aria-live="polite"></span>
+              <button id="find-next" class="icon-button" type="button" aria-label="Next match" title="Next match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9M4 7.5l4-4 4 4" /></svg></button>
+              <button id="find-previous" class="icon-button" type="button" aria-label="Previous match" title="Previous match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M4 8.5l4 4 4-4" /></svg></button>
+              <button id="find-close" class="icon-button" type="button" aria-label="Close" title="Close"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
+            </div>
+          </div>
           <section id="back" aria-label="Back of the seal" hidden></section>
           <p id="view-strip" class="hint">
             <span id="strip-size"></span>
@@ -967,7 +988,7 @@
       <h2 class="head">Accounts</h2>
       <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
       <ul id="accounts-list" class="named whole"></ul>
-      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <!-- Hidden until this window starts a sign-in, the one its "Add an account" starts among them, and again once its pane is closed. -->
       <section id="accounts-sign-in" hidden>
         <h3 id="accounts-sign-in-head" class="caption"></h3>
         <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
@@ -978,16 +999,30 @@
       </section>
       <form id="accounts-form">
         <h3 class="caption">Add an account</h3>
-        <label>
-          Name
-          <span class="row"><input id="accounts-name" autocomplete="off" /></span>
-        </label>
-        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
+        <p class="says">Add an account opens Claude Code's sign-in, and the account is named from the login. Owlery makes its folder, which shares your skills, plugins, settings and conversations. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
         <p id="accounts-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
           <button type="submit" id="accounts-add" class="quiet">Add an account</button>
           <button type="button" id="accounts-close" class="primary">Done</button>
+        </div>
+      </form>
+    </dialog>
+    <!-- The app's own Settings, which the application menu opens, as against a repository's above. -->
+    <dialog id="app-settings-dialog">
+      <form id="app-settings-form">
+        <h2 class="head">Settings</h2>
+        <label>
+          Open files in
+          <span class="row">
+            <select id="app-settings-editor"></select>
+          </span>
+        </label>
+        <p class="says">A ⌘ click on a file a pane printed opens it here, at the line the pane named. ⇧ ⌘ click shows it in Finder.</p>
+        <p id="app-settings-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="app-settings-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="app-settings-submit" class="primary">Save</button>
         </div>
       </form>
     </dialog>
@@ -1016,10 +1051,7 @@
       <form id="sessions-form">
         <h2 id="sessions-head" class="head"></h2>
         <p id="sessions-says" class="says">An archive ends the work item's running sessions. Its folder and its branch stay where they are, and a restore brings the work item back.</p>
-        <section id="sessions-list" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="sessions-list" hidden></div>
         <p id="sessions-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="sessions-cancel" class="quiet">Cancel</button>
@@ -1031,10 +1063,7 @@
       <form id="daemon-form">
         <h2 id="daemon-head" class="head"></h2>
         <p id="daemon-says" class="says"></p>
-        <section id="daemon-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="daemon-sessions" hidden></div>
         <p id="daemon-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="daemon-cancel" class="quiet">Cancel</button>
@@ -1047,10 +1076,7 @@
         <h2 id="delete-head" class="head"></h2>
         <p id="delete-says" class="says"></p>
         <div id="delete-loss"></div>
-        <section id="delete-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="delete-sessions" hidden></div>
         <p id="delete-remote" class="says">Nothing on a remote is removed.</p>
         <label id="delete-force-label" class="check" hidden><input type="checkbox" id="delete-force" />Force delete</label>
         <p id="delete-error" class="refusal" role="alert"></p>
@@ -1068,10 +1094,7 @@
           <h3 class="caption">Work items that leave the lists</h3>
           <ul class="named"></ul>
         </section>
-        <section id="remove-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="remove-sessions" hidden></div>
         <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees and local branches</label>
         <div id="remove-losses" hidden></div>
         <label id="remove-force-label" class="check" hidden><input type="checkbox" id="remove-force" />Force delete</label>

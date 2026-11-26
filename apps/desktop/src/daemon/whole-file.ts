@@ -2,7 +2,8 @@
 // the daemon's discovery file, its repositories, its last look, its choice of
 // when to keep the Mac awake, the times it first read each block of a work
 // item's record at and each file of a work item's directory
-// (`record-writer.ts`), and the main process's theme file. It is kept beside the
+// (`record-writer.ts`), and the main process's theme file and its file of the
+// editor a person chose. It is kept beside the
 // daemon's files, whose writers use it, and the app's
 // main process imports it as it imports the discovery file's reader. It reads
 // `node:fs`, so nothing the page loads imports it.
