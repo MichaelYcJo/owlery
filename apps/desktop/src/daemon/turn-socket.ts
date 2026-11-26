@@ -1,17 +1,20 @@
 // The turn socket: how a command outside the daemon asks it for a turn on the
-// machine (`machine-turns.ts`). The runner of heavy commands and the chain
-// command's `gate` each open one connection for one command, which is a Unix
-// socket of the run folder beside the hook socket, readable by the user
-// alone. Each message is one line of JSON, named by its field `is`. The
-// command sends `ask` once; the daemon answers `waits` with how many go
-// before it, at each change of that count while it waits, and `turn` once it
-// may start. Once its command has ended, the command sends `ended` with the
-// exit code and the peak memory, and the daemon answers `ran` with whether
-// the machine was over its load during the run. A connection that closes
-// ends its ask or its turn, so a command whose process is gone holds
-// nothing. The chain command is built without `ws` (build.mjs), so the
-// socket is Node's own `net`; the daemon's own chain asks the keeper in
-// process and opens none.
+// machine (`machine-turns.ts`), and how the chain command tells it the stage
+// a pane's session runs. It is a Unix socket of the run folder beside the hook
+// socket, readable by the user alone, and each message is one line of JSON,
+// named by its field `is`. The runner of heavy commands and the chain
+// command's `gate` each open one connection for one command: the command
+// sends `ask` once; the daemon answers `waits` with how many go before it, at
+// each change of that count while it waits, and `turn` once it may start.
+// Once its command has ended, the command sends `ended` with the exit code
+// and the peak memory, and the daemon answers `ran` with whether the machine
+// was over its load during the run. A connection that closes ends its ask or
+// its turn, so a command whose process is gone holds nothing. The chain
+// command's `owed`, `round`, `fix-pass` and `seal` open a connection of their
+// own for one `stage` or `stage-ended` line (`StageLine`), which the daemon
+// hands its handler and answers with nothing, and close it. The chain command
+// is built without `ws` (build.mjs), so the socket is Node's own `net`; the
+// daemon's own chain asks the keeper in process and opens none.
 import { chmodSync, existsSync, rmSync } from "node:fs";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { basename, dirname } from "node:path";
@@ -134,6 +137,30 @@ export interface TurnRequest {
   alone: boolean;
 }
 
+/** The kinds of stage `owed` hands a pane's session, which a `stage` line names. */
+export const STAGE_KINDS = ["round", "fix-pass", "seal"] as const;
+
+/**
+ * A line the chain command tells the daemon, which the daemon answers with
+ * nothing: `stage`, the stage `owed` handed the session of the pane `pane`
+ * names in the worktree whose top `folder` is, with its kind and round; or
+ * `stage-ended`, that the stage of that worktree ended.
+ */
+export type StageLine = { is: "stage"; folder: string; pane: number; kind: (typeof STAGE_KINDS)[number]; round: number } | { is: "stage-ended"; folder: string };
+
+/** A whole number of zero or more, as a pane's id is. */
+const wholeNumber = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+
+/** A line read as a `stage` or a `stage-ended` line, or null where it is neither: no JSON, or a field missing or of another kind. */
+function stageLineOf(line: string): StageLine | null {
+  const { is, folder, pane, kind, round } = fieldsOf(line);
+  if (typeof folder !== "string" || folder === "") return null;
+  if (is === "stage-ended") return { is, folder };
+  const named = STAGE_KINDS.find((stage) => stage === kind);
+  if (is !== "stage" || !wholeNumber(pane) || named === undefined || !wholeNumber(round) || round < 1) return null;
+  return { is, folder, pane, kind: named, round };
+}
+
 /** One line a side sends. */
 type Message = ({ is: "ask" } & TurnRequest) | { is: "waits"; ahead: number } | { is: "turn"; load: number | null } | ({ is: "ended" } & RunEnd) | ({ is: "ran" } & Ran);
 
@@ -168,7 +195,7 @@ const send = (socket: Socket, message: Message): void => {
   if (!socket.destroyed) socket.write(`${JSON.stringify(message)}\n`);
 };
 
-/** The daemon's side of the socket: it takes one ask on each connection and hands it to the giver. */
+/** The daemon's side of the socket: it takes one ask on each connection and hands it to the giver, or one stage line and hands it to the handler. */
 export class TurnServer {
   private readonly connections = new Set<Socket>();
 
@@ -176,13 +203,14 @@ export class TurnServer {
     private readonly server: Server,
     private readonly socketPath: string,
     private readonly giver: TurnGiver,
+    private readonly told: (line: StageLine) => void,
   ) {}
 
-  /** Listens at `socketPath`, bound by its file name from inside its folder as the hook socket is (`hooks.ts#HookServer`), over a socket an earlier daemon left. */
-  static listen(socketPath: string, giver: TurnGiver): Promise<TurnServer> {
+  /** Listens at `socketPath`, bound by its file name from inside its folder as the hook socket is (`hooks.ts#HookServer`), over a socket an earlier daemon left. `told` is handed each stage line; a server given none reads a stage line and does nothing with it. */
+  static listen(socketPath: string, giver: TurnGiver, told: (line: StageLine) => void = () => {}): Promise<TurnServer> {
     if (existsSync(socketPath)) rmSync(socketPath);
     const server = createServer();
-    const turns = new TurnServer(server, socketPath, giver);
+    const turns = new TurnServer(server, socketPath, giver, told);
     server.on("connection", (socket) => turns.accept(socket));
     return new Promise((resolve, reject) => {
       server.once("error", reject);
@@ -219,7 +247,9 @@ export class TurnServer {
       socket.off("data", read);
       const request = askOf(line[0]);
       if (request === null) {
+        const stage = stageLineOf(line[0]);
         socket.destroy();
+        if (stage !== null) this.told(stage);
         return;
       }
       this.asked(socket, this.giver.ask({ ...request, gone: gone.signal }), line[1]);
@@ -345,5 +375,42 @@ export function takeTurn(socketPath: string | null, request: TurnRequest, waitin
       answered(null);
       settle({ held: false, why: connected ? "daemon ended" : "no daemon" });
     });
+  });
+}
+
+/** How long the chain command waits, at most, for a stage line's write to end. */
+export const STAGE_LINE_WAIT_MS = 1_000;
+
+/**
+ * Tells the daemon whose socket stands at `socketPath` a stage line, on a
+ * connection of its own, and settles once the line's write has ended, the
+ * connection failed or `waitMs` passed, whichever comes first; the
+ * connection is then closed. It waits for nothing the daemon answers, and
+ * never throws: a socket path of null, a socket nobody listens on, a daemon
+ * of an earlier build that closes the connection at once and a write that
+ * fails each settle it with nothing said.
+ */
+export function tellStage(socketPath: string | null, line: StageLine, waitMs = STAGE_LINE_WAIT_MS): Promise<void> {
+  if (socketPath === null || !existsSync(socketPath)) return Promise.resolve();
+  return new Promise((resolve) => {
+    let connection: Socket | undefined;
+    let limit: NodeJS.Timeout | undefined;
+    const settle = (): void => {
+      clearTimeout(limit);
+      connection?.destroy();
+      resolve();
+    };
+    limit = setTimeout(settle, waitMs);
+    try {
+      inside(dirname(socketPath), () => {
+        connection = createConnection(basename(socketPath));
+      });
+    } catch {
+      settle();
+      return;
+    }
+    connection?.on("error", settle);
+    connection?.on("close", settle);
+    connection?.end(`${JSON.stringify(line)}\n`, settle);
   });
 }
