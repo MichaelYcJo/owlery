@@ -43,3 +43,23 @@ No `seal/parity.json` stands, so no comparison with an original was owed. The se
 target: 06b5f3b5a8fd2aab49f0421cb8725eca44800f0e against 95b1a3eef98659c3a0b81853497f08bfe419ce7f
 Verdict: sealed
 ```
+
+## Re-run at f74db9c5
+
+The base `release/v0.0.5` moved to `c700226a`, the squash of #264 (issue #150). `e0a45e0d` merges it into the branch, and `f74db9c5` commits `trail/gate.md`. The newest run of `trail/gate.md` names `e0a45e0d`, an ancestor of HEAD. Only `trail/gate.md` follows it (executed: `git log --no-merges --name-only e0a45e0d..HEAD ^c700226a`). Since `06b5f3b5`, this work item's records gained only `guarantee.md` and that run of `trail/gate.md`, and no file of this work's own changed apart from the merge. `seal pr-body <item> --body <the body file> --check` exited 0 and printed "matches" (executed). The committed `guarantee.md` equals the file the first run wrote (executed: `cmp`, exit 0).
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The merge of `c700226a` leaves this work's units as they were | `git diff 06b5f3b5 e0a45e0d -- apps docs` | Read of that diff: `daemon.ts`, `worktrees.ts`, `records-place.ts`, `stage-records.ts`, `decision-record.ts`, `protocol.ts`, the renderer's `list.ts`, `shared.ts`, `view.ts` and `index.html`, the design row "A row of a list of records", and the cases | Holds, read. No hunk reaches `accounts.ts`, the adapters, `sign-in-pane.ts`, the `addAccount` branch, `endAdd` or the Accounts dialog's styles. The merged `close` still sets `closed` first, so `endAdd`'s check after `status` holds as it did. Its new wait for the commits under way comes after that. The style changes are to `.badge`, `.decisions .unread` and `.preview-foot`. The lines of `screenshots.test.ts` that name an account are context lines. |
+| This work's cases pass with the merge | `trail/gate.md`, the run at `e0a45e0d` | `OWLERY_BACKGROUND=1 node scripts/test-in-electron.mjs test/accounts.test.ts test/theme-controls.test.ts` at HEAD | Holds, executed: exit 0, 66 of 66 passed. |
+| Scenario L holds with the merge | `frame/design.md:81` | `git grep -n -e 'accounts-name' -e 'accountsName' -- apps/desktop` at HEAD | Holds, executed: exit 1, nothing printed. |
+| The 18 committed shots still draw the Accounts dialog the app draws | `screenshots/` | `OWLERY_BACKGROUND=1 OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots` at HEAD, which wrote 90 files and exited 0. Then a copy of the first run's threshold probe compared each committed file with the new file of the same name | Holds for the dialog, executed. The boxes of the first run stand again: the scene's temporary folder names, the ages the clock moved, and the mark behind the dialog. One box is new, at y 140 to 151 and x 427 to 613, in the `accounts` and `accounts-added` views of every theme, 12 files. It is the inbox line behind the dialog. In the new `night-watch-dark-accounts.png` it reads "1 reversed, word not committed" beside the hotfix work item's question, which is #150's fact of the scene (read). The `accounts-adding` views have no such box, because their taller dialog covers that line. No box falls inside the Accounts dialog. |
+
+The parties are as the first run found them. The merge changes no record of this work item and no unit of this work, so the design, the build, the last round, the changelog and `pr.md` say what they said and agree with the tree as before.
+
+The 12 shots whose scene behind the dialog now differs are judged no disagreement. *A pull request that changes the window carries its screenshots* has the review read the changed view, and this work's view is the Accounts dialog, which every committed shot draws as the app at HEAD draws it. The line behind the dialog is #150's view, which #264 carried in its own shots. Taking the 18 shots again would make them match HEAD in the dimmed scene as well. That is a choice for the orchestrator. The seal does not depend on it.
+
+```seal
+target: f74db9c57f6048dc4e7ff81453e8c108b7e48bbe against c700226a5b2e7d253c818cc8c196af9186798982
+Verdict: sealed
+```
