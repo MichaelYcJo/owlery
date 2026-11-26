@@ -13,7 +13,7 @@ Answered 2026-11-26 by the orchestrator, before the first edit.
 
 ## Why this way
 
-The owner decided the versioning rules in the conversation of 2026-11-26 ("그렇게하자", to the orchestrator's proposal after reading how Orca and Paseo number their releases); issue #278 holds the six decisions word for word. The frame writes them as the roadmap's rule changes; the crafter writes them into both editions of `docs/roadmap.md`, and of `docs/architecture.md`, `docs/product.md` and `README.md` where they name a version by the old rule.
+The owner decided the versioning rules in the conversation of 2026-11-26 ("그렇게하자", to the orchestrator's proposal after reading how Orca and Paseo number their releases); issue #278 holds the six decisions word for word. The frame names where the documents state them, since the work edits the policy documents directly and its `## Rule changes` holds nothing; the crafter writes them into both editions of `docs/roadmap.md`, and of `docs/architecture.md`, `docs/product.md` and `README.md` where they name a version by the old rule.
 
 - **Planning, framer:** the rules touch every place the roadmap names a version (the release table, *Releases and the tracker*, the rejected alternatives, *Later versions*), which the framer enumerates.
 - **Implementation, crafter:** documents only, in two editions whose headings and table rows must match.
