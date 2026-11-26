@@ -1,0 +1,324 @@
+diff --git a/apps/desktop/src/daemon/adapters/adapter.ts b/apps/desktop/src/daemon/adapters/adapter.ts
+index 61fbda57..fce46e55 100644
+--- a/apps/desktop/src/daemon/adapters/adapter.ts
++++ b/apps/desktop/src/daemon/adapters/adapter.ts
+@@ -69,8 +69,9 @@ export interface RoleAdapter {
+    * a refresh, are the absolute folders the session's commands may write in
+    * (`write`) and are refused (`refuse`): an adapter that launches a role
+    * runs its commands in the operating system's sandbox, which lets them
+-   * write in those folders alone, and refuses them the adapter's own
+-   * folders as well; one that cannot, or that is given a role with no
++   * write in the `write` folders and never in the `refuse` ones, and
++   * refuses them the adapter's own folders as well; one that cannot, or
++   * that is given a role with no
+    * `commands`, starts no session. `scratch`, which the daemon gives where
+    * the role's commands write in a scratch folder of the session's own, is
+    * that folder, which the session's file tools reach as well. The promise
+diff --git a/apps/desktop/src/daemon/adapters/claude-roles.ts b/apps/desktop/src/daemon/adapters/claude-roles.ts
+index 711e6dea..c2ab0855 100644
+--- a/apps/desktop/src/daemon/adapters/claude-roles.ts
++++ b/apps/desktop/src/daemon/adapters/claude-roles.ts
+@@ -66,8 +66,8 @@ export type Launch = "session" | "pane";
+  */
+ const COMMANDS_WRITE: Record<RoleGrant["commands"], string> = {
+   worktree: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
+-  scratch: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
+-  nowhere: "Write nothing with them: the system refuses their writes to the worktree and to the bundle's root.",
++  scratch: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
++  nowhere: "Write nothing with them: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
+ };
+ 
+ /**
+diff --git a/apps/desktop/src/daemon/adapters/claude.ts b/apps/desktop/src/daemon/adapters/claude.ts
+index d176a3b5..91231086 100644
+--- a/apps/desktop/src/daemon/adapters/claude.ts
++++ b/apps/desktop/src/daemon/adapters/claude.ts
+@@ -73,11 +73,14 @@ function firstOf(text: string): string {
+  * and the bundle's folder among the folders the session works in, so it
+  * reads the bundle's other documents. A role launch also turns Claude Code's
+  * own sandbox on in the settings it passes, which on macOS runs each command
+- * under `sandbox-exec`: its commands write only in `sandbox.allowWrite`,
+- * never in `sandbox.denyWrite`, which wins over the first, and reach no host
+- * but the loopback; no command can ask to run outside it, a session whose
+- * sandbox cannot start does not start, and a sandboxed command still asks
+- * the adapter as any other does. Its scratch folder, where it has one, joins
++ * under `sandbox-exec`: its commands write in `sandbox.allowWrite` and
++ * where that sandbox lets a command write by default, which in Claude Code
++ * 2.1.332 is its own temporary folder, the session's folder, the folders
++ * after `--add-dir` and, where the session's folder is a linked worktree,
++ * its repository's git folder; never in `sandbox.denyWrite`, which wins over
++ * both; and they reach no host but the loopback. No command can ask to run
++ * outside it, a session whose sandbox cannot start does not start, and a
++ * sandboxed command still asks the adapter as any other does. Its scratch folder, where it has one, joins
+  * the folders the session works in. A refresh of an account's usage, which
+  * has no role, holds no tool at all, takes one turn and writes no
+  * transcript. No other launch is made: a session with neither a role nor a
+diff --git a/apps/desktop/src/daemon/daemon.ts b/apps/desktop/src/daemon/daemon.ts
+index 08217e41..32a017e6 100644
+--- a/apps/desktop/src/daemon/daemon.ts
++++ b/apps/desktop/src/daemon/daemon.ts
+@@ -2449,26 +2449,28 @@ export class Daemon {
+    * worktree writes, and are refused that folder's `hooks` and `config`, so
+    * no hook that would run outside the sandbox is planted. A proofer's and a
+    * sealer's write in the scratch folder alone, and the orchestrator's
+-   * nowhere; each of those is refused the worktree. Each refused folder is
++   * nowhere; each of those is refused the worktree and the repository's git
++   * folder, which Claude Code's sandbox lets a command write by default
++   * where the session's folder is a linked worktree, and through which a
++   * command would move the branch under judgment. Each refused folder is
+    * named, so the bound holds whatever the sandbox lets a command write by
+    * default. It rejects, with a sentence a person reads, where git names no
+-   * repository's folder for a crafter's worktree.
++   * repository's folder for the worktree.
+    */
+   private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[] }; scratch: string | null }> {
+     const worktree = realpathSync.native(cwd);
+     const { commands } = grantOf(session.role);
+-    if (commands === "worktree") {
+-      let gitFolder: string;
+-      try {
+-        gitFolder = await gitFolderOf(cwd);
+-      } catch (error) {
+-        throw new Error(`git named no repository's folder for the worktree, so the ${session.role.role}'s commands have no place to write: ${error instanceof Error ? error.message : String(error)}`);
+-      }
+-      return { commands: { write: [worktree, gitFolder], refuse: [join(gitFolder, "hooks"), join(gitFolder, "config")] }, scratch: null };
++    let gitFolder: string;
++    try {
++      gitFolder = await gitFolderOf(cwd);
++    } catch (error) {
++      const bound = commands === "worktree" ? "have no place to write" : "cannot be refused the repository's git folder";
++      throw new Error(`git named no repository's folder for the worktree, so the ${session.role.role}'s commands ${bound}: ${error instanceof Error ? error.message : String(error)}`);
+     }
+-    if (commands === "nowhere") return { commands: { write: [], refuse: [worktree] }, scratch: null };
++    if (commands === "worktree") return { commands: { write: [worktree, gitFolder], refuse: [join(gitFolder, "hooks"), join(gitFolder, "config")] }, scratch: null };
++    if (commands === "nowhere") return { commands: { write: [], refuse: [worktree, gitFolder] }, scratch: null };
+     session.scratch = this.makeScratch(session.info.id);
+-    return { commands: { write: [session.scratch], refuse: [worktree] }, scratch: session.scratch };
++    return { commands: { write: [session.scratch], refuse: [worktree, gitFolder] }, scratch: session.scratch };
+   }
+ 
+   /**
+diff --git a/apps/desktop/test/claude-adapter.test.ts b/apps/desktop/test/claude-adapter.test.ts
+index 5e1cf635..b35ec46b 100644
+--- a/apps/desktop/test/claude-adapter.test.ts
++++ b/apps/desktop/test/claude-adapter.test.ts
+@@ -700,7 +700,7 @@ describe("a role's rules file", () => {
+         "- `skills/agent-contract/SKILL.md`",
+         "- `skills/code-review/SKILL.md`",
+         "",
+-        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root. Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.",
++        "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root. Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.",
+         "",
+         "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+         "",
+@@ -710,10 +710,10 @@ describe("a role's rules file", () => {
+     for (const named of ["# Owlery role session: crafter, fix-pass\n", "the crafter of the Owlery role bundle, at the stage `fix-pass`", "`agents/crafter.md`", "`/elsewhere`", "- `skills/implement/fix-pass.md`\n"]) expect(head, named).toContain(named);
+     // Each pair's head names the tools of its own launch, in the launch's order, and where its grant lets its commands write.
+     const writes: Record<RoleStage["role"], string> = {
+-      proofer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
+-      sealer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
++      proofer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
++      sealer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
+       crafter: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
+-      orchestrator: "Write nothing with them: the system refuses their writes to the worktree and to the bundle's root.",
++      orchestrator: "Write nothing with them: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
+     };
+     for (const pair of ROLE_STAGES) {
+       expect(rulesHead("/elsewhere", pair), pair.role).toContain(
+diff --git a/apps/desktop/test/daemon.test.ts b/apps/desktop/test/daemon.test.ts
+index da3f7f05..bb4cd712 100644
+--- a/apps/desktop/test/daemon.test.ts
++++ b/apps/desktop/test/daemon.test.ts
+@@ -1809,7 +1809,8 @@ describe("repositories", () => {
+     expect(stopped).toBe(0);
+     c.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
+     await c.message("done", (m) => m.requestId === 4);
+-    expect(stopped).toBe(1);
++    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
++    await c.until(() => (stopped === 1 ? true : undefined));
+     const after = await (await client(url)).message("ready");
+     expect([after.repositories, after.workItems, after.sessions, after.headless]).toEqual([[], [], [], []]);
+   });
+@@ -2538,7 +2539,8 @@ describe("what a person sets on a work item", () => {
+     expect(stopped).toBe(0);
+     c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
+     await c.message("done", (m) => m.requestId === 4);
+-    expect(stopped).toBe(1);
++    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
++    await c.until(() => (stopped === 1 ? true : undefined));
+     const failed = { ...headless, state: "failed", error: "ended when the work item was archived", stopped: "request" };
+     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
+     c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
+@@ -5970,7 +5972,7 @@ describe("headless sessions", () => {
+     expect(seen.started).toEqual([expect.objectContaining({ prompt: withScratch("Where am I?", seen.started[0]?.scratch ?? ""), cwd: workItem.worktree, role: PROOFER })]);
+   });
+ 
+-  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
++  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree and the repository's git folder, and the orchestrator no place, refused the same two (scenarios 1 to 4 of #127)", async () => {
+     // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
+     const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
+     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+@@ -5995,10 +5997,10 @@ describe("headless sessions", () => {
+     expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
+     expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
+     expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
+-    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree] }, scratch: proofers });
++    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree, common] }, scratch: proofers });
+     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
+-    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree] }, scratch: sealers });
+-    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree] } });
++    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree, common] }, scratch: sealers });
++    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree, common] } });
+     // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
+     expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
+     expect(readFileSync(join(scratches, "1-before", "clone.txt"), "utf8")).toBe("left");
+@@ -6086,7 +6088,7 @@ describe("headless sessions", () => {
+       { role: "orchestrator", stage: "judgment" },
+     ]);
+     for (const pair of ROLE_STAGES) expect((await d.startRoleSession(workItem.id, "Q", pair)).role).toEqual(pair);
+-    // A crafter's run starts once git has named the repository's folder its commands write in, so the runs start in no set order.
++    // Each run starts once git has named the repository's folder its commands write in or are refused, so the runs start in no set order.
+     await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+     expect(seen.started.map((started) => started.role)).toEqual(expect.arrayContaining([...ROLE_STAGES]));
+   });
+@@ -6102,7 +6104,8 @@ describe("headless sessions", () => {
+     c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
+     const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
+     expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
+-    expect(seen.stopped).toBe(2);
++    // The stop can arrive while git still names the repository's folder the sealer's commands are refused, before the run has started; the run is stopped once it starts.
++    await vi.waitFor(() => expect(seen.stopped).toBe(2), { timeout: 5000, interval: 50 });
+   });
+ 
+   it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
+@@ -6237,7 +6240,8 @@ describe("headless sessions", () => {
+     const { daemon: d, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 300 });
+     await d.startRoleSession(workItem.id, "One", PROOFER);
+     await d.startRoleSession(workItem.id, "Two", PROOFER);
+-    await pause(20);
++    // Each run starts once git has named the repository's folder the proofer's commands are refused.
++    await vi.waitFor(() => expect(seen.started).toHaveLength(2), { timeout: 5000, interval: 50 });
+     expect(seen.stopped).toBe(0);
+     await d.close();
+     expect(seen.stopped).toBe(2);
+@@ -6333,7 +6337,8 @@ describe("headless sessions", () => {
+     const headless = await d.startRoleSession(workItem.id, "Q", PROOFER);
+     const failed = (await c.message("headless", (m) => m.headless.state === "failed")).headless;
+     expect(failed).toEqual({ ...headless, state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" });
+-    expect(seen.stopped).toBe(1);
++    // The limit can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
++    await c.until(() => (seen.stopped === 1 ? true : undefined));
+     c.socket.close();
+     await c.until(() => (idle === 1 ? true : undefined));
+     // Where the options name no limit, a session works an hour at most.
+@@ -6383,7 +6388,8 @@ describe("headless sessions", () => {
+     expect(await one.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
+     const failed = { ...headless, state: "failed", error: "the session was stopped at a request before it finished", stopped: "request" };
+     for (const c of [one, two]) expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
+-    expect(seen.stopped).toBe(1);
++    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
++    await one.until(() => (seen.stopped === 1 ? true : undefined));
+     const before = one.messages.length;
+     one.send({ type: "stopHeadless", requestId: 4, id: finished.id });
+     one.send({ type: "stopHeadless", requestId: 5, id: headless.id });
+@@ -7950,7 +7956,8 @@ describe("the caps on the machine", () => {
+     clock = 5_000;
+     c.send({ type: "input", id: pane.id, data: "\n" });
+     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "working")).headless).toMatchObject({ startedAt: 5_000, queuedAt: 1_000 });
+-    expect(starts).toEqual(["Which file?"]);
++    // The run starts once git has named the repository's folder the proofer's commands are refused.
++    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
+     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless.stopped).toBe("limit");
+     c.send({ type: "readLedger", requestId: 2, workItemId: 1 });
+     expect((await c.message("ledger", (m) => m.requestId === 2)).entries.map(({ startedAt, stopped }) => ({ startedAt, stopped }))).toEqual([{ startedAt: 5_000, stopped: "limit" }]);
+@@ -8006,7 +8013,8 @@ describe("the caps on the machine", () => {
+     await c.message("headless", (m) => m.headless.id === first.id);
+     expect(c.messages.some((m) => m.type === "headless" && m.headless.id === first.id && m.headless.state === "queued")).toBe(false);
+     expect((await d.startRoleSession(1, "Second?", PROOFER)).state).toBe("queued");
+-    expect(starts).toEqual(["First?"]);
++    // The first run starts once git has named the repository's folder the proofer's commands are refused.
++    await vi.waitFor(() => expect(starts).toEqual(["First?"]), { timeout: 5000, interval: 50 });
+   });
+ 
+   it("ends a work item's queued session before its working one at an archive, so the place the working one frees starts none of them, and writes the one entry of the run that ran (scenario 9)", async () => {
+@@ -8080,7 +8088,8 @@ describe("the caps on the machine", () => {
+     for (const requestId of [1, 2, 3]) c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
+     await c.message("started", (m) => m.requestId === 3);
+     expect((await d.startRoleSession(1, "Which file?", PROOFER)).state).toBe("working");
+-    expect(starts).toEqual(["Which file?"]);
++    // The run starts once git has named the repository's folder the proofer's commands are refused.
++    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
+   });
+ 
+   it("reads once a minute the resident memory of each agent's own process while one lives, keeps each agent's highest in `agent-memory.json`, and proposes from it once five are measured (scenario 2, the store)", async () => {
+diff --git a/apps/desktop/test/role-bundle.test.ts b/apps/desktop/test/role-bundle.test.ts
+index ff22e248..43159297 100644
+--- a/apps/desktop/test/role-bundle.test.ts
++++ b/apps/desktop/test/role-bundle.test.ts
+@@ -468,12 +468,12 @@ describe("the built app's role bundle", () => {
+ 
+     const bundleDir = join(APP_DIR, "dist", "bundle");
+     const rulesFile = join(runDir, "roles", "proofer-round.md");
+-    // The proofer's commands write in the scratch folder the daemon made for the session, the last folder of the launch, and are refused the worktree and the bundle.
++    // The proofer's commands write in the scratch folder the daemon made for the session, the last folder of the launch, and are refused the worktree, the repository's git folder and the bundle.
+     const args = readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1);
+     const scratch = args.at(-1) ?? "";
+     expect(dirname(scratch)).toBe(join(realpathSync(runDir), "scratch"));
+     expect(basename(scratch)).toMatch(new RegExp(`^${String(headless.id)}-[A-Za-z0-9]{6}$`, "u"));
+-    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), bundleDir] }, scratch }));
++    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir] }, scratch }));
+     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
+     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
+     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
+diff --git a/apps/desktop/test/role-session.test.ts b/apps/desktop/test/role-session.test.ts
+index b2c36bcc..96c33711 100644
+--- a/apps/desktop/test/role-session.test.ts
++++ b/apps/desktop/test/role-session.test.ts
+@@ -25,10 +25,12 @@
+ // daemon allows it by the role's grant, and the command runs in Claude
+ // Code's sandbox with the places the daemon gave the launch: a proofer's and
+ // a sealer's command clones the worktree into the session's scratch folder,
+-// appends to the clone's file and then to the worktree's, and a crafter's
++// appends to the clone's file, makes a branch in the repository's git folder
++// and appends to the worktree's file, and a crafter's
+ // appends to the worktree's file, commits it, and then appends to a file of
+-// the case's folder outside the worktree. The system refuses the last write
+-// of each. The case reads the stream for the session's tools and the
++// the case's folder outside the worktree. The system refuses each write
++// after the first two of a proofer and a sealer, and the last of a crafter.
++// The case reads the stream for the session's tools and the
+ // request, the case's config folder for the session's conversation, what
+ // the stand-in was told the command printed, and the files and the
+ // worktree's commits for what was written.
+@@ -73,7 +75,9 @@ const PROMPT = [
+  * them is one Claude Code runs unasked. A proofer's and a sealer's clones the
+  * worktree into the scratch folder, which the CLI was given last after
+  * `--add-dir` and the case's script kept in `args`, appends a byte to the
+- * clone's `README.md` and prints it, then appends one to the worktree's. A
++ * clone's `README.md` and prints it, then makes the branch `probe` in the
++ * repository's git folder, and then, whatever that did, appends a byte to
++ * the worktree's `README.md`. A
+  * crafter's appends a byte to the worktree's `README.md`, commits it as
+  * `probe`, then appends one to `outside.txt` of `kept`, which no place of
+  * the launch names. The paths of the case hold no quote.
+@@ -81,7 +85,7 @@ const PROMPT = [
+ function standInCommand(pair: RoleStage, worktree: string, kept: string): string {
+   if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'`;
+   const scratch = readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? "";
+-  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && printf x >> '${worktree}/README.md'`;
++  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }`;
+ }
+ 
+ /** A shell's sentence that the system refused a write to `file`, in the words of either shell: zsh's "operation not permitted: <file>" and bash's "<file>: Operation not permitted". */
+@@ -271,8 +275,10 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a
+       expect(git(worktree, "show", "--format=", "--name-only", "HEAD")).toBe("README.md\n");
+       expect(existsSync(join(kept, "outside.txt"))).toBe(false);
+     } else {
+-      // The clone in the scratch folder took the byte, which the command printed; the system refused the write to the worktree, and the worktree holds no change.
++      // The clone in the scratch folder took the byte, which the command printed; the system refused the branch in the repository's git folder and the write to the worktree, and the worktree holds no change.
+       expect(told).toContainEqual({ isError: true, content: expect.stringContaining("a repository\nx") });
++      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(/refs\/heads\/probe\.lock.*operation not permitted/is) });
++      expect(git(worktree, "branch", "--list", "probe")).toBe("");
+       expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refusedWrite(join(worktree, "README.md"))) });
+       expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
+       expect(git(worktree, "status", "--porcelain")).toBe("");
