@@ -39,7 +39,7 @@ Read: the combined branch of #215, #216 and #133 that `routing.md` names, at `fe
 
 | Work item | Where both change | Merges first | Grounds |
 |---|---|---|---|
-| #133 and #216 | `docs/architecture.md` *Overall layout*: their `## Rule changes` operations name it for the settle, and this work edits the diagram's phone line in it directly. No `from:` of theirs quotes that line (executed). | Either. This work rides their combined pull request, and merging it last into the combined branch costs nothing. | The two changes touch different lines, and theirs land only at the settle. |
+| #133 and #216 | `docs/architecture.md` *Overall layout*: their `## Rule changes` operations name it for the settle, and this work edits the diagram's phone line in it directly. No `from:` of theirs quotes that line (executed). | Either. This work opens its own pull request into `release/v0.0.5` (`routing.md`, *Branch*), and their operations land only at the settle, so neither order changes a line the other writes. | The two changes touch different lines, and theirs land only at the settle. |
 | #78, merged as #272 | `docs/roadmap.md` *Releases and the tracker*: #78's two operations per edition | #78, already merged | This work carries #78's decision (*Scope* items 2 and 6), so the settle finds it standing. |
 
 ## Operational impact
