@@ -30,6 +30,11 @@ The fix is the frame's row as it stands, at `work-item-menu.test.ts:891`. The ca
 
 This round did not run the line. Against the probe's mutant of `drawSessions` it should receive a second, empty section, so the fix pass shows it red there, with nothing else changed (contract rule 15).
 
+```seal
+verdict: fixed 2b07765a
+answer: The finding holds: at `f0118a3e`, line 891 read the lines of `#delete-sessions` alone, against the row "No waiting session" of `frame/design.md`. The paste-ready line was read against `drawSessions` (`apps/desktop/src/renderer/renderer.ts:525-541`), which draws each section as a `section` holding an `h3` and a `ul` of `li`. It replaces line 891 as written. Seen red (executed): `seal mutate src/renderer/renderer.ts` with the round's probe mutant, which adds an empty queue section after any sections it is given, and `--tests "node scripts/test-in-electron.mjs test/work-item-menu.test.ts test/themes.test.ts --bail=1"`, run in `apps/desktop` under the machine's lock with `OWLERY_BACKGROUND=1`. The baseline at `554fec1f` passed both files. The mutant read `red` (exit 0): the delete case failed at `test/work-item-menu.test.ts:891`, where it received two sections for one, and no other case failed. `renderer.ts` was restored from the bytes `seal mutate` held, and `git status --short` then printed nothing. That baseline is the fix pass's narrow set: the changed test file, and `themes.test.ts`, the repository's tree-wide reader of `docs/` and `index.html`. The fix changed no file of the app. `npx tsc --noEmit -p .` in `apps/desktop` exited 0 before the commit. The class, listed by its cause: every session dialog draws its sections through `drawSessions`, so this one case now catches an empty section in any of them. The other built-app cases still read only the lines where no session waits: `#sessions-list` and `#remove-sessions` in `work-item-menu.test.ts`, and `#daemon-sessions` in `daemon-restart.test.ts`. They stand because they read lines, which the mutant leaves alone, and because the cause they share is held at line 891. The full suite and the broad gate stay `unverified`, and the orchestrator answers them.
+```
+
 ### 2. `trail/phases/phase-1.md` says the Korean row calls the state "기계를 기다리는", and the row the build wrote does not
 
 ```seal
@@ -44,6 +49,11 @@ The fix rewrites the sentence in place, in `trail/phases/phase-1.md` line 17:
 
 ```markdown
 - `docs/design.md` and `docs/design.ko.md`, the row "The delete dialog": the three sentences of *Data & interfaces* that state *Scope* item 1 stand before its last sentence. The fourth sentence, on the kept lists, is phase 2's. The Korean edition renders "for a session that has not started" as "아직 시작하지 않은 세션을 담는", and names the state by no other word.
+```
+
+```seal
+verdict: fixed 554fec1f
+answer: The finding holds, and the sentence at `trail/phases/phase-1.md:17` is rewritten in place to the round's text. Before applying it, I read `docs/design.ko.md:458` at HEAD: it says "아직 시작하지 않은 세션을 담는" and holds no form of "기다리", so "names the state by no other word" is true. After the last fix commit (executed): `git grep -n -c '기계를 기다리' -- docs` printed `docs/design.ko.md:1`, the Machine dialog's row at line 457, which stands because it is another row. A `git grep` for "기계를 기다리" and "calls the state" over the work item's records printed only this round record's own finding. One statement of the round's grounds does not hold at HEAD: `git grep -n -c '컴퓨터를 기다리' -- docs` printed nothing, and `docs/architecture.ko.md:469` says "대기열에서 기다리고". So "컴퓨터를 기다리는" stands only in the Korean `to` texts of `frame/design.md` *Rule changes*, which the settle writes. That changes nothing of the fix. The read of the range and the records (executed and read, after `554fec1f`): I read every hunk of `2b07765a` and `554fec1f`. I held `routing.md`, the three frame files, `gaps.md` and `changelog.md` from my whole read at phase 3's close, `71d30d5e`, and did not print them whole again. `git diff 71d30d5e HEAD` over them printed one changed line, the Status of Q3 in `frame/questions.md`. Against those reads, HEAD contradicts no statement in any of them. `frame/design.md:80` now matches the case, and Q3's Status in `frame/questions.md` stands answered. Neither fix changes what the work item ships, so `changelog.md` is unchanged. Not done: nothing.
 ```
 
 ## Confirmations
