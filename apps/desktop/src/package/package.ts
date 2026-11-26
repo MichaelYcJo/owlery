@@ -64,13 +64,16 @@ type MacConfig = NonNullable<Configuration["mac"]>;
  * install has rebuilt `node-pty` for Electron, so the packager rebuilds
  * nothing. The ad hoc way names the identity `-`, so a certificate of the
  * keychain is never used; the Developer ID way names none, and the packager
- * takes the certificate of `CSC_LINK`. The package's `package.json` gains
- * the product name: Electron names the app by it, and so its user data
- * folder, which an app started from a checkout keeps under the package's
- * `name`. The configuration's own `productName` names the bundle alone.
+ * takes the certificate of `CSC_LINK`. The Developer ID way forces the
+ * signature, so a certificate the packager finds no identity in fails the
+ * run, where the packager would otherwise warn and build an unsigned app.
+ * The package's `package.json` gains the product name: Electron names the
+ * app by it, and so its user data folder, which an app started from a
+ * checkout keeps under the package's `name`. The configuration's own
+ * `productName` names the bundle alone.
  */
 export function packagerConfig(way: SigningWay, icns: string): Configuration & { mac: MacConfig } {
-  const signing = way === "ad-hoc" ? { identity: "-", notarize: false } : { notarize: true };
+  const signing = way === "ad-hoc" ? { identity: "-", notarize: false } : { notarize: true, forceCodeSigning: true };
   return {
     appId: BUNDLE_ID,
     productName: "Owlery",
@@ -152,11 +155,16 @@ export type Build = (options: { projectDir: string; config: Configuration; mac: 
  * Packages the app in `appDir`: checks the release's tag where one is
  * given and decides the way of signing, both before anything is built, then
  * builds `dist/`, draws the icon file, and runs the packager. It answers with
- * the way and the path of the `.dmg` under `out/`.
+ * the way and the path of the `.dmg` under `out/`. `env` is the environment
+ * the packager reads, `process.env` where the command runs it.
  */
-export async function packageApp(appDir: string, env: Readonly<Record<string, string | undefined>>, build: Build, log: (line: string) => void, tag?: string): Promise<{ way: SigningWay; dmg: string }> {
+export async function packageApp(appDir: string, env: Record<string, string | undefined>, build: Build, log: (line: string) => void, tag?: string): Promise<{ way: SigningWay; dmg: string }> {
   if (tag !== undefined) checkTag(tag, (JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { version: string }).version);
   const way = signingWay(env);
+  // The packager reads a signing variable as set wherever it is defined, so an empty CSC_LINK makes it import the
+  // project's folder as the certificate and fail ("… not a file"). GitHub gives a secret that is not set as an
+  // empty string, so the empty ones leave the environment, as `signingWay` already counts them.
+  for (const name of SIGNING_VARIABLES) if (env[name] === "") delete env[name];
   const built = run(process.execPath, ["build.mjs"], { cwd: appDir });
   if (built.status !== 0) throw new Error(`The build of dist/ failed: node build.mjs ${outcome(built)}`);
   const dmg = join(appDir, "out", ARTIFACT);

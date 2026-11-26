@@ -79,6 +79,17 @@ describe("packageApp", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("takes the empty signing variables out of the environment the packager reads, before it builds anything, since the packager reads an empty CSC_LINK as a certificate's path", async () => {
+    const dir = bare();
+    const env: Record<string, string | undefined> = { PATH: "/usr/bin", ...Object.fromEntries(SIGNING_VARIABLES.map((name) => [name, ""])) };
+    try {
+      await expect(packageApp(dir, env, packager, () => {}, "v0.1.0")).rejects.toThrow("The build of dist/ failed");
+      expect(env).toEqual({ PATH: "/usr/bin" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("packagerConfig", () => {
@@ -114,10 +125,11 @@ describe("packagerConfig", () => {
     expect(mac.notarize).toBe(false);
   });
 
-  it("names no identity in the Developer ID way, so the packager takes the certificate of CSC_LINK, and notarizes", () => {
+  it("names no identity in the Developer ID way, so the packager takes the certificate of CSC_LINK, notarizes, and fails where it finds no identity to sign with", () => {
     const { mac } = packagerConfig("developer-id", ICNS);
     expect("identity" in mac).toBe(false);
     expect(mac.notarize).toBe(true);
+    expect(mac.forceCodeSigning).toBe(true);
   });
 });
 
