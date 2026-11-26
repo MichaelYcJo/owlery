@@ -5743,19 +5743,25 @@ describe("headless sessions", () => {
   });
 
   it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a scratch folder of their own under the run folder, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
-    const runDir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-scratch-run-")));
+    // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
+    const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
     // An earlier daemon's session 1 left its folder, whose ids counted from 1 as this daemon's do.
     mkdirSync(join(runDir, "scratch", "1"), { recursive: true });
     writeFileSync(join(runDir, "scratch", "1", "stale.txt"), "left");
+    // The worktrees are made through a link, so the worktree's path is not its real one.
+    mkdirSync(join(runDir, "roots"));
+    symlinkSync(join(runDir, "roots"), join(runDir, "via"));
     const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
-    const { daemon: d, c, workItem, repo } = await withWorkItem({ roleAdapter: adapter, runDir });
+    const { daemon: d, c, workItem, repo } = await withWorkItem({ roleAdapter: adapter, runDir, worktreesRoot: join(runDir, "via") });
     const worktree = realpathSync(workItem.worktree);
+    expect(worktree).not.toBe(workItem.worktree);
     const common = realpathSync(join(repo, ".git"));
     for (const pair of ROLE_STAGES) await d.startRoleSession(workItem.id, "Q", pair);
     await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
     const byRole = new Map(seen.started.map((started) => [started.role?.role, started]));
-    const scratchOf = (id: number) => join(runDir, "scratch", String(id));
+    const scratchOf = (id: number) => join(realpathSync(runDir), "scratch", String(id));
+    expect(realpathSync(runDir)).not.toBe(runDir);
     expect(byRole.get("proofer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: PROOFER, commands: { write: [scratchOf(1)], refuse: [worktree] }, scratch: scratchOf(1) });
     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
     expect(byRole.get("sealer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [scratchOf(3)], refuse: [worktree] }, scratch: scratchOf(3) });

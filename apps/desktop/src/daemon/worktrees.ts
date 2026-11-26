@@ -1241,9 +1241,14 @@ export async function commitPaths(worktree: string, branch: string, paths: reado
   if (committed.code !== 0) return refused(committed.said || "git commit failed");
 }
 
-/** The real path of the repository's common git folder, which a commit in any of its worktrees writes. It throws git's words where git names none. */
+/**
+ * The real path of the repository's common git folder, which a commit in any
+ * of its worktrees writes. Git prints it with every link on it followed, a
+ * worktree's `.git` file that names its folder through a link among them. It
+ * throws git's words where git names none.
+ */
 export async function gitFolderOf(worktree: string): Promise<string> {
-  return realpathSync.native((await git(worktree, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim());
+  return (await git(worktree, ["rev-parse", "--path-format=absolute", "--git-common-dir"])).trim();
 }
 
 /** The commit a worktree's HEAD names, whole. It throws git's words where git cannot say. */
