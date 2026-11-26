@@ -452,6 +452,28 @@ export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
 }
 
+/**
+ * What the preview and a work item's view say, above the decisions, of a
+ * word of the person's, a reversal or an answer, that the work item's
+ * record holds and no commit holds yet (`WorkItem.wordOwed`), and whether
+ * it is a failure. While the word waits for a session: why, and that
+ * Owlery commits it once that has ended. Where its commit failed: git's
+ * reason, and that Owlery tries again. Null where nothing is owed, and for
+ * a daemon of an earlier build, which sends no such field.
+ */
+export function wordOwedSays(workItem: WorkItem): { text: string; failed: boolean } | null {
+  const owed = workItem.wordOwed ?? null;
+  if (owed === null) return null;
+  return owed.waits === "retry"
+    ? { text: `The record holds a word of yours that was not committed: ${owed.why}. Owlery tries again.`, failed: true }
+    : { text: `The record holds a word of yours that no commit holds yet: ${owed.why}. Owlery commits it once that has ended.`, failed: false };
+}
+
+/** The words a work item's line carries after the count of its decisions where the commit of a word of the person's failed, and nothing otherwise: a word that waits for a working session is the usual case and marks no line. */
+export function wordOwedMark(workItem: WorkItem): string {
+  return workItem.wordOwed?.waits === "retry" ? "word not committed" : "";
+}
+
 /** The heading of the approval line's section in the preview and in a view's right column. */
 export const APPROVAL_HEAD = "Approval line";
 
