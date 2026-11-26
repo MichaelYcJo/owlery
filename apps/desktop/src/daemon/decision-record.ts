@@ -152,13 +152,16 @@ export function declaredBranch(text: string): string | null {
 /**
  * Every directory under a worktree's `<root>/threads/` whose `routing.md`
  * names the branch in its `Branch` row, in the order of their names. None
- * where the worktree holds no records root. It reads the working tree,
- * committed or not. A `routing.md` that is a link, that is no plain file, or
- * that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
+ * where the worktree holds no records root, and none where `branch` is null,
+ * for a work item with no branch yet: `declaredBranch` gives null for a
+ * routing it refuses, and such a routing is no work item's. It reads the
+ * working tree, committed or not. A `routing.md` that is a link, that is no
+ * plain file, or that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
  * the check reads it: the daemon reads each one in its pass, from a checkout
  * it did not write.
  */
-export function workItemDirectories(worktree: string, branch: string): string[] {
+export function workItemDirectories(worktree: string, branch: string | null): string[] {
+  if (branch === null) return [];
   const root = rootOf(worktree);
   if (root === null) return [];
   const threads = join(worktree, root, "threads");
@@ -182,7 +185,7 @@ export function workItemDirectories(worktree: string, branch: string): string[] 
  * worktree holds no records root, which is how the pull request check reads
  * it (`pr-check/lib/routing.py#item_dir`).
  */
-export function workItemDirectory(worktree: string, branch: string): string | null {
+export function workItemDirectory(worktree: string, branch: string | null): string | null {
   const naming = workItemDirectories(worktree, branch);
   const [only] = naming;
   return naming.length === 1 && only !== undefined ? only : null;

@@ -280,6 +280,8 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const created = await c.asked({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Kept in memory", kind: "shell", cols: 80, rows: 24 });
     if (created.type !== "workItemCreated") throw new Error(`the work item was not created: ${JSON.stringify(created)}`);
     const { id, worktree } = created.workItem;
+    // A rename gives the work item its branch, which the chain commits its records on.
+    expect((await c.asked({ type: "renameWorkItem", requestId: 2, id, title: "Kept in memory", branch: true })).type).toBe("done");
     write(worktree, "feature.txt", "A greeting\n");
     commitAll(worktree, "feat: greet");
     expect(await c.startChain(id)).toBe("done");

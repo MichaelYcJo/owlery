@@ -10,8 +10,12 @@
 // dialog and the repository's removal dialog keep in place at a draw that
 // changes none of them; a repository's new group, and a work item's
 // move into it and out of it; and a removal that deletes a repository's work
-// items from disk, and one that is refused after its first delete; and last
-// a repository's removal that leaves everything on disk. Among the first
+// items from disk, and one that is refused after its first delete; a
+// repository's removal that leaves everything on disk; the menu of a work
+// item with no branch yet, which offers no branch to copy; and last a
+// delete that leaves a search and a chosen state no repository, which the
+// sidebar says above the button of a repository it hides, and the press
+// that shows every work item again. Among the first
 // cases stand the ones of the "Open in" submenu: its keys, the pointer, its
 // place at the window's edge, and a press of its Finder item on a folder the
 // case moved aside. No case presses an item of that submenu on a folder that
@@ -29,6 +33,7 @@ import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
 import { BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
+import { slugFor } from "../src/daemon/worktrees";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
 
 describe("the menus in the built app", { timeout: 30_000 }, () => {
@@ -40,6 +45,13 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   let third: ReturnType<typeof temporaryRepository>;
   /** A fourth repository, whose removal deletes one of its two work items and is refused at the other. */
   let fourth: ReturnType<typeof temporaryRepository>;
+  /** A fifth repository, whose work item has no branch yet. */
+  let fifth: ReturnType<typeof temporaryRepository>;
+  /** Two repositories the last case registers, each with one work item: its search leaves the work item of `lone`, and no other. */
+  let kept: ReturnType<typeof temporaryRepository>;
+  let lone: ReturnType<typeof temporaryRepository>;
+  /** A third repository the last case registers and hides, so the hidden repositories' button stands under the sidebar's sentence. */
+  let aside: ReturnType<typeof temporaryRepository>;
 
   const SIDEBAR = "#repositories";
   const INBOX = "#inbox-lines";
@@ -191,8 +203,15 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await menuGone();
   }
 
-  /** Creates a work item through the form, with a pane of the shell kind, and waits for its view. */
-  async function create(name: string, repo?: string): Promise<void> {
+  /**
+   * Creates a work item through the form, with a pane of the shell kind,
+   * waits for its view, and, unless `unbranched`, gives it its branch
+   * `owlery/<slug of the name>` by a rename to its own name, which for a work
+   * item with no branch yet makes its branch with the dialog's choice taken
+   * and not to be taken back. The cases read the branch of each work item,
+   * its menu's "Copy branch name" among it. It gives the work item's id.
+   */
+  async function create(name: string, repo?: string, unbranched = false): Promise<number> {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
     if (repo !== undefined) {
@@ -208,6 +227,16 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
+    const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((each) => each.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.dataset.workItem)`);
+    if (unbranched) return id;
+    const branch = `owlery/${slugFor(name)}`;
+    await renameTo(id, name);
+    await says("rename-plan", `The rename makes the branch ${branch}.`);
+    expect(await value<boolean[]>(`[document.getElementById("rename-branch").checked, document.getElementById("rename-branch").disabled]`)).toEqual([true, true]);
+    await app.click("#rename-submit");
+    await app.until(`!document.getElementById("rename-dialog").open`, "the rename dialog closed");
+    await app.until(`document.getElementById("view-branch").textContent === ${JSON.stringify(branch)}`, `the branch ${branch} in the view`);
+    return id;
   }
 
   /** Opens the rename dialog of a work item from its menu in the sidebar, and types a name over the one it holds. */
@@ -232,6 +261,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     second = temporaryRepository("second");
     third = temporaryRepository("third");
     fourth = temporaryRepository("fourth");
+    fifth = temporaryRepository("fifth");
+    kept = temporaryRepository("kept");
+    lone = temporaryRepository("lone");
+    aside = temporaryRepository("aside");
     // The pane's process is the receiver, so no shell of the person's and no agent starts.
     app = await BuiltApp.start({ SHELL: RECEIVER, OWLERY_WORKTREES: clone.root, OWLERY_RECEIVER_FILE: join(clone.base, "received") });
     // The app starts in the background, and the page of a window without the system's focus reports none.
@@ -248,6 +281,10 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     second?.remove();
     third?.remove();
     fourth?.remove();
+    fifth?.remove();
+    kept?.remove();
+    lone?.remove();
+    aside?.remove();
   }, 30_000);
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
@@ -1107,7 +1144,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await choices()).toEqual([false, true, false, false, true, false]);
     // A choice that is not offered is not drawn either.
     expect(await value<string[]>(`["remove-force-label", "remove-delete-label"].map((id) => getComputedStyle(document.getElementById(id)).display)`)).toEqual(["none", "flex"]);
-    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
+    expect(await value<string>(`document.getElementById("remove-delete-label").textContent`)).toBe("Also delete the work items' worktrees, and the local branches Owlery made");
+    expect(await value<string>(`document.getElementById("remove-says").textContent`)).toBe("Owlery will no longer list the repository or its work items. Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.");
     expect(await value<string[]>(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`)).toEqual(["Shell in In third"]);
     await app.click("#remove-submit");
     await dialogClosed("remove-dialog");
@@ -1196,5 +1234,68 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await value<string>(`document.getElementById("status").textContent`)).not.toContain("since you looked");
     expect(held(clone.repo)).toEqual(before);
     expect([existsSync(join(clone.root, "project", "first-item", "README.md")), existsSync(join(clone.root, "project", "second-item", "README.md"))]).toEqual([true, true]);
+  });
+
+  it("holds no Copy branch name in the menu of a work item with no branch yet", async () => {
+    const id = await create("No branch here", fifth.repo, true);
+    await rightPress(line(SIDEBAR, id));
+    await menuShown();
+    expect(await menuItems()).toEqual(["Rename", "Open in", "Copy path", "Pin", "Mute notifications", "Archive", "Delete"]);
+    await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+    await menuGone();
+    expect(git(fifth.repo, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/main\n");
+  });
+
+  it("says in the sidebar, after a delete of the one work item a search and a chosen state leave, what left no repository and how many repositories it does not list, keeps the filter's mark on, and at Show every work item lists them all again with the filter at All, the search field empty, the mark off and the keyboard on the first repository's row", async () => {
+    await create("Kept elsewhere", kept.repo);
+    await create("Filtered away", lone.repo);
+    await create("Set aside", aside.repo);
+    const asideId = await value<number>(`Number(document.querySelector('${SIDEBAR} button.fold[data-repo=${JSON.stringify(aside.repo)}]').closest("section").dataset.repository)`);
+    await fromMenu(asideId, "Hide from sidebar");
+    await app.until(`!document.querySelector('${repository(asideId)}') && document.getElementById("hidden-repositories")`, "the third repository hidden, and the button that says so");
+    const rows = (): Promise<number> => value(`document.querySelectorAll('${SIDEBAR} section.repository').length`);
+    // The rows the sidebar lists before anything narrows it, which the sentence counts. Earlier cases remove repositories, and the case may run alone, so it counts them.
+    const listed = await rows();
+    expect(listed).toBeGreaterThan(1);
+    // Whether the filter's control is on, what it says to a pointer, and whether it stands inside the edge: on is a shape as well as an ink.
+    const mark = (): Promise<[boolean, string, boolean]> =>
+      value(`(() => { const control = document.getElementById("sidebar-filter-control"); return [control.classList.contains("on"), control.title, getComputedStyle(control).boxShadow === ${RESOLVED}("box-shadow", "--on-edge")]; })()`);
+    expect(await mark()).toEqual([false, "Showing: All", false]);
+    // The inbox is the list in front, which the search and the filter narrow with the sidebar.
+    await app.click("#nav-inbox");
+    await app.until(`!document.getElementById("inbox-screen").hidden`, "the inbox");
+    const lines = (await order(INBOX)).length;
+    await typeOver("search-field", "Filtered away");
+    // The state is chosen as a person's choice arrives at the select.
+    await value(`void (() => { const filter = document.getElementById("sidebar-filter"); filter.value = "none"; filter.dispatchEvent(new Event("change")); })()`);
+    await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === 1`, "one repository under the search and the state");
+    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"', true]);
+    const loneId = await value<number>(`Number(document.querySelector('${SIDEBAR} section.repository').dataset.repository)`);
+    const workItem = await value<number>(`Number(document.querySelector('${SIDEBAR} button[data-work-item]').dataset.workItem)`);
+    await rightPress(line(SIDEBAR, workItem));
+    await menuShown();
+    await pressItem("Delete");
+    await menuGone();
+    await dialogOpen("delete-dialog");
+    await app.until(`document.querySelector("#delete-loss section") && !document.getElementById("delete-submit").disabled`, "the loss in the delete dialog, and Delete on");
+    await app.click("#delete-submit");
+    await dialogClosed("delete-dialog");
+    const sentence = `No work item under "Asleep" matches "Filtered away", so the sidebar lists none of its ${listed} repositories.`;
+    await app.until(`document.getElementById("sidebar-empty")?.textContent === ${JSON.stringify(sentence)}`, `"${sentence}" in the sidebar`);
+    expect(await rows()).toBe(0);
+    expect(await mark()).toEqual([true, 'Showing: Asleep, matching "Filtered away"', true]);
+    // The sentence in the muted ink at the second size, and the button in the form of a button that is not the main one.
+    expect(await value<boolean[]>(`(() => { const resolved = ${RESOLVED}; const words = getComputedStyle(document.getElementById("sidebar-empty")); return [words.color === resolved("color", "--ink-muted"), words.fontSize === resolved("font-size", "--size-second")]; })()`)).toEqual([true, true]);
+    // The hidden repositories' button stands under the sentence and the press that shows every work item.
+    expect(await value<string[]>(`[...document.querySelectorAll('${SIDEBAR} > *')].map((element) => element.id)`)).toEqual(["sidebar-empty", "show-every", "hidden-repositories"]);
+    expect(await value<[string, boolean]>(`(() => { const every = document.getElementById("show-every"); return [every.textContent, every.classList.contains("quiet")]; })()`)).toEqual(["Show every work item", true]);
+    await app.click("#show-every");
+    await app.until(`document.querySelectorAll('${SIDEBAR} section.repository').length === ${listed}`, "every repository in the sidebar again");
+    expect((await rowWords(loneId)).at(-1)).toBe("0");
+    // The press widens the list in front too: every line but the deleted one's.
+    expect(await order(INBOX)).toHaveLength(lines - 1);
+    expect(await mark()).toEqual([false, "Showing: All", false]);
+    expect(await value<[string, string, boolean, boolean]>(`[document.getElementById("sidebar-filter").value, document.getElementById("search-field").value, document.getElementById("sidebar-empty") === null, document.activeElement === document.querySelector('${SIDEBAR} button.fold')]`)).toEqual(["all", "", true, true]);
   });
 });

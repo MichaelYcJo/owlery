@@ -8,8 +8,8 @@
 # the PATH a broad gate and `gh` run with, and is told of the stand-in beside
 # this file and of a PATH whose first folder holds the stand-in for `gh`
 # (sample-gh/gh), so no CLI of the person's is run and nothing reaches
-# GitHub. No chain runs in the screenshot run: the daemon calls `gh` to read
-# the pull request the run stored for one work item.
+# GitHub. No stage of a chain starts in the screenshot run: the daemon calls
+# `gh` to read the pull request the run stored for one work item.
 if [ ! -t 0 ]; then
   printf '\n__owlery_cli=%s\n__owlery_path=%s\n__owlery_config=%s\n' "${0%/*}/sample-cli.sh" "${0%/*}/sample-gh:/usr/bin:/bin" "${CLAUDE_CONFIG_DIR:-}"
   exit 0
