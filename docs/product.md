@@ -109,7 +109,7 @@ Sometimes the back of the seal is not enough for a person to decide on a merge. 
 
 ## The phone: the same session as a chat
 
-On the desk, a person works in the agent's own CLI in a terminal. The phone (from v0.2, Android first) shows the same terminal session as a chat. It is one session seen in two shapes, not a second session. The phone does this for every agent the person runs, not only Claude Code, and its traffic passes through no agent company's server ("Connecting from outside" in [architecture.md](architecture.md)).
+On the desk, a person works in the agent's own CLI in a terminal. The phone (after the first version, Android first) shows the same terminal session as a chat. It is one session seen in two shapes, not a second session. The phone does this for every agent the person runs, not only Claude Code, and its traffic passes through no agent company's server ("Connecting from outside" in [architecture.md](architecture.md)).
 
 | What the phone does | How |
 |---|---|
@@ -162,7 +162,7 @@ Each work item launches stages four or five times, so it will likely use more to
 - There is no chat screen on the desktop, and no adapter that drives the person's agent through an SDK. A chat screen built on an SDK reaches only part of the CLI's features (slash commands, plugins, skills and new features come late or not at all), and what it shows is an interpretation of what the agent actually does. The person works in the agent's own CLI, and only the phone draws a session as a chat ([The phone: the same session as a chat](#the-phone-the-same-session-as-a-chat)).
 - We do not build an IDE, a kanban board or a built-in browser. There is a light editor for viewing and fixing files, but no language server, extensions or debugger ([File explorer and editor](#file-explorer-and-editor)).
 - We do not build team management, roles or admin screens. Each person runs Owlery on their own machine, and it works locally without an account. A team shares the work through the repository and its PRs, where the seal records already live.
-- The first version has no mobile app. The phone comes in v0.2, the daemon's protocol is designed for it now, and how a phone reaches the daemon is already settled ("Connecting from outside" in [architecture.md](architecture.md)).
+- The first version has no mobile app. The phone comes next, the daemon's protocol is designed for it now, and how a phone reaches the daemon is already settled ("Connecting from outside" in [architecture.md](architecture.md)).
 - We do not run cloud sandboxes ourselves.
 - There is no mode that leaves records uncommitted. The promise holds only if the seal's grounds are bound to a commit. So a repository that cannot keep work records in its tree is out of scope ("Records are committed to the repository" in [architecture.md](architecture.md)).
 - We do not build a review bot that runs after a PR opens. Owlery can be used alongside such tools.
