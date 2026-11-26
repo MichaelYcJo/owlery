@@ -1634,7 +1634,7 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
           return;
         }
-        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
+        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost or was refused stating no counts, are not read as its own.
         const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
