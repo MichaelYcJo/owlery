@@ -3,11 +3,10 @@
 // its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
-// above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place with the sentence of
-// the work item's chain, with the work item's pull request under it. The
-// pool of terminal screens the window holds lives here, and so
-// do the card of the link under the pointer, the menu of a pane and the
+// above the list of the daemon's chain and the seal's place with the
+// sentence of the work item's chain, with the work item's pull request
+// under it. The pool of terminal screens the window holds lives here, and
+// so do the card of the link under the pointer, the menu of a pane and the
 // find bar over a pane's screen.
 import { FitAddon } from "@xterm/addon-fit";
 import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
@@ -21,7 +20,6 @@ import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, r
 import { tell } from "./sidebar";
 import {
   answersFor,
-  askButton,
   askedSection,
   BACK_READING,
   BACK_TAB,
@@ -30,6 +28,7 @@ import {
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
+  chainList,
   chainSays,
   closeAsks,
   droppedText,
@@ -40,10 +39,8 @@ import {
   GATE_OUTPUT_SHOWS,
   type GateLine,
   type GateOutput,
-  gateLine,
   hasBack,
   headlessKey,
-  headlessLines,
   type LinkAct,
   linkCard,
   linkClick,
@@ -83,7 +80,6 @@ import {
   webTarget,
   withHeadless,
   withoutHeadless,
-  accountChoices,
   offersAccounts,
   tabAccount,
   viewAccount,
@@ -117,14 +113,10 @@ let front: number | undefined;
 const recent = new Map<number, number[]>();
 // Whether "Side by side" is pressed: the window's own state, one for every view, off at each load.
 let sideBySide = false;
-// The work item whose view the "Ask" field's prompt was typed in.
-let askingIn: number | undefined;
-// The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
-let askRequest: number | undefined;
 // The key of the section of questions as it is drawn (./view, `askedSection`). The section is drawn again only where the key differs, so what a person chose and typed in it stays through the lists the daemon sends meanwhile.
 let questionsDrawn: string | undefined;
-// The key of the "Ask" section's lines as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
-let askDrawn: string | undefined;
+// The key of the lines of the list of the daemon's chain as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
+let chainDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
 // The address of the pull request the view shows, which a press of its row opens.
@@ -180,11 +172,7 @@ const noPanes = byId("no-panes");
 const stage = byId("stage");
 const back = byId("back");
 const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
-const askForm = byId<HTMLFormElement>("ask-form");
-const askField = byId<HTMLInputElement>("ask-prompt");
-const askSubmit = byId<HTMLButtonElement>("ask-submit");
-const askAccount = byId<HTMLSelectElement>("ask-account");
-const headlessList = byId<HTMLUListElement>("headless");
+const chainListElement = byId<HTMLUListElement>("view-chain");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
 const questionsAge = byId("questions-age");
@@ -220,45 +208,18 @@ function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
 }
 
-/** The account a menu of a new session's account names, by its id, or nothing for its first choice, which leaves the session to its work item's. A hidden menu names none. */
-function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
-  return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
-}
-
 /** The account a work item gives its new sessions where they name none: its own, else its repository's, else the default. */
 function givenAccount(workItem: WorkItem): number {
   const repository = held.repositories.find((listed) => listed.id === workItem.repoId);
   return workItem.accountId ?? repository?.accountId ?? held.accounts?.defaultId ?? SYSTEM_DEFAULT_ID;
 }
 
-/**
- * Fills the menu of a new headless session's account beside the "Ask"
- * field for the work item, keeping the choice it held where that is still an
- * account, and hides it where there is no account to choose. Gives each
- * button that opens a pane the tooltip that says where it has a menu of
- * accounts (./view, `newPaneMenu`).
- */
-function showAccountMenus(workItem: WorkItem): void {
-  const accounts = held.accounts;
-  const offered = offersAccounts(accounts);
+/** Gives each button that opens a pane of the work item the tooltip that says where it has a menu of accounts (./view, `newPaneMenu`). */
+function showPaneButtonTitles(workItem: WorkItem): void {
   for (const button of paneButtons.querySelectorAll<HTMLButtonElement>("button[data-kind]")) {
     const kind = held.paneKinds.find((offeredKind) => offeredKind.kind === button.dataset.kind);
-    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, accounts, givenAccount(workItem)).length > 0);
+    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, held.accounts, givenAccount(workItem)).length > 0);
   }
-  askAccount.hidden = !offered;
-  if (!accounts || !offered) {
-    askAccount.replaceChildren();
-    delete askAccount.dataset.choices;
-    return;
-  }
-  const kept = askAccount.value;
-  const choices = accountChoices(accounts, "The work item's", givenAccount(workItem));
-  // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
-  const key = JSON.stringify([workItem.id, choices]);
-  if (askAccount.dataset.choices === key) return;
-  askAccount.dataset.choices = key;
-  askAccount.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
-  askAccount.value = choices.some((choice) => choice.value === kept) ? kept : "";
 }
 
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
@@ -991,25 +952,7 @@ export function showPaneButtons(): void {
   );
 }
 
-/** Sets the "Ask" button for the view's work item and the field as they are now. */
-function showAsk(workItem: WorkItem): void {
-  const button = askButton(askField.value, workItem);
-  askSubmit.disabled = !button.enabled;
-  askSubmit.title = button.title;
-}
-
-/** One of the two buttons of a call a session asks the person to allow, which sends the person's answer to the request `id` of the work item. `data-answer` names the request and the answer, so a redraw finds the same button again. */
-function answerButton(workItemId: number, id: number, allow: boolean): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.className = "quiet";
-  button.textContent = allow ? "Allow" : "Refuse";
-  button.title = allow ? "Allow this one call" : "Refuse this call: the agent is told the person refused it";
-  button.dataset.answer = `${id}:${allow ? "allow" : "refuse"}`;
-  button.addEventListener("click", () => send({ type: "answerPermission", requestId: request(), workItemId, id, allow }));
-  return button;
-}
-
-/** The broad gate's line of the "Ask" section, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
+/** The broad gate's line of the list of the daemon's chain, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
 function gateItem(workItemId: number, line: GateLine): HTMLLIElement {
   const item = document.createElement("li");
   item.className = "gate";
@@ -1056,39 +999,34 @@ export function takeGateOutput(requestId: number, output: { text: string; cut: b
   if (requestId !== gateRequest?.requestId) return false;
   gateRead = { workItemId: gateRequest.workItemId, startedAt: gateRequest.startedAt, ...output };
   gateRequest = undefined;
-  showAskSection();
+  showChainList();
   return true;
 }
 
 /**
- * Draws the "Ask" section of the view on screen: the button as the field
- * stands, the line of the work item's newest broad gate, first, and the
- * work item's headless sessions. The line of a working session offers
+ * Draws the list of the daemon's chain at the view's foot, above the seal's
+ * place (./view, `chainList`): the line of the work item's newest broad
+ * gate, first, and the work item's headless sessions, or no list where it
+ * holds no line. The line of a working session offers
  * "Stop", which asks the daemon to stop it; the daemon answers
- * `done`, and the `headless` that follows carries the session as failed. A
- * session that waits for the person to allow a call says "Needs you" with
- * the waiting mark, and shows each call it waits on as a card with "Allow"
- * and "Refuse"; the daemon answers `done`, and the `inbox` that follows
- * carries the work item without the request. The lines are drawn again only
- * where the section's key is another (./view, `headlessKey`), so every
- * `inbox` that changes nothing they show leaves them, and the keyboard, as
- * they are. Where they are drawn again while the keyboard is on a request's
- * button or on a button of the gate's line, the same button takes it back,
- * where it is still drawn.
+ * `done`, and the `headless` that follows carries the session as failed.
+ * The lines are drawn again only where the list's key is another (./view,
+ * `headlessKey`), so every `inbox` that changes nothing they show leaves
+ * them, and the keyboard, as they are. Where they are drawn again while the
+ * keyboard is on a button of the gate's line, the same button takes it
+ * back, where it is still drawn.
  */
-function showAskSection(): void {
+function showChainList(): void {
   const workItem = viewed();
   if (!workItem) return;
-  showAsk(workItem);
-  showAccountMenus(workItem);
-  const lines = headlessLines(held.headless, workItem);
-  const gate = gateLine(workItem, gateRead);
+  const { gate, lines, drawn } = chainList(held.headless, workItem, gateRead);
   const key = headlessKey(workItem.id, lines, gate);
-  if (key === askDrawn) return;
-  askDrawn = key;
+  if (key === chainDrawn) return;
+  chainDrawn = key;
+  chainListElement.hidden = !drawn;
   const focused = document.activeElement;
-  const kept = focused instanceof HTMLElement && headlessList.contains(focused) ? focused.dataset.answer : undefined;
-  headlessList.replaceChildren(
+  const kept = focused instanceof HTMLElement && chainListElement.contains(focused) ? focused.dataset.answer : undefined;
+  chainListElement.replaceChildren(
     ...(gate ? [gateItem(workItem.id, gate)] : []),
     ...lines.map((line) => {
       const item = document.createElement("li");
@@ -1102,24 +1040,13 @@ function showAskSection(): void {
         head.append(stop);
       }
       item.append(head);
-      for (const ask of line.asks) {
-        const card = document.createElement("section");
-        card.className = "permission";
-        const asks = document.createElement("h3");
-        asks.textContent = ask.head;
-        const answers = part("answers", "");
-        answers.append(answerButton(workItem.id, ask.id, true), answerButton(workItem.id, ask.id, false));
-        // The call's text is plain text, never markup, whole, with its line breaks kept by the style.
-        card.append(asks, part("call", ask.text), answers);
-        item.append(card);
-      }
       // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
       item.append(part("answer", line.text));
       if (line.errorOutput) item.append(part("error-output", line.errorOutput));
       return item;
     }),
   );
-  if (kept !== undefined) headlessList.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
+  if (kept !== undefined) chainListElement.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
 }
 
 /**
@@ -1475,8 +1402,8 @@ export function takeBackRefusal(requestId: number, refusal: string): boolean {
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
  * panes on the stage, each on a screen of the pool, with the strip under
- * them, its right column, the questions it is parked with among it, and its
- * "Ask" section. The stage holds the pane in
+ * them, its right column, the questions it is parked with among it, and the
+ * list of the daemon's chain at its foot. The stage holds the pane in
  * front, or as many panes as the cap on panes side by side as tiles where "Side by side" is pressed, and
  * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
@@ -1534,14 +1461,12 @@ export function showView(): void {
     }
   }
   showSize();
-  showAskSection();
+  showPaneButtonTitles(workItem);
+  showChainList();
 }
 
 /** Makes a work item the one whose view is drawn, before the view is put in front. Where `pane` is given, that pane is the one in front when the view is drawn, as after a press of its tab. */
 export function enterView(workItemId: number, pane?: number): void {
-  // A prompt typed for one work item is not asked in another.
-  if (askingIn !== workItemId) askField.value = "";
-  askingIn = workItemId;
   held.viewing = workItemId;
   front = undefined;
   // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
@@ -1583,35 +1508,20 @@ function runSetup(workItemId: number, command: string | null): void {
   send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
-/** Asks the field's prompt in the work item whose view is on screen. */
-function ask(): void {
-  const workItem = viewed();
-  // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
-  if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
-  askRequest = request();
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value, ...chosenAccount(askAccount) });
-}
-
-/** Takes a headless session the daemon sent, `requestId` being the request it answers where it answers one. */
-export function takeHeadless(headless: HeadlessInfo, requestId?: number): void {
-  // The daemon took the prompt, so the field is free for the next one, unless it now holds a prompt for another work item.
-  if (requestId !== undefined && requestId === askRequest) {
-    askRequest = undefined;
-    if (askingIn === headless.workItemId) askField.value = "";
-  }
+/** Takes a headless session the daemon sent into the window's sessions and the list of the daemon's chain. */
+export function takeHeadless(headless: HeadlessInfo): void {
   held.headless = withHeadless(held.headless, headless);
-  showAskSection();
+  showChainList();
 }
 
-/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the "Ask" section. */
+/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the list of the daemon's chain. */
 export function dropHeadless(id: number): void {
   held.headless = withoutHeadless(held.headless, id);
-  showAskSection();
+  showChainList();
 }
 
-/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again, and where it was a press of "Show output", no answer is waited for. */
+/** Takes the daemon's refusal of a request: where it was a press of "Show output", no answer is waited for. */
 export function requestRefused(requestId: number): void {
-  if (requestId === askRequest) askRequest = undefined;
   if (requestId === gateRequest?.requestId) gateRequest = undefined;
 }
 
@@ -1705,14 +1615,6 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   byId("view-seal-place").replaceWith(viewSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
-  });
-  askField.addEventListener("input", () => {
-    const workItem = viewed();
-    if (workItem) showAsk(workItem);
-  });
-  askForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    ask();
   });
   byId<HTMLFormElement>("questions-form").addEventListener("submit", (event) => {
     event.preventDefault();

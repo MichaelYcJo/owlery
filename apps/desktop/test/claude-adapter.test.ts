@@ -26,8 +26,8 @@ function script(folder: string, name: string, body: string): string {
 }
 
 describe("the Claude adapter's launch", () => {
-  it("passes exactly the flags that detach the session, keep the permission checks and bring each request to the session's own streams, and for a session with no role keeps the default tools less the three a host's answers add", () => {
-    expect(claudeArgs("/work/tree")).toEqual([
+  it("passes exactly the flags that detach the session, keep the permission checks and bring each request to the session's own streams, and gives a refresh of an account's usage no tool at all, one turn and no transcript (scenario 15)", () => {
+    expect(claudeArgs("/work/tree", "refresh")).toEqual([
       "-p",
       "--input-format",
       "stream-json",
@@ -43,20 +43,17 @@ describe("the Claude adapter's launch", () => {
       "default",
       "--permission-prompt-tool",
       "stdio",
-      "--disallowedTools",
-      "AskUserQuestion,EnterPlanMode,ExitPlanMode",
+      "--tools",
+      "",
+      "--max-turns",
+      "1",
+      "--no-session-persistence",
       "--add-dir",
       "/work/tree",
     ]);
   });
 
-  it("gives a refresh of an account's usage no tool at all, one turn and no transcript, in place of the default tools less three, and nothing else (scenario 15)", () => {
-    const plain = claudeArgs("/work/tree");
-    const at = plain.indexOf("--disallowedTools");
-    expect(claudeArgs("/work/tree", undefined, true)).toEqual([...plain.slice(0, at), "--tools", "", "--max-turns", "1", "--no-session-persistence", ...plain.slice(at + 2)]);
-  });
-
-  it("gives a role launch the role's tools as one value in place of the default tools, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
+  it("gives a role launch the role's tools as one value, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
     const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"] };
     expect(claudeArgs("/work/tree", role)).toEqual([
       "-p",
@@ -88,8 +85,8 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("turns no permission check off, with no role and with each role: the mode is default, and no other mode and no option that skips a check is named", () => {
-    const launches = [claudeArgs("/work/tree"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair) }))];
+  it("turns no permission check off, for a refresh and for each role: the mode is default, and no other mode and no option that skips a check is named", () => {
+    const launches = [claudeArgs("/work/tree", "refresh"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair) }))];
     expect(launches).toHaveLength(5);
     for (const args of launches) {
       expect(args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
@@ -197,13 +194,13 @@ describe("the Claude adapter's run", () => {
     return { env: { SHELL: shell, HOME: folder, USER: "person", SECRET: "not-passed" }, lookups: () => readFileSync(count, "utf8").length / 2 };
   }
 
-  /** Starts one run, under the account's folder where one is given, and gives its events once it has exited. */
+  /** Starts one run, as the launch that takes no role, a refresh, under the account's folder where one is given, and gives its events once it has exited. */
   async function run(env: NodeJS.ProcessEnv, prompt: string, cwd: string, accountDir?: string): Promise<RoleEvent[]> {
     const adapter = claudeAdapter(env);
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
       adapter
-        .start({ prompt, cwd, ...(accountDir === undefined ? {} : { accountDir }) }, (event) => {
+        .start({ prompt, cwd, refresh: true, ...(accountDir === undefined ? {} : { accountDir }) }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })
@@ -243,7 +240,7 @@ describe("the Claude adapter's run", () => {
         })
         .catch(reject);
     });
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd, undefined, true));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd, "refresh"));
     expect(readFileSync(join(folder, "env"), "utf8").split("\n")).toContain(`CLAUDE_CONFIG_DIR=${account}`);
     expect(events).toEqual([
       { type: "limit", status: "ok", used: 0.3, resetsAt: 1_800_000_000_000, window: "five_hour" },
@@ -327,7 +324,7 @@ describe("the Claude adapter's run", () => {
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     expect(readFileSync(join(folder, "cwd"), "utf8").trim()).toBe(cwd);
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(cwd, "refresh"));
     const names = readFileSync(join(folder, "env"), "utf8")
       .split("\n")
       .flatMap((line) => (line.includes("=") ? [line.slice(0, line.indexOf("="))] : []))
@@ -368,7 +365,7 @@ describe("the Claude adapter's run", () => {
     expect((await run(fakeShell(folder, twice).env, "Q", folder)).at(-2)).toMatchObject({ type: "result", usage: { converted: true } });
   });
 
-  it("reports the session's own id and its model once, before the session's first text, from the first init line of a launch with no role: a later init line names nothing, and a first one with no id leaves the session unnamed", async () => {
+  it("reports the session's own id and its model once, before the session's first text, from the first init line of a launch that names no role's agent: a later init line names nothing, and a first one with no id leaves the session unnamed", async () => {
     const folder = temporaryFolder();
     const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", ...fields });
     const answer = '{"type":"assistant","message":{"content":[{"type":"text","text":"owl"}]}}';
@@ -401,7 +398,7 @@ describe("the Claude adapter's run", () => {
       ELECTRON_RUN_AS_NODE: "1",
       PNPM_HOME: "/opt/pnpm",
     };
-    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow("claude was not found");
+    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder, refresh: true }, () => {})).rejects.toThrow("claude was not found");
     const received = Object.fromEntries(
       readFileSync(join(folder, "shell-env"), "utf8")
         .split("\n")
@@ -433,19 +430,19 @@ describe("the Claude adapter's run", () => {
   it("fails to start, saying so, where the login shell finds no CLI", async () => {
     const folder = temporaryFolder();
     const { env } = fakeShell(folder, "");
-    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow(`claude was not found by the login shell (${env.SHELL})`);
+    await expect(claudeAdapter(env).start({ prompt: "Q", cwd: folder, refresh: true }, () => {})).rejects.toThrow(`claude was not found by the login shell (${env.SHELL})`);
   });
 
   it("fails to start, saying so, where the login shell does not answer in time", async () => {
     const folder = temporaryFolder();
     const shell = script(folder, "shell", "exec sleep 30");
-    await expect(claudeAdapter({ SHELL: shell }, { lookupTimeoutMs: 100 }).start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow(`the login shell (${shell}) did not answer where claude is`);
+    await expect(claudeAdapter({ SHELL: shell }, { lookupTimeoutMs: 100 }).start({ prompt: "Q", cwd: folder, refresh: true }, () => {})).rejects.toThrow(`the login shell (${shell}) did not answer where claude is`);
   });
 
   it("fails to start where the folder is gone", async () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", "exit 0");
-    await expect(claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: join(folder, "gone") }, () => {})).rejects.toThrow();
+    await expect(claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: join(folder, "gone"), refresh: true }, () => {})).rejects.toThrow();
   });
 
   it("asks the login shell once, however many sessions start", async () => {
@@ -453,7 +450,7 @@ describe("the Claude adapter's run", () => {
     const cli = script(folder, "cli", "exit 0");
     const shell = fakeShell(folder, cli);
     const adapter = claudeAdapter(shell.env);
-    const ended = () => new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
+    const ended = () => new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder, refresh: true }, (event) => event.type === "exit" && resolve()).catch(reject));
     await Promise.all([ended(), ended()]);
     await ended();
     expect(shell.lookups()).toBe(1);
@@ -463,7 +460,7 @@ describe("the Claude adapter's run", () => {
     const folder = temporaryFolder();
     const cli = script(folder, "cli", "exec sleep 30");
     const events: RoleEvent[] = [];
-    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder, refresh: true }, (event) => events.push(event));
     const stopping = started.stop();
     expect(started.stop()).toBe(stopping);
     const at = Date.now();
@@ -504,7 +501,7 @@ describe("the Claude adapter's run", () => {
     // An ignored signal stays ignored across `exec` and in a child started after the trap.
     const cli = script(folder, "cli", `trap '' TERM\nsleep 30 &\necho $! > '${folder}/child'\necho $$ > '${folder}/cli'\nexec sleep 30`);
     const events: RoleEvent[] = [];
-    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder, refresh: true }, (event) => events.push(event));
     const [cliPid, childPid] = [await pidIn(join(folder, "cli")), await pidIn(join(folder, "child"))];
     const at = Date.now();
     await started.stop();
@@ -528,7 +525,7 @@ describe("the Claude adapter's run", () => {
     const cli = script(folder, "cli", `sleep 30 &\necho $! > '${folder}/child'\necho 'gone' >&2\nexit 4`);
     const events: RoleEvent[] = [];
     const at = Date.now();
-    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    const started = await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder, refresh: true }, (event) => events.push(event));
     const childPid = await pidIn(join(folder, "child"));
     const end = Date.now() + 10_000;
     while (events.length === 0 && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
@@ -547,7 +544,7 @@ describe("the Claude adapter's run", () => {
     const late = `{"type":"result","is_error":false,"result":"late","total_cost_usd":0}`;
     const cli = script(folder, "cli", `(trap '' PIPE; sleep 1; echo '${late}'; out=$?; echo 'late' >&2; err=$?; echo "$out $err" > '${folder}/printed') &\nexit 0`);
     const events: RoleEvent[] = [];
-    await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder }, (event) => events.push(event));
+    await claudeAdapter(fakeShell(folder, cli).env).start({ prompt: "Q", cwd: folder, refresh: true }, (event) => events.push(event));
     const printed = join(folder, "printed");
     const end = Date.now() + 5000;
     while ((!existsSync(printed) || readFileSync(printed, "utf8").trim() === "") && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
@@ -628,7 +625,7 @@ describe("the Claude adapter's run", () => {
       expect(await adapter.notice()).toBe(older("2.1.300"));
       writeFileSync(version, "2.1.326 (Claude Code)\n");
       expect(await adapter.notice()).toBeNull();
-      await new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder }, (event) => event.type === "exit" && resolve()).catch(reject));
+      await new Promise<void>((resolve, reject) => adapter.start({ prompt: "Q", cwd: folder, refresh: true }, (event) => event.type === "exit" && resolve()).catch(reject));
       expect(shell.lookups()).toBe(1);
     });
 
@@ -637,7 +634,7 @@ describe("the Claude adapter's run", () => {
       const shell = fakeShell(folder, "");
       const adapter = claudeAdapter(shell.env);
       expect(await adapter.notice()).toBeNull();
-      await expect(adapter.start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow(`claude was not found by the login shell (${shell.env.SHELL})`);
+      await expect(adapter.start({ prompt: "Q", cwd: folder, refresh: true }, () => {})).rejects.toThrow(`claude was not found by the login shell (${shell.env.SHELL})`);
       expect(shell.lookups()).toBe(2);
     });
   });
@@ -799,13 +796,13 @@ describe("the Claude adapter's role launch", () => {
     return { folder, env: { SHELL: shell, HOME: folder, USER: "person" }, bundleDir, rulesDir };
   }
 
-  /** Starts one run and gives its events once it has exited, and how long that took. */
-  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, role?: RoleStage): Promise<{ events: RoleEvent[]; ms: number }> {
+  /** Starts one run, of a role or a refresh, and gives its events once it has exited, and how long that took. */
+  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, launch: RoleStage | "refresh"): Promise<{ events: RoleEvent[]; ms: number }> {
     const events: RoleEvent[] = [];
     const at = Date.now();
     await new Promise<void>((resolve, reject) => {
       adapter
-        .start({ prompt: "Q", cwd, ...(role ? { role } : {}) }, (event) => {
+        .start({ prompt: "Q", cwd, ...(launch === "refresh" ? { refresh: true } : { role: launch }) }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })
@@ -878,15 +875,21 @@ describe("the Claude adapter's role launch", () => {
     expect(readFileSync(join(rulesDir, "proofer-round.md"), "utf8")).toContain("===== skills/core/SKILL.md =====\n\n# The core, changed\n");
   });
 
-  it("launches a session with no role as before, on an adapter that holds a bundle: the plain arguments, no rules file, and no reading of the first line", async () => {
+  it("launches a refresh as before, on an adapter that holds a bundle: the refresh's arguments, no rules file, and no reading of the first line", async () => {
     const { folder, env, bundleDir, rulesDir } = launch([RESULT]);
-    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder);
+    const { events } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, "refresh");
     expect(events).toEqual([
       { type: "result", text: "owl", isError: false, usage: { costUsd: 0.5, converted: true, models: [] } },
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, "refresh"));
     expect(existsSync(rulesDir)).toBe(false);
+  });
+
+  it("launches nothing given neither a role nor a refresh, which no launch of the daemon is, and says so", async () => {
+    const { folder, env, bundleDir, rulesDir } = launch([RESULT]);
+    await expect(claudeAdapter(env, { bundleDir, rulesDir }).start({ prompt: "Q", cwd: folder }, () => {})).rejects.toThrow("the Claude adapter launches a role or a refresh of an account's usage, and was given neither");
+    expect(existsSync(join(folder, "args"))).toBe(false);
   });
 
   it("starts no role session where it was given no bundle folder, or no folder for the rules files, and launches nothing", async () => {
@@ -1047,7 +1050,7 @@ describe("a permission request on the Claude adapter's streams", () => {
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
       // No event arrives before the promise of `start` has resolved, so the listener holds the run.
-      const started = claudeAdapter(env).start({ prompt: "Q", cwd }, (event) => {
+      const started = claudeAdapter(env).start({ prompt: "Q", cwd, refresh: true }, (event) => {
         events.push(event);
         void started.then((run) => onEvent(event, run));
         if (event.type === "exit") resolve();
