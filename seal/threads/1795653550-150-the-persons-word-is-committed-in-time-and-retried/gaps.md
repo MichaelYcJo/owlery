@@ -8,6 +8,14 @@
 | That git under `worktrees.ts#commitRunner` gets no input. Git gives a hook none of its own, so the case of scenario D passed with input and without it, and no case pins the runner's `stdin`. | the proofer, by reading `commitRunner` |
 | That the `git add` and the `git commit` of one commit share one limit, counted from the call that makes the runner. No case times one command against the other. | the proofer, by reading `commitRunner` and `commitPaths` |
 | That an ended git which has not exited by the end of the grace is over at its exit after the SIGKILL: the `exit` handler's arm in `commitRunner`. Git exits at the SIGTERM in every case, so no case reaches that arm. | the proofer, by reading `commitRunner` |
+| That a stage's commit and the commit of a renamed branch's `routing.md` take the daemon's limit and its close's signal, and that the setup of the records place takes `commitLimitMs`. The cases end only the commit of a person's word. | the proofer, by reading `Daemon#placeOf`, `#chainDirectory`, `#commitWord`, the setup's request, and `stage-records.ts#commitRecords` |
+| That the wait between two tries stops doubling at `WORD_RETRY_MAX_MS`, one hour. The case of the doubling stops at the third wait. | the proofer, by reading `Daemon#commitOwed` |
+| That `wordOwed`'s reason is the first line that is not empty where a failed commit printed several. Each case's hook prints one line. | the proofer, by reading `failedWhy` in `daemon.ts` |
+| That the read of the records asks git again only where the record's text or the branch's head changed since the last ask. No case counts the `git show` of a record that holds an answered block and stays the same. | the proofer, by reading `Daemon#readOwed` |
+| That a word whose try failed and which then waited for a session is tried at the first turn of the pass after the session ends (`wordHeld`). No case makes a try fail and then starts a session. | the proofer, by reading `Daemon#passWords` |
+| That the pass tries no work item `whyNoRun` names, an archived one or one being deleted among them. No case owes a word in such a work item. | the proofer, by reading `Daemon#passWords` and `#commitOwed` |
+| That a try whose turn comes after the close's wait starts nothing: the check of `ending` at the head of `tryWord`'s attempt. `commitPaths` also starts nothing under a fired signal, so a case cannot tell the two apart. | the proofer, by reading `Daemon#tryWord` |
+| That a work item that owes a word is no change since the look (`frame/design.md` scenario P, its second half). `view.ts#changeOf` reads no `wordOwed`, so a case would pass with the field and without it. | the proofer, by reading `view.ts#changeOf` |
 
 ## Not done
 
