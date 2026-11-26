@@ -6,6 +6,7 @@ Closes #251.
 - "**The delete dialog keeps its loss lists in place at a redraw that does not change its loss.**" (`frame/design.md` *Scope*, item 6)
 - "**The removal dialog keeps its work items' loss lists in place at a redraw that changes nothing they are drawn from.**" (`frame/design.md` *Scope*, item 7)
 - "**The session sections of each session dialog, and the removal dialog's list of work items, stay in place at a redraw that changes none of their lines.**" (`frame/design.md` *Scope*, item 8)
+- "**Each opening of a dialog starts every list of it at its top.**" (`frame/design.md` *Scope*, item 8a)
 - "**The screenshot run's delete view waits for both session sections, and the pull request carries the delete dialog's screenshots again.**" (`frame/design.md` *Scope*, item 10)
 - "What does the head of the section say, over the sessions that wait for the machine?" (`frame/questions.md` Q1)
 - "(a) \"Sessions waiting for the machine that leave the queue\". It uses the words the line and the Machine dialog use, and says what happens, as #249 asks. It is the longest." (`frame/questions.md` Q1, the default)
