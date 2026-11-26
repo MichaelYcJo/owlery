@@ -1011,10 +1011,7 @@
       <form id="sessions-form">
         <h2 id="sessions-head" class="head"></h2>
         <p id="sessions-says" class="says">An archive ends the work item's running sessions. Its folder and its branch stay where they are, and a restore brings the work item back.</p>
-        <section id="sessions-list" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="sessions-list" hidden></div>
         <p id="sessions-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="sessions-cancel" class="quiet">Cancel</button>
@@ -1026,10 +1023,7 @@
       <form id="daemon-form">
         <h2 id="daemon-head" class="head"></h2>
         <p id="daemon-says" class="says"></p>
-        <section id="daemon-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="daemon-sessions" hidden></div>
         <p id="daemon-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="daemon-cancel" class="quiet">Cancel</button>
@@ -1042,10 +1036,7 @@
         <h2 id="delete-head" class="head"></h2>
         <p id="delete-says" class="says"></p>
         <div id="delete-loss"></div>
-        <section id="delete-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="delete-sessions" hidden></div>
         <p id="delete-remote" class="says">Nothing on a remote is removed.</p>
         <label id="delete-force-label" class="check" hidden><input type="checkbox" id="delete-force" />Force delete</label>
         <p id="delete-error" class="refusal" role="alert"></p>
@@ -1063,10 +1054,7 @@
           <h3 class="caption">Work items that leave the lists</h3>
           <ul class="named"></ul>
         </section>
-        <section id="remove-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="remove-sessions" hidden></div>
         <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees and local branches</label>
         <div id="remove-losses" hidden></div>
         <label id="remove-force-label" class="check" hidden><input type="checkbox" id="remove-force" />Force delete</label>

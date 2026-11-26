@@ -78,6 +78,7 @@ import {
   renameChoice,
   repositoryMenu,
   runningSessions,
+  sessionSections,
   settingsBases,
   settingsChain,
   settingsFields,
@@ -100,6 +101,7 @@ import {
   type RecordsPlanned,
   type Removal,
   type RenamePlanned,
+  type SessionsNamed,
   type StateFilter,
 } from "./view";
 import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
@@ -502,6 +504,23 @@ function lossParts(loss: WorkItemLoss): HTMLElement[] {
     }
     return section;
   });
+}
+
+/** Draws into a session dialog's container the sections ./view's `sessionSections` gives: the sessions that run, then those that wait for the machine, each section with its heading and a list of its lines. The container is hidden where no section stands. */
+function drawSessions(id: string, named: SessionsNamed): void {
+  const sections = sessionSections(named);
+  const container = byId(id);
+  container.hidden = sections.length === 0;
+  container.replaceChildren(
+    ...sections.map(({ caption, lines }) => {
+      const section = document.createElement("section");
+      const head = document.createElement("h3");
+      head.className = "caption";
+      head.textContent = caption;
+      section.append(head, namedLines(lines));
+      return section;
+    }),
+  );
 }
 
 function repositoryOf(id: number | undefined): Repository | undefined {
@@ -1104,8 +1123,9 @@ function openHidden(): void {
 
 /**
  * Draws what the removal's dialog names, from the daemon's lists as they are
- * now: the repository, each work item it holds and each running session,
- * and its two choices as ./view's `removalChoice` has them. Where the
+ * now: the repository, each work item it holds, each session that runs and
+ * apart from them each that waits for the machine, and its two choices as
+ * ./view's `removalChoice` has them. Where the
  * choice to delete the work items is taken, it asks the daemon for the loss
  * of each work item it holds none of, and names each loss under its work
  * item. It closes the dialog where the daemon no longer keeps the
@@ -1119,21 +1139,10 @@ function showRemove(): void {
   }
   removal = removalOf(repository, held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
   byId("remove-head").textContent = `Remove ${repository.name} from Owlery`;
-  const list = (id: string, lines: readonly string[]): void => {
-    const section = byId(id);
-    section.hidden = lines.length === 0;
-    section.querySelector("ul")?.replaceChildren(
-      ...lines.map((line) => {
-        const item = document.createElement("li");
-        const words = document.createElement("span");
-        words.textContent = line;
-        item.append(words);
-        return item;
-      }),
-    );
-  };
-  list("remove-work-items", removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title)));
-  list("remove-sessions", removal.sessions);
+  const workItems = byId("remove-work-items");
+  workItems.hidden = removal.workItems.length === 0;
+  workItems.querySelector("ul")?.replaceWith(namedLines(removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title))));
+  drawSessions("remove-sessions", removal.sessions);
   const deletes = removeDelete.checked && removal.workItems.length > 0;
   if (deletes) {
     for (const { id } of removal.workItems) {
@@ -1228,8 +1237,9 @@ function remove(): void {
 /**
  * Draws the delete dialog, from the daemon's lists as they are now and from
  * the loss the daemon answered with: the work item, what ./view's
- * `deleteSays` says of the loss, each thing the loss names, each running
- * session, and the two controls as `deleteChoice` has them. It closes the
+ * `deleteSays` says of the loss, each thing the loss names, each session
+ * that runs and apart from them each that waits for the machine, and the
+ * two controls as `deleteChoice` has them. It closes the
  * dialog where the window's lists no longer hold the work item.
  */
 function showDelete(): void {
@@ -1242,9 +1252,7 @@ function showDelete(): void {
   byId("delete-head").textContent = `Delete ${workItem.title}`;
   byId("delete-says").textContent = deleteSays(deleteLoss);
   byId("delete-loss").replaceChildren(...(deleteLoss === null ? [] : lossParts(deleteLoss)));
-  const section = byId("delete-sessions");
-  section.hidden = deletion.sessions.length === 0;
-  section.querySelector("ul")?.replaceWith(namedLines(deletion.sessions));
+  drawSessions("delete-sessions", deletion.sessions);
   const choice = deleteChoice(deleteLoss, deleteForce.checked);
   byId("delete-force-label").hidden = !choice.forceShown;
   DELETE.button.disabled = !choice.enabled || waiting(DELETE);
@@ -1421,7 +1429,7 @@ function readAgain(): void {
   }
 }
 
-/** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, and each of its running sessions. It closes the dialog where the window's list no longer holds the work item. */
+/** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, each of its sessions that run, and apart from them each that waits for the machine. It closes the dialog where the window's list no longer holds the work item. */
 function showArchive(): void {
   const workItem = held.workItems.find((known) => known.id === archiving);
   if (!workItem) {
@@ -1430,30 +1438,20 @@ function showArchive(): void {
   }
   archival = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("sessions-head").textContent = `Archive ${workItem.title}`;
-  const section = byId("sessions-list");
-  section.hidden = archival.sessions.length === 0;
-  section.querySelector("ul")?.replaceChildren(
-    ...archival.sessions.map((line) => {
-      const item = document.createElement("li");
-      const words = document.createElement("span");
-      words.textContent = line;
-      item.append(words);
-      return item;
-    }),
-  );
+  drawSessions("sessions-list", archival.sessions);
 }
 
 /**
  * Archives a work item, at the press of its menu's item. Where none of its
- * sessions runs, the archive is sent at once: a restore undoes it. Where one
- * does, a dialog names each first, with the keyboard on the button that
- * ends nothing.
+ * sessions runs or waits for the machine, the archive is sent at once: a
+ * restore undoes it. Where one does, a dialog names each first, with the
+ * keyboard on the button that ends nothing.
  */
 function archive(workItemId: number): void {
   const workItem = held.workItems.find((known) => known.id === workItemId);
   if (!workItem) return;
   const told = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
-  if (told.sessions.length === 0) {
+  if (sessionSections(told.sessions).length === 0) {
     send({ type: "archiveWorkItem", requestId: request(), id: workItemId, running: told.running });
     return;
   }
@@ -1463,7 +1461,7 @@ function archive(workItemId: number): void {
   byId("sessions-cancel").focus();
 }
 
-/** Sends the archive the dialog holds, with the running sessions it named, so the daemon ends the sessions the person read and no other. */
+/** Sends the archive the dialog holds, with the sessions it named, those that run and those that wait for the machine, so the daemon ends the sessions the person read and no other. */
 function archiveNamed(): void {
   const told = archival;
   const id = archiving;
@@ -1471,17 +1469,14 @@ function archiveNamed(): void {
   ask(SESSIONS, (requestId) => ({ type: "archiveWorkItem", requestId, id, running: told.running }));
 }
 
-/** Draws the dialog that asks before the daemon ends, from the daemon's lists as they are now: its words for a restart or for a complete quit, and every running session the window holds. The list is hidden where none runs. */
+/** Draws the dialog that asks before the daemon ends, from the daemon's lists as they are now: its words for a restart or for a complete quit, every session the window holds that runs, and apart from them every one that waits for the machine. The lists are hidden where none runs or waits. */
 function showDaemonEnding(): void {
   if (ending === undefined) return;
   const words = daemonEnding(ending);
   byId("daemon-head").textContent = words.head;
   byId("daemon-says").textContent = words.says;
   DAEMON.button.textContent = words.button;
-  const sessions = runningSessions(held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
-  const section = byId("daemon-sessions");
-  section.hidden = sessions.length === 0;
-  section.querySelector("ul")?.replaceWith(namedLines(sessions));
+  drawSessions("daemon-sessions", runningSessions(held.workItems, held.archived, held.sessions, held.headless, held.paneKinds));
 }
 
 /**
