@@ -6,13 +6,22 @@
 // the inbox, a work item's view, the view of the parked work item, the view
 // of the finished work item, the view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings, the Accounts dialog, the Machine dialog and the
-// delete dialog of a work item with many commits) in each
+// repository's settings, the Accounts dialog, the Accounts dialog while the
+// login of an account "Add an account" adds runs, the Accounts dialog with
+// the row that login named, the Machine dialog and the delete dialog of a
+// work item with many commits) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
 // account's field. The parked work item's shell pane runs under it, so its
-// row in the Accounts dialog offers no refresh. The repository is on the owl chain, and the Claude Code config
+// row in the Accounts dialog offers no refresh. After the view of the
+// Accounts dialog the run presses "Add an account" there. The stand-in for
+// the CLI holds the login while the run's file `HOLD_LOGIN` stands, so the
+// next view shows the sign-in pane of the new account. The run then takes
+// the file away, the login ends, and the view after it shows the row named
+// by the stand-in's invented email, signed in. The run removes that account
+// from its row before the next view, so every appearance draws the same
+// rows. The repository is on the owl chain, and the Claude Code config
 // folder the run gives the app enables a stand-in for the AgenticSeal
 // plugin, so the window holds the choice of a chain. The run stores the
 // answer "the AgenticSeal plugin" before the app starts, so no pane of the
@@ -195,6 +204,10 @@ const PARKED = WORK_ITEMS[0]?.title ?? "";
 /** The account the run hands over by its folder, and the id the daemon keeps it under. */
 const HANDED = "Work";
 const HANDED_ID = 1;
+/** The invented email the run's stand-in for the CLI names a login by, which names the account "Add an account" adds (fixtures/sample-cli.sh). */
+const ADDED = "dana@example.com";
+/** The file in the daemon's run folder that holds the stand-in's login while it stands, so the sign-in pane of that add stays open with its process running. */
+const HOLD_LOGIN = "sample-cli.hold-login";
 const PARKED_RECORDS = "1795396351-choose-the-base-of-the-hotfix";
 /** The repository's broad gate command, as its `config.json` names it, the script it runs, which the repository holds, and what a run of it prints, which the run stores as the output of the parked chain's gate. No chain runs, so nothing runs the command. */
 const GATE = "sh scripts/check.sh";
@@ -316,6 +329,8 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
+      "night-watch-dark-accounts-adding.png",
+      "night-watch-dark-accounts-added.png",
       "night-watch-dark-machine.png",
       "night-watch-dark-delete.png",
       "night-watch-light-summary.png",
@@ -329,13 +344,15 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
+      "night-watch-light-accounts-adding.png",
+      "night-watch-light-accounts-added.png",
       "night-watch-light-machine.png",
       "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(78);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(78);
-    expect(all[77]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(90);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(90);
+    expect(all[89]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -396,6 +413,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   let brokenBy = "";
   /** The summary's lines, in the order it draws them. */
   const SUMMARY_LINES = `[...document.querySelectorAll("#summary-lines button[data-work-item]")]`;
+  /** The names of the Accounts dialog's rows, in the order it draws them, joined with commas. */
+  const ACCOUNT_NAMES = `[...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join()`;
   /** A role's place of the approval line in the view's right column. */
   const place = (role: string): string => `#view-detail section.approval .place[data-role="${role}"]`;
   const MENU = `[role="menu"]`;
@@ -569,7 +588,18 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     accounts: async () => {
       await show.inbox();
       await app.click("#accounts-button");
-      await app.until(`document.getElementById("accounts-dialog").open && [...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join() === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
+      await app.until(`document.getElementById("accounts-dialog").open && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
+    },
+    "accounts-adding": async () => {
+      writeFileSync(join(app.userData, "run", HOLD_LOGIN), "");
+      await show.accounts();
+      await app.click("#accounts-add");
+      await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to a new account" && document.getElementById("accounts-add").disabled && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with the sign-in pane of a new account under the list, its login held, no row of it yet, and Add an account disabled");
+    },
+    "accounts-added": async () => {
+      // The view before it left the dialog open with the add's login held, and the login now ends.
+      rmSync(join(app.userData, "run", HOLD_LOGIN));
+      await app.until(`document.getElementById("accounts-sign-in").hidden && !document.getElementById("accounts-add").disabled && document.getElementById("accounts-error").textContent === "" && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED},${ADDED}`)} && document.querySelector("#accounts-list li:last-child .account-sign-in")?.textContent.startsWith("Signed in, the login ends in ")`, `the Accounts dialog with the row the login named ${ADDED}, signed in, the sign-in pane closed and Add an account enabled again`);
     },
     machine: async () => {
       await show.inbox();
@@ -608,6 +638,19 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     accounts: async () => {
       await app.click("#accounts-close");
       await dialogClosed("accounts-dialog");
+    },
+    // Nothing closes after the view of the add's sign-in: the view after it ends that login in the same dialog.
+    "accounts-added": async () => {
+      // The account the add made is removed from its row, as a person removes it, which signs it out and removes its folder, so every appearance draws the same rows.
+      const id = await app.evaluate<string>(`[...document.querySelectorAll("#accounts-list li")].find((row) => row.querySelector(".account-name > span")?.textContent === ${JSON.stringify(ADDED)}).dataset.account`);
+      const row = `#accounts-list li[data-account="${id}"]`;
+      for (const text of ["Remove…", "Remove the account"]) {
+        await app.until(`[...document.querySelectorAll('${row} button')].some((button) => button.textContent === ${JSON.stringify(text)})`, `"${text}" on the row of ${ADDED}`);
+        await app.evaluate(`(() => { for (const button of document.querySelectorAll('${row} button')) button.toggleAttribute("data-pressed-here", button.textContent === ${JSON.stringify(text)}); })()`);
+        await app.click(`${row} button[data-pressed-here]`);
+      }
+      await app.until(`!document.querySelector('${row}')`, `the row of ${ADDED} removed`);
+      await leave.accounts?.();
     },
     machine: async () => {
       // A cancel keeps every cap as the run set it.
