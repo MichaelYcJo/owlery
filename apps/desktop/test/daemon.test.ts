@@ -5583,8 +5583,8 @@ describe("the last look", () => {
     const { session } = await two.message("started");
     clock = 200;
     await looked(two);
-    // The look keeps no account a pane was launched under, and no account whose sign-in it runs.
-    const { accountId: _, signsIn: __, ...lookedSession } = session;
+    // The look keeps no account a pane was launched under, no account whose sign-in it runs, and no name or colour of the pane's tab.
+    const { accountId: _, signsIn: __, name: ___, colour: ____, ...lookedSession } = session;
     expect(await lookNow(url)).toEqual({ at: 200, sessions: [lookedSession], workItems: [expect.objectContaining({ id: 1 })] });
   });
 
