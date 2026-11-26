@@ -35,6 +35,11 @@ The fix adds two rows after the row of `#commitOwed`, the first for `readOwed` a
 | `renderer.ts#showRemove`, the values the removal's lists are drawn from (#263), found by round 4 | whether the lists under the removal's choice to delete are drawn again | `branch` and `ownsBranch` are among the compared values, so a work item whose branch Owlery makes or takes up while the dialog stands is drawn again, with `deleteSays`'s words for it. | None: no case makes a branch while the removal's dialog stands, and review reads it. |
 ```
 
+```seal
+verdict: fixed 1f8eb5ba
+answer: The orchestrator added the round's two paste-ready rows after the row of `#commitOwed` in `frame/design.md` *The readers of a work item's branch*, after reading them against `daemon.ts:3145-3173`, `:3320-3327` and `renderer.ts:1203-1213`. The change is to the work item's records alone.
+```
+
 ## Confirmations
 
 What matched: the merge keeps both sides of each conflict, as the merge's message claims. Each item below was read in `git show --cc b696172f` and at `bd5e2768`.
