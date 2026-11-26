@@ -44,6 +44,7 @@ import {
   CHAIN_CHOICES,
   choiceNote,
   closeAsks,
+  closeSays,
   codeParts,
   commandKey,
   commitLines,
@@ -173,6 +174,7 @@ import {
   summarySentence,
   tabAccount,
   tabLabel,
+  tabMenu,
   tellsSize,
   viewFacts,
   webTarget,
@@ -636,9 +638,41 @@ describe("repositoryMenu", () => {
   });
 });
 
+/** Three Shell panes of the work item 1, in the tabs' order. */
+const SHELL_TABS = [session(4, { kind: "shell" }), session(5, { kind: "shell" }), session(6, { kind: "shell" })];
+
+describe("tabMenu", () => {
+  it('holds, on a tab with tabs on both sides, "Close Pane", "Close Other Panes" and "Close Panes to the Right", each closing its panes in the tabs\' order', () => {
+    expect(plain(tabMenu(SHELL_TABS[1]!, SHELL_TABS))).toEqual([
+      { label: "Close Pane", action: { do: "closePanes", ids: [5] }, divides: false },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 6] }, divides: false },
+      { label: "Close Panes to the Right", action: { do: "closePanes", ids: [6] }, divides: false },
+    ]);
+    expect(plain(tabMenu(SHELL_TABS[0]!, SHELL_TABS)).map(({ action }) => action)).toEqual([
+      { do: "closePanes", ids: [4] },
+      { do: "closePanes", ids: [5, 6] },
+      { do: "closePanes", ids: [5, 6] },
+    ]);
+  });
+
+  it('leaves out "Close Panes to the Right" on the last tab, where no tab stands after it', () => {
+    expect(plain(tabMenu(SHELL_TABS[2]!, SHELL_TABS))).toEqual([
+      { label: "Close Pane", action: { do: "closePanes", ids: [6] }, divides: false },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 5] }, divides: false },
+    ]);
+  });
+
+  it('holds "Close Pane" alone on the one tab of a work item, and counts an exited pane among the others', () => {
+    expect(plain(tabMenu(SHELL_TABS[0]!, [SHELL_TABS[0]!]))).toEqual([{ label: "Close Pane", action: { do: "closePanes", ids: [4] }, divides: false }]);
+    const exited = session(7, { kind: "shell", alive: false });
+    expect(tabMenu(exited, [SHELL_TABS[0]!, exited]).map(({ label }) => label)).toEqual(["Close Pane", "Close Other Panes"]);
+    expect(plain(tabMenu(SHELL_TABS[0]!, [SHELL_TABS[0]!, exited]))[1]).toEqual({ label: "Close Other Panes", action: { do: "closePanes", ids: [7] }, divides: false });
+  });
+});
+
 describe("a description on hover", () => {
-  it("gives every entry of a work item's menu and of a repository's menu, and every item of a submenu, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
-    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS)];
+  it("gives every entry of a work item's menu, of a repository's menu and of a pane's tab's menu, and every item of a submenu, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
+    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS), tabMenu(SHELL_TABS[1]!, SHELL_TABS)];
     // Each submenu is read as a menu of its own, after the menus.
     const submenus = menus.flatMap((menu) => menu.flatMap((entry) => ("opens" in entry ? [entry.opens] : [])));
     for (const menu of [...menus, ...submenus]) {
@@ -651,7 +685,7 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10, 3]);
     expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
   });
 });
@@ -3976,6 +4010,21 @@ describe("closeAsks", () => {
     ["was working when its process ended", session(1, { state: "working", alive: false })],
   ])("asks nothing where the session %s", (_name, closing) => {
     expect(closeAsks(closing)).toBe(false);
+  });
+});
+
+describe("closeSays", () => {
+  it('says of one working pane what the dialog said before a close took several panes, with "Close pane"', () => {
+    expect(closeSays(["Claude Code"], 1)).toEqual({ says: "Claude Code is working. Closing the pane ends its session.", confirm: "Close pane" });
+  });
+
+  it("names the one working pane among idle ones, and counts every pane the close ends", () => {
+    expect(closeSays(["Claude Code"], 3)).toEqual({ says: "Claude Code is working. Closing 3 panes ends its session.", confirm: "Close 3 panes" });
+  });
+
+  it("names each working pane in the order given, and says that their sessions end", () => {
+    expect(closeSays(["Claude Code 1", "Claude Code 2"], 2)).toEqual({ says: "Claude Code 1 and Claude Code 2 are working. Closing 2 panes ends their sessions.", confirm: "Close 2 panes" });
+    expect(closeSays(["Claude Code 1", "Claude Code 2", "Claude Code 3"], 4)).toEqual({ says: "Claude Code 1, Claude Code 2 and Claude Code 3 are working. Closing 4 panes ends their sessions.", confirm: "Close 4 panes" });
   });
 });
 

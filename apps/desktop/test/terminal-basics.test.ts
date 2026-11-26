@@ -1,7 +1,10 @@
 // What a terminal pane and the window around it do for a person, read in the
 // built app: the window stays on its own page, the menu leaves the page its
 // keys, the Command key with W closes the pane in front, a pane whose
-// session is working asks before it closes, a file dropped on a pane types
+// session is working asks before it closes, a press of the right button on
+// a pane's tab opens the tab's menu, whose items close that pane, the other
+// panes or the panes to its right and ask once before a close of several
+// where one is working, a file dropped on a pane types
 // its path, a link opens at a click with the Command key, Shift+Enter
 // sends a line feed, a path a pane printed is a link where something stands
 // at it, a file's link opens in the editor the person chose at the line the
@@ -355,6 +358,118 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await closeFromElsewhere(first);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  /** The menu a press of the right button on a pane's tab opens (src/renderer/menu.ts), while it is open. */
+  const TAB_MENU = `document.querySelector('.menu[role="menu"]')`;
+  /** The words of each item of the open tab's menu, from its top. */
+  const TAB_MENU_ITEMS = `[...${TAB_MENU}.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent)`;
+
+  /** Opens the menu of the tab at a place of the strip, from 1, by a press of the right button in the middle of its label, and waits for it. */
+  async function openTabMenu(place: number): Promise<void> {
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector("#tabs .tab:nth-child(${place}) .label").getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await rightPress(at);
+    await app.until(`${TAB_MENU} !== null`, `the menu of the tab at place ${place}`);
+  }
+
+  /** Presses the item of the open tab's menu with these words, as a person's press arrives, and waits until the menu is gone. */
+  async function pressTabMenuItem(text: string): Promise<void> {
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = [...${TAB_MENU}.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === ${JSON.stringify(text)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseMoved", ...at });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+    await app.until(`${TAB_MENU} === null`, `the tab's menu closed at "${text}"`);
+  }
+
+  it("opens a tab's menu at a press of the right button, with the close items the tab's place leaves, and closes the panes an item names at once where none is working", async () => {
+    const first = await pidOf(1);
+    const second = await pidOf(await openPane("Shell"));
+    const third = await pidOf(await openPane("Shell"));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2", "Shell 3"]);
+    await app.evaluate(`void document.addEventListener("contextmenu", (event) => { window.__tabMenuDefault = !event.defaultPrevented; }, { once: true })`);
+    await openTabMenu(2);
+    // The system's own menu is kept from opening.
+    expect(await app.evaluate<boolean>("window.__tabMenuDefault")).toBe(false);
+    expect(await app.evaluate<string | null>(`${TAB_MENU}.getAttribute("aria-label")`)).toBe("Menu of Shell 2");
+    expect(await app.evaluate<string[]>(TAB_MENU_ITEMS)).toEqual(["Close Pane", "Close Other Panes", "Close Panes to the Right"]);
+    await pressTabMenuItem("Close Panes to the Right");
+    await app.until(`${TABS}.length === 2`, "two tabs");
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    expect(await untilGone([third], 5_000)).toEqual([]);
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+
+    // No tab stands after the last one.
+    await openTabMenu(2);
+    expect(await app.evaluate<string[]>(TAB_MENU_ITEMS)).toEqual(["Close Pane", "Close Other Panes"]);
+    await press("Escape", 27);
+    await app.until(`${TAB_MENU} === null`, "the tab's menu closed at Escape");
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+
+    await openTabMenu(1);
+    await pressTabMenuItem("Close Other Panes");
+    await app.until(`${TABS}.length === 1`, "one tab");
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    expect(await untilGone([second], 5_000)).toEqual([]);
+    expect(alive(first)).toBe(true);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+
+    // The one tab of a work item has no other pane to close.
+    await openTabMenu(1);
+    expect(await app.evaluate<string[]>(TAB_MENU_ITEMS)).toEqual(["Close Pane"]);
+    await press("Escape", 27);
+    await app.until(`${TAB_MENU} === null`, "the tab's menu closed at Escape");
+  });
+
+  it("asks once before closing the other panes where one of them is working, names that one, and closes them only at the dialog's main button", async () => {
+    await openPane("Claude Code");
+    await app.until(`document.getElementById("strip-state").textContent.startsWith("Working")`, "the new pane's session as working");
+    const shell = await pidOf(await openPane("Shell"));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
+    const hasKeyboard = (id: string): Promise<boolean> => app.evaluate<boolean>(`document.activeElement === document.getElementById(${JSON.stringify(id)})`);
+
+    await openTabMenu(1);
+    await pressTabMenuItem("Close Other Panes");
+    await app.until(DIALOG_OPEN, "the dialog that asks before the close");
+    expect(await app.evaluate<string>(`document.getElementById("close-pane-sentence")?.textContent`)).toBe("Claude Code is working. Closing 2 panes ends its session.");
+    expect(await app.evaluate<string>(`document.getElementById("close-pane-confirm")?.textContent`)).toBe("Close 2 panes");
+    expect(await hasKeyboard("close-pane-cancel")).toBe(true);
+    await app.click("#close-pane-cancel");
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    // The daemon would have taken the panes off its lists by then.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
+    expect(alive(shell)).toBe(true);
+
+    await openTabMenu(1);
+    await pressTabMenuItem("Close Other Panes");
+    await app.until(DIALOG_OPEN, "the dialog again");
+    await app.click("#close-pane-confirm");
+    await app.until(`${TABS}.length === 1`, "one tab");
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell"]);
+    expect(await untilGone([shell], 5_000)).toEqual([]);
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  it("closes the dialog of a close of several panes where the daemon stops listing one of them, and closes none of the others", async () => {
+    const claude = await openPane("Claude Code");
+    await app.until(`document.getElementById("strip-state").textContent.startsWith("Working")`, "the new pane's session as working");
+    const pane = await openPane("Shell");
+    const shell = await pidOf(pane);
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
+    await openTabMenu(1);
+    await pressTabMenuItem("Close Other Panes");
+    await app.until(DIALOG_OPEN, "the dialog that asks before the close");
+    await closeFromElsewhere(claude);
+    await app.until(`${TABS}.length === 2`, "two tabs");
+    expect(await app.evaluate<boolean>(DIALOG_OPEN)).toBe(false);
+    // A close the dialog sent would have reached the daemon by then.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+    expect(alive(shell)).toBe(true);
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    expect(await untilGone([shell], 5_000)).toEqual([]);
   });
 
   // The cases below read the first pane, which is the one tab, in front, with the keyboard.

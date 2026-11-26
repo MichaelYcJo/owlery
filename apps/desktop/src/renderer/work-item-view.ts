@@ -31,6 +31,7 @@ import {
   chainList,
   chainSays,
   closeAsks,
+  closeSays,
   droppedText,
   FIND_LIMIT,
   findCount,
@@ -75,6 +76,7 @@ import {
   stageOf,
   stateWithAge,
   tabLabel,
+  tabMenu,
   tellsSize,
   viewFacts,
   webTarget,
@@ -133,8 +135,8 @@ let backDrawn: string | undefined;
 let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
-// The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
-let asking: number | undefined;
+// The panes the dialog that asks before a close of panes asked about last, in the tabs' order, which its main button closes. Nothing reads them once that dialog has closed.
+let asking: number[] = [];
 // Whether the keyboard is a Mac's, which has the Command key.
 let mac = false;
 // What puts a work item's view in front, for a click on a link that is another work item's worktree.
@@ -194,6 +196,7 @@ const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
 /** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
 let accountChange: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
+const closeConfirm = byId("close-pane-confirm");
 const linkCardElement = byId("link-card");
 const findBar = byId("find-bar");
 const findField = byId<HTMLInputElement>("find-field");
@@ -465,7 +468,7 @@ function menuAct(chosen: PaneMenuAct, screen: Screen): void {
     if (session) openAccountChange(session);
   } else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
-    if (session) closePane(session);
+    if (session) closePanes([session]);
   } else if (chosen === "clear") {
     send({ type: "forget", id: pane, keepModes: true });
     term.clear();
@@ -891,8 +894,8 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
-  // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
-  if (asking !== undefined && !listed.has(asking)) closeDialog.close();
+  // A pane the dialog asks about was closed some other way, so the close it asks about is no longer the one the person chose, and the dialog closes having closed nothing. Closing a dialog that is not open does nothing.
+  if (asking.some((pane) => !listed.has(pane))) closeDialog.close();
   if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first panes of the stage order, as many as the cap on panes side by side, which hold tabs never in front where fewer than the cap of the tabs were in front, or the one of those with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
@@ -1227,20 +1230,29 @@ export function takeAnswers(requestId: number, refusal: string | null): boolean 
 }
 
 /**
- * Closes a pane, as a press of its tab's "×" asks. The daemon ends the
- * process and takes the session off its lists, and the tab goes at the
- * `inbox` that follows. A pane whose session is working (./view,
- * `closeAsks`) is not closed here: a dialog names it and asks, with the
- * keyboard on "Cancel", and only its "Close pane" sends the close.
+ * Closes panes of one work item, `sessions` in the tabs' order, as a press of
+ * a tab's "×", ⌘W, "Close Pane" of a pane's menu and each item of a tab's
+ * menu ask. The daemon ends each process and takes its session off its
+ * lists, and each tab goes at the `inbox` that follows. Where the session of
+ * any of them is working (./view, `closeAsks`), none is closed here: one
+ * dialog names each working pane by its tab's label and says how many panes
+ * the close ends (./view, `closeSays`), with the keyboard on "Cancel", and
+ * only its main button sends the closes, one for each pane.
  */
-function closePane(session: SessionInfo): void {
-  if (!closeAsks(session)) {
-    send({ type: "close", id: session.id });
+function closePanes(sessions: readonly SessionInfo[]): void {
+  if (!sessions.some((session) => closeAsks(session))) {
+    for (const session of sessions) send({ type: "close", id: session.id });
     return;
   }
-  const workItem = held.workItems.find((item) => item.id === session.workItemId);
-  asking = session.id;
-  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null)} is working. Closing the pane ends its session.`;
+  const workItem = held.workItems.find((item) => item.id === sessions[0]?.workItemId);
+  const tabs = workItem ? paneTabs(workItem, held.sessions) : sessions;
+  const { says, confirm } = closeSays(
+    sessions.filter((session) => closeAsks(session)).map((session) => tabLabel(session, tabs, held.paneKinds, workItem?.setup?.paneId ?? null)),
+    sessions.length,
+  );
+  asking = sessions.map((session) => session.id);
+  closeSentence.textContent = says;
+  closeConfirm.textContent = confirm;
   // The keyboard starts on "Cancel", the dialog's first button.
   closeDialog.showModal();
 }
@@ -1291,7 +1303,36 @@ export function takeAccountChange(requestId: number, refusal: string | null): bo
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
-  if (session) closePane(session);
+  if (session) closePanes([session]);
+}
+
+/**
+ * Opens the menu of a pane's tab with its corner at `at`, named to a screen
+ * reader for the tab's label (./view, `tabMenu`). Its items act on the panes
+ * the daemon lists at the press, by their ids, since the strip of tabs is
+ * drawn anew at each `inbox`. A close that asks nothing leaves the keyboard
+ * on the pane in front, and a close that takes that pane hands it to the
+ * pane that comes in front after it. Where the menu closes with no press,
+ * the keyboard returns to the tab, and to the pane in front where the tab
+ * has been drawn anew.
+ */
+function openTabMenu(pane: number, at: { x: number; y: number }): void {
+  const workItem = viewed();
+  const session = held.sessions.find((listed) => listed.id === pane);
+  if (!workItem || !session) return;
+  const listed = paneTabs(workItem, held.sessions);
+  const label = tabLabel(session, listed, held.paneKinds, workItem.setup?.paneId ?? null);
+  openItemMenu(
+    `Menu of ${label}`,
+    tabMenu(session, listed),
+    at,
+    (action) => {
+      if (action.do !== "closePanes") return;
+      closePanes(action.ids.flatMap((id) => held.sessions.filter((known) => known.id === id)));
+      if (!closeDialog.open) screenOf(front)?.term.focus();
+    },
+    () => screenOf(front)?.term.textarea ?? null,
+  );
 }
 
 /** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
@@ -1316,7 +1357,12 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     broughtToFront(held.viewing, session.id);
     showView();
   });
-  close.addEventListener("click", () => closePane(session));
+  close.addEventListener("click", () => closePanes([session]));
+  // A press of the right button anywhere on the tab opens the tab's menu, and not the system's.
+  tab.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openTabMenu(session.id, { x: event.clientX, y: event.clientY });
+  });
   tab.append(label, ...(accountName === "" ? [] : [part("account", accountName)]), close);
   return tab;
 }
@@ -1333,6 +1379,8 @@ function backTab(active: boolean): HTMLElement {
     backFront = true;
     showView();
   });
+  // The back has no pane, so a press of the right button on its tab opens no menu, and not the system's either.
+  tab.addEventListener("contextmenu", (event) => event.preventDefault());
   tab.append(label);
   return tab;
 }
@@ -1622,7 +1670,7 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   byId("close-pane-cancel").addEventListener("click", () => closeDialog.close());
   byId("close-pane-confirm").addEventListener("click", () => {
-    if (asking !== undefined) send({ type: "close", id: asking });
+    for (const pane of asking) send({ type: "close", id: pane });
     closeDialog.close();
   });
   // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.

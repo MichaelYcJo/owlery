@@ -2120,6 +2120,20 @@ export function closeAsks(session: SessionInfo): boolean {
 }
 
 /**
+ * What the dialog that asks before a close of panes says: a sentence that
+ * names each pane of the close whose session is working, `working` being
+ * their tabs' labels in the tabs' order, one at least, and says how many
+ * panes the close ends, `count`, and the words of the button that closes
+ * them. A close of one pane says what the dialog said before a close took
+ * several.
+ */
+export function closeSays(working: readonly string[], count: number): { says: string; confirm: string } {
+  const named = working.length > 1 ? `${working.slice(0, -1).join(", ")} and ${working.at(-1)} are` : `${working[0]} is`;
+  const closing = count === 1 ? "the pane" : `${count} panes`;
+  return { says: `${named} working. Closing ${closing} ends ${working.length > 1 ? "their sessions" : "its session"}.`, confirm: count === 1 ? "Close pane" : `Close ${count} panes` };
+}
+
+/**
  * The text a pane is handed for the files dropped on it, `paths` being each
  * file's path in the order of the drop, empty for a file that is on no
  * disk. Each path is written as a shell reads one word: a backslash stands
@@ -2409,6 +2423,8 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * work items, or, for `group`, opens the dialog of a new group. On both:
  * writes a text to the clipboard, or, from an item of the "Open in" submenu,
  * opens a folder in Finder, where `app` is null, or in an installed app.
+ * On a pane's tab's menu: closes the panes `ids` names, in the tabs' order,
+ * after one dialog where the session of any of them is working.
  */
 export type MenuAction =
   | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
@@ -2416,7 +2432,8 @@ export type MenuAction =
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
-  | { do: "pane"; accountId: number | null };
+  | { do: "pane"; accountId: number | null }
+  | { do: "closePanes"; ids: number[] };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2690,6 +2707,29 @@ export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; sa
  */
 export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The menu of a pane's tab, `session` being its pane and `tabs` the panes of
+ * its work item in the tabs' order (`paneTabs`), in its order: "Close Pane";
+ * "Close Other Panes", which closes every other pane of the work item,
+ * exited ones among them, where the work item has another tab; and "Close
+ * Panes to the Right", which closes every pane whose tab stands after this
+ * one, where one does. An item that would close nothing is left out, since
+ * the form of a menu draws no item disabled. Each item closes its panes
+ * through one close, which asks once where any of them is working
+ * (./work-item-view, `closePanes`).
+ */
+export function tabMenu(session: SessionInfo, tabs: readonly SessionInfo[]): MenuEntry[] {
+  const others = tabs.filter((tab) => tab.id !== session.id).map((tab) => tab.id);
+  const at = tabs.findIndex((tab) => tab.id === session.id);
+  const right = at === -1 ? [] : tabs.slice(at + 1).map((tab) => tab.id);
+  const close = (label: string, description: string, ids: number[]): MenuItem[] => (ids.length === 0 ? [] : [{ label, description, action: { do: "closePanes", ids }, divides: false }]);
+  return [
+    ...close("Close Pane", "End this pane's process and close its tab. Where its session is working, a dialog asks first.", [session.id]),
+    ...close("Close Other Panes", "End every other pane of the work item and close their tabs. Where a session among them is working, a dialog asks first.", others),
+    ...close("Close Panes to the Right", "End the panes whose tabs stand after this one and close their tabs. Where a session among them is working, a dialog asks first.", right),
+  ];
 }
 
 /**
