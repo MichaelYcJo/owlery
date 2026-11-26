@@ -59,7 +59,7 @@ In:
 5. **The doc comment of `Running` in `apps/desktop/src/shared/protocol.ts` says that it holds the headless sessions that work or wait for the machine.**
 6. **The delete dialog keeps its loss lists in place at a redraw that does not change its loss.** The lists are drawn again only where the loss differs from the one they were drawn from, compared by identity. A list then keeps its scroll position and its rows, so the tooltip under the pointer stays.
 7. **The removal dialog keeps its work items' loss lists in place at a redraw that changes nothing they are drawn from.** They are drawn from the choice to delete, and for each work item its id, its title and its loss.
-8. **The session sections of each session dialog, and the removal dialog's list of work items, stay in place at a redraw that changes none of their lines.** The session sections are drawn by the one function item 1 adds, and the list of work items, which is no session section, by `namedLines`; the comparison of item 6 keeps each.
+8. **The session sections of each session dialog, and the removal dialog's list of work items, stay in place at a redraw that changes none of their lines.** The session sections are drawn by the one function item 1 adds, and the rows of the list of work items, which is no session section, by `namedRows`, the body of `namedLines`; the comparison of item 6 keeps each.
 9. **The row "The delete dialog" of *Components and their states* states items 1, 6 and 8, in `docs/design.md` and `docs/design.ko.md`, edited in place.** The English sentences are under *Data & interfaces*.
 10. **The screenshot run's delete view waits for both session sections, and the pull request carries the delete dialog's screenshots again.** The view's wait reads the head and the lines of each section. `OWLERY_SCREENSHOT_THEMES=all pnpm --filter @owlery/desktop run screenshots` writes `<theme>-<appearance>-delete.png` for every theme and appearance, and those six files are committed under this work item's `screenshots/` directory.
 
@@ -125,15 +125,16 @@ const drawnFrom = new WeakMap<HTMLElement, readonly unknown[]>();
 
 function drawWhereChanged(part: HTMLElement, from: readonly unknown[], build: () => Node[]): void {
   const last = drawnFrom.get(part);
-  if (last !== undefined && last.length === from.length && last.every((value, at) => Object.is(value, from[at]))) return;
+  if (last !== undefined && sameValues(last, from)) return;
   part.replaceChildren(...build());
   drawnFrom.set(part, from);
 }
 ```
 
+- The comparison is `sameValues` in `apps/desktop/src/renderer/view.ts`: the same length, and each value `Object.is` the one at its place. It stands in `view.ts` so unit cases pin it.
 - `#delete-loss` is drawn from `[deleteLoss]`.
-- `#remove-losses` is drawn from the choice to delete and, for each work item the removal names, its id, its title and its loss or `undefined`.
-- A session dialog's sections are drawn from their heads and lines, and `#remove-work-items` from its lines.
+- `#remove-losses` is drawn from the choice to delete, held as an empty list where it is not taken, and, for each work item the removal names, its id, its title and its loss or `null` where none is read.
+- A session dialog's sections are drawn from each head, its count of lines and its lines, and the `ul` of `#remove-work-items` from its lines, by `namedRows`.
 - `build` reads only the values `from` holds, so a value the drawing reads cannot be left out of the comparison unseen.
 
 `apps/desktop/src/renderer/index.html`: each session dialog's `<section>` with the head "Running sessions that end" and its empty `ul.named` gives way to an empty container that keeps the section's id (`sessions-list`, `daemon-sessions`, `delete-sessions`, `remove-sessions`). The cases that read `#<id> li` then read the lines of both sections. The sections keep the `h3.caption` head and the `ul.named` list, so no style changes.
@@ -181,7 +182,7 @@ The sentences the row "The delete dialog" gains in `docs/design.md`, before its 
 |---|---|---|
 | The head "Running sessions that end" written once in each session dialog's markup, with its `<section>` and empty `ul.named` | `apps/desktop/src/renderer/index.html`, lines 1014-1017, 1029-1032, 1045-1048 and 1066-1069 | `sessionSections` in `view.ts` holds each head once, and the renderer draws the sections into a container that keeps the section's id. |
 | A waiting session among the running lines | `apps/desktop/src/renderer/view.ts#headlessRuns`, `#runningIn`, `#archivalOf`, `#removalOf`, `#runningSessions` | The `queued` lines of `SessionsNamed`. `headlessRuns` goes where `runningIn` is its only reader, and stays where the builder finds another. |
-| The copies of the code that builds a `li` holding a `span` for each line | `apps/desktop/src/renderer/renderer.ts#showRemove` (the local `list`), `#showArchive` | The one function that draws a session dialog's sections, for the session lists. The removal dialog's list of work items is no session section and is drawn by `namedLines`, which also stays for `records-holds` (`renderer.ts:1320`). |
+| The copies of the code that builds a `li` holding a `span` for each line | `apps/desktop/src/renderer/renderer.ts#showRemove` (the local `list`), `#showArchive` | The one function that draws a session dialog's sections, for the session lists. The removal dialog's list of work items is no session section: the markup's `ul` stays and its rows are drawn by `namedRows`, the body of `namedLines`, which stays for `records-holds` (`renderer.ts:1320`). |
 | The rebuild of the loss lists at every draw | `apps/desktop/src/renderer/renderer.ts#showDelete` (line 1244), `#showRemove` (lines 1157-1168) | The draw through `drawWhereChanged`. |
 | The words "the headless sessions that are working" | `apps/desktop/src/shared/protocol.ts#Running`, its doc comment | Rewritten in place, as *Scope* item 5 says. |
 | The case pins of a waiting session among the running lines | `apps/desktop/test/view.test.ts`, the `archivalOf` and `removalOf` lines at `:821-822` and the `runningSessions` line at `:880`, and each `sessions:` expectation of those `describe` blocks | Rewritten to the kinds apart, each shown red against `ea8126b5`'s `view.ts` (contract rule 15). |
