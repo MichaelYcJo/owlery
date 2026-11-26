@@ -1241,8 +1241,8 @@ export function takeAnswers(requestId: number, refusal: string | null): boolean 
 
 /**
  * Closes panes of one work item, `sessions` in the tabs' order, as a press of
- * a tab's "×", ⌘W, "Close Pane" of a pane's menu and each item of a tab's
- * menu ask. The daemon ends each process and takes its session off its
+ * a tab's "×", ⌘W, "Close Pane" of a pane's menu and each close item of a
+ * tab's menu ask. The daemon ends each process and takes its session off its
  * lists, and each tab goes at the `inbox` that follows. Where the session of
  * any of them is working (./view, `closeAsks`), none is closed here: one
  * dialog names each working pane by its tab's label and says how many panes

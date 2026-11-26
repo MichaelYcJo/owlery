@@ -2793,7 +2793,7 @@ export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): 
  * field, null or a name: a daemon of an earlier build sends none, keeps no
  * name and no colour, and would answer no request to set one. An item that
  * would close nothing is left out, since the form of a menu draws no item
- * disabled. Each item closes its panes through one close, which asks once
+ * disabled. Each close item closes its panes through one close, which asks once
  * where any of them is working (./work-item-view, `closePanes`).
  */
 export function tabMenu(session: SessionInfo, tabs: readonly SessionInfo[]): MenuEntry[] {
