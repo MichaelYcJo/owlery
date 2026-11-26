@@ -21,7 +21,8 @@ this repository are:
   the emblem drawn for 32 pixels and under: the same owl without its chest
   marks and its two side lines, with heavier eyes.
 - [`apps/desktop/assets/icon/app-icon.png`](apps/desktop/assets/icon/app-icon.png),
-  the emblem at 1024 pixels, which the app gives the macOS Dock. It is drawn
+  the emblem at 1024 pixels, which an app started from a checkout gives the
+  macOS Dock. It is drawn
   from `app-icon.svg` with librsvg 2.58.4, by this command run in
   `apps/desktop`:
 
