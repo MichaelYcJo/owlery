@@ -66,6 +66,11 @@ The add-on counts again only where the term or a choice changed, or 200 ms after
 
 The search is a sample under contract rule 19: a statement in other words escapes it. The snippet stops at the steps. Between two steps, a pane that keeps printing still shows the count of the last step or search, and *Not judged* holds that for the owner.
 
+```seal
+verdict: fixed 1dc76ea1
+answer: The reopen holds. `find` in `work-item-view.ts` now drops the term and searches again after every step under the limit, with the condition and comment the record's snippet gives, so a step onto a counted match also counts and marks the matches printed since, and a step from "No match" onto a match printed since is counted too. The case is renamed as the record gives it and gains the step that prints "owlprinted four" and presses Enter. That step failed against the round 1 condition before the fix (executed, exit 1, at `terminal-basics.test.ts:1625`, "the window never showed the next older match, counted with the match printed since"; the count it read was not printed, and the round's probe read "2 of 3"). After the fix `-t 'scenario A'` passed 6 (executed, exit 0). `seal mutate` putting round 1's condition back was red at the same line (executed, exit 0). On the timing note: both checks of the count before a step are gone, the "1 of 2" the round named and the "1 of 3" the record's step had. Each step now reads a count that is right whether or not the add-on counted again on its own during a stall of the printing, because `find` counts after the step either way, so no assertion rests on the gaps between the pane's lines. The 1 s waits stay, since a step must come after the lines are drawn, and the 50 ms printing stays, so that in the usual run the step meets the add-on's stale list. A stall can only make the case pass without meeting that list, never fail it. Phase 2's Decision 1 takes the record's sentence. `findCount`'s docstring stays true, as the record says. The finding's `git grep` for "printed since", "counts again" and "count again" over the work item's records, `apps/desktop/src`, `apps/desktop/test` and `docs`, run after `0ac63c38` (executed), prints only the new comment, `view.ts:2053`, the case's lines, `phase-2.md:16`, the plan's unrelated row on a search written here, and unrelated lines of other modules. It is a sample, and no frame statement needs a fold.
+```
+
 ### 2. `gaps.md` drops the *Not verified* row on `screenTurns` instead of marking it closed
 
 ```seal
@@ -88,6 +93,11 @@ The fix: put the row back where it stood, marked closed, with what closed it.
 ```
 
 The answer of round 1's finding 3, in `round-1.md`, is that round's record and stays as it is.
+
+```seal
+verdict: fixed 0ac63c38
+answer: The row stands again where it stood, between the Q2 and Q3 rows of `gaps.md` *Not verified*, with its Item cell opening with `closed` and its second cell citing round 1's *Confirmations* and the two coordinates, as the record's row gives it. The read of the range, for the pass as a whole: after `0ac63c38` the pass read every hunk of `git diff 19879dbc..HEAD` over `apps/desktop/src`, and `gaps.md` *Not verified* (read). `changelog.md` was not printed after the last commit and is held, not read: no fix changes what it states. The narrow set at `0ac63c38`, one command through the machine's runner of heavy commands, passed: the typecheck (exit 0), `view.test.ts` with `themes.test.ts`, 586 cases (exit 0), and `terminal-basics.test.ts`, 35 cases (exit 0). The broad gate stays `unverified`, for the orchestrator.
+```
 
 ## Confirmations
 
