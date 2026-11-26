@@ -16,6 +16,8 @@
 
 **The pass runs no git, so a new head is seen where the records were read.** *Scope* item 8 makes the next try due at once where the record's text or the branch's head changes. The pass reads the record's file each turn and compares the branch's head that `readBranch` last read. `readBranch` runs only while a client is connected. With no window open, a commit made on the branch by hand makes a failed word due only at its next wait's end, or at the next change of the record. Judged against `frame/plan.md` *Alternatives considered*, the row of the timer, which says a turn runs no git.
 
+**A try asks git whatever the reading before it gave, and a turn of the pass tries no word a session holds.** *Scope* item 6 says the daemon asks git for the committed text only where the record's text or the branch's head changed since it last asked. That holds at the read of the records. A try reads what is owed afresh before its commit and after it (`Daemon#commitOwed`), since the commit it makes, or one made by hand, changes the head without the daemon reading it. *Scope* item 8 says a word that waits for a session is tried at each turn. A turn finds the session at work in memory and tries nothing. The first turn that finds it ended tries the word, which keeps the item's bound of one turn after the session's end. Judged against *Scope* items 6 and 8 and `frame/plan.md` *Alternatives considered*, the row of the timer.
+
 **Decisions settled while writing the code.**
 
 - A word just written has a try of its own after a try already under way (`tryWord(held, true)`), so a word written during a commit is committed after it, as the case of the commits one after another pins. A try that is queued and has not begun stands for any later one.
@@ -67,6 +69,7 @@ The break of `holdsWords`'s answers survived the group: each record of the group
 - The second run, at `8e53dd8a`, passed every case of the nine files (`executed`, exit 0, 744 cases).
 - The built-app file `test/decisions-and-questions.test.ts` then ran alone with `OWLERY_BACKGROUND=1` at `8e53dd8a`, and both its cases passed (`executed`, exit 0).
 - `tsc --noEmit` passed at `8e53dd8a` (`executed`, exit 0).
+- `c61068dd`, the phase's last commit of code, changes the docstring of `Daemon#commitOwed` alone. The read of the range found that it counted a commit the close ended among the failures. `tsc --noEmit` passed there (`executed`, exit 0), and the cases did not run again.
 
 Three files that read a changed path did not run. `test/role-session.test.ts` imports `daemon.ts` but runs only under `OWLERY_ROLE_RUN`, which starts a real `claude`. `test/screenshots.test.ts` imports `decision-record.ts` and runs only under `OWLERY_SCREENSHOTS`; it belongs to phase 4. The other files that import `protocol.ts` read no `wordOwed`, and the field is optional, so `tsc` is what reads them (`read`).
 
