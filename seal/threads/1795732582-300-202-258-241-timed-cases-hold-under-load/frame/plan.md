@@ -61,4 +61,5 @@ The spawn names no other open work item. `routing.md` names #132, #257 and #127 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-27 | The frame's patch of `node-pty@1.1.0` through pnpm `patchedDependencies` is built, in release 0.1.0, though it changes a product dependency and the routing named test cases. | The leak is the shipped daemon's as much as the suite's: every pane that ends keeps a pseudo-terminal open in the daemon, and macOS has 511 for the whole machine, so a daemon that runs for days stops opening panes. The patch is the smallest change that closes both descriptors the source leaves open, and a prerelease would ship in the first public build. | `frame/design.md` *Scope*; `frame/plan.md` *Alternatives considered*; `routing.md` *Why this way* |
+| 2026-11-27 | The crafter runs `daemon.test.ts` whole once in phase 1, through the machine's lock, for the count of `/dev/ptmx` the plan's verification asks; every other run of that file keeps `-t`. | The lock makes the run the only test run on the machine, and the count cannot be read from a filtered run. | `frame/plan.md` *Phases*, phase 1 |
