@@ -49,7 +49,7 @@ export const CHAIN_STAGES_KEPT = 50;
 /** How many characters of the reviewed commits' diff a round's prompt carries. A longer diff is cut there, and the prompt says so. */
 export const PROMPT_DIFF_CHARS = 200_000;
 
-/** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer, where the daemon's options name no other. It bounds the usage a chain spends with nobody watching. */
+/** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer, where the daemon's options, or the chain command's context in a pane, name no other. It bounds the usage a chain spends with nobody watching. */
 export const ROUNDS_CEILING = 6;
 
 /** For how many `undecided` verdicts of one guarantee the daemon asks the orchestrator for a ruling, where the daemon's options name no other number. The question of each later one parks the work item with no ruling asked. It bounds the gates and the sessions a sealer that keeps asking spends with nobody watching. */
@@ -440,8 +440,9 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  * - A fix pass on that record already finished: nothing. The gate was passed
  *   before that pass.
  * - The round is the ceiling or a later one: the chain stops and asks no
- *   judgment, but at the first step of a start a person's word made,
- *   whose start is the answer.
+ *   judgment, but at the first step of a run a person's word made, which
+ *   is the answer: the daemon's start by the person, or a call of the chain
+ *   command whose `--persons-word` names the round (`chain-command.ts`).
  * - The round is round 1: nothing. No record yet shows whether a fix held.
  * - This run asked the orchestrator after that round and was answered yes:
  *   nothing.
@@ -449,6 +450,10 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  *   chain's last stored stage is a judgment after that round that finished:
  *   nothing. The person read its answer and started the chain again.
  * - Otherwise the orchestrator's judgment.
+ *
+ * The chain command passes no stored stage, since it stores none, and a run
+ * whose `judged` is true, since a pane's session makes the judgment itself,
+ * so it is answered the ceiling or nothing.
  *
  * A ruling on a stage's questions is a stage of its own kind, so a chain
  * that stopped between such a ruling and the judgment of convergence it
