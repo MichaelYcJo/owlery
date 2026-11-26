@@ -51,8 +51,8 @@ export const REFUSAL_RULES = ["no-write", "outside-worktree", "no-command", "oth
 /** One of `REFUSAL_RULES`. */
 export type RefusalRule = (typeof REFUSAL_RULES)[number];
 
-/** What the daemon answers a request with: an allowance, a refusal with the reason the agent is told and the name of the rule that refused, or the person. */
-export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string; rule: RefusalRule } | { answer: "person" };
+/** What the daemon answers a request with: an allowance, or a refusal with the reason the agent is told and the name of the rule that refused. */
+export type Verdict = { answer: "allow" } | { answer: "refuse"; reason: string; rule: RefusalRule };
 
 /**
  * Where a path really is: the links on the part of it that exists followed,
@@ -124,17 +124,15 @@ function insideWorktree(path: string, worktree: string): boolean {
 }
 
 /**
- * The daemon's rule: the answer to a request of a session launched as `role`,
- * or with none, that works in `worktree`. A session with no role is a
- * person's own, and the person answers each of its requests. A role
- * session's request is answered by its grant and never reaches the person:
- * a write inside the place the grant names is allowed, a command is allowed
- * where the grant runs commands, and every other call is refused, with the
- * name of the rule that refused it. The rule reads no command's text: it
+ * The daemon's rule: the answer to a request of a session launched as `role`
+ * that works in `worktree`. The daemon starts no session without a role, so
+ * every request is answered by a grant and none reaches the person: a write
+ * inside the place the grant names is allowed, a command is allowed where
+ * the grant runs commands, and every other call is refused, with the name
+ * of the rule that refused it. The rule reads no command's text: it
  * answers a command by the role alone.
  */
-export function verdictOn(role: RoleStage | null, request: { action: PermissionAction; path: string | null }, worktree: string): Verdict {
-  if (role === null) return { answer: "person" };
+export function verdictOn(role: RoleStage, request: { action: PermissionAction; path: string | null }, worktree: string): Verdict {
   const grant = grantOf(role);
   const refuse = (rule: RefusalRule, what: string, needed: string): Verdict => ({ answer: "refuse", reason: `${what} Do not work around it: say in your report which step needed ${needed}.`, rule });
   if (request.action === "write") {

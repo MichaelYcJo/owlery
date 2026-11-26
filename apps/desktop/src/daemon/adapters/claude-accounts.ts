@@ -99,19 +99,27 @@ export function authArgs(command: "login" | "status" | "logout"): string[] {
  * Reads what `claude auth status` did: it exits 0 where a login stands and 1
  * where none does, and prints JSON whose `loginExpiresAt` is the stored
  * login's latest expected end as a date, or null (Claude Code's CLI
- * reference). The end is null where the field is absent, null or no date.
- * Nothing where the command exited otherwise, which says nothing of a login.
+ * reference), and whose `email` is the login's email, which the CLI reads
+ * from `oauthAccount.emailAddress` of the folder's `.claude.json` (read in
+ * the executable of Claude Code 2.1.332; no real login has printed it to
+ * this code). The end is null where the field is absent, null or no date.
+ * The name is the email without the white space at its ends, and null where
+ * no login stands, or the email is absent, no string or empty. Nothing where
+ * the command exited otherwise, which says nothing of a login.
  */
 export function loginStatusOf(exitCode: number, printed: string): LoginStatus | undefined {
   if (exitCode !== 0 && exitCode !== 1) return undefined;
-  let ends: unknown;
+  let read: Record<string, unknown> | null | undefined;
   try {
-    ends = (JSON.parse(printed) as Record<string, unknown> | null)?.loginExpiresAt;
+    read = JSON.parse(printed) as Record<string, unknown> | null;
   } catch {
-    ends = undefined;
+    read = undefined;
   }
+  const ends = read?.loginExpiresAt;
   const at = typeof ends === "string" ? Date.parse(ends) : Number.NaN;
-  return { signedIn: exitCode === 0, loginEndsAt: Number.isFinite(at) ? at : null };
+  const printedEmail = read?.email;
+  const email = exitCode === 0 && typeof printedEmail === "string" ? printedEmail.trim() : "";
+  return { signedIn: exitCode === 0, loginEndsAt: Number.isFinite(at) ? at : null, name: email === "" ? null : email };
 }
 
 /** How one run of a command ended: its exit code, or null where it did not start, was killed or ran past its time, and what it printed on each stream. */

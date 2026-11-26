@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AskedQuestion, Changes, CommitInfo, Decision, FileChange, Look, PermissionAsk, Question, Seal, SessionInfo, Unread, WorkItem } from "../shared/protocol";
+import type { AskedQuestion, Changes, CommitInfo, Decision, FileChange, Look, Question, Seal, SessionInfo, Unread, WorkItem } from "../shared/protocol";
 import { chainOf, isChain } from "./chain";
 import { isPullRequest, pullRequestOf } from "./github";
 import { writeWholeFile } from "./whole-file";
@@ -50,18 +50,6 @@ function isChanges(value: unknown): value is Changes {
   return isRecord(value) && typeof value.files === "number" && typeof value.added === "number" && typeof value.removed === "number" && Array.isArray(value.list) && value.list.every(isFileChange);
 }
 
-function isPermissionAsk(value: unknown): value is PermissionAsk {
-  return (
-    isRecord(value) &&
-    typeof value.id === "number" &&
-    typeof value.headlessId === "number" &&
-    typeof value.tool === "string" &&
-    (value.action === "read" || value.action === "write" || value.action === "run" || value.action === "other") &&
-    typeof value.text === "string" &&
-    typeof value.at === "number"
-  );
-}
-
 function isDecision(value: unknown): value is Decision {
   return (
     isRecord(value) &&
@@ -104,8 +92,8 @@ function isSeal(value: unknown): value is Seal {
   return isRecord(value) && (value.state === "sealed" || value.state === "broken") && typeof value.commit === "string" && isTextOrNull(value.why);
 }
 
-/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, `permissions`, which came with the permission requests, `behindBase`, which came with the count behind the base, `chain`, which came with the chain, `pullRequest`, which came with the pull request stage, and `seal`, which came with the seal reading the look keeps. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
-type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "permissions" | "behindBase" | "chain" | "pullRequest" | "seal";
+/** The fields of a work item that came after the first look was written: the ones that came with the repositories, `setup`, which came with the worktree's setup, and `decisions`, `questions` and `unread`, which came with the work item's record, `behindBase`, which came with the count behind the base, `chain`, which came with the chain, `pullRequest`, which came with the pull request stage, and `seal`, which came with the seal reading the look keeps. A look written by a build before one of them does not hold it, and each is read as `lookOf` reads an absent one. */
+type CameLater = "repoId" | "pinned" | "muted" | "groupId" | "archivedAt" | "setup" | "decisions" | "questions" | "unread" | "behindBase" | "chain" | "pullRequest" | "seal";
 /** A work item as a look's file holds one: every field of the protocol's, the ones that came later absent or of the protocol's type. */
 type WrittenWorkItem = Omit<WorkItem, CameLater> & Partial<Pick<WorkItem, CameLater>>;
 
@@ -137,7 +125,6 @@ function isWorkItem(value: unknown): value is WrittenWorkItem {
     (item.decisions === undefined || (Array.isArray(item.decisions) && item.decisions.every(isDecision))) &&
     (item.questions === undefined || (Array.isArray(item.questions) && item.questions.every(isQuestion))) &&
     (item.unread === undefined || (Array.isArray(item.unread) && item.unread.every(isUnread))) &&
-    (item.permissions === undefined || (Array.isArray(item.permissions) && item.permissions.every(isPermissionAsk))) &&
     (item.chain === undefined || item.chain === null || isChain(item.chain)) &&
     (item.pullRequest === undefined || item.pullRequest === null || isPullRequest(item.pullRequest)) &&
     (item.seal === undefined || item.seal === null || isSeal(item.seal))
@@ -179,7 +166,7 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       stateTool,
       stateQuestions: stateQuestions ? stateQuestions.map(({ asks, options, multiple }) => ({ asks, options: options.map(({ label, implies }) => ({ label, implies })), multiple })) : null,
     })),
-    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, behindBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, permissions, chain, pullRequest, seal }) => ({
+    workItems: workItems.map(({ id, title, repoId, repo, repoName, branch, worktree, createdAt, baseCommit, baseBranch, aheadOfBase, behindBase, newCommits, commits, changes, pinned, muted, groupId, archivedAt, setup, decisions, questions, unread, chain, pullRequest, seal }) => ({
       id,
       title,
       repoId: repoId ?? 0,
@@ -203,7 +190,6 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
       decisions: (decisions ?? []).map(({ id, kind, says, grounds, by, state, reversal, landed, since }) => ({ id, kind, says, grounds, by, state, reversal, landed, since })),
       questions: (questions ?? []).map(({ id, asks, grounds, by, options, default: taken, answer, since }) => ({ id, asks, grounds, by, options: options.map(({ label, implies }) => ({ label, implies })), default: taken, answer, since })),
       unread: (unread ?? []).map(({ line, why }) => ({ line, why })),
-      permissions: (permissions ?? []).map(({ id, headlessId, tool, action, text, at }) => ({ id, headlessId, tool, action, text, at })),
       chain: chain ? chainOf(chain) : null,
       pullRequest: pullRequest ? pullRequestOf(pullRequest) : null,
       ...(seal === undefined ? {} : { seal: seal && { state: seal.state, commit: seal.commit, why: seal.why } }),
@@ -220,9 +206,11 @@ function lookOf(at: number, sessions: readonly WrittenSession[], workItems: read
  * whose entries lack a field of the protocol's, as one a build before that
  * field wrote, is no look, but for the fields of a work item that came with
  * the repositories, for its setup, for its `decisions`, its `questions` and
- * its `unread`, and for its `permissions`, and for a session's
- * `stateQuestions`: a look without one of them is read with it at its empty value.
- * A work item without a `seal` is read without it.
+ * its `unread`, and for a session's `stateQuestions`: a look without one
+ * of them is read with it at its empty value. A work item without a `seal`
+ * is read without it. A field a work item no longer carries, such as the
+ * `permissions` a daemon before release 0.0.5 wrote, is not read, and the
+ * look is read without it.
  * Given no run directory, the look is kept in memory alone.
  */
 export class LastLook {
