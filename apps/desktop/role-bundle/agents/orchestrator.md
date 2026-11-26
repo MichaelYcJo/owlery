@@ -115,8 +115,8 @@ raised again, holds for every finding, wherever it is located. A finding in the 
 text of the records, and the fix pass that closes it reads the work item's
 records whole and corrects the fact at every place that states it
 (`skills/implement/fix-pass.md` *The narrow set, then the read of the
-range*). Where the daemon runs the chain, its ceiling of rounds bounds such
-findings as well.
+range*). The owl chain's ceiling of rounds bounds such findings as well,
+where the daemon runs the chain and in a pane.
 
 Where none holds, the answer is `yes`. A new finding in the last fix's diff
 is what a verifying round is for, and by itself it is no signal. Your

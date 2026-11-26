@@ -452,6 +452,28 @@ export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
 }
 
+/**
+ * What the preview and a work item's view say, above the decisions, of a
+ * word of the person's, a reversal or an answer, that the work item's
+ * record holds and no commit holds yet (`WorkItem.wordOwed`), and whether
+ * it is a failure. While the word waits for a session: why, and that
+ * Owlery commits it once that has ended. Where its commit failed: git's
+ * reason, and that Owlery tries again. Null where nothing is owed, and for
+ * a daemon of an earlier build, which sends no such field.
+ */
+export function wordOwedSays(workItem: WorkItem): { text: string; failed: boolean } | null {
+  const owed = workItem.wordOwed ?? null;
+  if (owed === null) return null;
+  return owed.waits === "retry"
+    ? { text: `The record holds a word of yours that was not committed: ${owed.why}. Owlery tries again.`, failed: true }
+    : { text: `The record holds a word of yours that no commit holds yet: ${owed.why}. Owlery commits it once that has ended.`, failed: false };
+}
+
+/** The words a work item's line carries after the count of its decisions where the commit of a word of the person's failed, and nothing otherwise: a word that waits for a working session is the usual case and marks no line. */
+export function wordOwedMark(workItem: WorkItem): string {
+  return workItem.wordOwed?.waits === "retry" ? "word not committed" : "";
+}
+
 /** The heading of the approval line's section in the preview and in a view's right column. */
 export const APPROVAL_HEAD = "Approval line";
 
@@ -979,19 +1001,46 @@ export function hiddenRepositories(repositories: readonly Repository[]): { says:
   return { says: hidden.length === 0 ? "" : hidden.length === 1 ? "1 hidden repository" : `${hidden.length} hidden repositories`, hidden };
 }
 
-/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the running sessions, each by a line of words and, in `running`, by its id. */
+/** The sessions a dialog names before an act that ends them: the lines of those that run, which end, and the lines of those that wait for the machine, which leave the queue. */
+export interface SessionsNamed {
+  running: string[];
+  queued: string[];
+}
+
+/** One section of a session dialog: its head and its lines. */
+export interface SessionSection {
+  caption: string;
+  lines: string[];
+}
+
+/** The sections a session dialog draws, the running sessions first, and none for a kind that holds no line. Each head stands here and nowhere else. */
+export function sessionSections(named: SessionsNamed): SessionSection[] {
+  return [
+    { caption: "Running sessions that end", lines: named.running },
+    { caption: "Sessions waiting for the machine that leave the queue", lines: named.queued },
+  ].filter(({ lines }) => lines.length > 0);
+}
+
+/** Whether two lists hold the same values in the same places, each pair compared by `Object.is`: a dialog's part drawn from one of them is drawn from the other too, so it needs no drawing anew. A list that holds the other and more is not the same. */
+export function sameValues(last: readonly unknown[], next: readonly unknown[]): boolean {
+  return last.length === next.length && last.every((value, at) => Object.is(value, next[at]));
+}
+
+/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the sessions that run or wait for the machine, each by a line of words and, in `running`, by its id. */
 export interface Removal {
   workItems: { id: number; title: string; archived: boolean }[];
-  sessions: string[];
+  sessions: SessionsNamed;
   running: Running;
 }
 
 /**
  * What removing a repository takes with it: every work item the repository
- * holds, the archived after the others, and every running session of one of
- * them. A pane runs while its process is alive, and is named by its tab's
- * label and its work item. A headless session runs while it is working, and
- * is named by its prompt. `running` is what the removal sends the daemon, so
+ * holds, the archived after the others, and every session of one of them
+ * that runs or waits for the machine. A pane runs while its process is
+ * alive, and is named by its tab's label and its work item. A headless
+ * session runs while it is working and waits while it is queued, and is
+ * named by its work item and its prompt among the sessions of its kind.
+ * `running` is what the removal sends the daemon, the ids of both kinds, so
  * the daemon ends the sessions the person was told of and no other.
  */
 export function removalOf(repository: Repository, workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): Removal {
@@ -999,10 +1048,11 @@ export function removalOf(repository: Repository, workItems: readonly WorkItem[]
   const running = held.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
   const panes = running.flatMap(({ workItem, panes }) => panes.map(({ id, label }) => ({ id, says: `${label} in ${workItem.title}` })));
   const asked = running.flatMap(({ workItem, asked }) => asked.map(({ id, prompt }) => ({ id, says: `Asked in ${workItem.title}: ${prompt}` })));
+  const queued = running.flatMap(({ workItem, queued }) => queued.map(({ id, prompt }) => ({ id, says: `Asked in ${workItem.title}: ${prompt}` })));
   return {
     workItems: held.map((workItem) => ({ id: workItem.id, title: workItem.title, archived: workItem.archivedAt !== null })),
-    sessions: [...panes, ...asked].map(({ says }) => says),
-    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+    sessions: { running: [...panes, ...asked].map(({ says }) => says), queued: queued.map(({ says }) => says) },
+    running: { panes: panes.map(({ id }) => id), headless: [...asked, ...queued].map(({ id }) => id) },
   };
 }
 
@@ -1011,27 +1061,31 @@ function headlessRuns(session: HeadlessInfo): boolean {
   return session.state === "working" || session.state === "queued";
 }
 
-/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working or wait for the machine, each with its prompt. */
-function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
+/** The sessions of one work item that run or wait: its panes whose process is alive, each with its tab's label, its headless sessions that are working, and apart from them those that wait for the machine, each with its prompt. */
+function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[]; queued: { id: number; prompt: string }[] } {
   const tabs = paneTabs(workItem, sessions);
+  const inState = (state: HeadlessInfo["state"]): { id: number; prompt: string }[] => headless.filter((session) => session.workItemId === workItem.id && session.state === state).map(({ id, prompt }) => ({ id, prompt }));
   return {
     panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds, workItem.setup?.paneId ?? null) })),
-    asked: headless.filter((session) => session.workItemId === workItem.id && headlessRuns(session)).map(({ id, prompt }) => ({ id, prompt })),
+    asked: inState("working"),
+    queued: inState("queued"),
   };
 }
 
 /**
- * What archiving a work item ends: each of its running sessions, as the
- * dialog before the archive names it, a pane by its tab's label and a
- * headless session by its prompt. `running` is what the archive sends the
- * daemon, so the daemon ends the sessions the person was told of and no
- * other. Where it names none, the archive asks nothing first.
+ * What archiving a work item ends: each of its running sessions, and apart
+ * from them each of its sessions that wait for the machine, as the dialog
+ * before the archive names them, a pane by its tab's label and a headless
+ * session by its prompt. `running` is what the archive sends the daemon,
+ * the ids of both kinds, so the daemon ends the sessions the person was
+ * told of and no other. Where it names none, the archive asks nothing
+ * first.
  */
-export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: string[]; running: Running } {
-  const { panes, asked } = runningIn(workItem, sessions, headless, paneKinds);
+export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: SessionsNamed; running: Running } {
+  const { panes, asked, queued } = runningIn(workItem, sessions, headless, paneKinds);
   return {
-    sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
-    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+    sessions: { running: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)], queued: queued.map(({ prompt }) => `Asked: ${prompt}`) },
+    running: { panes: panes.map(({ id }) => id), headless: [...asked, ...queued].map(({ id }) => id) },
   };
 }
 
@@ -1052,24 +1106,30 @@ export function daemonEnding(chosen: DaemonEnd): { head: string; says: string; b
 }
 
 /**
- * Every running session the window holds, as the dialog that asks before
- * the daemon ends names it: each live pane, then each headless session that
- * works or waits for the machine. A session of a work item the window lists, archived or not,
- * reads as a repository's removal names it (`removalOf`). A live pane of no
- * listed work item reads as its kind's label alone, after the others, and a
- * headless session of none that works or waits by its prompt alone. The daemon's end
- * carries no list: it ends what runs at that moment.
+ * Every session the window holds that runs or waits for the machine, as the
+ * dialog that asks before the daemon ends names it: each live pane, then
+ * each headless session that works, and apart from them each headless
+ * session that waits. A session of a work item the window lists, archived
+ * or not, reads as a repository's removal names it (`removalOf`). A live
+ * pane of no listed work item reads as its kind's label alone, after the
+ * others, and a headless session of none by its prompt alone, after those
+ * of its kind. The daemon's end carries no list: it ends what runs at that
+ * moment.
  */
-export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): string[] {
+export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): SessionsNamed {
   const listed = [...workItems, ...archived];
   const running = listed.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
   const known = new Set(listed.map((workItem) => workItem.id));
-  return [
-    ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
-    ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
-    ...running.flatMap(({ workItem, asked }) => asked.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)),
-    ...headless.filter((session) => headlessRuns(session) && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`),
-  ];
+  const unlisted = (state: HeadlessInfo["state"]): string[] => headless.filter((session) => session.state === state && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`);
+  return {
+    running: [
+      ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
+      ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
+      ...running.flatMap(({ workItem, asked }) => asked.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)),
+      ...unlisted("working"),
+    ],
+    queued: [...running.flatMap(({ workItem, queued }) => queued.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)), ...unlisted("queued")],
+  };
 }
 
 /** One entry of a loss list: a commit by its short hash and its subject, or a path, the branch's name among them. */

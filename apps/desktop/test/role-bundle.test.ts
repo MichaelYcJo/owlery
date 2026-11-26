@@ -101,7 +101,7 @@ describe("the role bundle", () => {
     const skill = read("skills/seal/SKILL.md");
     expect(frontmatterOf(skill)).toContain("name: seal\n");
     // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options. `ask` is the hook's, and `run` is reached through the launcher OWLERY_RUN names, which no step of the chain runs.
-    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
+    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "--persons-word <round>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
     expect(flat("skills/seal/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
     // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
     for (const said of [
@@ -160,6 +160,20 @@ describe("the role bundle", () => {
     for (const file of ["README.md", "skills/seal/SKILL.md", "agents/orchestrator.md", "agents/sealer.md"]) expect(read(file), file).toContain("the owl chain");
   });
 
+  it("tells a pane's session what the step `ceiling` means: it tells the person and runs nothing more of the chain, the person's word in this run after that stop is the one ground for `--persons-word`, a fix pass handed on that word follows no judgment, and the stop is no question under `Automation` `yes` (issue #246)", () => {
+    const flat = read("skills/seal/SKILL.md").replace(/\s+/gu, " ");
+    for (const said of [
+      "| `ceiling` | Round `round` left open the findings `open` lists, and the chain stops for the person from round `ceiling` on, with no judgment.",
+      "Tell the person the round, its open findings and what the rounds kept finding, and run nothing more of the chain.",
+      "Once the person has said in this run, after that stop, to go on, run `owed --persons-word <round>` with the round the step named, and pass the same option to `fix-pass` for that pass.",
+      "Pass the option on no other ground.",
+      "Before a fix pass on the record of round 2 or a later round below the ceiling of rounds, judge whether the review rounds are converging",
+      "A fix pass that `owed` handed on the person's word follows no judgment, since the person's word is the answer.",
+      "**The step `ceiling` is no question, and takes no default.** Under `Automation` `yes` the run stops there as well, and waits for the person's word.",
+    ])
+      expect(flat, said).toContain(said);
+  });
+
   it("binds whoever makes a fix pass to the read of its range and the work item's records whole, a pane's session as well as the crafter, has a fix pass correct a fact at every place that states it, and has the close block name the search and the places it corrected", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
@@ -215,7 +229,7 @@ describe("the role bundle", () => {
       "Where the last round has no open finding located outside the records, the third signal does not hold.",
       "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
       "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
-      "Where the daemon runs the chain, its ceiling of rounds bounds such findings as well.",
+      "The owl chain's ceiling of rounds bounds such findings as well, where the daemon runs the chain and in a pane.",
       "A stop is the most expensive step of the chain, as `skills/core/SKILL.md` *Asking a person is the most expensive step* says: it costs the person's attention, and while nobody watches it costs the hours until somebody does.",
       "So a `no` argues for its stop by what it buys: the person's decision at the stop, which no fix pass makes, such as a reframe, a split of the work, dropping the work or a fix by hand, and the rounds that a chain which does not converge would spend before anything else stops it.",
       "The `grounds:` line of a `no` names the signal that holds and the findings that hold it.",

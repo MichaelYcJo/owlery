@@ -2,14 +2,17 @@
 // check beside it: what a repository's main checkout holds of them, what a
 // setup would write, and the setup itself, which is the one commit Owlery
 // makes in a repository at its connection (docs/architecture.md, "Records
-// are committed to the repository"). Git runs with execFile and arguments,
-// never through a shell.
+// are committed to the repository"). Git runs with arguments, never through
+// a shell: the setup's `git add` and `git commit` through
+// `worktrees.ts#commitRunner`, under its limit, and every other git with
+// execFile.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RecordsPlace, RecordsPlan } from "../shared/protocol";
 import { repositoryFileText } from "./repository-file";
+import { commitRunner } from "./worktrees";
 
 /** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
 export const MARKER = "# What AgenticSeal maintains in seal/";
@@ -483,8 +486,16 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * else is staged stays staged. Where a write or the commit fails, those
  * paths are unstaged, the files and the folders this call created are
  * removed, and the error holds git's words, a hook's output among them.
+ *
+ * The `git add` and the `git commit` run together under `limitMs`,
+ * `COMMIT_LIMIT_MS` where none is given, as `worktrees.ts#commitRunner`
+ * states. The one under way at the limit is ended, and the setup fails as
+ * above with the sentence that it did not end in the limit and was ended. A
+ * `git commit` ended after it made the commit, in a hook that runs after it
+ * such as `post-commit`, leaves the index holding each path as the commit
+ * does, and the setup stands as after a commit that ended by itself.
  */
-export async function setUpRecords(folder: string, broadGate: string, version: string, stamp: string): Promise<void> {
+export async function setUpRecords(folder: string, broadGate: string, version: string, stamp: string, limitMs?: number): Promise<void> {
   const plan = await planRecords(folder, broadGate, version);
   if (plan.stamp !== stamp) throw new Error("The repository changed since the plan was read. Read the plan again.");
   if (plan.blocked !== null) throw new Error(plan.blocked);
@@ -509,10 +520,15 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
       madeFiles.push(path);
     }
     staged = true;
-    const added = await git(folder, ["add", "--", ...paths]);
-    if (added.code !== 0) throw new Error(added.stderr.trim() || "git add failed");
-    const committed = await git(folder, ["commit", "-m", plan.subject, "--", ...paths]);
-    if (committed.code !== 0) throw new Error(`${committed.stderr}${committed.stdout}`.trim() || "git commit failed");
+    const bounded = commitRunner({ limitMs });
+    const added = await bounded(folder, ["add", "--", ...paths]);
+    if (added.ended !== null) throw new Error(added.ended);
+    if (added.code !== 0) throw new Error(added.said || "git add failed");
+    const committed = await bounded(folder, ["commit", "-m", plan.subject, "--", ...paths]);
+    if (committed.ended !== null) {
+      // A commit ended in a hook that runs after it, such as `post-commit`, was made: the index then holds each path as the commit does, and git exits 0.
+      if ((await git(folder, ["diff", "--cached", "--quiet", "--", ...paths])).code !== 0) throw new Error(committed.ended);
+    } else if (committed.code !== 0) throw new Error(committed.said || "git commit failed");
   } catch (error) {
     // A checkout with no commit has no state to reset a path to, so the paths leave the index by name.
     if (staged) await git(folder, (await git(folder, ["rev-parse", "--verify", "--quiet", "HEAD"])).code === 0 ? ["reset", "--quiet", "--", ...paths] : ["rm", "--cached", "--quiet", "--ignore-unmatch", "--", ...paths]).catch(() => undefined);
