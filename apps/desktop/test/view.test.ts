@@ -177,6 +177,7 @@ import {
   tabAccount,
   tabLabel,
   tabMenu,
+  tabSays,
   tellsSize,
   viewFacts,
   webTarget,
@@ -189,13 +190,14 @@ import {
   type HeldAccounts,
   type InboxLine,
   type MenuEntry,
+  type MenuRowItem,
   type SealSince,
   unanswered,
   unreadLines,
   wordOwedMark,
   wordOwedSays,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -275,6 +277,22 @@ describe("tabLabel", () => {
     const tabs = [session(3, { kind: "shell" }), session(4), session(5, { kind: "shell" })];
     expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, 3))).toEqual(["Setup", "Claude Code", "Shell"]);
     expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, null))).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
+  });
+
+  it("labels a pane with the name a person gave its tab, before Setup and before its kind, and numbers the other panes of its kind as though it had none", () => {
+    const tabs = [session(3, { kind: "shell", name: null }), session(4, { kind: "shell", name: "build" }), session(5, { kind: "shell" })];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS))).toEqual(["Shell 1", "build", "Shell 3"]);
+    const setup = [session(3, { kind: "shell", name: "deps" }), session(5, { kind: "shell" })];
+    expect(setup.map((tab) => tabLabel(tab, setup, KINDS, 3))).toEqual(["deps", "Shell"]);
+  });
+});
+
+describe("tabSays", () => {
+  it("names a tab with its colour's word after its label, as its tooltip and a screen reader say it, and by its label alone where it has no colour", () => {
+    expect(tabSays("Shell 2", "blue")).toBe("Shell 2, Blue");
+    expect(tabSays("build", "green")).toBe("build, Green");
+    expect(tabSays("Claude Code", "pink")).toBe("Claude Code, Pink");
+    expect(tabSays("Shell 2", null)).toBe("Shell 2");
   });
 });
 
@@ -538,8 +556,9 @@ const GROUPS = [
   { id: 7, name: "Later" },
   { id: 8, name: "Drafts" },
 ];
-/** A menu's entries without their descriptions, which a case of their own holds: an entry that opens a submenu with its items, read the same way. */
-const plain = (entries: readonly MenuEntry[]): { label: string; [field: string]: unknown }[] => entries.map(({ description: _says, ...entry }) => ("opens" in entry ? { ...entry, opens: plain(entry.opens) } : entry));
+/** A menu's entries without their descriptions, which a case of their own holds: an entry that opens a submenu with its items, and a row with its items, read the same way. */
+const plain = (entries: readonly (MenuEntry | MenuRowItem)[]): { label: string; [field: string]: unknown }[] =>
+  entries.map(({ description: _says, ...entry }) => ("opens" in entry ? { ...entry, opens: plain(entry.opens) } : "row" in entry ? { ...entry, row: plain(entry.row) } : entry));
 /** The "Open in" entry of a menu, as `plain` reads it, for a folder and the apps of `APPS`. */
 const openIn = (folder: string) => ({
   label: "Open in",
@@ -672,8 +691,38 @@ describe("repositoryMenu", () => {
 
 /** Three Shell panes of the work item 1, in the tabs' order. */
 const SHELL_TABS = [session(4, { kind: "shell" }), session(5, { kind: "shell" }), session(6, { kind: "shell" })];
+/** The same panes as a daemon that keeps a pane's name and colour sends them, none named and none coloured. */
+const MARKED_TABS = SHELL_TABS.map((tab) => ({ ...tab, name: null, colour: null }));
 
 describe("tabMenu", () => {
+  it('holds "Rename…" and the row of colours before the close items, with a rule above "Close Pane", where the daemon keeps a pane\'s name and colour, and the row checks the tab\'s colour, or No colour where it has none', () => {
+    const row = (checked: TabColour | null) => [
+      { label: "Green", action: { do: "colourPane", id: 5, colour: "green" }, colour: "green", checked: checked === "green" },
+      { label: "Blue", action: { do: "colourPane", id: 5, colour: "blue" }, colour: "blue", checked: checked === "blue" },
+      { label: "Pink", action: { do: "colourPane", id: 5, colour: "pink" }, colour: "pink", checked: checked === "pink" },
+      { label: "No colour", action: { do: "colourPane", id: 5, colour: null }, colour: null, checked: checked === null },
+    ];
+    expect(plain(tabMenu(MARKED_TABS[1]!, MARKED_TABS))).toEqual([
+      { label: "Rename…", action: { do: "renamePane", id: 5 }, divides: false },
+      { label: "Colour", row: row(null), divides: false },
+      { label: "Close Pane", action: { do: "closePanes", ids: [5] }, divides: true },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 6] }, divides: false },
+      { label: "Close Panes to the Right", action: { do: "closePanes", ids: [6] }, divides: false },
+    ]);
+    const blue = { ...MARKED_TABS[1]!, name: "build", colour: "blue" as const };
+    expect(plain(tabMenu(blue, [MARKED_TABS[0]!, blue, MARKED_TABS[2]!]))[1]).toEqual({ label: "Colour", row: row("blue"), divides: false });
+  });
+
+  it('holds no "Rename…" and no row of colours, and no rule, for a session with no name field, which a daemon of an earlier build sends', () => {
+    expect(plain(tabMenu(SHELL_TABS[1]!, SHELL_TABS)).map(({ label, divides }) => [label, divides])).toEqual([
+      ["Close Pane", false],
+      ["Close Other Panes", false],
+      ["Close Panes to the Right", false],
+    ]);
+    // A field that is there and null is a daemon that keeps the marks, and a field that is absent is not.
+    expect(tabMenu({ ...SHELL_TABS[1]!, name: null }, SHELL_TABS).map(({ label }) => label)).toEqual(["Rename…", "Colour", "Close Pane", "Close Other Panes", "Close Panes to the Right"]);
+  });
+
   it('holds, on a tab with tabs on both sides, "Close Pane", "Close Other Panes" and "Close Panes to the Right", each closing its panes in the tabs\' order', () => {
     expect(plain(tabMenu(SHELL_TABS[1]!, SHELL_TABS))).toEqual([
       { label: "Close Pane", action: { do: "closePanes", ids: [5] }, divides: false },
@@ -703,10 +752,10 @@ describe("tabMenu", () => {
 });
 
 describe("a description on hover", () => {
-  it("gives every entry of a work item's menu, of a repository's menu and of a pane's tab's menu, and every item of a submenu, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
-    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS), tabMenu(SHELL_TABS[1]!, SHELL_TABS)];
-    // Each submenu is read as a menu of its own, after the menus.
-    const submenus = menus.flatMap((menu) => menu.flatMap((entry) => ("opens" in entry ? [entry.opens] : [])));
+  it("gives every entry of a work item's menu, of a repository's menu and of a pane's tab's menu, and every item of a submenu and of a row, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
+    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS), tabMenu(SHELL_TABS[1]!, SHELL_TABS), tabMenu(MARKED_TABS[1]!, MARKED_TABS)];
+    // Each submenu, and each row, is read as a menu of its own, after the menus.
+    const submenus = menus.flatMap((menu) => menu.flatMap((entry): (readonly { label: string; description: string }[])[] => ("opens" in entry ? [entry.opens] : "row" in entry ? [entry.row] : [])));
     for (const menu of [...menus, ...submenus]) {
       for (const { label, description } of menu) {
         expect(description.trim(), label).not.toBe("");
@@ -717,8 +766,8 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10, 3]);
-    expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10, 3, 5]);
+    expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3, 4]);
   });
 });
 

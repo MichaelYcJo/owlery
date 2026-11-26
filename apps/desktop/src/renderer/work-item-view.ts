@@ -13,7 +13,7 @@ import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, PANE_NAME_CHARS, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
 import { editorOpener, openSettings } from "./app-settings";
 import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
@@ -78,6 +78,7 @@ import {
   stateWithAge,
   tabLabel,
   tabMenu,
+  tabSays,
   tellsSize,
   viewFacts,
   webTarget,
@@ -196,6 +197,12 @@ const paneAccountError = byId("pane-account-error");
 const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
 /** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
 let accountChange: { pane: number; requestId: number | undefined } | undefined;
+const paneNameDialog = byId<HTMLDialogElement>("pane-name-dialog");
+const paneNameField = byId<HTMLInputElement>("pane-name-field");
+const paneNameError = byId("pane-name-error");
+const paneNameSubmit = byId<HTMLButtonElement>("pane-name-submit");
+/** The pane the rename dialog names, while it is open, and the request it sent, until the daemon answers it. */
+let paneNaming: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
 const closeConfirm = byId("close-pane-confirm");
 const linkCardElement = byId("link-card");
@@ -898,6 +905,8 @@ export function dropClosed(listed: ReadonlySet<number>): void {
   // A pane the dialog asks about was closed some other way, so the close it asks about is no longer the one the person chose, and the dialog closes having closed nothing. Closing a dialog that is not open does nothing.
   if (asking.some((pane) => !listed.has(pane))) closeDialog.close();
   if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
+  // The pane the rename dialog names is gone, so the dialog closes and sends nothing.
+  if (paneNaming !== undefined && !listed.has(paneNaming.pane)) paneNameDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first panes of the stage order, as many as the cap on panes side by side, which hold tabs never in front where fewer than the cap of the tabs were in front, or the one of those with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -1301,6 +1310,42 @@ export function takeAccountChange(requestId: number, refusal: string | null): bo
   return true;
 }
 
+/** Opens the dialog that renames a pane's tab, headed by its label, with the label in its field and all of it selected. */
+function openPaneName(session: SessionInfo): void {
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  if (!workItem || paneNameDialog.open) return;
+  const label = tabLabel(session, paneTabs(workItem, held.sessions), held.paneKinds, workItem.setup?.paneId ?? null);
+  paneNaming = { pane: session.id, requestId: undefined };
+  byId("pane-name-head").textContent = `Rename ${label}`;
+  paneNameField.value = label;
+  paneNameError.textContent = "";
+  paneNameSubmit.disabled = false;
+  paneNameDialog.showModal();
+  paneNameField.select();
+}
+
+/** Sends the name the dialog holds, which the daemon trims, and an empty one takes the pane's name off. One request per answer: "Save" stays off until the daemon answers. */
+function sendPaneName(): void {
+  if (!paneNaming || paneNaming.requestId !== undefined) return;
+  const requestId = request();
+  paneNaming.requestId = requestId;
+  paneNameError.textContent = "";
+  paneNameSubmit.disabled = true;
+  send({ type: "setPane", requestId, id: paneNaming.pane, name: paneNameField.value });
+}
+
+/** Takes the daemon's answer to the rename dialog's name, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it under the field with "Save" on again. */
+export function takePaneName(requestId: number, refusal: string | null): boolean {
+  if (paneNaming === undefined || paneNaming.requestId !== requestId) return false;
+  paneNaming.requestId = undefined;
+  if (refusal === null) paneNameDialog.close();
+  else {
+    paneNameError.textContent = refusal;
+    paneNameSubmit.disabled = false;
+  }
+  return true;
+}
+
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
@@ -1311,9 +1356,12 @@ export function closeFront(): void {
  * Opens the menu of a pane's tab with its corner at `at`, named to a screen
  * reader for the tab's label (./view, `tabMenu`). Its items act on the panes
  * the daemon lists at the press, by their ids, since the strip of tabs is
- * drawn anew at each `inbox`. A close that asks nothing leaves the keyboard
- * on the pane in front, and a close that takes that pane hands it to the
- * pane that comes in front after it. Where the menu closes with no press,
+ * drawn anew at each `inbox`. "Rename…" opens the rename dialog, and a
+ * swatch of the row sends the tab's colour, which the next `inbox` draws,
+ * leaving the keyboard on the pane in front; a refusal of it is told as the
+ * window tells a refusal no dialog shows. A close that asks nothing leaves
+ * the keyboard on the pane in front, and a close that takes that pane hands
+ * it to the pane that comes in front after it. Where the menu closes with no press,
  * the keyboard returns to where it was when the menu opened, and to the pane
  * in front where that element has been drawn anew.
  */
@@ -1328,6 +1376,16 @@ function openTabMenu(pane: number, at: { x: number; y: number }): void {
     tabMenu(session, listed),
     at,
     (action) => {
+      if (action.do === "renamePane") {
+        const named = held.sessions.find((known) => known.id === action.id);
+        if (named) openPaneName(named);
+        return;
+      }
+      if (action.do === "colourPane") {
+        if (held.sessions.some((known) => known.id === action.id)) send({ type: "setPane", requestId: request(), id: action.id, colour: action.colour });
+        screenOf(front)?.term.focus();
+        return;
+      }
       if (action.do !== "closePanes") return;
       closePanes(action.ids.flatMap((id) => held.sessions.filter((known) => known.id === id)));
       if (!closeDialog.open) screenOf(front)?.term.focus();
@@ -1336,13 +1394,19 @@ function openTabMenu(pane: number, at: { x: number; y: number }): void {
   );
 }
 
-/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`, and carrying the bar of the colour a person gave it, whose word its label's tooltip and its name to a screen reader end with. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
 function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean, setupPane: number | null): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
+  const colour = session.colour ?? null;
+  if (colour !== null) {
+    tab.dataset.colour = colour;
+    label.title = tabSays(label.textContent, colour);
+    label.setAttribute("aria-label", label.title);
+  }
   // The pane's account, where it is another than the one its work item gives, stands after its label.
   const workItem = held.workItems.find((item) => item.id === session.workItemId);
   const accountName = workItem ? tabAccount(session, workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "";
@@ -1685,6 +1749,17 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   paneAccountDialog.addEventListener("close", () => {
     accountChange = undefined;
+    screenOf(front)?.term.focus();
+  });
+  paneNameField.maxLength = PANE_NAME_CHARS;
+  byId("pane-name-cancel").addEventListener("click", () => paneNameDialog.close());
+  byId<HTMLFormElement>("pane-name-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendPaneName();
+  });
+  // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front, and a later answer of the daemon is no longer the dialog's.
+  paneNameDialog.addEventListener("close", () => {
+    paneNaming = undefined;
     screenOf(front)?.term.focus();
   });
   sideBySideButton.addEventListener("click", () => {

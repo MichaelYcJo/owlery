@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -1588,6 +1588,28 @@ export class Daemon {
         this.closePane(session);
         return;
       }
+      case "setPane": {
+        try {
+          const { id, name, colour } = message as { id: unknown; name?: unknown; colour?: unknown };
+          const session = typeof id === "number" ? this.sessions.get(id) : undefined;
+          if (!session) throw new Error(`No pane ${String(id)} is open.`);
+          if (session.info.workItemId === null) throw new Error("A sign-in pane has no tab to name or colour.");
+          if (name !== undefined && name !== null && typeof name !== "string") throw new Error("A pane's name is a text, or null for none.");
+          const given = typeof name === "string" ? name.trim() : name;
+          if (typeof given === "string" && given.length > PANE_NAME_CHARS) throw new Error(`A pane's name is ${String(PANE_NAME_CHARS)} characters at most.`);
+          if (colour !== undefined && colour !== null && !(TAB_COLOURS as readonly unknown[]).includes(colour)) throw new Error(`A tab's colour is ${TAB_COLOURS.slice(0, -1).join(", ")} or ${String(TAB_COLOURS.at(-1))}, or null for none.`);
+          // Nothing is set before every field has been read, so a refusal sets nothing of the message.
+          const before = { name: session.info.name ?? null, colour: session.info.colour ?? null };
+          if (given !== undefined) session.info.name = given === "" || given === null ? null : given;
+          if (colour !== undefined) session.info.colour = colour as TabColour | null;
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (session.info.name !== before.name || session.info.colour !== before.colour) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
       case "stopHeadless": {
         const session = this.headless.get(message.id);
         if (!session) {
@@ -2576,7 +2598,7 @@ export class Daemon {
     if (launch === undefined) throw new Error("a pane opens in a work item");
     const size = { cols: pane.cols, rows: pane.rows };
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null, name: null, colour: null },
       terminal: this.spawnPane(launch, cwd, size, signsIn === null),
       output: new OutputBuffer(this.outputLimit()),
       silentStart: undefined,

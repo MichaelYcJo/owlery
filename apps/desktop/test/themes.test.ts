@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { APPEARANCES, appearanceFor, lookChoice, THEME_CHOICES, THEMES } from "../src/shared/appearance";
+import { TAB_COLOURS } from "../src/shared/protocol";
 
 // The rules of the page's look that hold as text: a theme in an appearance is
 // one block of src/renderer/themes.css, each theme the window can draw in has
@@ -344,6 +345,18 @@ describe("what a theme draws can be seen", () => {
     expect(under(MARK_FLOOR, (properties) => states.map((state): [string, string[][]] => [markColour(properties, state), AROUND_A_MARK]))).toEqual([]);
     // The marks of a pin and of muted notifications are in the faint ink, on a selected line as on any other.
     expect(under(MARK_FLOOR, () => [["--ink-faint", SELECTED]])).toEqual([]);
+  });
+
+  it("draws each colour of a tab at 3 to 1 or more against each ground its bar and its swatch stand on, in every block: the window's ground at rest and under the pointer, the terminal's ground of a tab on the stage, and a menu's ground at rest and under the pointer", () => {
+    const tokens = TAB_COLOURS.map((colour) => `--tab-${colour}`);
+    // The page draws a tab's bar and a swatch in the colour a rule gives `--colour`, and gives it these tokens alone.
+    const given = caught(pageParts().style, /\{([^{}]*)\}/g)
+      .flatMap(declarations)
+      .filter(([name]) => name === "--colour")
+      .flatMap(([, value]) => caught(value, /var\((--[a-z0-9-]+)/g));
+    expect(given.sort()).toEqual([...tokens].sort());
+    const grounds = [[WINDOW], [WINDOW, "--hover"], [TERMINAL], [CARD], [CARD, "--hover"]];
+    expect(under(MARK_FLOOR, () => tokens.map((token): [string, string[][]] => [token, grounds]))).toEqual([]);
   });
 
   it("draws the ring of the keyboard's focus at 3 to 1 or more against each ground around it, in every block, and outside the edge of the main button, whose fill would hide it", () => {

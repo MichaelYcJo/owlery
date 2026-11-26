@@ -125,6 +125,9 @@
   /* The edges the page draws as a shadow: a field's, the tab in front's, the bell's dot's and a search's mark's, with the mark's corner. */
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --tab-green: #5fb86f;
+  --tab-blue: #6b8cf2;
+  --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
@@ -242,6 +245,9 @@
 
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --tab-green: #2e8540;
+  --tab-blue: #2f6bd0;
+  --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
@@ -357,6 +363,9 @@
 
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: inset 0 2px 0 var(--terminal-strong);
+  --tab-green: #5fb86f;
+  --tab-blue: #6b8cf2;
+  --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
@@ -472,6 +481,9 @@
 
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: inset 0 2px 0 var(--terminal-strong);
+  --tab-green: #2e8540;
+  --tab-blue: #2f6bd0;
+  --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 0;
@@ -587,6 +599,9 @@
 
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --tab-green: #5fb86f;
+  --tab-blue: #6b8cf2;
+  --tab-pink: #e46fa8;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
@@ -702,6 +717,9 @@
 
   --field-edge: inset 0 0 0 1px var(--rule);
   --tab-edge: 1px 0 0 var(--rule), -1px 0 0 var(--rule);
+  --tab-green: #2e8540;
+  --tab-blue: #2f6bd0;
+  --tab-pink: #c23f80;
   --dot-edge: 0 0 0 1.5px var(--ground-side);
   --mark-edge: 0 0 0 1px var(--mark);
   --radius-mark: 2px;
