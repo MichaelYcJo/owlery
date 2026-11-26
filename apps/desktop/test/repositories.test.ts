@@ -496,7 +496,7 @@ describe("RepositoryStore", () => {
     }
     // The three counts, whatever the repositories beside them hold, are the file's.
     for (const wrong of [{ repositories: {} }, { repositories: [{ ...repository, id: "1" }] }]) {
-      expect(read({ ...COUNTS, repositories: [repository], ...wrong })).toEqual([]);
+      expect(read({ ...COUNTS, ...wrong })).toEqual([]);
       expect(counts(dir), JSON.stringify(wrong)).toEqual([2, 2, 1]);
     }
     expect(read({ ...COUNTS, repositories: [repository] })).toEqual([repository]);
