@@ -2,26 +2,27 @@
 // background, on a temporary repository that holds the place for work
 // records. The login shell is a script that names a script CLI, so no real
 // `claude` runs, and nothing in the window starts a chain. A second client of
-// the daemon makes a work item with a shell's pane. In its worktree the file commits a file and writes the
-// records a stage would write there: the routing that names the branch, and
-// two round records. The daemon reads them at its next pass, and the view's
-// right column and the inbox's preview draw the line. A second work item,
-// made by a later case, has the records of a seal committed on its branch as
-// a chain commits them, and then one more commit, which breaks that seal.
-// One more work item stands in the run folder before the app starts, with a
-// chain a daemon stored as stopped, so the view's foot has a chain's sentence
-// to say. The last case gives a third work item a Claude Code pane, which
-// carries the owl chain: the login shell, asked for that pane's command,
-// stands in for its session, runs the built chain command's `start` and
-// `owed` with the pane's variables, which hand round 1, and stays until the
-// pane is closed.
+// the daemon makes a work item with a shell's pane. In its worktree the file
+// commits a file and writes the records a stage would write there: the
+// routing that names the branch, and two round records. The daemon reads
+// them at its next pass, and the view's right column and the inbox's preview
+// draw the line. A second work item, made by a later case, has the records of
+// a seal committed on its branch as a chain commits them, and then one more
+// commit, which breaks that seal. One more work item stands in the run folder
+// before the app starts, with a chain a daemon stored as stopped, so the
+// view's foot has a chain's sentence to say. The last case makes one more
+// work item, whose branch commits Owlery's workflow, and opens a Claude Code
+// pane in it, which carries the owl chain: the login shell, asked for that
+// pane's command, stands in for its session, runs the built chain command's
+// `start` and `owed` with the pane's variables, which hand round 1, and stays
+// until the pane is closed.
 // In the background the page raises nothing of the system's and keeps each
 // notification in `window.__notifications` (src/renderer/notifier.ts), which
 // the cases read.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MARKER } from "../src/daemon/records-place";
+import { MARKER, workflowText } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
@@ -316,7 +317,11 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     second.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Delta", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Delta") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     const delta = await branched(second.item("Delta")!, 13);
-    commitFile(delta.worktree, "greet.ts");
+    // The branch puts the repository on the owl chain, with Owlery's workflow, so a Claude Code pane opened in its worktree carries the chain.
+    mkdirSync(join(delta.worktree, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-seal.yml"), workflowText("0.0.0"));
+    git(delta.worktree, "add", "--all");
+    git(delta.worktree, "commit", "--quiet", "-m", "ci: the check");
     writeFileSync(join(made.base, "stand-in-base"), delta.baseCommit!);
     // The pane's session runs `start` and `owed` through the launcher its environment names, and stays: round 1 is open.
     second.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 14, workItemId: delta.id });
