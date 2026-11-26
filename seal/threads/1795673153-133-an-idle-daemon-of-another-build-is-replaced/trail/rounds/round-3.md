@@ -35,6 +35,11 @@ The search printed one statement of the fact in the work item's records: `frame/
 | 2026-11-27 | The eight cases of the account-change group of `daemon.test.ts` that failed at about 5 s each in the broad gate at `0d1b0c8e` are the machine's load, not this work. Run alone at `46066e05`, `node scripts/test-in-electron.mjs test/daemon.test.ts -t "account|changed pane|refuses a change whose pane"` in `apps/desktop` exited 0 with 11 cases passed, the eight among them (`trail/rounds/round-3.md` *Probes*). The filter `-t "account"` alone leaves out three of the eight, whose describe and case names hold no "account". The work changes nothing those cases send or wait for. The broad gate runs again alone. | A case that fails only beside other test runs and passes alone, on a tree that touches none of its requests, fails for time and not for a behaviour. | `seal/config.json` `Broad gate`; the plugin's `agents/sealer.md` step 1 |
 ```
 
+```seal
+verdict: fixed e038249c
+answer: The orchestrator rewrote the fourth row of `frame/plan.md` *Judgments of the run* in place with the round's paste-ready row, word for word. Records alone.
+```
+
 ## Confirmations
 
 What matched: `d7b388bb` pins the keys of `ready` as the daemon sends them at the target. `Daemon#greet` sends `type`, the four lists of `lists()` (`sessions`, `repositories`, `workItems`, `archived`, `apps/desktop/src/daemon/daemon.ts:2945`), `paneKinds`, `headless`, `lastLook`, `keepAwake` only where `holdAwake` is given, `agentNotice`, the three fields of `accountsMessage()` (`accounts`, `defaultAccountId`, `refreshesUsage`, `:2175`), `machine` only where `machineNow()` gives one, and `answersUnknown: true` always (`:997`, read). Sorted, the keys without `keepAwake` and `machine` are the thirteen that both changed lines list (`apps/desktop/test/daemon.test.ts:601`, `:7588`, read). Both cases passed at the target (*Probes*, executed). The second case is the one whose daemon has no `holdAwake`, so its list rightly holds no `keepAwake`. The old lists of twelve keys could not pass against `:997`, since `toEqual` on the sorted keys fails on the added `answersUnknown`; the round read this and did not run the old lists. The commit changes no other line, and no case is added, so no case is owed a red run.
