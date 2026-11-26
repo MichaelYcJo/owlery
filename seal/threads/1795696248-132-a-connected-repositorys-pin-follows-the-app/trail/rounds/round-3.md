@@ -38,6 +38,11 @@ In `frame/design.md:114`, after "그 기록을 아직 읽지 않았다는 문장
 작업 트리는 있는데 기록 폴더가 없고 브랜치 끝에는 기록이 있는 작업은 기록이 없는 작업으로 읽혀, 대화 상자가 알리지 않습니다.
 ```
 
+```seal
+verdict: fixed 18bc4338
+answer: The orchestrator added the round's two sentences to the English and Korean `add` operations of `frame/design.md` *Rule changes*, word for word. Records alone.
+```
+
 ## Confirmations
 
 ```seal
