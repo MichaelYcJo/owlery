@@ -44,6 +44,16 @@ export function signingWay(env: Readonly<Record<string, string | undefined>>): S
   throw new Error(`Only some of the signing variables are set. Missing: ${missing.join(", ")}. Set all five to sign with the Developer ID certificate and notarize, or none to sign ad hoc.`);
 }
 
+/**
+ * Throws where a release's tag is not the app's version. The tag is `v` and
+ * the version, and may carry a suffix from `-`, so a build can be made at a
+ * tag such as `v0.1.0-rc.1` before the release's own tag.
+ */
+export function checkTag(tag: string, version: string): void {
+  const named = /^v([^-]+)(?:-.*)?$/.exec(tag)?.[1];
+  if (named !== version) throw new Error(`The tag ${tag} is not the app's version ${version}. A release's tag is v${version}, with a suffix from "-" where the build is made before the release's own tag.`);
+}
+
 /** The part of the configuration for macOS, which the cases read whole. */
 type MacConfig = NonNullable<Configuration["mac"]>;
 
@@ -135,11 +145,13 @@ function drawIcon(appDir: string, work: string): string {
 export type Build = (options: { projectDir: string; config: Configuration; mac: string[]; publish: "never" }) => Promise<string[]>;
 
 /**
- * Packages the app in `appDir`: decides the way of signing before anything
- * is built, builds `dist/`, draws the icon file, and runs the packager. It
- * answers with the path of the `.dmg` under `out/`.
+ * Packages the app in `appDir`: checks the release's tag where one is
+ * given and decides the way of signing, both before anything is built, then
+ * builds `dist/`, draws the icon file, and runs the packager. It answers with
+ * the way and the path of the `.dmg` under `out/`.
  */
-export async function packageApp(appDir: string, env: Readonly<Record<string, string | undefined>>, build: Build, log: (line: string) => void): Promise<string> {
+export async function packageApp(appDir: string, env: Readonly<Record<string, string | undefined>>, build: Build, log: (line: string) => void, tag?: string): Promise<{ way: SigningWay; dmg: string }> {
+  if (tag !== undefined) checkTag(tag, (JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { version: string }).version);
   const way = signingWay(env);
   const built = run(process.execPath, ["build.mjs"], { cwd: appDir });
   if (built.status !== 0) throw new Error(`The build of dist/ failed: node build.mjs ${outcome(built)}`);
@@ -155,7 +167,7 @@ export async function packageApp(appDir: string, env: Readonly<Record<string, st
   if (!existsSync(dmg)) throw new Error(`The packager ended without writing ${dmg}.`);
   log(WAY_SENTENCE[way]);
   log(`The package: ${dmg}`);
-  return dmg;
+  return { way, dmg };
 }
 
 /** Throws the check's name with what was found, where `holds` is false. */

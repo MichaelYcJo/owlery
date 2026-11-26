@@ -1,11 +1,15 @@
 // The package command's decisions: the way of signing the variables give,
-// the configuration the packager is handed, the images of the icon file, and
-// the Dock's image of a packaged app. No case runs the packager: a run
-// downloads Electron's archive and takes many seconds, so `package` and
-// `package:verify` are recorded runs of the phase that built them.
+// the check of a release's tag against the app's version, the configuration
+// the packager is handed, the images of the icon file, and the Dock's image
+// of a packaged app. No case runs the packager: a run downloads Electron's
+// archive and takes many seconds, so `package` and `package:verify` are
+// recorded runs of the phase that built them.
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { dockImage } from "../src/main/dock-image";
-import { BUNDLE_ID, iconImages, packagerConfig, SIGNING_VARIABLES, signingWay } from "../src/package/package";
+import { BUNDLE_ID, checkTag, iconImages, packageApp, packagerConfig, SIGNING_VARIABLES, signingWay } from "../src/package/package";
 
 /** Each of the five variables, set to text. */
 const ALL = Object.fromEntries(SIGNING_VARIABLES.map((name) => [name, `${name}-value`]));
@@ -36,6 +40,44 @@ describe("signingWay", () => {
 
   it("refuses where one alone holds text, and names the other four", () => {
     expect(() => signingWay({ APPLE_API_KEY_ID: "id" })).toThrow("Missing: CSC_LINK, CSC_KEY_PASSWORD, APPLE_API_KEY, APPLE_API_ISSUER.");
+  });
+});
+
+describe("checkTag", () => {
+  it.each(["v0.1.0", "v0.1.0-rc.1", "v0.1.0-package.1"])("lets %s through for version 0.1.0", (tag) => {
+    expect(() => checkTag(tag, "0.1.0")).not.toThrow();
+  });
+
+  it.each(["v0.1.1", "0.1.0", "v0.1", "v0.1.0.1", "release-0.1.0"])("refuses %s for version 0.1.0, naming the tag and the version", (tag) => {
+    expect(() => checkTag(tag, "0.1.0")).toThrow(`The tag ${tag} is not the app's version 0.1.0.`);
+  });
+});
+
+describe("packageApp", () => {
+  /** A folder that holds the app's package.json alone, so a build started in it fails with a sentence of its own. */
+  const bare = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "owlery-package-"));
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ version: "0.1.0" }));
+    return dir;
+  };
+  const packager = (): Promise<string[]> => Promise.reject(new Error("the packager ran"));
+
+  it("refuses a tag that is not the app's version before it builds anything", async () => {
+    const dir = bare();
+    try {
+      await expect(packageApp(dir, {}, packager, () => {}, "v0.1.1")).rejects.toThrow("The tag v0.1.1 is not the app's version 0.1.0.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses only some of the signing variables before it builds anything", async () => {
+    const dir = bare();
+    try {
+      await expect(packageApp(dir, { CSC_LINK: "certificate" }, packager, () => {}, "v0.1.0")).rejects.toThrow("Only some of the signing variables are set.");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,0 +1,94 @@
+# Builds the macOS app's .dmg at a release's tag and attaches it to that
+# tag's GitHub release. It runs at a pushed tag `v*`, and on a person's
+# request that names a tag, which is how a released tag is built again once
+# the Developer ID certificate's secrets are set. It runs at no pull request,
+# so no run that a fork starts reads the signing secrets.
+#
+# With none of the five secrets set, the app is signed ad hoc. With all five,
+# it is signed with the Developer ID certificate and notarized. With only
+# some, the package step fails and names the missing ones
+# (apps/desktop/src/package/package.ts, `signingWay`).
+
+name: package
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The tag to build, such as v0.1.0
+        required: true
+        type: string
+
+# Two runs for one tag would upload over each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+# Creating a release and uploading to one need write access to the contents.
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      # The tag reaches each script as a variable and never as text of the script.
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+
+      # The version comes from `packageManager` in the root package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The desktop app's postinstall rebuilds node-pty for Electron, and the package holds that build.
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      # The command checks the tag against the app's version and decides the
+      # way of signing before it builds anything. A secret that is not set
+      # reads as empty, which the command counts as not set. The notarization
+      # key is handed to the packager as a file.
+      - name: package
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -n "$APPLE_API_KEY_P8" ]; then
+            printf '%s\n' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/notarization-key.p8"
+            export APPLE_API_KEY="$RUNNER_TEMP/notarization-key.p8"
+          fi
+          unset APPLE_API_KEY_P8
+          pnpm --filter @owlery/desktop run package --tag "$TAG"
+
+      - name: verify
+        run: pnpm --filter @owlery/desktop run package:verify
+
+      # A tag with a release gets the .dmg there, in place of one of the same
+      # name. A tag with none gets a draft release, which is published with
+      # the release's note once it is written.
+      - name: upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dmg=apps/desktop/out/Owlery-arm64.dmg
+          # The list holds the drafts too. grep reads it whole, so the list command never meets a closed pipe.
+          if gh release list --limit 100 --json tagName --jq '.[].tagName' | grep -Fx "$TAG" > /dev/null; then
+            gh release upload "$TAG" "$dmg" --clobber
+            echo "Attached Owlery-arm64.dmg to the release of $TAG." >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh release create "$TAG" "$dmg" --draft --verify-tag --title "Owlery ${TAG#v}" --notes ""
+            echo "Created a draft release of $TAG holding Owlery-arm64.dmg." >> "$GITHUB_STEP_SUMMARY"
+          fi
