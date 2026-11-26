@@ -8,7 +8,7 @@ import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
 import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, roleStageOf, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
-import type { AccountLogins, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
+import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
 import { OutputBuffer } from "./buffer";
@@ -490,6 +490,8 @@ export class Daemon {
   private readonly store: RepositoryStore;
   // The logins of the person's agent and the default one.
   private readonly accounts: AccountStore;
+  // The client that asked for each add whose sign-in pane runs, by the id its folder takes, which is told how the add ended.
+  private readonly adds = new Map<number, WebSocket>();
   private readonly lastLook: LastLook;
   private readonly keepAwake: KeepAwakeStore;
   // The caps a person set on the machine, what the daemon last read of the machine, where it was given a reader, and the count of the agents that run as every client was last told it.
@@ -631,6 +633,8 @@ export class Daemon {
         this.checkIdle();
         // Read in the background: the adapter may take seconds to find its agent, and no client waits for it.
         void this.readAgentNotice();
+        // No pane outlives a daemon, so a folder whose first sign-in had not ended when the last one stopped is decided now.
+        for (const { id } of this.accounts.adding()) void this.endAdd(id);
         resolve((server.address() as AddressInfo).port);
       });
     });
@@ -1102,21 +1106,7 @@ export class Daemon {
         return;
       }
       case "addAccount": {
-        try {
-          const { name, folder } = message as { name: unknown; folder: unknown };
-          if (typeof name !== "string" || (typeof folder !== "string" && folder !== undefined)) throw new Error("An account is added with a name, and the absolute path of its folder where the person hands one over.");
-          const { logins } = this.options.roleAdapter;
-          if (folder === undefined && logins === undefined) throw new Error("This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder.");
-          // The store refuses an empty name and any folder but one that stands and is no account's yet, in its own words.
-          if (folder !== undefined) this.accounts.addHanded(name, folder, this.options.roleAdapter.name);
-          // A folder the daemon makes is given the person's own names now, where the adapter knows them, and again before each launch under it.
-          else logins?.furnish(this.accounts.addMade(name, this.options.roleAdapter.name).folder);
-          // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
-          this.send(socket, { type: "done", requestId: message.requestId });
-          this.broadcastAccounts();
-        } catch (error) {
-          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
-        }
+        void this.addAccount(socket, message);
         return;
       }
       case "setDefaultAccount": {
@@ -1564,14 +1554,7 @@ export class Daemon {
       case "close": {
         const session = this.sessions.get(message.id);
         if (!session) return;
-        // Off the lists first, so the process's end is told to nobody as a session's.
-        this.sessions.delete(message.id);
-        clearTimeout(session.silentStart);
-        this.endLog(session);
-        session.ended = true;
-        if (session.info.alive) session.terminal.kill();
-        this.broadcastInbox();
-        this.checkIdle();
+        this.closePane(session);
         return;
       }
       case "ask": {
@@ -1843,6 +1826,110 @@ export class Daemon {
   }
 
   /**
+   * Adds an account at a request, and no name is typed. A folder the person
+   * hands over is checked by the store, then the adapter's agent is asked
+   * whether a login stands in it, and the account takes the login's name, or
+   * the folder's last name where the agent names none, could not say or
+   * signs no account in. With no folder, the daemon makes `accounts/<id>`,
+   * gives it the person's names and starts its sign-in pane at once, and the
+   * folder is no account until that pane's process ends (`endAdd`). Where the
+   * adapter signs no account in, nothing is made, and where the sign-in
+   * cannot start, the folder made is removed with its id and nothing is kept.
+   */
+  private async addAccount(socket: WebSocket, message: Extract<ClientMessage, { type: "addAccount" }>): Promise<void> {
+    try {
+      const { folder, cols, rows } = message as { folder?: unknown; cols?: unknown; rows?: unknown };
+      const shape = "An account is added with the absolute path of its folder where the person hands one over, and otherwise with the size of its sign-in pane.";
+      const adapter = this.options.roleAdapter;
+      const { logins } = adapter;
+      if (folder !== undefined) {
+        if (typeof folder !== "string") throw new Error(shape);
+        // The store refuses any folder but one that stands and is no account's yet, in its own words, before the agent is asked of it.
+        const path = this.accounts.handedPath(folder);
+        const login = logins === undefined ? undefined : await logins.status(path).catch(() => undefined);
+        this.accounts.addHanded(login?.name ?? (basename(path) || path), path, adapter.name, login ?? { signedIn: null, loginEndsAt: null });
+        // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
+        this.send(socket, { type: "done", requestId: message.requestId });
+        this.broadcastAccounts();
+        return;
+      }
+      if (typeof cols !== "number" || typeof rows !== "number") throw new Error(shape);
+      if (logins === undefined) throw new Error("This agent signs no account in here, so Owlery makes no folder for one. Use an existing folder.");
+      const made = this.accounts.beginMade();
+      let info: SessionInfo;
+      try {
+        // The folder is given the person's own names now, where the adapter knows them, and again before each launch under it.
+        logins.furnish(made.folder);
+        const command = await logins.signIn(made.folder);
+        info = this.startSession(socket, { kind: "shell", cols, rows }, made.folder, null, false, null, () => command, made.id);
+      } catch (error) {
+        this.accounts.dropMade(made.id);
+        throw error;
+      }
+      this.adds.set(made.id, socket);
+      // The answer first, so the client that asked knows the pane as its own when the inbox lists it.
+      this.send(socket, { type: "started", requestId: message.requestId, session: info });
+      this.broadcastInbox();
+    } catch (error) {
+      this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  /**
+   * Decides, on the adapter's agent's word, what a folder the daemon made
+   * becomes once its first sign-in ended: the pane's process exited, or the
+   * daemon started and found its id under `adding`. Where a login stands the
+   * folder is kept as an account named by the login's name, or `Account
+   * <id>` where the agent names none, and its sign-in pane is closed. Where
+   * none stands the folder is removed with everything in it and no account
+   * is kept, and an ended pane stays listed so what it printed can be read.
+   * Where the agent could not say, the folder is kept as `Account <id>` with
+   * its sign-in not read, since nothing is removed on a guess. The client
+   * that asked for the add is told how it ended, after the accounts that
+   * carry the account. A daemon that closed meanwhile decides nothing, and
+   * its next start reads the id again.
+   */
+  private async endAdd(id: number, pane?: Session): Promise<void> {
+    const { logins, name: adapter } = this.options.roleAdapter;
+    const folder = this.accounts.adding().find((noted) => noted.id === id)?.folder;
+    if (folder === undefined) return;
+    let login: LoginStatus | Error;
+    try {
+      if (logins === undefined) throw new Error("This agent signs no account in here.");
+      login = await logins.status(folder);
+    } catch (error) {
+      login = error instanceof Error ? error : new Error(String(error));
+    }
+    if (this.closed) return;
+    const asker = this.adds.get(id);
+    this.adds.delete(id);
+    const fallback = `Account ${String(id)}`;
+    let accountId: number | null = null;
+    let says: string | null = null;
+    try {
+      if (login instanceof Error) {
+        const kept = this.accounts.keepMade(id, fallback, adapter, { signedIn: null, loginEndsAt: null });
+        accountId = kept.id;
+        says = `Claude Code did not say whether the sign-in left a login, so the account is kept as "${kept.name}". Check its sign-in from its row. ${login.message}`;
+      } else if (login.signedIn) {
+        const kept = this.accounts.keepMade(id, login.name ?? fallback, adapter, login);
+        accountId = kept.id;
+        if (login.name === null) says = `Claude Code named no email for the login, so the account is kept as "${kept.name}". Rename it from its row.`;
+      } else {
+        this.accounts.dropMade(id);
+        says = "The sign-in ended with no login, so no account was added.";
+      }
+    } catch (error) {
+      console.error(`the add of folder ${String(id)} was not decided: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (accountId !== null) this.broadcastAccounts();
+    if (asker !== undefined && this.clients.has(asker)) this.send(asker, { type: "addEnded", id: pane?.info.id ?? id, accountId, says });
+    // The pane has nothing more to show once its login stands.
+    if (pane !== undefined && !(login instanceof Error) && login.signedIn && this.sessions.get(pane.info.id) === pane) this.closePane(pane);
+  }
+
+  /**
    * Removes an account at a request: refused while anything runs under it,
    * then, for a folder the daemon made, the folder is signed out through the
    * adapter's agent and removed, and every setting that named the account is
@@ -1989,6 +2076,18 @@ export class Daemon {
   private standsEnded(session: Session, said: string): void {
     session.output.append(said);
     this.sendOutput(session.info.id, said);
+    this.broadcastInbox();
+    this.checkIdle();
+  }
+
+  /** Closes a listed pane, at a client's request or once an add's sign-in kept its account: it leaves the lists, its process is ended where it runs, and every client is told. */
+  private closePane(session: Session): void {
+    // Off the lists first, so the process's end is told to nobody as a session's.
+    this.sessions.delete(session.info.id);
+    clearTimeout(session.silentStart);
+    this.endLog(session);
+    session.ended = true;
+    if (session.info.alive) session.terminal.kill();
     this.broadcastInbox();
     this.checkIdle();
   }
@@ -2569,7 +2668,7 @@ export class Daemon {
       }
       // A setup ends with its pane's process, whether or not the pane is still listed.
       const setupEnded = workItemId !== null && this.setupExited(workItemId, id, exitCode, signal, session.ended);
-      // A sign-in ended, however it went, so the account's login is read again. A daemon that is closing reads nothing.
+      // A sign-in ended, however it went, so the account's login is read again, or an add's folder is decided. A daemon that is closing reads nothing.
       if (signsIn !== null && !this.closed) {
         const account = this.accounts.account(signsIn);
         if (account !== undefined)
@@ -2579,6 +2678,7 @@ export class Daemon {
             },
             (error: unknown) => console.error(`the login of account ${String(signsIn)} was not read: ${error instanceof Error ? error.message : String(error)}`),
           );
+        else void this.endAdd(signsIn, session);
       }
       exited();
       clearTimeout(session.silentStart);

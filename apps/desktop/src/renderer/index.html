@@ -315,10 +315,11 @@
       .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
       .line.selected .account { color: var(--ink-muted); }
-      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
+      /* A row of the Accounts dialog: its record, the name with its folder, its sign-in and its usage under it, takes the row's whole width, so a name breaks only where it is longer than the row. Under the record the default said in words and the row's buttons stand on a line of their own, and wrap where they do not fit. A row being renamed or asked to be removed stands the same way: its field or its question, then its two buttons. */
+      #accounts-list li { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-3) 0; }
       #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
       #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
-      #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #accounts-list li .account-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
       #accounts-list li .is-default { color: var(--ink-muted); }
       #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
       /* A limit value, the last refresh and what a refresh spends are sentences, so they wrap where a folder is cut. */
@@ -965,7 +966,7 @@
       <h2 class="head">Accounts</h2>
       <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
       <ul id="accounts-list" class="named whole"></ul>
-      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <!-- Hidden until this window starts a sign-in, the one its "Add an account" starts among them, and again once its pane is closed. -->
       <section id="accounts-sign-in" hidden>
         <h3 id="accounts-sign-in-head" class="caption"></h3>
         <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
@@ -976,11 +977,7 @@
       </section>
       <form id="accounts-form">
         <h3 class="caption">Add an account</h3>
-        <label>
-          Name
-          <span class="row"><input id="accounts-name" autocomplete="off" /></span>
-        </label>
-        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
+        <p class="says">Add an account opens Claude Code's sign-in, and the account is named from the login. Owlery makes its folder, which shares your skills, plugins, settings and conversations. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
         <p id="accounts-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
