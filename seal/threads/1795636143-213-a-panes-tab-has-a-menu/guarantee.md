@@ -43,3 +43,48 @@ The spawn prompt ordered that no test run, because another work item's broad gat
 target: 3f37267db04429f9e62f123d0d4ddb48679b2395 against f683c69381e03d621f098c6f280f214201d50ad9
 Verdict: sealed
 ```
+
+## The audit at `d0e78477`
+
+The base `release/v0.0.5` resolved to `8a19d3e2` through `release/v0.0.5@{upstream}` (executed). Since the block above, four commits stand on the branch:
+
+- `f29a9b3b` commits this file.
+- `584b72fa` merges `8a19d3e2`, which brings #215 (PR #290).
+- `067f5457` records round 4.
+- `d0e78477` adds the new broad run to `trail/gate.md`.
+
+The audit re-ran what those commits touched and read the parties again. The claims of the run above whose coordinates the merge changed are the tokens of `themes.css` and the view list and row counts of both editions of `docs/design.md`. No other coordinate changed, so no other claim needed a new run. The coordinator now allows narrow tests, so this audit also re-ran the `seen red` claims that the run above left `unverified`. They ran in a clone at `<scratchpad>/1795636143-213-a-panes-tab-has-a-menu/at-base/`, whose `node_modules` link to the worktree's. A run "at the base" had `apps/desktop/src` restored from `8a19d3e2` beside HEAD's cases. A run "with the guard removed" had HEAD's source with that one guard changed through `Edit`. After each run, `apps/desktop/src` was restored from HEAD, and `git status` showed only the two links. The tree under audit was not changed.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only the work item's records follow | `trail/gate.md`, its last block, `run: 067f5457 against 8a19d3e2` | `git merge-base --is-ancestor 067f5457 HEAD`; `git log --no-merges --name-only 067f5457..HEAD ^8a19d3e2` | Holds (executed). `067f5457` is an ancestor of HEAD, and only `d0e78477` follows it, which changes `trail/gate.md` alone. The gate's pass is the orchestrator's run: its kept `suite.txt` reads exit 0, 75 test files passed and 2 skipped, and 2499 cases passed (read). |
+| The merge takes the release's change as it stands outside the files it resolved | `584b72fa`, its message | `git diff -U0 f683c693 8a19d3e2` against `git diff -U0 f29a9b3b 584b72fa`, both without `index` and hunk lines, and both leaving out the five resolved files, compared with `cmp` | Holds (executed). The two are the same, byte for byte, 1093 lines each. |
+| Each resolution keeps both sides | `584b72fa`, its message; `trail/rounds/round-4.md` *Confirmations* | `git show --cc 584b72fa` | Holds (read). `git show --cc` prints a hunk for five files: `themes.css`, `screenshots.ts`, `screenshots.test.ts`, `docs/design.md` and `docs/design.ko.md`. In `themes.css` each of the six blocks keeps the three `--tab-*` tokens and #215's `--on-edge`. `VIEWS` holds `tabs` and `rename` after `menu`, and `narrowed` last, which is 20 views. The case expects 120 files, which is 20 views times six, with Desk light's `narrowed` last. Both editions' view lists name the two views of this work item and #215's view. |
+| Both editions of `docs/design.md` keep the same headings and table rows after the merge | the run above's row; round 4 *Probes* | `grep -c` of the lines that open with `#`, and of those that open with a table's bar, on both editions | Holds (executed): 15 and 402 in each. |
+| The work item's records and shots are unchanged by the merge | round 4 *Confirmations* | `git diff --stat f29a9b3b HEAD -- seal/threads/1795636143-213-a-panes-tab-has-a-menu` | Holds (executed): only `trail/gate.md` and `trail/rounds/round-4.md` changed. The twelve shots and `gaps.md`'s links stand as the run above read them. |
+| The unit cases of `view.test.ts` and `themes.test.ts` pass at HEAD | the phase records' runs | `node scripts/test-in-electron.mjs test/view.test.ts test/themes.test.ts`, at HEAD in the clone | Holds (executed): exit 0, 618 passed. |
+| The new cases of `tabMenu`, `closeSays`, `tabLabel`, `tabSays`, the hover case and the tokens were red before the change | `trail/phases/phase-1.md` and `phase-2.md` *Seen red* | the same two files with `-t` naming `tabMenu`, `closeSays`, `tabLabel`, `tabSays`, `colour of a tab` and `a description on hover` as one alternation, at the base | Holds (executed): exit 1, 12 failed and 6 passed. The failures read `tabMenu is not a function`, `closeSays is not a function` and `tabSays is not a function`. The `tabLabel` case fails on its expected labels, and the tokens' case fails on the missing tokens. |
+| The `setPane` cases were red before the change | `trail/phases/phase-2.md` *Seen red*, item 1 | `node scripts/test-in-electron.mjs test/daemon.test.ts -t setPane`, at the base | Holds (executed): exit 1, 4 failed. The first fails on `to match object { name: null, colour: null }`. |
+| The absence case of a session with no `name` field pins the guard `marks` | `trail/phases/phase-2.md` *Seen red*, item 2 | `test/view.test.ts -t "for a session with no name field"`, with `const marks = session.name !== undefined;` made `const marks = true;` | Holds (executed): exit 1 at `view.test.ts:719`, `expected [ [ 'Rename…', false ], …(4) ] to deeply equal [ [ 'Close Pane', false ], …(2) ]`, which reads that guard. At the base the case fails only on `tabMenu is not a function`. That proves nothing about the guard, so the guard's red comes from this run. |
+| Round 1's finding 1: an untouched Save names nothing, and the case pins the `trimmed === byKind` test | `trail/rounds/round-1.md` finding 1, its close at `af5227e7` | `node scripts/test-in-electron.mjs --project app test/terminal-basics.test.ts -t "renames a pane at"`, with the test `trimmed === byKind` and the "or" before it removed from `sendPaneName`, and then at HEAD | Holds (executed). With the guard removed: exit 1 at `terminal-basics.test.ts:538`, "the window never showed the third pane numbered as the second of its kind", which is that guard. At HEAD: exit 0, 1 passed and 39 skipped. |
+| The pull request body is `pr.md` above the heading, and the records' text below it | the body file the prompt names | `seal pr-body seal/threads/1795636143-213-a-panes-tab-has-a-menu --body <file> --check` | Holds (executed): exit 0, "matches". The body holds 12 image links (executed: `grep -c`). |
+| The chain's records agree with HEAD | the rounds' `target:` lines | `python3 skills/code-review/scripts/chain_check.py --baseline 8a19d3e2 --root <worktree> --sealing` | Holds (executed): exit 0. It printed that no pull request stands and that the guarantee is behind HEAD, which `--sealing` prints and does not fail on. |
+
+The built-app mutants of phase 2 other than the rename's were not re-run. Their coordinates did not change, and the run above reads them from the kept outputs.
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | As the run above reads it. | The tree at HEAD: the merge changed none of the design's coordinates but the tokens' blocks and the view list, and both keep this work's lines (read). | None. |
+| the build | As the run above reads it, and the merge `584b72fa`, whose message states the order of `VIEWS`, the 120 files and the last file. | The tree: each statement of the message holds (read: `screenshots.ts`, `screenshots.test.ts`). | None. |
+| the last round | Round 4, at `584b72fa`, reads the merge and finds nothing. It defers the suite to the broad gate and the seal to this run. | The rows above: each resolution it confirms keeps both sides, and the gate answered its deferral at `067f5457`. | None. Round 4 holds no `fixed` finding. |
+| the changelog | Unchanged since the run above. | The tree, as the run above reads it. The merge changes none of the units it names. | None. |
+| the orchestrator's part of the pull request body | Unchanged since the run above: `pr.md` is the same file (executed: `git diff --stat f29a9b3b HEAD` names no `pr.md`). | Its quotes, at their coordinates, as the run above reads them. | None. |
+
+```seal
+target: d0e784774828d3f82254fdb5c0a71b4097e01bb6 against 8a19d3e2a2457877c829271858ec585c97d30103
+Verdict: sealed
+```
