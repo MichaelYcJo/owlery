@@ -32,6 +32,11 @@ The two searches above print only this row (executed). They are a sample under c
 | #249 and #251, the delete dialog's queued sessions and its scroll (PR #263) | `apps/desktop/src/renderer/view.ts`, where #263 splits a work item's sessions into those that run and those that wait for the machine (`SessionsNamed { running, queued }`) in `removalOf`, `archivalOf` and `runningSessions`, from the split `runningIn` makes, which this work names by stage (`sessionName`); `test/view.test.ts`, `test/machine-dialog.test.ts` and the screenshot run's delete view | #263 | #263 merged first (`95b1a3ee`). The merge at `18892f73` keeps #263's split and names each headless session by its stage: a line of the removal's and the daemon end's dialogs reads `${name} in ${title}`, and a line of the archive's dialog and of the delete dialog, which name one work item, reads the name alone. #263's built-app case of the delete dialog (`test/machine-dialog.test.ts`) lists the work item's Claude Code pane under "Running sessions that end", where #263 listed a headless session a person asked, since no session is asked; the `view.test.ts` cases of `removalOf` and `archivalOf` pin a working headless session in that section. That case and the screenshot run's delete view list the stage that waits, "Proofer, round 1", under "Sessions waiting for the machine that leave the queue". |
 ```
 
+```seal
+verdict: fixed 4bee5669
+answer: The orchestrator replaced the row of #263 in `frame/plan.md` *Overlap with the release* with the round's paste-ready row, after reading it against `view.ts:1025`, `:1059`, `:1081` and `test/machine-dialog.test.ts:420-429`. The change is to the work item's records alone.
+```
+
 ## Confirmations
 
 ```seal
