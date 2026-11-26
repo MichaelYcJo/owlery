@@ -3026,16 +3026,14 @@ export class Daemon {
 
   /**
    * Reads at the read of the records what the work item's record owes
-   * (`readOwed`), and has it tried at once where no try has failed, none is
-   * queued or under way, and no chain of the work item runs and no session
-   * of it works: a word written while no daemon ran, or in a pane, is
-   * committed so. It answers whether `wordOwed` changed.
+   * (`readOwed`), which arms the pass over the owed words: a word written
+   * while no daemon ran, or in a pane, is tried at the pass's next turn. It
+   * answers whether `wordOwed` changed.
    */
   private async readOwedAt(held: Held): Promise<boolean> {
     const { id } = held.item;
     const before = JSON.stringify(this.wordOwedOf(held.item));
-    const read = await this.readOwed(held, false);
-    if (read !== null && !this.wordTries.has(id) && !this.wordRunning.has(id) && !this.chains.has(id) && !this.works(id) && this.whyNoRun(id) === null) this.tryWord(held);
+    await this.readOwed(held, false);
     const now = this.store.workItem(id);
     return now !== undefined && JSON.stringify(this.wordOwedOf(now.item)) !== before;
   }
