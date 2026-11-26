@@ -60,6 +60,11 @@ The case at `daemon.test.ts:4836` gains a half that only this drop holds. The de
 
 The case's title then names both halves, a stage told before the end and one told after it. Scope item 4 at `frame/design.md:42` gains the drop in its list of drops: "A pane that leaves the lists (`closePane`), that the daemon ends at an archive or a removal (`endSessions`), or whose process exits (`onExit`) drops the stage it told." Finding 2's text for `frame/design.md:142` and `:147` already names this drop, and the fix pass removes that clause there if it rejects this finding.
 
+```seal
+verdict: fixed b4ec592f
+answer: The finding holds. `endSessions` now drops the stage of each pane it ends through `dropStageOf`, which says whether a stage stood, and sends the lists before the wait, so a refused removal, which throws before any broadcast, still sends the drop. The case at `daemon.test.ts:4836` gained the half told before the end, and is titled for both halves. That half reads `paneStage` null right after the refusal, while the pane's process still runs, because the deaf pane exits by itself after 3 s and the onExit drop otherwise satisfies a wait. It was red at `daemon.test.ts:4852` before the fix, and `seal mutate` of the drop and of the broadcast each went red on that line. Scope item 4's list of drops is the framer's, folded at `0934695f`.
+```
+
 ### 2. The frame's policy text says a pane's stage drops when the pane ends, and the code drops it at every exit of the pane's process, an account change among them, where the pane does not end
 
 ```seal
@@ -94,6 +99,11 @@ A stage that a live pane's session leaves without calling the chain command agai
 ```
 
 Once the frame states the drop at an account change, it is a behaviour the diff changed that no case holds. The case at `daemon.test.ts:4880` drops at an exit of a pane that is not being replaced, so moving the drop below the `replacing` return keeps it green. A case in `apps/desktop/test/daemon.test.ts` beside the account-change cases (`daemon.test.ts:8593` and after) is owed. It tells a stage from a Claude Code pane, changes the pane's account, and reads `paneStage` null in the lists the change sends. It is shown red with the drop at `daemon.ts:2633` moved below the `replacing` return. The cases there need accounts that keep the same conversations, which those cases already set up, so no snippet is given here.
+
+```seal
+verdict: fixed b4ec592f
+answer: The finding holds. `changelog.md:6`'s second sentence now reads "until the pane is closed or its process ends". The frame's sentences are the framer's, folded at `0934695f`. A case beside the account-change cases, "drops the stage a changed pane's session told at the exit of the process the change ends", tells a stage from a Claude Code pane, changes its account, and reads `paneStage` null and the pane alive in the lists the change sends. `seal mutate`, keeping the drop at `daemon.ts`'s `onExit` from the exit a replacement waits on, went red at `daemon.test.ts:8676`. The finding's search, run again at `d6626b95` over the work item's directory, prints only this round record's own lines 63, 68 and 73, which quote it.
+```
 
 ### 3. No case holds the one-second bound of `tellStage`, and the probe of this round shows a case can
 
@@ -131,6 +141,11 @@ import { type StageLine, TURN_SOCKET, TurnServer, takeTurn, tellStage, turnGiver
 ```
 
 The case is shown red by the `seal mutate` run phase 1 records, `limit = setTimeout(settle, waitMs)` to `limit = undefined`, run over `test/heavy-run.test.ts`. Once it is red there, the row at `gaps.md:7` is marked `closed`, and its answer names the case.
+
+```seal
+verdict: fixed b4ec592f
+answer: The finding holds. The case was added to "the stage lines of the turn socket" in `test/heavy-run.test.ts` as the round wrote it, with one change: the tell is raced against a 5 s timer and the case expects it settled, so the mutant fails in seconds on an assertion rather than at the describe's 60 s timeout. `seal mutate` of `limit = setTimeout(settle, waitMs)` to `limit = undefined` went red at `heavy-run.test.ts:298`. The row at `gaps.md:7` is marked `closed` with the case's name at `d6626b95`.
+```
 
 ## Confirmations
 
