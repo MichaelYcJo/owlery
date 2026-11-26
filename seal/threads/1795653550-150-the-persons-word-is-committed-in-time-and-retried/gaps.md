@@ -24,3 +24,7 @@
 ## Not done
 
 The case of `frame/design.md` scenario D, a `pre-commit` hook that reads its input to the end, was written and then removed: it passed against the tree before the phase and with the runner's `stdin` turned back into a pipe, so it pinned nothing (contract rule 15). `trail/phases/phase-1.md` gives the runs.
+
+The commit of a renamed branch's `routing.md` is not tried again (`frame/design.md` *Scope*, Out). Where a session of the work item is working or its chain is running when the commit's turn comes, `Daemon#commitWord` commits nothing. Where the commit fails, or is ended at the limit or at the close, it says git's words in the log. In each case the file stands written until a commit a session makes carries it, since no stage's commit and no commit of a person's word holds `routing.md`, and nothing in the window says so. It is not a person's word, and nothing reads whether it landed.
+
+A commit that `commitPaths` is asked for after the close fired starts no `git add`, and `commitPaths` then runs `git reset` on its paths as after any failure (`worktrees.ts#commitPaths`, `refused`). That takes back a change a person had staged at the record's or the routing's path. It was left as it is: the same reset follows a `git add` that ran and failed, and has since before this work, and a path under the work item's directory is the daemon's to commit. No case reaches it.
