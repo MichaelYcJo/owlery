@@ -255,7 +255,8 @@ function readJson(file: string): unknown {
  * `repositories.json` at its first change. Where the rename fails, the file
  * stays as it stands and the store keeps its repositories in memory alone,
  * so nothing writes over the file it refused. `setAside()` answers which it
- * did, and `setAsideNotice` says it to a person. A work item written before the setup was recorded is read with none, and
+ * did, and `setAsideNotice` says it to a person. A work item written before
+ * the setup was recorded is read with none, and
  * one whose setup was running is read with that setup failed: its pane
  * ended with the daemon that started it. Every setup is read naming no
  * pane, since the next daemon gives that pane's id to another. A work item
