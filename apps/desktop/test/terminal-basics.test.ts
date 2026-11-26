@@ -1394,6 +1394,13 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`${FIND_COUNT} === "3 of 3"`, "the third match at Command+G");
     expect(await frontMatch(0)).toBe(0);
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
+    // The bar's buttons take the same steps: "Next match" wraps from the oldest to the newest, and "Previous match" back.
+    await app.click("#find-next");
+    await app.until(`${FIND_COUNT} === "1 of 3"`, 'the newest match at "Next match", after the oldest');
+    expect(await frontMatch(2)).toBe(2);
+    await app.click("#find-previous");
+    await app.until(`${FIND_COUNT} === "3 of 3"`, 'the oldest match at "Previous match", after the newest');
+    expect(await frontMatch(0)).toBe(0);
     await closeThePane();
   });
 
