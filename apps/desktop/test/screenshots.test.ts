@@ -600,6 +600,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The view before it left the dialog open with the add's login held, and the login now ends.
       rmSync(join(app.userData, "run", HOLD_LOGIN));
       await app.until(`document.getElementById("accounts-sign-in").hidden && !document.getElementById("accounts-add").disabled && document.getElementById("accounts-error").textContent === "" && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED},${ADDED}`)} && document.querySelector("#accounts-list li:last-child .account-sign-in")?.textContent.startsWith("Signed in, the login ends in ")`, `the Accounts dialog with the row the login named ${ADDED}, signed in, the sign-in pane closed and Add an account enabled again`);
+      // The list scrolls once it holds the new row, so it is scrolled until that row is the last thing in it, as the view's shot scrolls its column.
+      await app.evaluate(`document.querySelector("#accounts-list li:last-child").scrollIntoView({ block: "end" })`);
     },
     machine: async () => {
       await show.inbox();
