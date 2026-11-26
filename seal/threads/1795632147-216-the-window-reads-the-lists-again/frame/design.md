@@ -59,6 +59,8 @@ Out:
 
 ## User scenarios & acceptance *(mandatory)*
 
+A line number in this section is the line at `8c7eb798`, the tree *Grounding* names. The build and the merges of the release moved them, so a case is found at HEAD by its name.
+
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
 | A press reads again and keeps what is in front | Given a window with a work item's view in front, a pane of it in front and a state chosen in the filter. When the person presses the refresh button. Then the button works and then rests, the sidebar is drawn again from the answer, and the view, its pane in front and the filter are those the person had. | A built-app case in `apps/desktop/test/notification-click.test.ts` presses `#refresh-lists`. It reads `aria-busy` going to `true` and back, reads that the sidebar's sections are new elements, and reads the view, the pane in front and the filter's value against those before the press. Seen red with the button's click handler removed. |
@@ -76,6 +78,8 @@ Out:
 | The form is stated | Given the pull request. Then both editions of `docs/design.md` hold the row "The sidebar's head", and the pull request's body shows the head row in every theme. | The broad gate's count of table rows across the two editions (the orchestrator's), and the review's reading of the row and the screenshots. |
 
 ## Data & interfaces
+
+A line number in this section is the line at `8c7eb798`, the tree *Grounding* names, beside which the build was to make its change. The build and the merges of the release moved them.
 
 **Protocol (`apps/desktop/src/shared/protocol.ts`).**
 
