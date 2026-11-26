@@ -1,0 +1,22 @@
+diff --git a/src/unix/pty.cc b/src/unix/pty.cc
+index 7b4b9e1f990fbf95b51528bb56dc9717f5b87532..27f99e7297b5d6fe192de7148ca10db5c61166f7 100644
+--- a/src/unix/pty.cc
++++ b/src/unix/pty.cc
+@@ -778,8 +778,15 @@ done:
+   posix_spawn_file_actions_destroy(&acts);
+   posix_spawnattr_destroy(&attrs);
+ 
+-  for (; count > 0; count--) {
+-    close(low_fds[count]);
++  // The child holds the slave as its standard streams, and the spare
++  // terminals only kept the master off descriptors 0 to 2, so the parent
++  // closes all of them, as node-pty 1.2.0-beta.18 does. Every path to `done` has
++  // opened the slave. `count` reaches 3 only where every open failed.
++  close(slave);
++  for (size_t i = 0; i <= count && i < 3; i++) {
++    if (low_fds[i] != -1) {
++      close(low_fds[i]);
++    }
+   }
+ }
+ #endif

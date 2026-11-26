@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  node-pty@1.1.0:
+    hash: 3110840bd4e71a96c9ded9925824b98264068bd7aca197d4ce2d69cd0462c930
+    path: patches/node-pty@1.1.0.patch
+
 importers:
 
   .: {}
@@ -27,7 +32,7 @@ importers:
         version: 6.0.0
       node-pty:
         specifier: 1.1.0
-        version: 1.1.0
+        version: 1.1.0(patch_hash=3110840bd4e71a96c9ded9925824b98264068bd7aca197d4ce2d69cd0462c930)
       ws:
         specifier: 8.22.1
         version: 8.22.1
@@ -2883,7 +2888,7 @@ snapshots:
 
   node-int64@0.4.0: {}
 
-  node-pty@1.1.0:
+  node-pty@1.1.0(patch_hash=3110840bd4e71a96c9ded9925824b98264068bd7aca197d4ce2d69cd0462c930):
     dependencies:
       node-addon-api: 7.1.1
 

@@ -1,5 +1,21 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 import { TerminalSession, terminalEnv } from "../src/daemon/pty";
+
+/**
+ * The descriptors of this process that name a pseudo-terminal, as `lsof` lists them, each as "<descriptor> <name>".
+ * A terminal's other end that stays open after its master closed is one macOS has revoked, and `lsof` names it "(revoked)".
+ */
+function terminalDescriptors(): string[] {
+  const listed = execFileSync("/usr/sbin/lsof", ["-nP", "-a", "-p", String(process.pid), "-F", "fn"], { encoding: "utf8" });
+  const found: string[] = [];
+  let descriptor: string | undefined;
+  for (const line of listed.split("\n")) {
+    if (line.startsWith("f")) descriptor = /^\d+$/.test(line.slice(1)) ? line.slice(1) : undefined;
+    else if (line.startsWith("n") && descriptor !== undefined && /^(\/dev\/ptmx|\/dev\/ttys\d+|\(revoked\))$/.test(line.slice(1))) found.push(`${descriptor} ${line.slice(1)}`);
+  }
+  return found;
+}
 
 function collect(session: TerminalSession, until: (out: string) => boolean, timeoutMs = 5000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -47,6 +63,26 @@ describe("TerminalSession", () => {
     const session = TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "kill -TERM $$"], cwd: process.cwd(), cols: 80, rows: 24 });
     const end = await new Promise<[number, number]>((resolve) => session.onExit((code, signal) => resolve([code, signal])));
     expect(end).toEqual([0, 15]);
+  });
+
+  it("leaves no pseudo-terminal open in this process once its processes have ended, by themselves or by kill()", async () => {
+    // macOS gives the whole machine 511 pseudo-terminals, and the daemon outlives every pane it starts.
+    // node-pty 1.1.0 kept a spare one open for each start, until the repository's patch of it (`patches/`).
+    const before = terminalDescriptors();
+    const ending = Array.from({ length: 4 }, () => TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "exit 0"], cwd: process.cwd(), cols: 80, rows: 24 }));
+    const killed = Array.from({ length: 4 }, () => TerminalSession.spawn({ command: "/bin/sh", args: ["-c", "echo started; exec /bin/cat"], cwd: process.cwd(), cols: 80, rows: 24 }));
+    const ended = [...ending, ...killed].map((session) => new Promise<void>((resolve) => session.onExit(() => resolve())));
+    await Promise.all(killed.map((session) => collect(session, (o) => o.includes("started"))));
+    for (const session of killed) session.kill();
+    await Promise.all(ended);
+    // A terminal's own descriptor closes once its output is read to the end, which may follow the exit.
+    const giveUp = Date.now() + 3000;
+    let left = terminalDescriptors().filter((open) => !before.includes(open));
+    while (left.length > 0 && Date.now() < giveUp) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      left = terminalDescriptors().filter((open) => !before.includes(open));
+    }
+    expect(left).toEqual([]);
   });
 });
 
