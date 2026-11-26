@@ -546,7 +546,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
 describe("the built app's notice of a kept repositories file", { timeout: 120_000 }, () => {
   it("says in the status line, drawn as a notice, where the daemon kept a `repositories.json` it could not read", async () => {
     buildApp();
-    // The shell names no CLI, so no notice of the agent's is asked of the person's own.
+    // The login shell names no CLI, so the person's own Claude Code is not read.
     const app = await BuiltApp.start({ SHELL: "/usr/bin/true" }, { writeRun: (runDir) => writeFileSync(join(runDir, "repositories.json"), "{ not json", { mode: 0o600 }) });
     let left: number[];
     try {

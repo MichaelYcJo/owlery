@@ -258,17 +258,17 @@ function readJson(file: string): unknown {
  * at that name, so no file kept earlier is replaced. It then starts with no
  * repository, does not read `work-items.json` in its place, and writes a new
  * `repositories.json`, with no repository, at once, so the next start reads
- * that file; a write that fails there is thrown at the next change. A
- * refused file that states the three counts keeps them, so no id it gave is
- * given again; one that states none, such as a file that holds no JSON,
- * gives ids from 1 again. Where the rename fails, the file stays as it
- * stands and the store keeps its repositories in memory alone, under the
- * same counts, so nothing writes over the file it refused. `setAside()` answers which it
- * did, and `setAsideNotice` says it to a person. A work item written before
- * the setup was recorded is read with none, and
- * one whose setup was running is read with that setup failed: its pane
- * ended with the daemon that started it. Every setup is read naming no
- * pane, since the next daemon gives that pane's id to another. A work item
+ * that file. A write that fails there throws nothing at the start, and the
+ * next change writes again. A refused file that states the three counts
+ * keeps them, so no id it gave is given again; one that states none, such
+ * as a file that holds no JSON, gives ids from 1 again. Where the rename
+ * fails, the file stays as it stands and the store keeps its repositories
+ * in memory alone, under the same counts, so nothing writes over the file
+ * it refused. `setAside()` answers which it did, and `setAsideNotice` says
+ * it to a person. A work item written before the setup was recorded is
+ * read with none, and one whose setup was running is read with that setup
+ * failed: its pane ended with the daemon that started it. Every setup is
+ * read naming no pane, since the next daemon gives that pane's id to another. A work item
  * written before a chain was kept is read with none, and one whose chain was
  * running is read with that chain stopped (`chain.ts#chainRead`). A work
  * item written before a pull request was kept is read with none. A
