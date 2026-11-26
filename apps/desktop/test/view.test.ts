@@ -151,6 +151,7 @@ import {
   shownSetup,
   sidebarTree,
   paneCap,
+  paneScrollback,
   sideBySideTitle,
   stageGrid,
   stageOf,
@@ -2515,6 +2516,13 @@ describe("paneCap", () => {
     expect(paneCap(null)).toBe(4);
   });
 
+  it("gives a pane's terminal the scrollback a person set, the default of 5,000 lines where none is set, and 1,000 where the daemon sends none (scenarios B1, B2 and B3)", () => {
+    expect(paneScrollback(MACHINE)).toBe(5000);
+    expect(paneScrollback({ ...MACHINE, scrollback: { proposed: 5000, set: 20_000 } })).toBe(20_000);
+    expect(paneScrollback(EARLIER_MACHINE)).toBe(1000);
+    expect(paneScrollback(null)).toBe(1000);
+  });
+
   it("names the cap in the title of \"Side by side\"", () => {
     expect(sideBySideTitle(4)).toBe("Show up to 4 of this work item's panes at once");
     expect(sideBySideTitle(16)).toBe("Show up to 16 of this work item's panes at once");
@@ -3627,7 +3635,11 @@ const MACHINE: Machine = {
   worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
   panes: { proposed: 8, set: null },
   heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
+  scrollback: { proposed: 5000, set: null },
 };
+
+/** What a daemon of an earlier build sends of the same Mac: no scrollback. */
+const { scrollback: _unsent, ...EARLIER_MACHINE } = MACHINE;
 
 describe("daemonStatus", () => {
   it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
@@ -3680,9 +3692,18 @@ describe("machineDialog", () => {
         { cap: "agents", label: "Agents at once", value: 6, proposed: 6, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
         { cap: "worktrees", label: "Worktrees", value: null, proposed: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
         { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+        { cap: "scrollback", label: "Scrollback lines", value: 5000, proposed: 5000, isDefault: true, says: "The default is 5,000 lines for each pane. A pane on screen holds 12 bytes for each column of a line, about 6 MB at 5,000 lines of 100 columns, and the daemon keeps up to 256 characters of output for each line." },
         { cap: "heavyCommands", label: "Heavy commands at once", value: 1, proposed: 1, isDefault: true, says: "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken." },
       ],
     });
+  });
+
+  it("draws no scrollback row against a daemon of an earlier build, which sends no scrollback (scenario B3)", () => {
+    expect(machineDialog(EARLIER_MACHINE)?.rows.map(({ cap }) => cap)).toEqual(["agents", "worktrees", "panes", "heavyCommands"]);
+  });
+
+  it("shows the scrollback a person set in place of its default, with \"Use the default\" offered (scenario B2)", () => {
+    expect(machineDialog({ ...MACHINE, scrollback: { proposed: 5000, set: 20_000 } })?.rows[3]).toMatchObject({ cap: "scrollback", value: 20_000, proposed: 5000, isDefault: false });
   });
 
   it("shows the limit on heavy commands a person set in place of its default, with \"Use the default\" offered (scenario E)", () => {
@@ -3696,6 +3717,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 3, isDefault: false },
       { cap: "worktrees", value: 40, isDefault: false },
       { cap: "panes", value: 8, isDefault: true },
+      { cap: "scrollback", value: 5000, isDefault: true },
       { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
     // The sentence still states the default, which "Use the default" returns to.
@@ -3708,6 +3730,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 6, isDefault: false },
       { cap: "worktrees", value: null, isDefault: true },
       { cap: "panes", value: 8, isDefault: false },
+      { cap: "scrollback", value: 5000, isDefault: true },
       { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
   });
@@ -3819,6 +3842,7 @@ describe("capChanges", () => {
     worktrees: { text: text.worktrees ?? "", toDefault: toDefault.includes("worktrees") },
     panes: { text: text.panes ?? "8", toDefault: toDefault.includes("panes") },
     heavyCommands: { text: text.heavyCommands ?? "1", toDefault: toDefault.includes("heavyCommands") },
+    scrollback: { text: text.scrollback ?? "5000", toDefault: toDefault.includes("scrollback") },
   });
 
   it("sends the value a person typed, and nothing of a row that still shows its proposal untouched (scenario 3)", () => {

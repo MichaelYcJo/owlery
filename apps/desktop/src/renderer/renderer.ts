@@ -102,7 +102,7 @@ import {
   type RenamePlanned,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1825,6 +1825,8 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one given no reader of the machine, send no machine, and the Machine button is then hidden.
       held.machine = message.machine ?? null;
       showMachineEntry();
+      // A window that connected again holds terminals made under what the daemon said before.
+      showScrollback();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
@@ -1872,6 +1874,7 @@ function onMessage(message: ServerMessage): void {
       // A cap changed, here or in another client, the count of agents or the queue of heavy commands changed, or the daemon read the machine again for this window.
       held.machine = message.machine;
       showMachineEntry();
+      showScrollback();
       draws.draw(drawMachineDialog);
       // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
       draws.draw(drawLists);

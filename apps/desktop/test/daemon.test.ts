@@ -6270,6 +6270,20 @@ describe("OutputBuffer", () => {
     expect(buffer.text()).toBe("ghijklm\nn");
   });
 
+  it("drops its older output at once, from a line's start, where its size is made smaller, and keeps more of what is printed afterwards where it is made larger (scenario B2)", () => {
+    const buffer = new OutputBuffer(12);
+    buffer.append("ab\ncd\nefgh\n");
+    buffer.setLimit(6);
+    // Six characters open at "\nefgh\n", inside the line "cd", whose rest is dropped through its line break.
+    expect(buffer.text()).toBe("efgh\n");
+    buffer.setLimit(20);
+    buffer.append("ijklmnopqrst");
+    expect(buffer.text()).toBe("efgh\nijklmnopqrst");
+    // A limit that holds what is kept drops nothing.
+    buffer.setLimit(17);
+    expect(buffer.text()).toBe("efgh\nijklmnopqrst");
+  });
+
   /** What a buffer keeps of a text once it was emptied with its modes kept. */
   const modesOf = (text: string): string => {
     const buffer = new OutputBuffer(1000);
@@ -6737,8 +6751,9 @@ describe("the caps on the machine", () => {
     worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
     panes: { proposed: 8, set: null },
     heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
+    scrollback: { proposed: 5000, set: null },
   };
-  const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
+  const told =(c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
 
   /** A reader that gives `READING` and notes the folder of each read. */
   function reader() {
@@ -6810,6 +6825,8 @@ describe("the caps on the machine", () => {
     ["a number under 1", { worktrees: 0 }, "The cap on worktrees is a whole number from 1."],
     ["a number given as text", { agents: "3" }, "The cap on agents at once is a whole number from 1."],
     ["a cap on panes over 16, beside a value it would take", { agents: 3, panes: 17 }, "The cap on panes side by side is a whole number from 1 to 16."],
+    ["a scrollback under 1,000 lines", { scrollback: 999 }, "The scrollback is a whole number from 1,000 to 50,000."],
+    ["a scrollback over 50,000 lines", { scrollback: 50_001 }, "The scrollback is a whole number from 1,000 to 50,000."],
   ])("refuses %s with a sentence, and changes, writes and tells nothing", async (_, caps, sentence) => {
     const { runDir, c, both } = await machined();
     c.send({ type: "setCaps", requestId: 7, ...caps });
@@ -6915,6 +6932,64 @@ describe("the caps on the machine", () => {
     const held = await third.turnGiver().ask({ folder: "/a", name: "test", place: "outside", alone: false }).turn;
     expect(third.turnGiver().ask({ folder: "/b", name: "test", place: "outside", alone: false }).waits).toBe(true);
     held?.end();
+  });
+
+  /** A pane's process that prints, at each number it reads, as many `x` and then a `!`, with no line break, so the output a pane's buffer keeps is cut at its count of characters. */
+  const PRINTS = { command: "/bin/sh", args: ["-c", "stty -echo; while read n; do head -c \"$n\" /dev/zero | tr '\\0' x; printf '!'; done"], env: {} };
+  /** Has the pane print `count` characters and a `!`, and waits until the client has its `!` number `printed`. */
+  const print = async (c: Awaited<ReturnType<typeof client>>, id: number, count: number, printed: number): Promise<void> => {
+    c.send({ type: "input", id, data: `${String(count)}\r` });
+    await c.until(() => (c.messages.reduce((marks, m) => marks + (m.type === "output" && m.id === id ? m.data.split("!").length - 1 : 0), 0) >= printed ? true : undefined), 20_000);
+  };
+  /** What the daemon replays of a pane to a client that attaches it now. */
+  const replayOf = async (c: Awaited<ReturnType<typeof client>>, id: number): Promise<string> => {
+    const replays = () => c.messages.filter((m): m is Extract<ServerMessage, { type: "replay" }> => m.type === "replay" && m.id === id);
+    const before = replays().length;
+    c.send({ type: "attach", id });
+    return (await c.until(() => replays()[before], 20_000)).data;
+  };
+
+  it("keeps 256 characters of each pane's output for each line of the scrollback, 1,280,000 at its default of 5,000 lines (scenario B1)", async () => {
+    const { c } = await machined({ commandFor: () => PRINTS });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const { id } = (await c.message("started", (m) => m.requestId === 1)).session;
+    await print(c, id, 1_500_000, 1);
+    const replay = await replayOf(c, id);
+    expect(replay.length).toBe(1_280_000);
+    expect(replay.endsWith("x!")).toBe(true);
+  });
+
+  it("moves the limit of every live pane's buffer when a person sets the scrollback, drops the older output at once where it is smaller, gives a pane started later the same, and keeps the value for the daemon started next (scenario B2)", async () => {
+    const { daemon: d, runDir, c, bystander } = await machined({ commandFor: () => PRINTS });
+    c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const { id } = (await c.message("started", (m) => m.requestId === 1)).session;
+    await print(c, id, 1_000_000, 1);
+    // A smaller scrollback drops what its 256 characters a line do not hold, with nothing printed since.
+    c.send({ type: "setCaps", requestId: 2, scrollback: 1000 });
+    await bystander.message("machine", (m) => m.machine.scrollback?.set === 1000);
+    expect((await replayOf(c, id)).length).toBe(256_000);
+    // A larger one keeps more of what is printed afterwards.
+    c.send({ type: "setCaps", requestId: 3, scrollback: 20_000 });
+    await bystander.message("machine", (m) => m.machine.scrollback?.set === 20_000);
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"scrollback":20000}');
+    await print(c, id, 2_000_000, 2);
+    expect((await replayOf(c, id)).length).toBe(256_000 + 2_000_001);
+    // "Use the default" returns it to 5,000 lines, and the buffer that held more drops its older output.
+    c.send({ type: "setCaps", requestId: 4, scrollback: null });
+    await bystander.message("machine", (m) => m.machine.scrollback?.set === null && told(bystander).length === 3);
+    expect((await replayOf(c, id)).length).toBe(1_280_000);
+    c.send({ type: "setCaps", requestId: 5, scrollback: 20_000 });
+    await bystander.message("machine", (m) => m.machine.scrollback?.set === 20_000 && told(bystander).length === 4);
+    await d.close();
+
+    // The daemon started next on the run folder reads it, and a pane it starts keeps 5,120,000 characters.
+    const { url } = await daemon({ runDir, machine: reader().machine, commandFor: () => PRINTS });
+    const again = await client(url);
+    expect((await again.message("ready")).machine?.scrollback).toEqual({ proposed: 5000, set: 20_000 });
+    again.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
+    const pane = (await again.message("started", (m) => m.requestId === 1)).session.id;
+    await print(again, pane, 5_500_000, 1);
+    expect((await replayOf(again, pane)).length).toBe(5_120_000);
   });
 
   it("answers a `readHeavyRuns` with one row for each command of each repository the runs' file holds, to the client that asked alone (scenario I)", async () => {

@@ -3,7 +3,7 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
+import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
 import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
@@ -1619,17 +1619,24 @@ export interface CapRow {
 /**
  * What the Machine dialog shows: what the daemon read of the machine, in one
  * sentence, and a row for each cap, whose field holds the value a person set or
- * else the proposal. Nothing against a daemon that sent no `machine`, one of
- * an earlier build or one given no reader, and the Machine button is then
- * hidden.
+ * else the proposal. The scrollback's row stands after the panes', and not
+ * against a daemon of an earlier build, which sends no scrollback. Nothing
+ * against a daemon that sent no `machine`, one of an earlier build or one
+ * given no reader, and the Machine button is then hidden.
  */
 export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
   if (!machine) return null;
-  const { reading, agents, worktrees, panes, heavy } = machine;
+  const { reading, agents, worktrees, panes, heavy, scrollback } = machine;
   const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
   return {
     reading: readingSays(reading),
-    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)), row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy))],
+    rows: [
+      row("agents", agents.set, agents.proposed, agentsSays(reading, agents)),
+      row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)),
+      row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)),
+      ...(scrollback === undefined ? [] : [row("scrollback", scrollback.set, scrollback.proposed, scrollbackSays())]),
+      row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy)),
+    ],
   };
 }
 
@@ -2533,6 +2540,11 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
 /** The most panes a work item's view shows side by side: the cap a person set on panes, the proposal where none is set, and `PANES_WITHOUT_CAP` where the daemon keeps no cap. */
 export function paneCap(machine: Machine | null): number {
   return machine === null ? PANES_WITHOUT_CAP : (machine.panes.set ?? machine.panes.proposed);
+}
+
+/** The lines of history a pane's terminal holds: the scrollback a person set, its proposal where none is set, and `SCROLLBACK_WITHOUT_DAEMON` where the daemon sends no scrollback, as one of an earlier build or one given no reader of the machine. */
+export function paneScrollback(machine: Machine | null): number {
+  return machine?.scrollback === undefined ? SCROLLBACK_WITHOUT_DAEMON : (machine.scrollback.set ?? machine.scrollback.proposed);
 }
 
 /** The title of "Side by side", which names the cap on the panes it shows. */

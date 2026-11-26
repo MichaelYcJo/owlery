@@ -1144,4 +1144,58 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     // The menu had the keyboard, and the pane that is left has it now.
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
+
+  /** The numbered lines a pane is to print under its links, `line-0001` and on. */
+  const numbered = (count: number): string[] => Array.from({ length: count }, (_, index) => `line-${String(index + 1).padStart(4, "0")}`);
+  /** The numbered lines the terminal of the pane in front holds, its history among them, read by "Select All" and "Copy" of its menu, once the last of `count` is there, fifteen seconds at most. A press of the right button inside the selection keeps it. */
+  async function heldLines(count: number): Promise<string[]> {
+    const last = numbered(count).at(-1);
+    const deadline = Date.now() + 15_000;
+    for (;;) {
+      await pressMenuItem("Select All");
+      await pressMenuItem("Copy");
+      const held = (await clipboard()).split("\n").filter((line) => /^line-\d+$/.test(line.trimEnd()));
+      if (held.at(-1) === last || Date.now() >= deadline) return held;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
+  it("holds 5,000 lines of history in a pane's terminal where no person set the scrollback (scenario B1)", async () => {
+    writeFileSync(linesFile, `${numbered(6000).join("\n")}\n`);
+    await openPane("Shell");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    const [, rows] = (await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×").map(Number) as [number, number];
+    const held = await heldLines(6000);
+    // The terminal holds the scrollback's lines and the screen's rows, the last of them the cursor's.
+    expect(held.length).toBeGreaterThanOrEqual(5000);
+    expect(held.length).toBeLessThan(5000 + rows);
+    expect(held.at(-1)).toBe("line-6000");
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  });
+
+  it("holds again the 3,000 lines a pane printed once it left the stage and came back, drawn from the daemon's replay (scenario B4, and the time of the return for Q2)", async () => {
+    writeFileSync(linesFile, `${numbered(3000).join("\n")}\n`);
+    const pane = await openPane("Shell");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    expect(await heldLines(3000)).toHaveLength(3000);
+    await app.click("#tabs .tab:nth-child(1) .label");
+    await app.until(`${TAB_IN_FRONT} === "Shell 1" && ${PANE_HAS_KEYBOARD}`, "the first pane in front");
+    // The screen of a pane that came back sends nothing a person types until its terminal has drawn the replay (src/renderer/view.ts, `screenTurns`), so the first key the pane's process receives marks the return.
+    const handed = `${receivedFile}-${String(pane)}`;
+    const before = readFileSync(handed).length;
+    const clicked = Date.now();
+    await app.click("#tabs .tab:nth-child(2) .label");
+    await app.until(PANE_HAS_KEYBOARD, "the pane back in front");
+    while (readFileSync(handed).length === before) {
+      if (Date.now() - clicked > 15_000) throw new Error("the pane that came back took no key in 15 seconds");
+      await app.cdp("Input.insertText", { text: "." });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    console.log(`A pane of 3,000 lines took a key ${String(Date.now() - clicked)} ms after the click that brought it back.`);
+    const held = await heldLines(3000);
+    expect(held).toEqual(numbered(3000));
+    await pressMenuItem("Close Pane");
+    await app.until(`${TABS}.length === 1`, "one tab");
+  });
 });

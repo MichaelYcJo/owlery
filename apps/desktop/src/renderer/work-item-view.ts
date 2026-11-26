@@ -44,6 +44,7 @@ import {
   lineSince,
   opensToBack,
   paneCap,
+  paneScrollback,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -553,7 +554,8 @@ function takesDrops(element: HTMLElement, term: Terminal): void {
 /**
  * Adds a screen to the pool, for a pane that comes onto the stage where no
  * screen is free. The view is on screen then, so the terminal opens in an
- * element that is displayed. Each size the screen takes goes to the pane
+ * element that is displayed. Its terminal holds as many lines of history as
+ * the scrollback the daemon said (`showScrollback`). Each size the screen takes goes to the pane
  * that holds it at that moment where that pane's process runs, and a free
  * screen sends nothing. What a person types and what the terminal answers
  * go where the screen's turns say (./view, `screenTurns`), and so do the
@@ -570,8 +572,7 @@ function newScreen(): Screen {
   element.className = "pane";
   stage.appendChild(element);
   const term = new Terminal({
-    // The UI keeps 1,000 lines; older output stays with the daemon (docs/architecture.md, Memory design).
-    scrollback: 1000,
+    scrollback: paneScrollback(held.machine),
     fontFamily: look("--font-terminal"),
     fontSize: Number.parseFloat(look("--size-terminal")),
     theme: terminalColours(),
@@ -691,6 +692,12 @@ function stageShows(shown: readonly number[]): void {
   for (const { screen, pane } of taken) placed(screen, pane);
   for (const screen of pool) if (screen.turns.pane !== undefined) screen.fit.fit();
   for (const { screen, pane } of taken) take(screen, pane);
+}
+
+/** Gives every terminal of the pool the scrollback the daemon last said (./view, `paneScrollback`). A smaller one drops the oldest lines a terminal holds. */
+export function showScrollback(): void {
+  const lines = paneScrollback(held.machine);
+  for (const { term } of pool) if (term.options.scrollback !== lines) term.options.scrollback = lines;
 }
 
 /** Whether a pane is on the stage of the view on screen. No pane is on another screen. */

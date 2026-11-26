@@ -22,13 +22,41 @@ export const PANES_MOST = 16;
 /** The panes a view shows side by side where the daemon keeps no cap: the count the four-terminal reference scene is measured at. */
 export const PANES_WITHOUT_CAP = 4;
 
+/** The lines of history a pane on screen holds where no person set the scrollback, on every machine. */
+export const SCROLLBACK_DEFAULT = 5000;
+
+/** The fewest and the most lines of history a person may set. */
+export const SCROLLBACK_LEAST = 1000;
+export const SCROLLBACK_MOST = 50_000;
+
+/** The lines of history a pane's terminal holds where the daemon sends no scrollback, as one of an earlier build does. */
+export const SCROLLBACK_WITHOUT_DAEMON = 1000;
+
+/** The characters of a pane's output the daemon keeps for each line of the scrollback: today's 262,144 characters for 1,000 lines, rounded down. */
+export const CHARS_PER_LINE = 256;
+
+/** The bytes a line of history takes in the window for each of its columns: xterm.js keeps three 32-bit numbers a cell. */
+const BYTES_PER_CELL = 12;
+
 /** Each cap's name in a sentence, and on its row of the Machine dialog. */
 export const CAP_NAMES: Record<Cap, { label: string; inSentence: string }> = {
   agents: { label: "Agents at once", inSentence: "agents at once" },
   worktrees: { label: "Worktrees", inSentence: "worktrees" },
   panes: { label: "Panes side by side", inSentence: "panes side by side" },
   heavyCommands: { label: "Heavy commands at once", inSentence: "heavy commands at once" },
+  scrollback: { label: "Scrollback lines", inSentence: "scrollback" },
 };
+
+/** A whole number as the window writes it, its thousands grouped. */
+function grouped(count: number): string {
+  return count.toLocaleString("en-US");
+}
+
+/** The sentence under the scrollback's row: its default, what a line costs in the window, and what the daemon keeps for it. */
+export function scrollbackSays(): string {
+  const megabytes = Math.round((BYTES_PER_CELL * 100 * SCROLLBACK_DEFAULT) / 1e6);
+  return `The default is ${grouped(SCROLLBACK_DEFAULT)} lines for each pane. A pane on screen holds ${String(BYTES_PER_CELL)} bytes for each column of a line, about ${String(megabytes)} MB at ${grouped(SCROLLBACK_DEFAULT)} lines of 100 columns, and the daemon keeps up to ${String(CHARS_PER_LINE)} characters of output for each line.`;
+}
 
 /** The cores and the memory one heavy command is given by the proposal of the limit on heavy commands. */
 export const HEAVY_CORES = 8;
@@ -169,8 +197,12 @@ export function readingSays(reading: MachineReading): string {
   return `${memoryWords(reading.memoryBytes)} of memory, ${cores}, a load of ${trimmed(reading.load)}, and ${disk}.`;
 }
 
-/** Why the daemon refuses a value a person gives a cap, or null where it takes it: a whole number from 1, for the panes to `PANES_MOST`, and for the limit on heavy commands to the machine's cores where `cores` gives them. */
+/** Why the daemon refuses a value a person gives a cap, or null where it takes it: a whole number from 1, for the panes to `PANES_MOST`, and for the limit on heavy commands to the machine's cores where `cores` gives them. The scrollback is a whole number from `SCROLLBACK_LEAST` to `SCROLLBACK_MOST`. */
 export function capRefusal(cap: Cap, value: unknown, cores?: number): string | null {
+  if (cap === "scrollback") {
+    if (typeof value === "number" && Number.isInteger(value) && value >= SCROLLBACK_LEAST && value <= SCROLLBACK_MOST) return null;
+    return `The ${CAP_NAMES.scrollback.inSentence} is a whole number from ${grouped(SCROLLBACK_LEAST)} to ${grouped(SCROLLBACK_MOST)}.`;
+  }
   const most = cap === "panes" ? PANES_MOST : cap === "heavyCommands" && cores !== undefined ? cores : Number.POSITIVE_INFINITY;
   if (typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= most) return null;
   const bound = Number.isFinite(most) ? ` to ${String(most)}` : "";
