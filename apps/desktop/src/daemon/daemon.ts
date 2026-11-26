@@ -2961,15 +2961,16 @@ export class Daemon {
    * earlier one of the same worktree has ended. Where a live pane of the
    * work item says it is working, a headless session of it is working or
    * its chain is running, when the commit's turn comes, nothing is
-   * committed: the file stands written, and the session's own commit, the
-   * next commit made here or the chain's next stage's commit carries it. A
-   * commit that fails or is ended leaves the file written and says git's
-   * words in the log, and nothing tries it again.
+   * committed: the file stands written, and only a commit a session makes
+   * of it carries it, since no stage's commit and no commit of a person's
+   * word holds `routing.md`. A commit that fails or is ended leaves the
+   * file written and says git's words in the log, and nothing tries it
+   * again.
    */
   private commitWord(held: Held, directory: string, subject: string): void {
     const { id, worktree, branch } = held.item;
     const commit = async (): Promise<void> => {
-      // A running chain is at work in the worktree between two stages too, and its next stage's commit carries the file.
+      // A running chain is at work in the worktree between two stages too, so nothing is committed while it runs.
       const working = this.chains.has(id) || this.works(id);
       if (working) return;
       try {
