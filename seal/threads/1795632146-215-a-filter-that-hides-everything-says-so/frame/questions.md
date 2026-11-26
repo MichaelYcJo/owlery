@@ -8,7 +8,7 @@ The judgments below were open in the issue and the tree answered them. Each poin
 - Whether the press also empties the search field: `plan.md` *Alternatives considered*, the row of the press that leaves the search.
 - Whether the lists' "No work item matches." changes as well: `design.md` *Grounding*, *The code as it stands*, the paragraph on the lists' heads.
 - Whether this work writes `docs/design.md` itself or leaves it to the settle: `design.md` *Grounding*, the row of *Principles* item 8.
-- Whether the screenshot scene leaves "Decided without asking" empty: `design.md` *Grounding*, *The code as it stands*, the paragraph on the scene.
+- Whether the screenshot scene leaves "Decided without asking" empty: `design.md` *Grounding*, *The code as it stands*, the paragraph on the scene. Since #264 it does not, and the view adds a search (`plan.md` *Judgments of the run*).
 - Whether the built-app case narrows by a state alone: `plan.md` *Alternatives considered*, the row of the hook socket.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
