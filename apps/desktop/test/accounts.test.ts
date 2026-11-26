@@ -185,11 +185,13 @@ describe("AccountStore", () => {
     expect(again.defaultId()).toBe(1);
   });
 
-  it("gives no id twice, and reads a file whose next id stands at or below an id it holds as one past the highest", () => {
+  it("gives no id twice, and reads a file whose next id stands at or below an id it holds or notes under adding as one past the highest", () => {
     const runDir = folder();
     const handed = handedFolder();
     writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 1, defaultId: 0, accounts: [{ id: 4, name: "Work", adapter: "claude", folder: handed, made: false }] }));
     expect(new AccountStore(runDir).addHanded("Home", handedFolder(), "claude").id).toBe(5);
+    writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 1, defaultId: 0, accounts: [{ id: 4, name: "Work", adapter: "claude", folder: handed, made: false }], adding: [6] }));
+    expect(new AccountStore(runDir).addHanded("Home", handedFolder(), "claude").id).toBe(7);
     writeFileSync(join(runDir, "accounts.json"), JSON.stringify({ nextId: 9, defaultId: 0, accounts: [] }));
     expect(new AccountStore(runDir).addHanded("Home", handedFolder(), "claude").id).toBe(9);
   });
@@ -260,7 +262,7 @@ describe("AccountStore", () => {
     expect(() => store.setLogin(1, { signedIn: true, loginEndsAt: null })).toThrow("No account 1 is kept.");
     expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ nextId: 2, accounts: [], adding: [1] });
     expect(new AccountStore(runDir).adding()).toEqual([{ id: 1, folder: join(runDir, "accounts", "1") }]);
-    // A second store's next id passes the noted one, as the first store's does.
+    // The next id passes the noted one, in this store and in a second one that reads the file.
     expect(new AccountStore(runDir).addHanded("Handed", handedFolder(), "claude").id).toBe(2);
     expect(store.addHanded("Handed", handedFolder(), "claude").id).toBe(2);
     // A folder a lost accounts.json left behind is no account's to take.
