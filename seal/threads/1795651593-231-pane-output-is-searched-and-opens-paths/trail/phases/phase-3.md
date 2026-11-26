@@ -104,7 +104,7 @@
 | P5 | `work-item-view.ts#takesPastes` | a paste into the find bar's field read as the pane's | red |
 | P6 | `work-item-view.ts#newScreen` | no paste read before the terminal | red |
 | P7 | `view.ts#paneKey` | Control+V read as a line feed | red |
-| P8 | `work-item-view.ts#pasteImage` | the path pasted though the screen took another pane meanwhile | SURVIVED; `gaps.md` *Not done* |
+| P8 | `work-item-view.ts#pasteImage` | the path pasted though the screen took another pane meanwhile | SURVIVED; red after `f911a919`, review round 1's fix pass |
 
 The failing lines of V1, V6, O5, C2, E4 and N2 were read, and each names the unit mutated. Every W and R mutant failed the case of C1, C2 and C3, and its first failing line was read. W1 and R8 failed at `the Settings dialog, at "Settings…" of the menu`, R1 and R4 at `the Settings dialog, at the first click on a file`, R9 at `the Settings dialog closed at Cancel`, W4 at `the Settings dialog closed at Save`, and R6 on `expected 'finder' to be 'Visual Studio Code'`. W2, R5 and R7 failed on the stand-in's runs, and W3, R2, R3 and R10 on a card's rows or title.
 
@@ -112,7 +112,7 @@ The failing lines of V1, V6, O5, C2, E4 and N2 were read, and each names the uni
 
 **Built-app files alone (executed).** `terminal-basics.test.ts` passed 34 of 34 at the tree that became `0714b097` (exit 0), and its paste case alone passed at the tree that became `ebf4e095` (exit 0). The typecheck passed at the trees that became `0714b097`, `2025749d` and `3b9b8c3b` (exit 0).
 
-**Decision 6: the pane menu's "Paste" checks the pane at the click before it pastes an image.** The first build compared the pane only before a text was pasted, and `pasteImage` took the pane the screen held once the clipboard's text was read. A screen that took another pane in that time would have pasted the image's path into it. `3b9b8c3b` returns before either paste where the screen's pane changed. No case reads this guard, as none reads P8's, and `gaps.md` *Not done* holds both.
+**Decision 6: the pane menu's "Paste" checks the pane at the click before it pastes an image.** The first build compared the pane only before a text was pasted, and `pasteImage` took the pane the screen held once the clipboard's text was read. A screen that took another pane in that time would have pasted the image's path into it. `3b9b8c3b` returns before either paste where the screen's pane changed. No case reads this guard, and `gaps.md` *Not done* holds it.
 
 **The phase boundary's set (executed).** One script ran both commands through the runner of heavy commands, at `3b9b8c3b`.
 
