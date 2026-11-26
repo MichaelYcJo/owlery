@@ -89,9 +89,10 @@ export async function openFolder(folder: unknown, app: unknown, openers: Openers
  * How each editor of the list takes a file and its line: the command that
  * takes one, inside the editor's bundle except Xcode's, and the arguments it
  * is handed for a file with a line and a column, a line alone, or neither.
- * The commands of Visual Studio Code and Xcode were read with `--help` on a
- * Mac that holds them. Those of Cursor, Zed and Sublime Text are each
- * editor's documented command, and no Mac that holds them was read.
+ * Its names are the editors of `KNOWN_APPS`. The commands of Visual Studio
+ * Code and Xcode were read with `--help` on a Mac that holds them. Those of
+ * Cursor, Zed and Sublime Text are each editor's documented command, not
+ * read on a Mac that holds them.
  */
 export const EDITOR_COMMANDS: Readonly<Record<string, { command(bundle: string): string; args(file: string, line?: number, column?: number): string[] }>> = {
   "Visual Studio Code": { command: (bundle) => join(bundle, "Contents/Resources/app/bin/code"), args: (file, line, column) => (line === undefined ? [file] : ["--goto", place(file, line, column)]) },
@@ -135,12 +136,14 @@ export async function openInEditor(path: unknown, line: unknown, column: unknown
   if (!openers.exists(path)) return `${path} is gone.`;
   if (!openers.isFile(path)) return "Owlery opens a file in an editor, and nothing else.";
   if (editor === null || editor === "finder") return "No editor is chosen in Settings.";
-  const commands = typeof editor === "string" && KNOWN_APPS.some((known) => known.name === editor && known.kind === "editor") ? EDITOR_COMMANDS[editor] : undefined;
+  // The editors of the list are the ones that have a command.
+  const commands = typeof editor === "string" && Object.hasOwn(EDITOR_COMMANDS, editor) ? EDITOR_COMMANDS[editor] : undefined;
   if (commands === undefined) return `${String(editor)} is not an editor Owlery opens a file in.`;
   const installed = installedApps(openers.exists, openers.home).find((known) => known.name === editor);
   if (!installed) return `${String(editor)} is not installed.`;
   const at = placeNumber(line);
-  const from = at === undefined ? undefined : placeNumber(column);
+  // A column is handed only with its line (`place`).
+  const from = placeNumber(column);
   try {
     if (start.program !== null) await openers.run(start.program, [place(path, at, from)]);
     else if (start.background) return null;
