@@ -88,8 +88,8 @@ async function client(url: string, token: string | null = TOKEN) {
   if (token !== null) socket.send(JSON.stringify({ type: "hello", token }));
   cleanups.push(() => socket.close());
   // The 5 seconds is a give-up, not a wait: the poll returns as soon as what it looks for is there. On 2026-11-27, in
-  // three runs of the account-change group beside eight `yes` loops (load average 12 to 15), the longest of the group's
-  // polls took 278 ms.
+  // three runs of the account-change group beside eight `yes` loops on a 12-core Mac (load average up to 15), the
+  // longest of the group's polls took 278 ms.
   const until = async <T>(find: () => T | undefined, ms = 5000): Promise<T> => {
     const end = Date.now() + ms;
     for (;;) {
@@ -8752,7 +8752,8 @@ describe("a Claude Code pane and the owl chain", () => {
       return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1) : [];
     };
     // The 5 seconds is a give-up, not a wait: the poll returns once the pane's file holds the lines asked for. On
-    // 2026-11-27, in three runs of this group beside eight `yes` loops (load average 12 to 15), the longest took 485 ms.
+    // 2026-11-27, in three runs of this group beside eight `yes` loops on a 12-core Mac (load average up to 15), the
+    // longest took 485 ms.
     const launches = async (pane: number, count: number) => {
       const end = Date.now() + 5000;
       while (read(pane).length < count) {
