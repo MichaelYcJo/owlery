@@ -120,8 +120,8 @@ export class AccountStore {
     // A folder is read as made only where it is the one `makeFolder` makes for its id, so an edited file never has a removal sign out
     // and delete a folder Owlery did not make. A run folder moved elsewhere reads its made folders as handed over, which are never removed.
     const accounts = value.accounts.map(({ id, name, adapter, folder, made, signedIn, loginEndsAt, limits }) => ({ id, name, adapter, folder, made: made && folder === this.madeAt(id), signedIn: typeof signedIn === "boolean" ? signedIn : null, loginEndsAt: typeof loginEndsAt === "number" && Number.isFinite(loginEndsAt) ? loginEndsAt : null, limits: limitsOf(limits) }));
-    // A file of a build before this list notes no folder. An id that is no whole number above System default's would name a folder
-    // outside `accounts/<id>`, as "../x" does, and an account's id names its folder: the store removes neither.
+    // A file of a build before this list notes no folder. An entry that is no whole number above System default's names a folder
+    // the store never made for a sign-in, as "../x" and "refresh" do, and an account's id names that account's folder: the store removes neither.
     const noted = Array.isArray(value.adding) ? value.adding.filter((id): id is number => Number.isInteger(id) && (id as number) > SYSTEM_DEFAULT_ID && !accounts.some((account) => account.id === id)) : [];
     const adding = [...new Set(noted)];
     const highest = [...accounts.map((account) => account.id), ...adding].reduce((most, id) => Math.max(most, id), SYSTEM_DEFAULT_ID);

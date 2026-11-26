@@ -275,7 +275,7 @@ describe("AccountStore", () => {
     expect(new AccountStore(runDir).adding()).toEqual([]);
   });
 
-  it("turns a folder whose first sign-in has not ended into an account Owlery made, under its id, the name it is given and the login the agent named, in one write a second store reads, and removes another such folder with everything in it, a link in it as a link, adding no account; it refuses an id it noted no folder under, keeping and removing nothing (scope items 2 and 3, the store's part)", () => {
+  it("turns a folder whose first sign-in has not ended into an account Owlery made, under its id, the name it is given and the login the agent named, which a second store reads, and removes another such folder with everything in it, a link in it as a link, adding no account; it refuses an id it noted no folder under, keeping and removing nothing (scope items 2 and 3, the store's part)", () => {
     const runDir = folder();
     const store = new AccountStore(runDir);
     const own = handedFolder();
