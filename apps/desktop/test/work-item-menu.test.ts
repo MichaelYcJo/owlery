@@ -640,7 +640,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   it("gives every button that shows an icon or a mark alone, and every item of a work item's menu and of a repository's, a description on hover", async () => {
     // A button that holds a drawing or a mark, and no letter, says nothing of itself but through its title.
     const bare = await value<[string, string][]>(`[...document.querySelectorAll("button")].filter((button) => (button.querySelector("svg") || button.textContent.trim() !== "") && !/\\p{L}/u.test(button.textContent)).map((button) => [button.id || button.className, button.title])`);
-    expect(bare.map(([name]) => name)).toEqual(expect.arrayContaining(["bell", "new-work-item", "icon-button repository-add", "icon-button repository-menu"]));
+    expect(bare.map(([name]) => name)).toEqual(expect.arrayContaining(["bell", "refresh-lists", "new-work-item", "icon-button repository-add", "icon-button repository-menu"]));
     expect(bare.filter(([, title]) => title.trim() === "")).toEqual([]);
     const titles = (): Promise<[string, string][]> => value(`[...document.querySelectorAll('${MENU} [role="menuitem"]')].map((item) => [item.textContent, item.title])`);
     await rightPress(line(SIDEBAR, 1));

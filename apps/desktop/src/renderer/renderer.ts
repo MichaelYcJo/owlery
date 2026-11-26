@@ -27,8 +27,9 @@ import { initMachine, openMachine, showMachine, showMachineEntry } from "./machi
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
 import { holdDraws } from "./press";
+import { refresher } from "./refresh";
 import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
+import { focusSearch, initSidebar, showRefresh, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
@@ -124,6 +125,20 @@ if (window.owlery.background) window.__notifications = notifier.kept;
 
 // While the mouse's main button is held down in the window, what a daemon message changed in the lists waits to be drawn until the release (./press), so a click whose press and release fall on one line still reaches that line.
 const draws = holdDraws(window);
+
+// The sidebar's refresh button has the daemon read the work items again and send the lists back (./refresh). The answer's `inbox` is drawn through the hold, as every `inbox` is (`takeLists`), so the screen in front, the view's pane in front and the filter stay.
+const refreshing = refresher({
+  ready: () => held.ready,
+  request,
+  send,
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  show: showRefresh,
+  tell,
+  daemonNotice: () => held.daemonNotice,
+});
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -2005,6 +2020,8 @@ function onMessage(message: ServerMessage): void {
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      // A refresh's `done` follows the `inbox` that answers it, which the window has drawn by now.
+      if (refreshing.answered(message.requestId)) return;
       if (trashing?.requestId === message.requestId) {
         // The daemon no longer keeps the repository, so its folder goes to the Trash now, as the person chose. A failure is said in the status line.
         const { folder } = trashing;
@@ -2051,6 +2068,8 @@ function onMessage(message: ServerMessage): void {
     case "error":
       // Nothing was created or started.
       requestRefused(message.requestId);
+      // A refresh's refusal is said in the status line in the daemon's words, and the lists stand as they were.
+      if (refreshing.refused(message.requestId, message.message)) return;
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
       if (takePlan(message.requestId, { error: message.message })) return;
       // The refusal of a base's fetch is the form's to show, under the menu.
@@ -2148,6 +2167,7 @@ initSidebar(
       showNarrowed();
     },
     filter,
+    refresh: () => refreshing.press(),
     leaveSearch() {
       const list = listInFront();
       if (list) list.focusLine(list.selected());

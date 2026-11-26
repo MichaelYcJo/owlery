@@ -251,6 +251,8 @@
       .line-mark svg.icon { width: var(--line-mark); height: var(--line-mark); }
       #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
       #repositories-head h2 { flex: 1; color: var(--ink-faint); }
+      /* While the refresh's answer is on its way, its arrows go round once in 1.1s, as the working mark's part does. */
+      #refresh-lists[aria-busy="true"] svg { animation: turn 1.1s linear infinite; }
       #bell-count { font-weight: 600; color: var(--ink); }
       #bell-count:empty { display: none; }
       /* The dot on the bell where a work item waits, in the strong ink. */
@@ -679,6 +681,9 @@
         <button id="bell" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z" /><path d="M6.8 14h2.4" /></svg>
           <span id="bell-count" class="count"></span>
+        </button>
+        <button id="refresh-lists" class="icon-button" type="button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 0 1 4.5-4.5 4.9 4.9 0 0 1 3.37 1.37L12.5 6" /><path d="M12.5 3.5V6H10" /><path d="M12.5 8a4.5 4.5 0 0 1-4.5 4.5 4.9 4.9 0 0 1-3.37-1.37L3.5 10" /><path d="M6 10H3.5v2.5" /></svg>
         </button>
         <label id="sidebar-filter-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
