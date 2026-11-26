@@ -977,7 +977,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     const COMMITS = twelveIn("#remove-losses");
     await app.until(`[...document.querySelectorAll("#remove-losses h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)}) && !document.getElementById("remove-force-label").hidden`, "the loss of twelve commits, and the choice to force the deletes");
     const row = Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`));
-    // The list is scrolled as the wheel leaves it, to rest on a whole row past its top.
+    // The list is scrolled past its top to a whole row, where a turn of the wheel comes to rest.
     expect(await value<number>(`(() => { const list = ${COMMITS}; list.scrollTop = 2 * ${row}; return list.scrollTop; })()`)).toBe(2 * row);
     await value(`void (window.__kept = { list: ${COMMITS}, row: ${COMMITS}.children[6], workItems: document.querySelector("#remove-work-items ul"), sessions: document.querySelector("#remove-sessions ul") })`);
     const kept = (): Promise<[number, boolean, boolean, boolean, boolean]> => value(`[${COMMITS}.scrollTop, ${COMMITS} === window.__kept.list, window.__kept.row.isConnected, document.querySelector("#remove-work-items ul") === window.__kept.workItems, document.querySelector("#remove-sessions ul") === window.__kept.sessions]`);
