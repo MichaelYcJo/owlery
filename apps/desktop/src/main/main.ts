@@ -1,19 +1,21 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, type MenuItemConstructorOptions, nativeTheme, shell } from "electron";
 import { execFile } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lookChoice } from "../shared/appearance";
-import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, type InstalledApp, type PathFound } from "../shared/ipc";
+import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, type EditorState, type InstalledApp, type PathFound } from "../shared/ipc";
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { closeHides, quitsWithLastWindow, showInBackground, takeBackground } from "./background";
-import { chooseClipboard } from "./clipboard";
+import { chooseClipboard, pastedImage } from "./clipboard";
 import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
 import { daemonControl } from "./daemon-control";
 import { dockImage } from "./dock-image";
+import { readEditor, writeEditor } from "./editor";
 import { chooseOpener, openLink, takeOpener } from "./links";
-import { ACCOUNTS, type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON } from "./menu";
+import { ACCOUNTS, type MenuEntry, menuTemplate, QUIT_COMPLETELY, RESTART_DAEMON, SETTINGS } from "./menu";
 import { staysOnPage } from "./navigation";
-import { copyText, installedApps, openFolder, trashFolder, type Openers } from "./openers";
+import { copyText, installedApps, openFolder, openInEditor, trashFolder, type Openers } from "./openers";
 import { chooseFinder, pathsOf, showInFinder } from "./paths";
 import { comeForward } from "./forward";
 import { chooseFolderDialog, pickFolder } from "./pick-folder";
@@ -28,8 +30,9 @@ import { WINDOW_SIZE } from "./window-size";
 // the app's menu, keeps the one window on Owlery's own page, opens the
 // address of a link a person clicked in a pane outside Owlery, says what
 // stands at a path a pane printed and shows one in Finder, opens a folder in
-// Finder or in an editor or a terminal for the items of a menu, reads and
-// writes the clipboard, moves a removed repository's folder to the Trash
+// Finder or in an editor or a terminal for the items of a menu, keeps the
+// editor a person chose and opens a file a pane printed in it, reads and
+// writes the clipboard and writes an image pasted into a pane as a file, moves a removed repository's folder to the Trash
 // where the person chose it, brings the window forward when the window asks,
 // tells the window whether the app started in the background, so that its
 // page raises no notification of the system's in such a start, and on macOS
@@ -61,8 +64,17 @@ const finder = chooseFinder(program, background, {
       () => false,
     ),
 });
-// The clipboard a copy and a paste of the window reach: the app's own in the background, and the system's otherwise (./clipboard).
-const held = chooseClipboard(background, clipboard);
+// The clipboard a copy and a paste of the window reach: the app's own in the background, and the system's otherwise (./clipboard). The system's image is the first entry of the clipboard that holds a PNG image, as its bytes.
+const held = chooseClipboard(background, {
+  writeText: (text) => clipboard.writeText(text),
+  readText: () => clipboard.readText(),
+  readImage: async () => {
+    const item = (await clipboard.read()).find((entry) => entry.types.includes("image/png"));
+    return item ? new Uint8Array(await (await item.getType("image/png")).arrayBuffer()) : null;
+  },
+});
+// The folder a pasted image is written into, in the system's temporary folder, which on macOS is the person's own.
+const pastedFolder = join(tmpdir(), "owlery-pasted");
 // Whether the app is quitting. From Electron's `before-quit` on, a close of the window closes it, so Quit ends the app.
 let quitting = false;
 app.on("before-quit", () => {
@@ -74,6 +86,13 @@ if (background && process.platform === "darwin") app.setActivationPolicy("access
 // What ./openers reads the Mac through: the bundles on its disk, `open` run with arguments and no shell, and Finder.
 const openers: Openers = {
   exists: existsSync,
+  isFile: (path) => {
+    try {
+      return statSync(path).isFile();
+    } catch {
+      return false;
+    }
+  },
   home: app.getPath("home"),
   run: (command, args) =>
     new Promise((resolve, reject) => {
@@ -106,6 +125,11 @@ function tellDaemonMenu(chosen: DaemonEnd): void {
 /** Tells the window of a click on the menu's "Accounts…", brought forward or made as a click that ends the daemon is told. */
 function tellAccountsMenu(): void {
   tellWindow((win) => win.webContents.send(Channel.accountsMenu));
+}
+
+/** Tells the window of a click on the menu's "Settings…", as a click on "Accounts…" is told. */
+function tellSettingsMenu(): void {
+  tellWindow((win) => win.webContents.send(Channel.settingsMenu));
 }
 
 /** Brings the window forward, or makes one, and has `tell` say a menu's click to it once its page has loaded. */
@@ -207,11 +231,18 @@ app.whenReady().then(() => {
   ipcMain.handle(Channel.openLink, (_event, address: unknown): Promise<boolean> => openLink(address, opener));
   // The texts come from what a pane printed. The answer says only whether a file or a folder stands at each, and where.
   ipcMain.handle(Channel.pathsOf, (_event, worktree: unknown, texts: unknown): Promise<(PathFound | null)[]> => pathsOf(worktree, texts, app.getPath("home")));
-  // The disk is read again at the request, and a file is never opened (./paths).
+  // The disk is read again at the request, and Finder shows a file selected and never opens it (./paths). A file opens in an editor only through `openInEditor` below.
   ipcMain.handle(Channel.showInFinder, (_event, path: unknown): Promise<boolean> => showInFinder(path, finder));
   // A copy writes the clipboard this start keeps: the app's own in the background, and the system's otherwise (./clipboard).
   ipcMain.handle(Channel.copyText, (_event, text: unknown): Promise<void> => copyText(text, (written) => held.writeText(written)));
   ipcMain.handle(Channel.clipboardText, (): Promise<string> => held.readText());
+  // A paste of an image: the image the clipboard this start keeps holds, written as a file whose path the window pastes (./clipboard). In the background that clipboard holds none.
+  ipcMain.handle(Channel.pastedImage, (): Promise<string | null> => pastedImage(held, pastedFolder, Date.now()));
+  // The editor's choice is read from its file at every request, so a window that reloads reads the one the person last saved.
+  ipcMain.handle(Channel.editor, (): EditorState => ({ chosen: readEditor(userData), installed: installedApps(openers.exists, openers.home).flatMap(({ name, kind }) => (kind === "editor" ? [name] : [])) }));
+  ipcMain.handle(Channel.saveEditor, (_event, chosen: unknown): boolean => writeEditor(userData, chosen));
+  // The path comes from what a pane printed, so the disk is read again and the editor is the one `editor.json` keeps, of the list and installed (./openers). The program `OWLERY_OPENER` names is run in the editor's place, and in the background no editor opens.
+  ipcMain.handle(Channel.openInEditor, (_event, path: unknown, line: unknown, column: unknown): Promise<string | null> => openInEditor(path, line, column, readEditor(userData), openers, { program, background }));
   // The window asks at a person's click on its notification, so the app takes the front from whichever app the person is in.
   ipcMain.handle(Channel.comeForward, (event): boolean => comeForward(BrowserWindow.fromWebContents(event.sender), background, () => app.focus({ steal: true })));
   // A packaged app is given no image, and the Dock shows its bundle's icon file (./dock-image).
@@ -224,7 +255,7 @@ app.whenReady().then(() => {
     }
   }
   // Set before the window is made, so the keys Electron's own menu binds are never the window's: that menu closes the window on Command+W.
-  Menu.setApplicationMenu(Menu.buildFromTemplate(withClicks(menuTemplate(process.platform), { [ACCOUNTS]: tellAccountsMenu, [RESTART_DAEMON]: () => tellDaemonMenu("restart"), [QUIT_COMPLETELY]: () => tellDaemonMenu("quit") })));
+  Menu.setApplicationMenu(Menu.buildFromTemplate(withClicks(menuTemplate(process.platform), { [ACCOUNTS]: tellAccountsMenu, [SETTINGS]: tellSettingsMenu, [RESTART_DAEMON]: () => tellDaemonMenu("restart"), [QUIT_COMPLETELY]: () => tellDaemonMenu("quit") })));
   createWindow();
   // A click on the Dock icon arrives here. It shows the window a close hid, and makes one where none is left.
   app.on("activate", () => {

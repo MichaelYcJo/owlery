@@ -84,7 +84,7 @@ import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "
 import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
 import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
 import { AgentMemoryStore, CAPS, LimitsStore, type MachineReader } from "./machine";
-import { agentsProposal, capRefusal, heavyProposal, KEEP_FREE_BYTES, panesProposal, worktreesProposal } from "../shared/machine";
+import { agentsProposal, capRefusal, CHARS_PER_LINE, heavyProposal, KEEP_FREE_BYTES, panesProposal, SCROLLBACK_DEFAULT, worktreesProposal } from "../shared/machine";
 import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
@@ -373,8 +373,6 @@ export interface DaemonOptions {
   prPollMs?: number;
   /** How long the watch waits between two reads of any other open pull request, and after a read that failed; `PR_REST_POLL_MS` of `github.ts` when absent. */
   prRestPollMs?: number;
-  /** How much recent output each session keeps for a client that reconnects. */
-  bufferChars?: number;
   /** How long a client has to present the token. */
   helloTimeoutMs?: number;
   /** How long the daemon waits, with no session alive, no headless session working, no chain running and no client connected, before it asks to exit. */
@@ -660,7 +658,7 @@ export class Daemon {
     clearTimeout(session?.silentStart);
     // The conversation a change of the pane's account resumes, from any event that names one.
     if (session && typeof payload.session_id === "string" && CONVERSATION_ID.test(payload.session_id)) session.conversation = payload.session_id;
-    const event = agentEventFor(hookName);
+    const event = agentEventFor(hookName, payload);
     if (!event) return;
     const tool = typeof payload.tool_name === "string" ? payload.tool_name : null;
     this.broadcast({ type: "agent", id: paneId, event, tool, at: Date.now() });
@@ -1730,6 +1728,8 @@ export class Daemon {
         }
         this.send(socket, { type: "done", requestId: message.requestId });
         if (Object.keys(changes).length > 0) {
+          // A changed scrollback moves the size of every pane's buffer, and a smaller one drops the older output at once.
+          if (changes.scrollback !== undefined) for (const session of this.sessions.values()) session.output.setLimit(this.outputLimit());
           // A cap that rose starts the sessions that waited for it first, so the machine every client is told holds them as running.
           this.drainQueue();
           // A changed limit on heavy commands gives the next turns at once where it rose, and the keeper's watcher then tells every client the machine.
@@ -2611,7 +2611,7 @@ export class Daemon {
     const session: Session = {
       info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
       terminal: this.spawnPane(launch, cwd, size, signsIn === null),
-      output: new OutputBuffer(this.options.bufferChars ?? 256 * 1024),
+      output: new OutputBuffer(this.outputLimit()),
       silentStart: undefined,
       log: undefined,
       logUnread: false,
@@ -4323,7 +4323,13 @@ export class Daemon {
       worktrees: { proposed: worktreesProposal(reading, standing, perWorktreeBytes), set: set.worktrees, standing, perWorktreeBytes, keepFreeBytes: KEEP_FREE_BYTES },
       panes: { proposed: panesProposal(reading), set: set.panes },
       heavy: { ...heavyProposal(reading), set: this.heavySet(reading), queue: this.turns.queue().map(({ folder, name, place, state, since }) => ({ workItemId: this.store.workItems().find(({ item }) => item.worktree === folder)?.item.id ?? null, folder, name, place, state, since })) },
+      scrollback: { proposed: SCROLLBACK_DEFAULT, set: set.scrollback },
     };
+  }
+
+  /** The characters each pane's buffer keeps: `CHARS_PER_LINE` for each line of the scrollback a person set, or of its default. A daemon given no reader of the machine keeps the default. */
+  private outputLimit(): number {
+    return CHARS_PER_LINE * (this.limits.get().scrollback ?? SCROLLBACK_DEFAULT);
   }
 
   private broadcastMachine(): void {
