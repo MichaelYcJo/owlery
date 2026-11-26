@@ -182,6 +182,8 @@ import {
   type SealSince,
   unanswered,
   unreadLines,
+  wordOwedMark,
+  wordOwedSays,
 } from "../src/renderer/view";
 import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
@@ -1184,6 +1186,36 @@ describe("the decisions made without asking", () => {
     expect(decisionLines(EARLIER, NOW)).toEqual([]);
     expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
     expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
+  });
+});
+
+describe("a word of the person's that no commit holds", () => {
+  it("says above the decisions what the commit of the word waits for: for a working session or a running chain, its why and that Owlery commits it once that has ended, not as a failure; for a failed commit, git's reason and that Owlery tries again, as a failure", () => {
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "session", why: "a session of the work item is working" } })).toEqual({
+      text: "The record holds a word of yours that no commit holds yet: a session of the work item is working. Owlery commits it once that has ended.",
+      failed: false,
+    });
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "session", why: "the work item's chain is running" } })).toEqual({
+      text: "The record holds a word of yours that no commit holds yet: the work item's chain is running. Owlery commits it once that has ended.",
+      failed: false,
+    });
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "retry", why: "the hook says no" } })).toEqual({
+      text: "The record holds a word of yours that was not committed: the hook says no. Owlery tries again.",
+      failed: true,
+    });
+  });
+
+  it("marks the line with the words after the count of the decisions where the commit failed, and with nothing while the word waits for a session", () => {
+    expect(wordOwedMark({ ...LOGIN, wordOwed: { waits: "retry", why: "the hook says no" } })).toBe("word not committed");
+    expect(wordOwedMark({ ...LOGIN, wordOwed: { waits: "session", why: "a session of the work item is working" } })).toBe("");
+  });
+
+  it("says nothing and marks nothing where nothing is owed, and reads a work item of a daemon of an earlier build, which sends no such field, as one that owes nothing", () => {
+    expect(wordOwedSays({ ...LOGIN, wordOwed: null })).toBeNull();
+    expect(wordOwedMark({ ...LOGIN, wordOwed: null })).toBe("");
+    expect("wordOwed" in LOGIN).toBe(false);
+    expect(wordOwedSays(LOGIN)).toBeNull();
+    expect(wordOwedMark(LOGIN)).toBe("");
   });
 });
 
