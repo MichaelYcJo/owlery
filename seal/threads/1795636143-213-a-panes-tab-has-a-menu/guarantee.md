@@ -88,3 +88,40 @@ The built-app mutants of phase 2 other than the rename's were not re-run. Their 
 target: d0e784774828d3f82254fdb5c0a71b4097e01bb6 against 8a19d3e2a2457877c829271858ec585c97d30103
 Verdict: sealed
 ```
+
+## The audit at `387c3a02`
+
+The base `release/v0.0.5` resolved to `c80b900a` through `release/v0.0.5@{upstream}` (executed). Since the block above, three commits stand on the branch:
+
+- `be7f1c7d` commits this file.
+- `9123e62b` merges `c80b900a`, which brings #278 (PR #293).
+- `387c3a02` adds the new broad run to `trail/gate.md`.
+
+The audit re-ran what those commits touched and read the parties again. No claim of the runs above stands at a coordinate the merge changed, so no case was run again.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only the work item's records follow | `trail/gate.md`, its last block, `run: 9123e62b against c80b900a` | `git merge-base --is-ancestor 9123e62b HEAD`; `git log --no-merges --name-only 9123e62b..HEAD ^c80b900a` | Holds (executed). `9123e62b` is an ancestor of HEAD, and only `387c3a02` follows it, which changes `trail/gate.md` alone. The gate's pass is the orchestrator's run. Its log names the output folder `seal-gate-d_xkolc2`, whose `suite.txt` reads exit 0, 75 test files passed and 2 skipped, and 2499 cases passed (read). |
+| The merge takes the release's change as it stands, and resolves nothing | `9123e62b`, its message | `git diff 8a19d3e2 c80b900a` against `git diff be7f1c7d 9123e62b`, compared with `cmp`; `git show --cc 9123e62b` | Holds (executed). The two diffs are the same, byte for byte, and `git show --cc` prints no hunk. |
+| The merge reaches no file of this work | the release's side of the merge | `git diff --name-only 8a19d3e2...be7f1c7d` against `git diff --name-only 8a19d3e2 c80b900a`, counted with `grep -c -x -F -f` | Holds (executed): the two lists share no file. The release changes the roadmap, `docs/architecture*.md`, `docs/product*.md`, the README files and its own work item's records. |
+| `## Rule changes` still finds its `from:` sentences after the release's change to `docs/architecture*.md` | `frame/design.md` `## Rule changes` | `git grep -n -F` of each `from:` sentence over its file | Holds (executed). The English sentence stands at `docs/architecture.md:60`, and the Korean at `docs/architecture.ko.md:60`. Both stand under the sections the operations name, *What a session survives* at line 47 and *세션이 견디는 것* at line 47, so the settle can still apply both. |
+| The work item's records changed only by the gate record | `seal/threads/1795636143-213-a-panes-tab-has-a-menu/` | `git diff --stat be7f1c7d HEAD -- <that directory>` | Holds (executed): `trail/gate.md` alone. |
+| The pull request body is `pr.md` above the heading, and the records' text below it | the body file the prompt names | `seal pr-body seal/threads/1795636143-213-a-panes-tab-has-a-menu --body <file> --check` | Holds (executed): exit 0, "matches". The body holds 12 image links (executed: `grep -c`). |
+| The chain's records agree with HEAD | the rounds' `target:` lines | `python3 skills/code-review/scripts/chain_check.py --baseline c80b900a --root <worktree> --sealing` | Holds (executed): exit 0. |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | As the runs above read it. | The tree at HEAD: the merge changed none of its coordinates, and its `## Rule changes` sentences still stand where the settle reads them (executed, above). | None. |
+| the build | As the runs above read it, and the merge `9123e62b`, which says it merged cleanly. | The tree: the merge resolved nothing (executed, above). | None. |
+| the last round | Round 4, as the run above reads it. No round followed, and none was owed, since the merge adds no line of this work's own. | The rows above. | None. |
+| the changelog | Unchanged since the runs above. | The tree, as the runs above read it. | None. |
+| the orchestrator's part of the pull request body | Unchanged: `pr.md` is the same file (executed: `git diff --stat be7f1c7d HEAD` on the work item names `trail/gate.md` alone). | Its quotes, at their coordinates, as the first run reads them. | None. |
+
+```seal
+target: 387c3a0288203ecb1e37184dce63f11230bb8ca5 against c80b900adacf4e6b37b2e4363ff5e510e3c62dd2
+Verdict: sealed
+```
