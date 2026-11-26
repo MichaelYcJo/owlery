@@ -64,6 +64,11 @@ The fix: where a step leaves the match in front outside what the add-on counted,
 
 The snippet assumes the selection the step made still stands when `find` searches again. That holds because both calls run in one task, and no print is parsed between them. Its precondition is the add-on's version: 0.16.0 is pinned in `apps/desktop/package.json`, and `SearchEngine.ts:187-192` is read from that version. Phase 2's Decision 1 states the old reading ("or where the match in front is not among those counted (`resultIndex` -1)"), and gains "or printed since the add-on last counted, which `find` counts again".
 
+```seal
+verdict: fixed f99803f1
+answer: The finding holds: the add-on 0.16.0 recounts only at a changed term or choice, or 200 ms after the last print (`SearchAddon.ts:60-73`, `:101-104`, `:176-179`, read), and fires `resultIndex` -1 with the old count for a match outside its list. `find` in `work-item-view.ts` now searches again from the match in front with the term dropped where a step leaves it outside the count and the count is under the limit, as the record's snippet gives; `searchOf`'s listener keeps the add-on's last results on the `Screen`, whose `results` field is a change to the body of an interface the tree holds, so it waits for no fold. `findCount`'s docstring and phase 2's Decision 1 give the second source of -1. The new case "counts a match the pane printed after the search once a step lands on it, while the pane keeps printing (scenario A2)" in `terminal-basics.test.ts` prints into the pane's terminal device after the search, keeps printing every 50 ms, and steps with Shift+Enter. It failed without the search again (executed, exit 1, with the fix set aside): a probe of the same step read "More than 1,000 matches" where "1 of 3" was due. With the fix it passed among the six cases of `-t 'scenario A'` (exit 0). `seal mutate` putting `false` in place of `counted.resultIndex < 0` was red on the same line (executed, exit 0). `findCount` itself and its unit case at `view.test.ts:4171` stay. `git grep` of "resultIndex" and "More than 1,000" over the frame, `changelog.md`, `docs` and `apps/desktop/src` (executed after `1ef33033`, a sample) printed the code, the rows of both editions of `docs/design.md`, *Scope* item 8 and the find bar's paragraph of `frame/design.md`. Each states the words the bar says and none states when -1 comes, so none stands contradicted, and no frame statement needs a fold.
+```
+
 ### 2. No case holds that a pasted image's path is dropped where the screen took another pane while the main process wrote the file (mutant P8)
 
 ```seal
@@ -92,6 +97,12 @@ The fix, in sentences, since which pooled screen a pane takes is `screenMoves`'s
 
 Once it stands, `gaps.md` *Not done*'s paragraph on P8 goes. Its sentence on the menu's text guard stays.
 
+```seal
+verdict: fixed f911a919
+location: `seal/threads/1795651593-231-pane-output-is-searched-and-opens-paths/gaps.md`, `seal/threads/1795651593-231-pane-output-is-searched-and-opens-paths/trail/phases/phase-3.md`
+answer: The finding holds, and the case was written rather than rejected: the guard is what keeps an image's path out of another agent's prompt, and the case costs one step. The paste case in `terminal-basics.test.ts` gains a step at its end, after the Control+V step, so the counts it already reads stay. The main process's handler holds its answer through a global. A second pane is opened and its screen marked; an image paste goes into it; the second pane is closed from a second client of the daemon; a third pane opens and the step waits until the keyboard is in it on the marked screen (`screenMoves` gives a pane the first free screen). The answer is then released, and neither the third pane's process nor the first pane's is handed anything. The step passed with the guard (executed, exit 0). `seal mutate` with P8's mutation, `turns.pane === pane` removed from `pasteImage`, was red at the third pane's bytes, `expected '1b5b3230307e2f707269766174652f7661722…' to be ''`, the bracketed path (executed, exit 0). In `1ef33033` the paragraph of `gaps.md` *Not done* on P8 goes, and its sentence on the menu's "Paste" stands alone, since no case reads that guard. Phase 3's table now reads P8 as red after `f911a919`, and its Decision 6 cites the `gaps.md` paragraph for the menu's guard alone.
+```
+
 ### 3. The memory measurement and phase 1 set the cells of 5,000 lines, 11.8 MB, against the 33 MB the renderer grew, where the lines added hold 9.4 MB, as the frame says
 
 ```seal
@@ -112,6 +123,11 @@ The search above printed these three statements and no other. It is a sample und
 
 <!-- seal/threads/1795651593-231-pane-output-is-searched-and-opens-paths/trail/phases/phase-1.md:68, its last two sentences -->
 By arithmetic the 4,000 lines each of the four terminals holds beyond the 1,000 it held before account for about 9.4 MB of the renderer's 33 MB. The measurement does not say what holds the rest.
+```
+
+```seal
+verdict: fixed c3486212
+answer: The finding holds: the scene of 2026-11-19 printed about 300 lines a second (`memory.md:22`, read), so its terminals already held 1,000 lines, and 4,000 × 49 × 12 × 4 is 9.4 MB. Both replacement sentences were applied as the record gives them. The finding's command, `git grep -n -F -e "11.8" -e "9.4 MB" -e "12 × 49"` with "2.9 MB" added, over the work item's records, `apps/desktop/measurements` and `docs`, run after `1ef33033` (executed), prints `memory.md:131` and `phase-1.md:68` at 9.4 MB, `frame/design.md:151` at 9.4 MB, `memory.md:99` (an unrelated 18 MB), and this record's own lines. No 11.8 MB or 2.9 MB is left. The read of the range, for the pass as a whole: after `1ef33033` the pass read every hunk of `git diff b960acf6..HEAD` over `apps/desktop/src` and `apps/desktop/measurements`, and the fold of the frame since phase 3 (`git diff a3abfa39..HEAD` over `frame/`, read), which holds no statement these fixes change. `gaps.md` and `changelog.md` were read whole after `1ef33033`; no fix changes what the changelog states, so it is not touched. The row of `gaps.md` *Not verified* on `screenTurns` dropping typed keys until the replay is drawn is closed, as this round's *Confirmations* answer it with `view.ts:2818-2858` and `work-item-view.ts:805-808`: the row is removed in `1ef33033`, since `gaps.md` holds only what went out unproved. The narrow set after `1ef33033` passed: the typecheck (exit 0), `view.test.ts` and `themes.test.ts` with 586 cases (exit 0), and `terminal-basics.test.ts` with 35 (exit 0), all executed through the machine's runner of heavy commands in one command. The broad gate stays `unverified`, for the orchestrator.
 ```
 
 ## Confirmations
