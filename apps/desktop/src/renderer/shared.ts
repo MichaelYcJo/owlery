@@ -22,7 +22,9 @@ export const held = {
   apps: [] as InstalledApp[],
   /** What the status line says of the daemon in place of its state, or nothing: that the daemon is of another build, as the main process answered when this page asked for the daemon (./view, `daemonNotice`). A notice of the window's own stands before it. */
   daemonNotice: "",
-  /** What the daemon's adapter said a person should know of its agent, as `ready` and each `agentNotice` since said it, or null where it said nothing: the status line says it after the window's own notice and the daemon's (./view, `statusNotice`). */
+  /** What the daemon said, in the last `ready`, of a `repositories.json` it could not read at its start and where it kept the file, or null where it said nothing: the status line says it after the window's own notice and the daemon's, and before the agent's (./view, `statusNotice`). */
+  storeNotice: null as string | null,
+  /** What the daemon's adapter said a person should know of its agent, as `ready` and each `agentNotice` since said it, or null where it said nothing: the status line says it after the window's own notice, the daemon's and the store's (./view, `statusNotice`). */
   agentNotice: null as string | null,
   /** The headless sessions as the daemon listed them at `ready`, each replaced whole at every `headless` since, and taken out at the `headlessDropped` that names it. */
   headless: [] as HeadlessInfo[],

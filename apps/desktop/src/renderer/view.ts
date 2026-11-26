@@ -913,12 +913,17 @@ export function daemonNotice(otherBuild: boolean): string {
 /**
  * What the status line says in place of the daemon's state, or nothing: the
  * window's own notice first, then what there is to say of the daemon
- * (`daemonNotice`), then what the daemon's adapter said of its agent, such as
- * that the installed one is older than the oldest version checked. `agent`
- * is null where the adapter said nothing.
+ * (`daemonNotice`), then what the daemon said of a `repositories.json` it
+ * could not read and kept aside, then what the daemon's adapter said of its
+ * agent, such as that the installed one is older than the oldest version
+ * checked. The kept file stands before the agent's notice because it names a
+ * loss a person can still undo, and after the other build's because the
+ * restart that notice asks for changes which daemon reads the file. `store`
+ * is null where the daemon read its file, and `agent` where the adapter said
+ * nothing.
  */
-export function statusNotice(own: string, daemon: string, agent: string | null): string {
-  return own || daemon || agent || "";
+export function statusNotice(own: string, daemon: string, store: string | null, agent: string | null): string {
+  return own || daemon || store || agent || "";
 }
 
 /**

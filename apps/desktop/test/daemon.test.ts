@@ -1481,6 +1481,29 @@ describe("repositories", () => {
     expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 2, repositories: [{ id: 1, folder: repo, workItems: [] }] });
   });
 
+  it("keeps aside a `repositories.json` it cannot read, writes the first change to a new one beside it, and says where the file was kept in each `ready`", async () => {
+    const { repo, root, base } = repository();
+    const runDir = join(base, "run");
+    mkdirSync(runDir);
+    // A store of a shape this build does not read: a work item whose branch is a number.
+    const refused = JSON.stringify({ nextWorkItemId: 2, nextRepositoryId: 2, nextGroupId: 1, repositories: [storedRepository(1, "/r/later", { workItems: [stored(1, { branch: 7 })] })] });
+    writeFileSync(join(runDir, "repositories.json"), refused, { mode: 0o600 });
+    const { url } = await daemon({ runDir, worktreesRoot: root, now: () => Date.UTC(2026, 10, 26, 12, 30, 5) });
+    const c = await client(url);
+    const ready = await c.message("ready");
+    expect([ready.repositories, ready.workItems, ready.archived]).toEqual([[], [], []]);
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    await c.message("inbox");
+    const kept = join(runDir, "repositories-unread-20261126T123005Z.json");
+    expect(readFileSync(kept, "utf8")).toBe(refused);
+    expect(readdirSync(runDir).filter((name) => name.startsWith("repositories")).sort()).toEqual(["repositories-unread-20261126T123005Z.json", "repositories.json"]);
+    expect(JSON.parse(readFileSync(join(runDir, "repositories.json"), "utf8"))).toMatchObject({ nextRepositoryId: 2, repositories: [{ id: 1, folder: repo, workItems: [] }] });
+    const notice = `Owlery could not read its list of repositories, so it kept the file as ${kept} and started with none. Nothing in that file was changed.`;
+    expect(ready.storeNotice).toBe(notice);
+    // The notice stands while the daemon runs, a change of the store notwithstanding: a window that connects later is told too.
+    expect((await (await client(url)).message("ready")).storeNotice).toBe(notice);
+  });
+
   it("adds a repository it keeps no second time: the second add is answered, and no inbox follows it", async () => {
     const { repo, root } = repository();
     const { url } = await daemon({ worktreesRoot: root });

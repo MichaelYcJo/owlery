@@ -1897,6 +1897,8 @@ function onMessage(message: ServerMessage): void {
       showScrollback();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
+      // A daemon that read its `repositories.json` or found none, and a daemon of an earlier build, send no notice of the store.
+      held.storeNotice = message.storeNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
       held.accounts = heldAccounts(message);
       showAccountsEntry();

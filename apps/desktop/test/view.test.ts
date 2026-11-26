@@ -3507,21 +3507,23 @@ describe("daemonNotice", () => {
 describe("statusNotice", () => {
   const OWN = "The theme could not be saved.";
   const DAEMON = daemonNotice(true);
+  const STORE = "Owlery could not read its list of repositories, so it kept the file as /run/repositories-unread-20261126T123005Z.json and started with none. Nothing in that file was changed.";
   const AGENT = `Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
 
-  it("says the agent's notice where the window and the daemon have none", () => {
-    expect(statusNotice("", "", AGENT)).toBe(AGENT);
+  it("says the agent's notice where the window, the daemon and the store have none", () => {
+    expect(statusNotice("", "", null, AGENT)).toBe(AGENT);
   });
 
-  it("says the window's own notice first, then the daemon's, then the agent's", () => {
-    expect(statusNotice(OWN, DAEMON, AGENT)).toBe(OWN);
-    expect(statusNotice(OWN, "", AGENT)).toBe(OWN);
-    expect(statusNotice("", DAEMON, AGENT)).toBe(DAEMON);
-    expect(statusNotice("", DAEMON, null)).toBe(DAEMON);
+  it("says the window's own notice first, then the daemon's, then the store's, then the agent's", () => {
+    expect(statusNotice(OWN, DAEMON, STORE, AGENT)).toBe(OWN);
+    expect(statusNotice(OWN, "", STORE, AGENT)).toBe(OWN);
+    expect(statusNotice("", DAEMON, STORE, AGENT)).toBe(DAEMON);
+    expect(statusNotice("", DAEMON, null, null)).toBe(DAEMON);
+    expect(statusNotice("", "", STORE, AGENT)).toBe(STORE);
   });
 
-  it("says nothing where none of the three has a notice, so the line shows the daemon's state", () => {
-    expect(statusNotice("", "", null)).toBe("");
+  it("says nothing where none of the four has a notice, so the line shows the daemon's state", () => {
+    expect(statusNotice("", "", null, null)).toBe("");
   });
 });
 
