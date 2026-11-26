@@ -22,8 +22,10 @@ the first phase closes and its rows in every later phase and fix pass,
 `docs/layout/the-record-layout.md` *A change writes fragments, never a
 shared file* asks for one, the version's move in the commit that adds
 `changelog.md` where `frame/plan.md` *Operational impact* names one, and in
-a fix pass one close block under each open finding; a write not named here
-is a write you do not make.
+a fix pass one close block under each open finding, and each line of the
+three frame files that states the fact a finding corrects. You rewrite
+such a line to what HEAD gives, or remove it, and write no new account of
+what was built into it. A write not named here is a write you do not make.
 
 ## Order of work
 
@@ -60,13 +62,17 @@ is a write you do not make.
 9. In a fix pass, open `skills/implement/fix-pass.md` and follow it in place
    of step 7's run and of the phase record steps 5 and 8 write; steps 5 and
    6 otherwise hold for each fix. The pass runs in the work item's
-   worktree, and its prompt names the round record, the numbers of its
-   open findings, each decision the person reversed with the person's
-   message, and `decisions.md` where one stands: take each reversal in, and
-   hold to each decision and each answer that file records. Commit each fix
-   yourself, and commit no change to the round record: Owlery commits it
-   after the pass, the daemon in a chain it runs and the chain command in a
-   pane.
+   worktree, which the first line of its prompt names by the absolute path
+   of its top, and you read every other path the prompt gives from that
+   top. The folder your session starts in may be another worktree of the
+   repository. The prompt names the round record, the
+   numbers of its open findings, each decision the person reversed with the
+   person's message, and `decisions.md` where one stands: take each
+   reversal in, and hold to each decision and each answer that file
+   records. Make each fix in that worktree and commit it yourself with
+   `git -C` and the worktree's path, and commit no change to the round
+   record: Owlery commits it after the pass, the daemon in a chain it runs
+   and the chain command in a pane.
 10. Hand back, after the same `writing-style` section: what was done, each
     claim labelled as rule 4 asks and the suite as rule 2 asks, each
     instruction you declined as rule 3 asks, the account the rule *Before
@@ -178,14 +184,23 @@ there that says what the work does or concludes states the present
 lifetimes*). Fix in
 your range every statement HEAD contradicts in a file your *Job* lets you
 write. Name each one that stands in a file you do not write, `routing.md`
-or any line of the frame but your Status cell in `frame/plan.md`, in the
-hand-back with its coordinate and the fact HEAD gives, for the
-orchestrator to fold. That set is closed, and reading it whole is rule
+or a line of the frame your *Job* does not give you, in the hand-back
+with its coordinate and the fact HEAD gives, for the orchestrator to fold. That set is closed, and reading it whole is rule
 12's second method, so none of it is handed on as a sample. Then find the
 other places across the tree that state each rule your range reworded or
 removed, by `git grep` on its words
 and by its `check:` target, and correct each or say in the hand-back why it
 stands; that list is a sample, and the hand-back calls it one and says
-where the part it did not reach stands. What you did not finish goes to
-`gaps.md` `## Not done` with why. Neither that nor the part a sample did
+where the part it did not reach stands. In a fix pass, a finding that
+corrects a fact, a statement of which things hold something, is corrected
+at every place that states that fact, and not at its `location:` lines
+alone. Find those places two ways: by the whole read above, which is a
+closed set, and by `git grep` on the fact's words across the tree, which
+is a sample and is called one. In a fix pass, a place in a line of the
+frame is corrected too, since your *Job* gives you that line. In a fix
+pass, each item this rule has you name in the hand-back goes instead into
+the `answer:` of the close block of the finding the item concerns, and
+otherwise into the `answer:` of the last close block you append, since no
+party of the owl chain folds a fix pass's hand-back. What you did not
+finish goes to `gaps.md` `## Not done` with why. Neither that nor the part a sample did
 not reach is the proofer's share.

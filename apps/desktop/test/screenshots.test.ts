@@ -3,15 +3,26 @@
 // repository with seven work items, one in each state a work item has, one
 // parked with questions, a finished one whose seal holds, and one whose seal
 // a later commit broke, and writes one PNG file for each view (the summary,
-// the inbox, a work item's view, the view of the parked work item, the view
-// of the finished work item, the view of the broken one, a work item's menu,
+// the inbox, a work item's view, the find bar over that view's pane, the
+// view of the parked work item, the view of the finished work item, the
+// view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings, the Accounts dialog and the Machine dialog) in each
+// repository's settings, the Accounts dialog, the Accounts dialog while the
+// login of an account "Add an account" adds runs, the Accounts dialog with
+// the row that login named, the Machine dialog, the app's Settings dialog
+// and the delete dialog of a work item with many commits) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
 // account's field. The parked work item's shell pane runs under it, so its
-// row in the Accounts dialog offers no refresh. The repository is on the owl chain, and the Claude Code config
+// row in the Accounts dialog offers no refresh. After the view of the
+// Accounts dialog the run presses "Add an account" there. The stand-in for
+// the CLI holds the login while the run's file `HOLD_LOGIN` stands, so the
+// next view shows the sign-in pane of the new account. The run then takes
+// the file away, the login ends, and the view after it shows the row named
+// by the stand-in's invented email, signed in. The run removes that account
+// from its row before the next view, so every appearance draws the same
+// rows. The repository is on the owl chain, and the Claude Code config
 // folder the run gives the app enables a stand-in for the AgenticSeal
 // plugin, so the window holds the choice of a chain. The run stores the
 // answer "the AgenticSeal plugin" before the app starts, so no pane of the
@@ -34,6 +45,15 @@
 // and never starts: that work item's line says "Waiting for the machine",
 // the status line counts the agents against the cap and the session that
 // waits, and the Machine dialog lists the session under its cap on agents.
+// Before the look is taken, that work item's branch takes 39 commits no
+// other branch holds, some with a subject longer than a row of the delete
+// dialog, and its worktree an untracked file at a nested path and the
+// ignored `.env`. The delete dialog's view opens that work item's menu in
+// the sidebar, presses Delete, waits until the head of its commits counts
+// 39, the heads of its untracked file and its ignored file stand, and
+// "Running sessions that end" lists its shell pane while "Sessions waiting
+// for the machine that leave the queue" lists its session that waits, and
+// Cancel then closes the dialog, which deletes nothing.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -53,7 +73,14 @@
 // questions holds two the run writes there, asked by the sealer, so the
 // parked view lists them, lists the gate's line under "Ask" with the
 // finished mark, and its approval line counts the round and marks the
-// sealer's place, which waits on the questions. The finished work item is
+// sealer's place, which waits on the questions. The record also holds one
+// decision made without asking, with the person's reversal of it, and no
+// commit holds the record. Before the app starts the run writes a
+// `pre-commit` hook that refuses a commit holding that record, so each try
+// of the daemon's to commit the person's word fails: the parked work item's
+// line says "word not committed" after its count of the decisions, and the
+// parked view says above the decisions that the word was not committed,
+// with the hook's line, and that Owlery tries again. The finished work item is
 // stored before the start with a rested chain and a pull request whose
 // checks passed. Its branch takes the records of a chain that sealed it
 // after one fix once the look is taken: round 1 with one finding, the
@@ -89,8 +116,9 @@
 // types the code a setup pane ends with. The inbox's shot previews the work
 // item that needs the person, with its agent's question and its approval
 // line. The view's shot scrolls its side column until the approval line is
-// the last thing in it, and the parked view's shot opens at the top of the
-// column, where its questions stand. With
+// the last thing in it, and the parked view's shot scrolls it until the
+// decisions are the last thing in it, under the sentence of the word not
+// committed. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -103,7 +131,7 @@ import { createConnection, type Socket } from "node:net";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RECORD_FILE, withQuestion } from "../src/daemon/decision-record";
+import { RECORD_FILE, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { PARKED_SAYS, pullRequestOpenSays, routingText } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
@@ -181,11 +209,15 @@ const SETUP_FILES = { ".worktreeinclude": ".env\n**/.env.local\nnode_modules/\n*
 const SETUP_ENDS_WITH = 0;
 /** The last work item made. */
 const SHOWN = WORK_ITEMS[WORK_ITEMS.length - 1]?.title ?? "";
-/** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED`. Its view is the view "parked". */
+/** The first work item, which the run stores with a parked chain whose broad gate passed: its worktree holds the records of a round and of the broad gate's run, in the folder of the records this name gives, and its record of questions holds `ASKED_OF_PARKED` and the reversal of `DECIDED_FOR_PARKED`, whose commit the hook the run writes refuses. Its view is the view "parked". */
 const PARKED = WORK_ITEMS[0]?.title ?? "";
 /** The account the run hands over by its folder, and the id the daemon keeps it under. */
 const HANDED = "Work";
 const HANDED_ID = 1;
+/** The invented email the run's stand-in for the CLI names a login by, which names the account "Add an account" adds (fixtures/sample-cli.sh). */
+const ADDED = "dana@example.com";
+/** The file in the daemon's run folder that holds the stand-in's login while it stands, so the sign-in pane of that add stays open with its process running. */
+const HOLD_LOGIN = "sample-cli.hold-login";
 const PARKED_RECORDS = "1795396351-choose-the-base-of-the-hotfix";
 /** The repository's broad gate command, as its `config.json` names it, the script it runs, which the repository holds, and what a run of it prints, which the run stores as the output of the parked chain's gate. No chain runs, so nothing runs the command. */
 const GATE = "sh scripts/check.sh";
@@ -217,6 +249,13 @@ const ASKED_OF_PARKED = [
   { asks: "Which base does the hotfix merge into?", grounds: "No document names the base of a hotfix, and the choice decides which release ships it.", by: "sealer" },
   { asks: "May the run push the branch to the remote?", grounds: "A push needs the person's approval.", by: "sealer", options: [{ label: "Yes", implies: "The branch is pushed once the seal is given." }, { label: "No", implies: "The branch stays on this Mac." }] },
 ];
+/** The decision made without asking that the run writes into the parked work item's record after its questions, so it takes the id after theirs, and the person's message that reverses it. */
+const DECIDED_FOR_PARKED = { kind: "scope", decided: "The hotfix leaves its changelog entry to the release script.", grounds: "The issue names no changelog entry, and the release script writes one for each tag.", by: "crafter" } as const;
+const REVERSED_SAYS = "Write the changelog entry in the hotfix: the release script skips a hotfix's tag.";
+/** The line the `pre-commit` hook the run writes prints where it refuses a commit holding the parked work item's record, which it does at every try of the daemon's, and the line's words and the sentence of the parked view the run waits for. */
+const HOOK_SAYS = "a hotfix branch takes no commit of its record of decisions.";
+const PARKED_MARK = "1 reversed, word not committed";
+const PARKED_OWED = `The record holds a word of yours that was not committed: ${HOOK_SAYS.replace(/\.$/u, "")}. Owlery tries again.`;
 /** The key of the stand-in for the AgenticSeal plugin in the Claude Code config folder the run gives the app. The daemon tells the plugin by the script its install folder holds, and by no name. */
 const PLUGIN_KEY = "agentic@agenticseal";
 /** The answers of the chain choice, as the menu of the repository's settings holds them: none, which asks at the next Claude Code pane, and the owl chain. */
@@ -229,6 +268,58 @@ const ASKED_TO_ALLOW = "Run the tests of the redirect.";
 /** The work item whose asked session waits for the machine, and the prompt it waits to run. The run sets the cap on agents to the agents that run before it asks, so the session waits and never starts. */
 const QUEUED = "Rename the settings file";
 const ASKED_TO_WAIT = "Which keys does the settings file hold?";
+/** The subjects of the commits the run makes on that work item's branch before the look is taken, oldest first, none of which another branch holds, so its delete dialog lists more commits than the list shows at once. Some are longer than a row of the dialog, which cuts them. They are invented examples. */
+const QUEUED_COMMITS = [
+  "Read the settings from settings.json beside the old settings.ini",
+  "Add a reader for the JSON settings file",
+  "Keep the INI reader for one release",
+  "Name the settings file's path in one place",
+  "Move the defaults out of the settings reader",
+  "Test the JSON reader against every key the INI file held",
+  "Write the settings back as JSON",
+  "Keep the order of the keys when the settings are written back",
+  "Say in the log which file the settings were read from",
+  "Rename settings.ini to settings.json at the first start after an update, and keep the old file beside it until the next release",
+  "Refuse a settings file that is neither JSON nor INI",
+  "Name the key that failed to parse",
+  "Test a settings file with a key the app does not know",
+  "Drop the unknown keys on write",
+  "Keep the unknown keys on write, since another version of the app may read them",
+  "Name the settings file in the README",
+  "Read the theme from the renamed file",
+  "Read the editor's path from the renamed file",
+  "Read the proxy from the renamed file",
+  "Read the update channel from the renamed file",
+  "Move the window's size and position, which the INI file kept as two keys each, into one object of the JSON file",
+  "Test the move of the window's size",
+  "Test a settings file with no window section",
+  "Keep the settings file's mode at 0600",
+  "Write the settings file through a temporary file and a rename",
+  "Test a write that stops half way",
+  "Read the settings again when the file changes on disk",
+  "Wait for a file that changes on disk to settle before reading it",
+  "Test two writes in quick succession",
+  "Remove the settings path from the old constants",
+  "Rename SettingsIni to SettingsFile across the app, its tests and the two scripts that import it from the old path",
+  "Fix the type of the update channel's key",
+  "Name the settings file in the crash report",
+  "Test the settings line of the crash report",
+  "Fall back to the defaults where the settings file cannot be read, and say in the status line which file failed and why",
+  "Test the fall back to the defaults",
+  "Remove the INI reader's branch for Windows line endings",
+  "Take the screenshots of the settings again",
+  "Note the rename in the changelog",
+];
+/** The heads of that work item's delete dialog the view waits for: its commits', which counts them, its untracked file's and its ignored file's. */
+const QUEUED_HEADS = [`${String(QUEUED_COMMITS.length)} commits no other branch, no remote and no tag holds`, "1 untracked file", "1 ignored file or folder, which goes with the folder"];
+/** The session sections of that work item's delete dialog the view waits for, each head with its lines: the shell pane that runs, and apart from it the asked session that waits for the machine. */
+const QUEUED_SESSIONS = [
+  ["Running sessions that end", ["Shell"]],
+  ["Sessions waiting for the machine that leave the queue", [`Asked: ${ASKED_TO_WAIT}`]],
+];
+/** The untracked file at a nested path and the ignored file the run writes into that work item's worktree with what each holds, so its delete dialog lists the untracked files and the ignored files and folders. They are invented examples. */
+const QUEUED_UNTRACKED = { path: "notes/settings/keys-to-move.md", text: "theme, editor, proxy, channel\n" };
+const QUEUED_IGNORED = { path: ".env", text: "SETTINGS_FILE=settings.json\n" };
 
 describe.skipIf(RUN)("the screenshot command, without the app", () => {
   it("captures the theme a first run opens in where no theme is asked for", () => {
@@ -252,6 +343,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-summary.png",
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
+      "night-watch-dark-find.png",
       "night-watch-dark-parked.png",
       "night-watch-dark-finished.png",
       "night-watch-dark-broken.png",
@@ -260,10 +352,15 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
+      "night-watch-dark-accounts-adding.png",
+      "night-watch-dark-accounts-added.png",
       "night-watch-dark-machine.png",
+      "night-watch-dark-app-settings.png",
+      "night-watch-dark-delete.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
+      "night-watch-light-find.png",
       "night-watch-light-parked.png",
       "night-watch-light-finished.png",
       "night-watch-light-broken.png",
@@ -272,12 +369,16 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
+      "night-watch-light-accounts-adding.png",
+      "night-watch-light-accounts-added.png",
       "night-watch-light-machine.png",
+      "night-watch-light-app-settings.png",
+      "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(72);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(72);
-    expect(all[71]).toEqual({ theme: "desk", appearance: "light", view: "machine", file: "desk-light-machine.png" });
+    expect(all).toHaveLength(102);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(102);
+    expect(all[101]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -338,11 +439,22 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   let brokenBy = "";
   /** The summary's lines, in the order it draws them. */
   const SUMMARY_LINES = `[...document.querySelectorAll("#summary-lines button[data-work-item]")]`;
+  /** The names of the Accounts dialog's rows, in the order it draws them, joined with commas. */
+  const ACCOUNT_NAMES = `[...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join()`;
   /** A role's place of the approval line in the view's right column. */
   const place = (role: string): string => `#view-detail section.approval .place[data-role="${role}"]`;
   const MENU = `[role="menu"]`;
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
   const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
+  const QUEUED_LINE = `#repositories button[data-work-item="${QUEUED_ID}"]`;
+
+  /** Opens the menu of the sidebar's line a selector finds, by a press of the right button in its middle, as a person's press arrives. */
+  const openMenu = async (line: string): Promise<void> => {
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector(${JSON.stringify(line)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+    await app.until(`document.querySelector('${MENU}')`, "the work item's menu");
+  };
 
   /** Opens the settings of the run's one repository from its menu in the sidebar. */
   const openSettings = async (): Promise<void> => {
@@ -452,7 +564,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .seal[data-seal="sealed"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Seal broken" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .seal[data-seal="broken"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="1"] .second .decided')?.textContent === ${JSON.stringify(PARKED_MARK)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine"`, `the inbox with its lines, the pull request and the lit seal on the line of ${FINISHED}, the broken seal on the line of ${BROKEN}, the account and the word not committed on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -460,11 +572,21 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
+    find: async () => {
+      await show.view();
+      // Command+F, as a person's key arrives: the bar opens over the pane in front, the Claude Code pane, whose lines name the login's files three times.
+      const key = { modifiers: 4, windowsVirtualKeyCode: 70, code: "KeyF", key: "f" };
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+      await app.until(`document.getElementById("find-bar").hidden === false && document.activeElement === document.getElementById("find-field")`, "the find bar with the keyboard in its field");
+      await app.cdp("Input.insertText", { text: "login" });
+      await app.until(`document.getElementById("find-count").textContent === "1 of 3" && document.querySelectorAll("#stage .pane:not([hidden]) .xterm-find-result-decoration").length === 4`, 'the find bar over the pane, with the three matches of "login" marked and the newest in front');
+    },
     parked: async () => {
       await app.click(PARKED_LINE);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output"`, "the parked work item's view with its questions, its approval line and the line of its broad gate, which passed");
-      // The questions stand at the top of the column, which the shown work item's view left scrolled.
-      await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output" && document.querySelector("#view-detail .word-owed.failed")?.textContent === ${JSON.stringify(PARKED_OWED)}`, "the parked work item's view with its questions, its approval line, the line of its broad gate, which passed, and the sentence of the reversal whose commit the hook refused");
+      // The sentence of the word not committed stands above the decisions, past the column's first screen, which the questions fill, so the column is scrolled until the decisions are the last thing in it.
+      await app.evaluate(`document.querySelector("#view-detail section.decisions").scrollIntoView({ block: "end" })`);
     },
     finished: async () => {
       await app.click(`#repositories button[data-work-item="${FINISHED_ID}"]`);
@@ -480,10 +602,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     menu: async () => {
       await show.inbox();
-      const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector(${JSON.stringify(SIDEBAR_LINE)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
-      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
-      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
-      await app.until(`document.querySelector('${MENU}')`, "the work item's menu");
+      await openMenu(SIDEBAR_LINE);
     },
     dialog: async () => {
       await show.inbox();
@@ -506,17 +625,51 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     accounts: async () => {
       await show.inbox();
       await app.click("#accounts-button");
-      await app.until(`document.getElementById("accounts-dialog").open && [...document.querySelectorAll("#accounts-list li")].map((row) => row.querySelector(".account-name > span")?.textContent).join() === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
+      await app.until(`document.getElementById("accounts-dialog").open && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with System default and the account handed over");
+    },
+    "accounts-adding": async () => {
+      writeFileSync(join(app.userData, "run", HOLD_LOGIN), "");
+      await show.accounts();
+      await app.click("#accounts-add");
+      await app.until(`!document.getElementById("accounts-sign-in").hidden && document.getElementById("accounts-sign-in-head").textContent === "Signing in to a new account" && document.getElementById("accounts-add").disabled && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED}`)}`, "the Accounts dialog with the sign-in pane of a new account under the list, its login held, no row of it yet, and Add an account disabled");
+    },
+    "accounts-added": async () => {
+      // The view before it left the dialog open with the add's login held, and the login now ends.
+      rmSync(join(app.userData, "run", HOLD_LOGIN));
+      await app.until(`document.getElementById("accounts-sign-in").hidden && !document.getElementById("accounts-add").disabled && document.getElementById("accounts-error").textContent === "" && ${ACCOUNT_NAMES} === ${JSON.stringify(`${SYSTEM_DEFAULT_NAME},${HANDED},${ADDED}`)} && document.querySelector("#accounts-list li:last-child .account-sign-in")?.textContent.startsWith("Signed in, the login ends in ")`, `the Accounts dialog with the row the login named ${ADDED}, signed in, the sign-in pane closed and Add an account enabled again`);
+      // The list scrolls once it holds the new row, so it is scrolled until that row is the last thing in it, as the view's shot scrolls its column.
+      await app.evaluate(`document.querySelector("#accounts-list li:last-child").scrollIntoView({ block: "end" })`);
     },
     machine: async () => {
       await show.inbox();
       await app.click("#machine-button");
       await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
+      // The dialog keeps the scroll the theme before left it at (`leave.machine`), so each shot starts at its heading.
+      await app.evaluate(`document.getElementById("machine-dialog").scrollTop = 0`);
+    },
+    "app-settings": async () => {
+      await show.inbox();
+      // The dialog opens from "Settings…" of the application menu, which the main process holds.
+      await app.evaluateMain(`electron.Menu.getApplicationMenu().getMenuItemById("settings").click()`);
+      await app.until(`document.getElementById("app-settings-dialog").open && document.getElementById("app-settings-editor").options.length > 0`, "the Settings dialog with its editors and Finder");
+    },
+    delete: async () => {
+      await show.inbox();
+      await openMenu(QUEUED_LINE);
+      await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
+      await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
+      await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(QUEUED_HEADS)}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted)) && JSON.stringify([...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])) === ${JSON.stringify(JSON.stringify(QUEUED_SESSIONS))}`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits, the heads of its untracked file and its ignored file, its shell pane under "Running sessions that end", and its session that waits for the machine under "Sessions waiting for the machine that leave the queue"`);
     },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
   const leave: Partial<Record<View, () => Promise<void>>> = {
+    find: async () => {
+      // Escape in the bar's field closes it, with its marks.
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.until(`document.getElementById("find-bar").hidden === true`, "the find bar closed");
+    },
     menu: async () => {
       await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
       await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
@@ -539,10 +692,34 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click("#accounts-close");
       await dialogClosed("accounts-dialog");
     },
+    // Nothing closes after the view of the add's sign-in: the view after it ends that login in the same dialog.
+    "accounts-added": async () => {
+      // The account the add made is removed from its row, as a person removes it, which signs it out and removes its folder, so every appearance draws the same rows.
+      const id = await app.evaluate<string>(`[...document.querySelectorAll("#accounts-list li")].find((row) => row.querySelector(".account-name > span")?.textContent === ${JSON.stringify(ADDED)}).dataset.account`);
+      const row = `#accounts-list li[data-account="${id}"]`;
+      for (const text of ["Remove…", "Remove the account"]) {
+        await app.until(`[...document.querySelectorAll('${row} button')].some((button) => button.textContent === ${JSON.stringify(text)})`, `"${text}" on the row of ${ADDED}`);
+        await app.evaluate(`(() => { for (const button of document.querySelectorAll('${row} button')) button.toggleAttribute("data-pressed-here", button.textContent === ${JSON.stringify(text)}); })()`);
+        await app.click(`${row} button[data-pressed-here]`);
+      }
+      await app.until(`!document.querySelector('${row}')`, `the row of ${ADDED} removed`);
+      await leave.accounts?.();
+    },
     machine: async () => {
-      // A cancel keeps every cap as the run set it.
+      // A cancel keeps every cap as the run set it. The run's queues make the dialog taller than the window, so its buttons stand below the fold until the dialog is scrolled to them, as a person scrolls it.
+      await app.evaluate(`document.getElementById("machine-cancel").scrollIntoView({ block: "nearest" })`);
       await app.click("#machine-cancel");
       await dialogClosed("machine-dialog");
+    },
+    "app-settings": async () => {
+      // A cancel keeps no choice.
+      await app.click("#app-settings-cancel");
+      await dialogClosed("app-settings-dialog");
+    },
+    delete: async () => {
+      // A cancel deletes nothing.
+      await app.click("#delete-cancel");
+      await dialogClosed("delete-dialog");
     },
   };
 
@@ -580,12 +757,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
     writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
     writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
-    // The two work items the run stores before the app starts, each in a worktree made from `main`, on the branch Owlery makes at a first commit (`branchedWorktree`). The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
+    // The two work items the run stores before the app starts, each in a worktree made from `main`, on the branch Owlery makes at a first commit (`branchedWorktree`). The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's and a decision the person reversed. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at.
     const stored = Date.now();
     const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
     commitSeal(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
-    writeFileSync(join(parkedAt.worktree, "seal", "threads", PARKED_RECORDS, RECORD_FILE), ASKED_OF_PARKED.reduce(withQuestion, ""));
+    const parkedRecord = `seal/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
+    writeFileSync(join(parkedAt.worktree, parkedRecord), withReversal(withDecision(ASKED_OF_PARKED.reduce(withQuestion, ""), DECIDED_FOR_PARKED), ASKED_OF_PARKED.length + 1, REVERSED_SAYS));
+    // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
+    writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
     const finishedAt = await branchedWorktree({ folder: made.repo, title: FINISHED, root: made.root });
     const unsealed = commitFile(finishedAt.worktree, "export.ts");
     commitSealedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
@@ -602,6 +782,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {
+        // The Settings dialog opens from the application menu, which the main process holds.
+        inspectMain: true,
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
           // One account handed over by its folder, an empty one of the run's own. The parked work item's shell pane runs under it, so its row offers no refresh, and no refresh starts. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them.
@@ -672,6 +854,18 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     commitFile(shown.worktree, "redirect.ts");
     commitFile(shown.worktree, "redirect.test.ts");
     await app.until(`document.querySelectorAll("#view-detail .commit").length === 2 && document.querySelectorAll("#view-detail .file").length === 2`, "the two commits and the two changed files", 15_000);
+    // The commits no other branch holds on the branch of the work item whose session waits for the machine, an untracked file at a nested path and the ignored `.env` in its worktree, for its delete dialog. They are made before the look, so no line says them since it.
+    const queued = (await listed()).workItems.find((item) => item.title === QUEUED);
+    if (!queued) throw new Error(`the daemon lists no work item ${QUEUED}`);
+    for (const subject of QUEUED_COMMITS) {
+      writeFileSync(join(queued.worktree, "settings.ts"), `// ${subject}\n`);
+      git(queued.worktree, "add", "settings.ts");
+      git(queued.worktree, "commit", "--quiet", "-m", subject);
+    }
+    for (const { path, text } of [QUEUED_UNTRACKED, QUEUED_IGNORED]) {
+      mkdirSync(dirname(join(queued.worktree, path)), { recursive: true });
+      writeFileSync(join(queued.worktree, path), text);
+    }
 
     // The look the summary is read against, taken before any seal: a second client of the daemon sends `looked`, and the daemon writes the look into its run folder. The page's own `looked` is held back from here on, whichever event sends it, the page that leaves among them, so no look of the page holds the seals the run gives below.
     await app.evaluate(`(() => { const send = WebSocket.prototype.send; WebSocket.prototype.send = function (data) { if (data !== '{"type":"looked"}') send.call(this, data); }; })()`);

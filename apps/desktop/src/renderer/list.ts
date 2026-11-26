@@ -32,6 +32,7 @@ import {
   sealShown,
   selectedLine,
   setupMark,
+  wordOwedMark,
   workItemEntries,
   type Entry,
   type StateFilter,
@@ -153,11 +154,11 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, otherwise the sentence of its chain where the chain stopped, otherwise that a session of it waits for the machine, and otherwise the stage its chain runs, in short.
     const said = lineText(workItem, session, held.query !== "", machineAhead(workItem, held.headless, held.machine));
     const second = part("second", "");
-    // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage; then the setup's words while it runs and where it failed.
+    // After the text, how many decisions made without asking the person has not seen, the look not holding them, how many reversals wait for a stage, and where the commit of a word of the person's failed, that it is not committed; then the setup's words while it runs and where it failed.
     second.append(
       // A work item with no branch says so in the sans, and nothing of those words is marked: the search does not match them.
       marked(said.says !== "branch" ? "says" : workItem.branch === null ? "says branch none" : "says branch", said.text, said.says === "branch" && workItem.branch !== null ? markRanges(said.text, held.query) : []),
-      part("decided", decisionMark(workItem, held.lastLook)),
+      part("decided", [decisionMark(workItem, held.lastLook), wordOwedMark(workItem)].filter((words) => words !== "").join(", ")),
       part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
       part("badge", lineBadge(workItem, held.lastLook)),
       sealPlace("line", workItem.seal),

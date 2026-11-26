@@ -2,7 +2,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, headStands, holdsCommit, mainCheckout, makeBranch, newCommits, pathsBetween, pathsOfCommit, pathsOfCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, trailerValues, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
+import { BaseFetches, COMMIT_END_GRACE_MS, baseDistance, branchChanges, branchCommits, branchHead, branchName, commitNamed, commitPaths, createWorktree, diffBetween, fetchBase, fileAt, filesAt, headStands, holdsCommit, mainCheckout, makeBranch, newCommits, pathsBetween, pathsOfCommit, pathsOfCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, repositoryOfSync, slugFor, trailerValues, uncommittedPaths, worktreeHead, worktreesRoot } from "../src/daemon/worktrees";
 import { generateName } from "../src/shared/names";
 import { branchedWorktree, commitFile, git, lingeringOrigin, runs, temporaryClone, temporaryRepository, unansweringOrigin } from "./repositories";
 
@@ -1275,6 +1275,136 @@ describe("committing files of a worktree", () => {
     await expect(commitPaths(repo, "main", ["a.md", "b.md"], "chore: record", [TRAILER])).rejects.toThrow("the hook says no");
     expect(commitsIn(repo)).toBe(1);
     expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
+  });
+
+  /** The limit the cases of a commit that does not end give, in milliseconds: long enough that git reaches the hook while other suites load the machine. */
+  const LIMIT_MS = 2000;
+  /**
+   * Writes a program of the repository's at `path` below its folder, which
+   * notes its process id in a file beside the repository and then runs
+   * `body`, given that file where it is a function, and gives the ids noted
+   * so far, its own first. The case's cleanup ends by its id each one that
+   * still runs.
+   */
+  const program = (made: { base: string; repo: string }, path: string, body: string | ((noted: string) => string)): (() => number[]) => {
+    const noted = join(made.base, `${path.replaceAll("/", "-")}-pids.txt`);
+    write(made.repo, path, `#!/bin/sh\necho $$ >> '${noted}'\n${typeof body === "string" ? body : body(noted)}\n`);
+    chmodSync(join(made.repo, path), 0o755);
+    const started = (): number[] => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line !== "").map(Number) : []);
+    cleanups.push(() => {
+      for (const pid of started()) if (runs(pid)) process.kill(pid, "SIGKILL");
+    });
+    return started;
+  };
+  /** A body that waits for a file that never comes. */
+  const never = (made: { base: string }): string => `while [ ! -e '${join(made.base, "never")}' ]; do sleep 0.2; done`;
+  /** Waits until no process of the ids runs. */
+  const gone = (started: () => number[]) => vi.waitFor(() => expect(started().filter(runs)).toEqual([]), { timeout: 5000, interval: 50 });
+  /** How long a promise took to settle, in milliseconds, and the words it was rejected with, or null where it resolved. */
+  const timed = async (promise: Promise<void>): Promise<{ took: number; said: string | null }> => {
+    const from = Date.now();
+    const said = await promise.then(
+      () => null,
+      (error: Error) => error.message,
+    );
+    return { took: Date.now() - from, said };
+  };
+
+  it("ends a commit whose pre-commit hook never ends at the limit, and a git add whose clean filter never ends: each throws the command and the limit, no commit is made, each file stands written and not staged, no index.lock stands, and the program's process is gone", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    const hook = program(made, ".git/hooks/pre-commit", never(made));
+    const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
+    expect(commit.took).toBeGreaterThanOrEqual(LIMIT_MS);
+    // SIGTERM ends this hook, so no SIGKILL is waited for.
+    expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS);
+    expect(hook()).toHaveLength(1);
+    await gone(hook);
+    expect(commitsIn(made.repo)).toBe(1);
+    expect(status(made.repo)).toEqual(["?? a.md"]);
+    expect(existsSync(join(made.repo, ".git", "index.lock"))).toBe(false);
+
+    const filtered = repository("filtered");
+    write(filtered.repo, "a.md", "a\n");
+    const filter = program(filtered, ".git/never-filter", never(filtered));
+    git(filtered.repo, "config", "filter.never.clean", join(filtered.repo, ".git", "never-filter"));
+    write(filtered.repo, ".git/info/attributes", "a.md filter=never\n");
+    const add = await timed(commitPaths(filtered.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
+    expect(add.said).toBe("git add did not end in 2 seconds and was ended");
+    expect(add.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS);
+    expect(filter()).toHaveLength(1);
+    await gone(filter);
+    expect(commitsIn(filtered.repo)).toBe(1);
+    expect(status(filtered.repo)).toEqual(["?? a.md"]);
+    expect(existsSync(join(filtered.repo, ".git", "index.lock"))).toBe(false);
+  });
+
+  it("ends a commit whose pre-commit hook ignores SIGTERM by SIGKILL to its group after the grace: it throws the command and the limit, no commit is made, the file stands written and not staged, no index.lock stands, and the hook's process is gone", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    const hook = program(made, ".git/hooks/pre-commit", `trap '' TERM\n${never(made)}`);
+    const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
+    expect(commit.took).toBeGreaterThanOrEqual(LIMIT_MS + COMMIT_END_GRACE_MS);
+    expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS + 3000);
+    await gone(hook);
+    expect(commitsIn(made.repo)).toBe(1);
+    expect(status(made.repo)).toEqual(["?? a.md"]);
+    expect(existsSync(join(made.repo, ".git", "index.lock"))).toBe(false);
+  });
+
+  it("ends a commit whose pipe a process in a session of its own holds open: once git has exited and the SIGKILL was sent, it throws the command and the limit, and no commit is made", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    // The hook starts a `sleep` in a session of its own, outside git's group, which holds git's stderr, and notes its id after the hook's.
+    const holder = `$p = fork; if ($p) { open(F, ">>", $ARGV[0]); print F "$p\\n"; close(F); exit 0 } setsid; exec "sleep", "60"`;
+    const hook = program(made, ".git/hooks/pre-commit", (noted) => `perl -MPOSIX -e '${holder}' '${noted}'\n${never(made)}`);
+    const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
+    expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS + 3000);
+    const [own, held] = hook();
+    expect(held === undefined ? false : runs(held)).toBe(true);
+    await gone(() => (own === undefined ? [] : [own]));
+    expect(commitsIn(made.repo)).toBe(1);
+    expect(status(made.repo)).toEqual(["?? a.md"]);
+  });
+
+  it("keeps a commit that was made before it was ended: a post-commit hook that never ends leaves the commit of the paths on the branch, nothing staged, and commitPaths returns", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    write(made.repo, "b.md", "b\n");
+    const hook = program(made, ".git/hooks/post-commit", never(made));
+    expect((await timed(commitPaths(made.repo, "main", ["a.md", "b.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }))).said).toBeNull();
+    await gone(hook);
+    expect(commitsIn(made.repo)).toBe(2);
+    expect(newest(made.repo)).toMatchObject({ subject: "chore: record", body: TRAILER, paths: ["a.md", "b.md"] });
+    expect(status(made.repo)).toEqual([]);
+  });
+
+  it("ends the commit under way where the caller's signal fires, as at the limit, and starts nothing where it fired before: each throws that the commit was ended, no commit is made and the file stands written and not staged", async () => {
+    const made = repository();
+    write(made.repo, "a.md", "a\n");
+    const hook = program(made, ".git/hooks/pre-commit", never(made));
+    const ending = new AbortController();
+    const commit = timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { ended: ending.signal }));
+    await vi.waitFor(() => expect(hook()).toHaveLength(1), { timeout: 10_000, interval: 50 });
+    const endedAt = Date.now();
+    ending.abort();
+    expect((await commit).said).toBe("the commit was ended");
+    expect(Date.now() - endedAt).toBeLessThan(COMMIT_END_GRACE_MS);
+    await gone(hook);
+    expect(commitsIn(made.repo)).toBe(1);
+    expect(status(made.repo)).toEqual(["?? a.md"]);
+    expect(existsSync(join(made.repo, ".git", "index.lock"))).toBe(false);
+
+    const early = repository("early");
+    write(early.repo, "a.md", "a\n");
+    const quick = program(early, ".git/hooks/pre-commit", "exit 0");
+    await expect(commitPaths(early.repo, "main", ["a.md"], "chore: record", [TRAILER], { ended: AbortSignal.abort() })).rejects.toThrow("the commit was ended");
+    expect(quick()).toEqual([]);
+    expect(commitsIn(early.repo)).toBe(1);
+    expect(status(early.repo)).toEqual(["?? a.md"]);
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { appFolders, copyText, installedApps, KNOWN_APPS, openFolder, trashFolder, type Openers } from "../src/main/openers";
+import { appFolders, copyText, EDITOR_COMMANDS, installedApps, KNOWN_APPS, openFolder, openInEditor, trashFolder, type Openers } from "../src/main/openers";
 
 const HOME = "/Users/someone";
 
@@ -7,13 +7,14 @@ const HOME = "/Users/someone";
 const WORKTREE = "/w/project/fix login";
 const REPOSITORY = "/r/project";
 
-/** What the main process hands the openers, with a Mac that holds the bundles given, the two folders above with their `.git`, and nothing else, and what was run and opened. `others` are more paths the Mac holds. */
-function mac(bundles: readonly string[], fails: { run?: string; openPath?: string } = {}, others: readonly string[] = []) {
+/** What the main process hands the openers, with a Mac that holds the bundles given, the two folders above with their `.git`, and nothing else, and what was run and opened. `others` are more paths the Mac holds, and `files` the paths among them a file stands at. */
+function mac(bundles: readonly string[], fails: { run?: string; openPath?: string } = {}, others: readonly string[] = [], files: readonly string[] = []) {
   const ran: [string, string[]][] = [];
   const opened: string[] = [];
-  const held = [...bundles, WORKTREE, `${WORKTREE}/.git`, REPOSITORY, `${REPOSITORY}/.git`, ...others];
+  const held = [...bundles, WORKTREE, `${WORKTREE}/.git`, REPOSITORY, `${REPOSITORY}/.git`, ...others, ...files];
   const openers: Openers = {
     exists: (path) => held.includes(path),
+    isFile: (path) => files.includes(path),
     home: HOME,
     run: async (command, args) => {
       ran.push([command, args]);
@@ -166,5 +167,124 @@ describe("trashFolder", () => {
     expect(await trashFolder("/r/gone", openers.exists, move)).toBe("/r/gone is gone.");
     for (const folder of ["/r", `${REPOSITORY}/src`, HOME]) expect(await trashFolder(folder, openers.exists, move)).toBe("Owlery moves a repository's folder to the Trash, and nothing else.");
     expect(moved).toEqual([]);
+  });
+});
+
+describe("openInEditor", () => {
+  /** A file of a work item's worktree, and the path of each editor's bundle and of the command inside it that takes a line. */
+  const FILE = `${WORKTREE}/src/a.ts`;
+  const CODE = "/Applications/Visual Studio Code.app";
+  const COMMANDS = {
+    "Visual Studio Code": `${CODE}/Contents/Resources/app/bin/code`,
+    Cursor: "/Applications/Cursor.app/Contents/Resources/app/bin/cursor",
+    Zed: "/Applications/Zed.app/Contents/MacOS/cli",
+    "Sublime Text": "/Applications/Sublime Text.app/Contents/SharedSupport/bin/subl",
+    Xcode: "/usr/bin/xed",
+  };
+  const ALL_BUNDLES = ["/Applications/Visual Studio Code.app", "/Applications/Cursor.app", "/Applications/Zed.app", "/Applications/Sublime Text.app", "/Applications/Xcode.app"];
+  /** A start that is neither in the background nor given a stand-in. */
+  const PERSON = { program: null, background: false };
+
+  it("opens a file in the chosen editor by the command inside its bundle, at the line and the column, with no shell (scenario C1)", async () => {
+    const { openers, ran, opened } = mac([CODE], {}, [COMMANDS["Visual Studio Code"]], [FILE]);
+    expect(await openInEditor(FILE, 12, 5, "Visual Studio Code", openers, PERSON)).toBeNull();
+    expect(ran).toEqual([[COMMANDS["Visual Studio Code"], ["--goto", `${FILE}:12:5`]]]);
+    expect(opened).toEqual([]);
+  });
+
+  it("hands each editor of the list the file and its line in the form its command takes, and the file alone where no line is named", async () => {
+    const { openers, ran } = mac(ALL_BUNDLES, {}, Object.values(COMMANDS), [FILE]);
+    for (const name of Object.keys(COMMANDS)) {
+      await openInEditor(FILE, 12, 5, name, openers, PERSON);
+      await openInEditor(FILE, 12, undefined, name, openers, PERSON);
+      await openInEditor(FILE, undefined, undefined, name, openers, PERSON);
+    }
+    expect(ran).toEqual([
+      [COMMANDS["Visual Studio Code"], ["--goto", `${FILE}:12:5`]],
+      [COMMANDS["Visual Studio Code"], ["--goto", `${FILE}:12`]],
+      [COMMANDS["Visual Studio Code"], [FILE]],
+      [COMMANDS.Cursor, ["--goto", `${FILE}:12:5`]],
+      [COMMANDS.Cursor, ["--goto", `${FILE}:12`]],
+      [COMMANDS.Cursor, [FILE]],
+      [COMMANDS.Zed, [`${FILE}:12:5`]],
+      [COMMANDS.Zed, [`${FILE}:12`]],
+      [COMMANDS.Zed, [FILE]],
+      [COMMANDS["Sublime Text"], [`${FILE}:12:5`]],
+      [COMMANDS["Sublime Text"], [`${FILE}:12`]],
+      [COMMANDS["Sublime Text"], [FILE]],
+      // Xcode takes no column.
+      [COMMANDS.Xcode, ["--line", "12", FILE]],
+      [COMMANDS.Xcode, ["--line", "12", FILE]],
+      [COMMANDS.Xcode, [FILE]],
+    ]);
+    // Every editor of the list has its command, and no terminal has one.
+    expect(Object.keys(EDITOR_COMMANDS)).toEqual(KNOWN_APPS.filter((known) => known.kind === "editor").map((known) => known.name));
+  });
+
+  it("opens the file at no line, by `open -a`, where the editor's command does not stand in its bundle", async () => {
+    const { openers, ran } = mac(["/Applications/Zed.app"], {}, [], [FILE]);
+    expect(await openInEditor(FILE, 12, 5, "Zed", openers, PERSON)).toBeNull();
+    expect(ran).toEqual([["open", ["-a", "/Applications/Zed.app", FILE]]]);
+  });
+
+  it("hands no line that is no whole number from 1, and no column without its line", async () => {
+    const { openers, ran } = mac([CODE], {}, [COMMANDS["Visual Studio Code"]], [FILE]);
+    for (const [line, column] of [
+      [0, 5],
+      [-1, undefined],
+      [1.5, 2],
+      ["12", "5"],
+      [undefined, 5],
+      [null, null],
+    ] as const)
+      await openInEditor(FILE, line, column, "Visual Studio Code", openers, PERSON);
+    await openInEditor(FILE, 12, 0, "Visual Studio Code", openers, PERSON);
+    expect(ran).toEqual([...Array(6).fill([COMMANDS["Visual Studio Code"], [FILE]]), [COMMANDS["Visual Studio Code"], ["--goto", `${FILE}:12`]]]);
+  });
+
+  it("opens nothing but a whole path a file stands at, read again at the request, and says why (scenario C4)", async () => {
+    const { openers, ran, opened } = mac([CODE], {}, [COMMANDS["Visual Studio Code"], `${WORKTREE}/src`], [FILE]);
+    for (const path of ["src/a.ts", "-R", "", 7, undefined]) expect(await openInEditor(path, 12, 5, "Visual Studio Code", openers, PERSON)).toBe("A file is opened by its whole path.");
+    expect(await openInEditor(`${WORKTREE}/src/gone.ts`, 12, 5, "Visual Studio Code", openers, PERSON)).toBe(`${WORKTREE}/src/gone.ts is gone.`);
+    for (const folder of [`${WORKTREE}/src`, WORKTREE, CODE]) expect(await openInEditor(folder, 12, 5, "Visual Studio Code", openers, PERSON)).toBe("Owlery opens a file in an editor, and nothing else.");
+    expect([ran, opened]).toEqual([[], []]);
+  });
+
+  it("runs no app that is not an editor of its list, though a bundle of that name exists, none that is not installed, and none where no editor is chosen (scenario C4)", async () => {
+    const { openers, ran, opened } = mac(["/Applications/Notes.app", "/System/Applications/Utilities/Terminal.app"], {}, [], [FILE]);
+    expect(await openInEditor(FILE, 12, 5, "Notes", openers, PERSON)).toBe("Notes is not an editor Owlery opens a file in.");
+    expect(await openInEditor(FILE, 12, 5, "Terminal", openers, PERSON)).toBe("Terminal is not an editor Owlery opens a file in.");
+    expect(await openInEditor(FILE, 12, 5, "/Applications/Notes.app", openers, PERSON)).toBe("/Applications/Notes.app is not an editor Owlery opens a file in.");
+    expect(await openInEditor(FILE, 12, 5, "Cursor", openers, PERSON)).toBe("Cursor is not installed.");
+    for (const none of [null, "finder"]) expect(await openInEditor(FILE, 12, 5, none, openers, PERSON)).toBe("No editor is chosen in Settings.");
+    expect([ran, opened]).toEqual([[], []]);
+  });
+
+  it("runs the stand-in a start was given in the editor's place, with the file and its line and column as one argument, in the background too (scenario C1)", async () => {
+    const { openers, ran } = mac([CODE], {}, [COMMANDS["Visual Studio Code"]], [FILE]);
+    for (const background of [true, false]) {
+      expect(await openInEditor(FILE, 12, 5, "Visual Studio Code", openers, { program: "/t/opener.sh", background })).toBeNull();
+      expect(await openInEditor(FILE, undefined, undefined, "Visual Studio Code", openers, { program: "/t/opener.sh", background })).toBeNull();
+    }
+    expect(ran).toEqual([
+      ["/t/opener.sh", [`${FILE}:12:5`]],
+      ["/t/opener.sh", [FILE]],
+      ["/t/opener.sh", [`${FILE}:12:5`]],
+      ["/t/opener.sh", [FILE]],
+    ]);
+    // The stand-in runs only where a real editor would.
+    expect(await openInEditor(`${WORKTREE}/src`, 12, 5, "Visual Studio Code", openers, { program: "/t/opener.sh", background: true })).toBe(`${WORKTREE}/src is gone.`);
+    expect(ran).toHaveLength(4);
+  });
+
+  it("opens nothing in an app started in the background without a stand-in (scenario C4)", async () => {
+    const { openers, ran, opened } = mac([CODE], {}, [COMMANDS["Visual Studio Code"]], [FILE]);
+    expect(await openInEditor(FILE, 12, 5, "Visual Studio Code", openers, { program: null, background: true })).toBeNull();
+    expect([ran, opened]).toEqual([[], []]);
+  });
+
+  it("answers the failure's sentence where the editor's command fails", async () => {
+    const { openers } = mac([CODE], { run: "The editor cannot be opened." }, [COMMANDS["Visual Studio Code"]], [FILE]);
+    expect(await openInEditor(FILE, 12, 5, "Visual Studio Code", openers, PERSON)).toBe("The editor cannot be opened.");
   });
 });

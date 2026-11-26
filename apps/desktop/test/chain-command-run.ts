@@ -27,6 +27,7 @@ export interface Owed {
   commit?: string;
   head?: string;
   open?: number[];
+  ceiling?: number;
   agent?: string;
   prompt?: string;
   rules?: string;
@@ -36,9 +37,10 @@ export interface Owed {
  * A repository on the branch `BRANCH`, which holds one commit after `main`,
  * and the command in it. `gate` is the broad gate command its `config.json`
  * names, `true` where none is given. The pane's environment names `main` as
- * the base, and `env` adds to it or replaces of it.
+ * the base, and `env` adds to it or replaces of it. `roundsCeiling` is the
+ * round the command stops at, its own ceiling where none is given.
  */
-export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Record<string, string | undefined> } = {}) {
+export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Record<string, string | undefined>; roundsCeiling?: number } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const { repo, base: folder } = made;
@@ -54,7 +56,7 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
   const told: string[] = [];
   /** Runs the command in the repository. `input` is what its input holds, which `ask` alone reads, and `cwd` another folder to run it in. */
   const run = (args: string[], env: Record<string, string | undefined> = {}, input = "", cwd = repo): Promise<CommandEnd> =>
-    chainCommand(args, { cwd, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, input: () => Promise.resolve(input), say: (line) => told.push(line) });
+    chainCommand(args, { cwd, env: { PATH: process.env.PATH, HOME: folder, OWLERY_RUN_DIR: runDir, OWLERY_BASE: "main", ...options.env, ...env }, bundleDir: BUNDLE, version: VERSION, now: () => NOW, roundsCeiling: options.roundsCeiling, input: () => Promise.resolve(input), say: (line) => told.push(line) });
   /** What a subcommand printed as its JSON object. It throws the command's sentence where it was refused. */
   const said = async <T = Owed>(args: string[], env?: Record<string, string | undefined>): Promise<T> => {
     const end = await run(args, env);

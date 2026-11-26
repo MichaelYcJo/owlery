@@ -1,8 +1,9 @@
 // What the daemon gives a Claude Code pane that carries the owl chain, beside
 // the role bundle the build made: the head its system prompt ends with, and
 // the launcher of the chain command its environment names in `OWLERY_CHAIN`.
-// Beside them stands the runner's launcher, which every pane's environment
-// names in `OWLERY_RUN`. Each is a file of Owlery's run folder, and each
+// Beside them stands the runner's launcher, which the environment of a shell,
+// a Claude Code pane and a worktree setup pane names in `OWLERY_RUN`, and a
+// sign-in pane's does not. Each is a file of Owlery's run folder, and each
 // reaches a pane on `claude`'s command line or in the pane's environment
 // (`hooks.ts#paneCommands`), so no file of the person's Claude Code folder
 // is written here. Which pane
@@ -25,7 +26,7 @@ export const HEAD_FILE = "pane-head.md";
 /** The launcher's file in the run folder. It is not named `chain`: the chain command keeps what it hands a session under the folder `chain/` there (`chain-command.ts#stageFolder`). */
 export const LAUNCHER_FILE = "owl-chain";
 
-/** The runner's launcher in the run folder, which every pane's environment names in `OWLERY_RUN` (`hooks.ts#paneCommands`). */
+/** The runner's launcher in the run folder, which the environment of a shell, a Claude Code pane and a worktree setup pane names in `OWLERY_RUN` (`hooks.ts#paneCommands`, `hooks.ts#setupPaneCommand`); a sign-in pane's names none. */
 export const RUNNER_FILE = "owl-run";
 
 /**

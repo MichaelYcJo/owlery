@@ -15,6 +15,8 @@ export type AgentEvent =
   | "permission"
   | "notification"
   | "turn-end"
+  /** The agent's turn ended on an error of its provider before the agent finished, so it waits for the person to ask again. The event's text is the error's. */
+  | "turn-failed"
   /** The person interrupted the agent's turn. No hook says so: the daemon reads it from the session's log. */
   | "interrupted";
 
@@ -135,7 +137,7 @@ export interface Repository {
   accountId?: number | null;
 }
 
-/** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
+/** The sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that work or wait for the machine, each by its id. */
 export interface Running {
   panes: number[];
   headless: number[];
@@ -325,6 +327,23 @@ export interface WorkItem {
   accountId?: number | null;
   /** The heavy command of its worktree that waits for a turn on the machine, the one that began to wait first where several do, or null where none waits. The daemon stores no queue, so a look keeps none. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   machineWait?: MachineWait | null;
+  /** What the commit of a word of the person's waits for, where the work item's record in its worktree holds one, a reversal or an answer, that the record at the worktree's HEAD does not hold. Null where it holds none, and where the first try to commit it is due or under way. The daemon reads it from the tree and stores none, so a look keeps none, and it is no change of the work item since the look. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  wordOwed?: WordOwed | null;
+}
+
+/**
+ * What the commit of a word of the person's waits for. `session`: the work
+ * item's chain is running or a session of it is working, and the daemon
+ * commits the word once that has ended, unless a commit made meanwhile
+ * carried it. `retry`: the daemon's last try failed, and it tries again.
+ * `why` is the second half of a sentence: for `session`, "the work item's
+ * chain is running" or "a session of the work item is working"; for
+ * `retry`, the first line that is not empty of what the failed commit said,
+ * without the periods and the colon at its end.
+ */
+export interface WordOwed {
+  waits: "session" | "retry";
+  why: string;
 }
 
 /** A heavy command that waits for its turn on the machine: its name, when it asked, by the daemon's clock, and how many of those that wait go before it. */
@@ -545,7 +564,7 @@ export interface SessionInfo {
   workItemId: number | null;
   /** The id of the account the pane was launched under, `SYSTEM_DEFAULT_ID` among them, or null for a pane launched under none: a setup's pane, and a pane of a kind that takes no account. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
-  /** The id of the account whose sign-in the pane runs, or null for every other pane. Such a pane runs under that account and in no work item, so no work item's view and no line of the inbox lists it. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
+  /** The id of the account whose sign-in the pane runs, or null for every other pane. Such a pane runs under that account and in no work item, so no work item's view and no line of the inbox lists it. The pane an add without a folder starts names the id its folder takes as an account once its sign-in ends with a login, and `accountId` names the same id. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   signsIn?: number | null;
   /** Null until the agent's first event or until the pane has sent no event for the time after its start the daemon allows, whichever comes first, and always for a kind that reports no state. An exited session keeps its last. */
   state: AgentState | null;
@@ -832,6 +851,8 @@ export interface Machine {
   panes: { proposed: number; set: number | null };
   /** The limit on heavy commands that hold a turn at once: its proposal, one for each 8 cores (`byCores`) or each 16 GiB of memory (`byMemory`), whichever gives fewer and never under 1, the value a person set, and the heavy commands that run and wait, in the queue's order. */
   heavy: { proposed: number; byCores: number; byMemory: number; set: number | null; queue: HeavyQueued[] };
+  /** How many lines of history a pane on screen holds: its proposal, 5,000 on every machine, and the value a person set. The daemon keeps 256 characters of each pane's output for each of those lines. A daemon of an earlier build sends none, and the window then keeps 1,000 lines and draws no row for it. */
+  scrollback?: { proposed: number; set: number | null };
 }
 
 /** Where a heavy command stands in the order of those that wait: a work item's broad gate, a command of a work item under review, one of a work item still being built, and one in a folder no work item's records name. */
@@ -858,8 +879,8 @@ export interface HeavyRan {
   highestLoad: number | null;
 }
 
-/** The caps a person sets on the machine, the limit on heavy commands among them. */
-export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands";
+/** The caps a person sets on the machine, the limit on heavy commands and the scrollback among them. */
+export type Cap = "agents" | "worktrees" | "panes" | "heavyCommands" | "scrollback";
 
 export type ClientMessage =
   | { type: "hello"; token: string }
@@ -875,8 +896,8 @@ export type ClientMessage =
   | { type: "addRepository"; requestId: number; folder: string }
   // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. `paneChain` is the person's answer to which chain the repository's Claude Code panes run, and null takes the answer away, so the window asks again. `accountId` is the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them, or null, which leaves the repository's sessions to the default; an id the daemon keeps no account under is refused, and nothing of the message is then set. The daemon answers with `done`.
   | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean; paneChain?: ChainChoice | null; accountId?: number | null }
-  // Adds an account, its `name` stored without the white space at its ends. With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads of it only which plugins it enables and, through the adapter, the real path of the folder it keeps its conversations in (`Account.conversations`). Without it the daemon makes the account's folder, `accounts/<id>` of its run folder, readable by the user alone, and gives it the person's own names as the adapter lends them, which it gives again before each launch under the account. Any other folder, and an empty name, are refused with a sentence, and so is an account without a folder where the role adapter signs no account in. It answers with `done`, before the `accounts` that carries the account.
-  | { type: "addAccount"; requestId: number; name: string; folder?: string }
+  // Adds an account, and no name is typed. With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads of it only which plugins it enables and, through the adapter, whether a login stands in it, the name the agent gives that login and the real path of the folder it keeps its conversations in (`Account.conversations`). The account is named by that login's name, or by the folder's last name where no login stands, the agent names none or could not say, or the role adapter signs no account in, and it is answered with `done`, before the `accounts` that carries the account. Without `folder` the request names the size of a sign-in pane, `cols` by `rows`: the daemon makes the folder `accounts/<id>` of its run folder, readable by the user alone, gives it the person's own names as the adapter lends them, which it gives again before each launch under the account, and starts the sign-in pane of that folder at once, as `signIn` starts one, answered with `started`. The folder is no account until the pane's process ends: the daemon then asks the agent whether a login stands, keeps the folder as an account named by the login's name, or `Account <id>` where the agent names none, and closes the pane; it removes the folder where no login stands, and keeps it as `Account <id>`, its sign-in not read, where the agent could not say. It then sends this client `addEnded`. Any other folder is refused with a sentence, and so is an add without a folder where the role adapter signs no account in or cannot find its agent, which then keeps no folder. A name another account holds takes a number in brackets.
+  | { type: "addAccount"; requestId: number; folder?: string; cols?: number; rows?: number }
   // Names the account new sessions take where nothing nearer is set: the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them. Another id is refused. The daemon answers with `done`, before the `accounts` that carries the change.
   | { type: "setDefaultAccount"; requestId: number; id: number }
   // Gives an account another name, stored without the white space at its ends. An empty name, System default, which keeps its name, and an id the daemon keeps no account under are refused with a sentence, and nothing is renamed. The daemon answers with `done`, before the `accounts` that carries the change. A ledger entry keeps the name it was written with.
@@ -901,9 +922,9 @@ export type ClientMessage =
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
   // Sets a work item's pin, its mute, its group, or several of them: a field that is absent is left as it is. `groupId` is the id of a group of the work item's repository, or null, which takes the work item out of its group. A group of another repository, or one no repository holds, is refused, and nothing of the message is then set. `accountId` is the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them, or null, which leaves the work item's sessions to its repository's account; an id the daemon keeps no account under is refused in the same way. The daemon answers with `done`.
   | { type: "setWorkItem"; requestId: number; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null; accountId?: number | null }
-  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the work item has no branch yet, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working, no headless session of it is working and its chain is not running, and otherwise leaves the file written for the session's own commit, or for the commit of the chain's next stage. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  // Reverses a decision made for a work item in place of asking, with the person's message, which is written into the decision's block of the work item's record without the white space at its ends. `decisionId` is the block's id. The decision stays listed, as `reversed`, with the message. An empty message is refused, and so are an id the record holds no decision of, a decision that does not stand `decided` and a work item whose worktree holds no directory of its own: no file is then changed. It is refused too, before anything is written, where the work item has no branch yet, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it, with an `error` that says which, since a word written in the middle of a rebase is lost where the rebase is aborted. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working, no headless session of it is working and its chain is not running. Otherwise the word waits, and the daemon commits it once that has ended, unless a commit made meanwhile carried it. Where the commit fails, as where the worktree left the work item's branch or one of those operations began in it after the write, the file stands written and the daemon tries again. Either way the work item's `wordOwed` says what the commit waits for. A commit that fails changes no answer.
   | { type: "reverseDecision"; requestId: number; workItemId: number; decisionId: number; message: string }
-  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the work item has no branch yet, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record, and that file alone, on the work item's branch in its worktree, where no pane of the work item says it is working, no headless session of it is working and its chain is not running, and otherwise leaves the file written for the session's own commit, or for the commit of the chain's next stage. It commits nothing, and leaves the file written, where the worktree left the work item's branch or one of those operations began in it after the write. A commit that fails changes no answer.
+  // Answers the questions a work item is parked with, which ends the park: one answer for each open question of the work item's record, named by the block's id, an option's label or the person's own words, written into the question's block without the white space at its ends. Refused, with no file changed, where the record holds no open question, where an open question has no answer in the message, where the message answers an id that is no open question of the record or one question twice, for an empty answer, for a work item whose worktree holds no directory of its own, and, as a `reverseDecision` is, where the work item has no branch yet, where the worktree is not on the work item's branch or a rebase, a merge, a cherry-pick, a revert or a `git am` is under way in it. The answered blocks stay in the record. The daemon answers with `done`, before the `inbox` that carries the change. It then commits the record as it commits a reversal's, and a word that waits or whose commit failed is committed later as a reversal's is. A commit that fails changes no answer.
   | { type: "answerQuestions"; requestId: number; workItemId: number; answers: { questionId: number; answer: string }[] }
   // Asks what renaming the work item's branch after the name `title` would give, or for a work item with no branch yet, what branch the rename would make. The daemon renames nothing and makes nothing, and answers with a `renamePlan`.
   | { type: "planRename"; requestId: number; id: number; title: string }
@@ -945,8 +966,8 @@ export type ClientMessage =
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
   | { type: "setKeepAwake"; choice: KeepAwakeChoice }
-  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16 and a limit on heavy commands over the machine's cores where it read them, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
-  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null }
+  // Sets the caps a person sets on the machine: a field that is absent is left as it is, and null has the cap follow its proposal again. The daemon refuses with a sentence, and changes nothing, a value that is no whole number, one under 1, a cap on panes over 16, a limit on heavy commands over the machine's cores where it read them and a scrollback outside 1,000 to 50,000 lines, and every message where it keeps no cap. It answers with `done`, before the `machine` that carries a change.
+  | { type: "setCaps"; requestId: number; agents?: number | null; worktrees?: number | null; panes?: number | null; heavyCommands?: number | null; scrollback?: number | null }
   // Has the daemon read the load and the free disk again, and send this client a `machine`. A daemon that keeps no cap answers nothing.
   | { type: "readMachine" }
   // Asks what each heavy command of each repository took, from the daemon's runs' file. The daemon answers the client that asked alone, with a `heavyRuns`, and a daemon given no reader of the machine answers none.
@@ -994,6 +1015,8 @@ export type ServerMessage =
   | { type: "heavyRuns"; runs: HeavyRan[] }
   // The adapter's notice of its agent, sent to every client whenever it changes: the sentence, or null once there is nothing to say.
   | { type: "agentNotice"; notice: string | null }
+  // How an add without a folder ended, sent once to the client that asked, after the `accounts` that carries the account where one came of it: `id` is its sign-in pane, `accountId` the account that now stands, or null where none does, and `says` a sentence a window shows as it is where no account named from a login came of it, and null otherwise.
+  | { type: "addEnded"; id: number; accountId: number | null; says: string | null }
   // Answers a request that was carried out and has no other answer, before the `inbox` that carries what it changed.
   | { type: "done"; requestId: number }
   // Answers a request that failed; nothing was created or started.

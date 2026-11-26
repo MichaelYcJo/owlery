@@ -93,10 +93,11 @@ export interface RoleAdapter {
   readonly logins?: AccountLogins;
 }
 
-/** Whether a login stands in a config folder, and the daemon's clock at which it is expected to end, or null where the agent named no end. */
+/** Whether a login stands in a config folder, the daemon's clock at which it is expected to end, or null where the agent named no end, and the name the agent gives the login, as an email, or null where no login stands or the agent names none. */
 export interface LoginStatus {
   signedIn: boolean;
   loginEndsAt: number | null;
+  name: string | null;
 }
 
 /** The process a sign-in pane runs: the file to execute, its arguments, and the whole environment it is given, to which the terminal adds only its own names. */
@@ -118,7 +119,7 @@ export interface AccountLogins {
   furnish(folder: string): void;
   /** The process of a pane in which the person signs the folder in, through the agent's own sign-in. It rejects, with a sentence a person reads, where the adapter cannot find its agent. */
   signIn(folder: string): Promise<LoginCommand>;
-  /** Whether a login stands in the folder. It rejects, with a sentence a person reads, where the agent could not say. */
+  /** Whether a login stands in the folder, and the name the agent gives it. It rejects, with a sentence a person reads, where the agent could not say. */
   status(folder: string): Promise<LoginStatus>;
   /** Signs the folder out, through the agent's own command. It rejects, with a sentence a person reads, where the agent did not. */
   signOut(folder: string): Promise<void>;

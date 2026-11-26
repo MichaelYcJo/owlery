@@ -1,7 +1,9 @@
 // The chain command: what a pane's session calls to run the owl chain on the
 // branch it built. It is Owlery's code, built from the daemon's own modules
 // into `dist/chain.js`: it reads the worktree it is run in, says which stage
-// the records owe (`chain.ts#stepOwed`), hands the session that stage's
+// the records owe (`chain.ts#stepOwed`), or that the ceiling of rounds stops
+// the chain for the person before a fix pass, by the daemon's own rule
+// (`chain.ts#gateBefore`), hands the session that stage's
 // prompt, and turns each role's answer into a committed record through the
 // module the daemon's chain writes its records with (`stage-records.ts`). So
 // the order stays code, a judging role writes no record, and a gate is an
@@ -28,7 +30,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import type { RoleStage } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import { agentOf, rulesFileName, rulesText } from "./adapters/claude-roles";
-import { BASE_RECORDED, type ChainBase, ChainStop, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, earlierRunSays, endedWith, gateNotRunSays, inFolder, promptText, recordedBase, roundNumber, stageName, standingOf, stepOwed, stoppedSays, twiceFailedWhy, whyNoBase } from "./chain";
+import { BASE_RECORDED, type ChainBase, ChainStop, ROUNDS_CEILING, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, earlierRunSays, endedWith, gateBefore, gateNotRunSays, inFolder, promptText, recordedBase, roundNumber, stageName, standingOf, stepOwed, stoppedSays, twiceFailedWhy, whyNoBase } from "./chain";
 import { ROUTING_FILE, routingAnswer, workItemDirectories } from "./decision-record";
 import { GATE_LIMIT_MS, gateEnvironment, startGate } from "./gate";
 import { backSection, bodyRecords, sealSection } from "./github";
@@ -55,6 +57,8 @@ export interface CommandContext {
   now: () => number;
   /** How long the broad gate's command may run; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
+  /** The round the command stops at where it leaves a finding open, as the daemon's chain does; `ROUNDS_CEILING` of `chain.ts` when absent. */
+  roundsCeiling?: number;
   /** What the command's input holds, to its end. `ask` alone reads it, and a run given none reads an empty input. */
   input?: () => Promise<string>;
   /** Writes one line to the command's error output at once, while the command still runs, as a wait for the machine is said. */
@@ -76,10 +80,10 @@ export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal"
 /** The usage, which a run with no subcommand or an unknown one is refused with. */
 export const USAGE = [
   "Usage, in a work item's worktree:",
-  "  owed [--base <base>]                                  the step the records owe, with the stage's prompt",
+  "  owed [--base <base>] [--persons-word <round>]         the step the records owe, with the stage's prompt",
   "  start [--base <base>] [--automation <yes or no>]      declare the work item's routing",
   "  round <answer-file> [--base <base>]                   record a proofer's answer",
-  "  fix-pass --by <session>                               record a fix pass's close blocks",
+  "  fix-pass --by <session> [--persons-word <round>]      record a fix pass's close blocks",
   "  gate                                                  run the broad gate and record a pass",
   "  seal <answer-file> --judged-by <id> --model <name>    record a sealer's answer",
   "  body                                                  write the pull request body's sections",
@@ -93,6 +97,14 @@ export const BASE_OPTION = "Name another with `--base <branch or commit>`.";
 
 /** The answers `start` takes on `--automation`, which are the ones the pull request check reads in a routing's `Automation` row (`pr-check/lib/routing.py`). */
 const AUTOMATION_ANSWERS = ["yes", "no"] as const;
+
+/** The option of `owed` and `fix-pass` that passes the ceiling's stop of one round, once the person has said to go on: its value is the number of the round whose record the stop stands on. */
+const PERSONS_WORD = "--persons-word";
+
+/** What `fix-pass` is refused with where the ceiling of rounds stops the fix pass the records owe and no word of the person's names its round. */
+export function ceilingRefusesSays(round: number, ceiling: number): string {
+  return `Review round ${String(round)} left a finding open, and the chain stops for the person from round ${String(ceiling)} on, so \`fix-pass\` records no fix pass of round ${String(round)}. Once the person has said to go on, the same call with \`${PERSONS_WORD} ${String(round)}\` records it.`;
+}
 
 /** The words a question opens with to pass `ask` under `Automation` `yes`, with the reason after them. It is the one form `ask` reads. */
 export const NO_DEFAULT = "No default can be taken: ";
@@ -252,8 +264,42 @@ function declared(at: Here): Here & { directory: string } {
 
 const placeOf = (at: Here & { directory: string }): Place => ({ worktree: at.worktree, branch: at.branch, directory: at.directory });
 
+/** The round the person's word names in `--persons-word`, or null where the call gives none. It throws a `Refusal` with the usage for a value that is no round number in digits. */
+function personsWord(options: ReadonlyMap<string, string>): number | null {
+  const word = options.get(PERSONS_WORD);
+  if (word === undefined) return null;
+  if (!/^[1-9]\d*$/u.test(word)) throw new Refusal(`\`${PERSONS_WORD}\` takes the number of the round whose stop the person passed, in digits.\n${USAGE}`);
+  return Number(word);
+}
+
+/** The round the command stops at where it leaves a finding open. */
+const ceilingOf = (context: CommandContext): number => context.roundsCeiling ?? ROUNDS_CEILING;
+
+/**
+ * Whether the ceiling of rounds stops the fix pass the records owe, by the
+ * daemon's own rule (`chain.ts#gateBefore`): given no stored stage, since the
+ * command stores none, and a run whose `judged` is true, since a pane's
+ * session makes the judgment of convergence itself, the rule answers the
+ * ceiling or nothing. A call whose `--persons-word` names the step's round
+ * is the first step of a run the person's word made, and a call whose word
+ * names another round is not, so a word given for one round's stop passes
+ * no later one.
+ */
+function ceilingStops(context: CommandContext, step: Extract<Step, { is: "fix-pass" }>, word: number | null): boolean {
+  return gateBefore(step, [], ceilingOf(context), { judged: true, first: word === step.round }) === "ceiling";
+}
+
+/**
+ * Prints the step the records owe at the head (`chain.ts#stepOwed`), and for
+ * a round, a fix pass and a seal writes the stage's prompt and its role's
+ * rules file into the run folder. Where the step is a fix pass the ceiling of
+ * rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
+ * the ceiling and the open findings, and writes and commits nothing; the
+ * same call with `--persons-word` naming that round hands the pass.
+ */
 async function owed(context: CommandContext, args: readonly string[]): Promise<object> {
-  const { options } = parsed(args, ["--base"]);
+  const { options } = parsed(args, ["--base", PERSONS_WORD]);
+  const word = personsWord(options);
   const found = await here(context);
   if (found.directory === null) return { step: "start" };
   const at = declared(found);
@@ -265,6 +311,7 @@ async function owed(context: CommandContext, args: readonly string[]): Promise<o
   if (step.is === "sealed") return { step: "sealed", round: step.round, commit: step.at };
   if (step.is === "gate") return { step: "gate", round: step.round, head: step.head };
   if (step.is === "round") return { step: "round", round: step.round, target: step.target, ...handed(context, workItem, "round", `round-${String(step.round)}`, await roundStage(placeOf(at), standing, step, base)) };
+  if (step.is === "fix-pass" && ceilingStops(context, step, word)) return { step: "ceiling", round: step.round, ceiling: ceilingOf(context), open: step.open };
   if (step.is === "fix-pass") return { step: "fix-pass", round: step.round, open: step.open, reversals: step.reversals.map(({ id }) => id), ...handed(context, workItem, "fix-pass", `fix-pass-${String(step.round)}`, (await fixPassStage(placeOf(at), standing, step)).prompt) };
   const { prompt, target } = await sealStage(placeOf(at), standing, step, base);
   return { step: "seal", round: step.round, run: step.run, commit: step.commit, target, ...handed(context, workItem, "seal", `seal-${String(step.run)}`, prompt) };
@@ -320,14 +367,23 @@ async function round(context: CommandContext, args: readonly string[]): Promise<
   }
 }
 
+/**
+ * Commits the round record a fix pass left, with the pass's session in the
+ * commit's trailer (`stage-records.ts#recordFixPass`). Where the ceiling of
+ * rounds stops the pass (`ceilingStops`) and no `--persons-word` names its
+ * round, it refuses and commits nothing, and the pass's commits and close
+ * blocks stay in the worktree for the same call with the person's word.
+ */
 async function fixPass(context: CommandContext, args: readonly string[]): Promise<object> {
-  const { options } = parsed(args, ["--by"]);
+  const { options } = parsed(args, ["--by", PERSONS_WORD]);
   const by = options.get("--by");
   if (by === undefined || (by !== THE_SESSION && !isSessionId(by))) throw new Refusal(`\`fix-pass\` takes \`--by\` with the id of the subagent that made the pass, one word that holds no comma, or \`${THE_SESSION}\` where the session fixed it itself.`);
+  const word = personsWord(options);
   const at = declared(await here(context));
   const base = await baseHere(context, at, undefined);
   const standing = await standingHere(at, base);
   const step = owes(stepOwed(standing), "fix-pass", "fix-pass");
+  if (ceilingStops(context, step, word)) throw new Refusal(ceilingRefusesSays(step.round, ceilingOf(context)));
   try {
     const place = placeOf(at);
     const { committed } = await fixPassStage(place, standing, step);
