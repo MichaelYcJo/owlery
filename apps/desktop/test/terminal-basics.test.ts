@@ -1258,7 +1258,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     })()`);
   }
 
-  it('pastes the path of the file the main process writes for an image with no text, at a paste and at "Paste" of the pane\'s menu, leaves a text to the terminal, and leaves Control+V to the pane\'s program (scenarios D1, D2 and D5)', async () => {
+  it('pastes the path of the file the main process writes for an image with no text, at a paste and at "Paste" of the pane\'s menu, leaves a text to the terminal, leaves Control+V to the pane\'s program, and hands the path to no pane that took the screen while the file was written (scenarios D1, D2 and D5)', async () => {
     await untilReplayDrawn();
     await received.next(0);
     // An app started in the background reads no image of the system's clipboard, so the main process's answer to the window is replaced, and counts the window's requests. No case after this one pastes.
@@ -1306,6 +1306,42 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect((await received.next(1)).toString("hex")).toBe("16");
     expect(await handedMeanwhile()).toBe("");
     expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(2);
+
+    // The main process holds its answer while the screen of the pane pasted into passes to another pane: the path is handed to neither.
+    await app.evaluateMain(`void (() => {
+      electron.ipcMain.removeHandler("owlery:pasted-image");
+      electron.ipcMain.handle("owlery:pasted-image", () => {
+        globalThis.__pasted += 1;
+        return new Promise((resolve) => {
+          globalThis.__release = () => resolve(${JSON.stringify(image)});
+        });
+      });
+    })()`);
+    const second = await openPane("Shell");
+    await pidOf(second);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the second pane");
+    // The screen the second pane took is marked, so the step reads that the third pane takes that same screen.
+    await app.evaluate(`document.activeElement.closest(".pane").dataset.pastedInto = ""`);
+    await pasteInto(null, true, "document.activeElement");
+    for (const deadline = Date.now() + 5_000; (await app.evaluateMain<number>("globalThis.__pasted")) !== 3; await new Promise((resolve) => setTimeout(resolve, 50))) {
+      if (Date.now() >= deadline) throw new Error("the window never asked the main process for the image's path");
+    }
+    await closeFromElsewhere(second);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    // A pane that comes on takes the first free screen, which is the one the second pane gave back.
+    const third = await openPane("Shell");
+    await pidOf(third);
+    await app.until(`${PANE_HAS_KEYBOARD} && document.activeElement.closest(".pane[data-pasted-into]") !== null`, "the keyboard in the third pane, on the screen the second pane held");
+    const thirdHanded = new Received(`${receivedFile}-${third}`);
+    await thirdHanded.next(0);
+    await app.evaluateMain("globalThis.__release()");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect((await thirdHanded.next(0)).toString("hex")).toBe("");
+    expect(await handedMeanwhile()).toBe("");
+    await app.evaluate(`delete document.querySelector(".pane[data-pasted-into]").dataset.pastedInto`);
+    await closeFromElsewhere(third);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });
 
   /** The numbered lines a pane is to print under its links, `line-0001` and on. */
