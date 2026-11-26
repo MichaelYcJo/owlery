@@ -48,6 +48,12 @@ The fix names the work item with the reason it was not read, so the sentence "Th
 
 The fix pass also owes the docstring of `unreadRecords` (`daemon.ts:2883-2890`, "one whose reading git could not finish is left out, which the log says"), `protocol.ts`'s comment on `RecordsPlan.unread`, and `frame/design.md` *Scope* item 6. Each of them states which work items the list holds.
 
+```seal
+verdict: fixed 5c5bbd6e
+location: `apps/desktop/src/shared/protocol.ts:112`, `apps/desktop/test/daemon.test.ts`
+answer: `Daemon#unreadRecords` names a work item whose reading throws other than a `ChainStop` with "Owlery could not read these records, so whether the moved check refuses them is not known: " and git's words, cut at `STATE_TEXT_CHARS`, as the round's snippet gives. By the orchestrator's judgment in `frame/plan.md` *Judgments of the run*, it also names a work item with a branch whose head the daemon holds no reading of, with "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known.", where it was dropped. The docstring of `unreadRecords` and the comment on `RecordsPlan.unread` in `protocol.ts` now state both. Two cases of `daemon.test.ts` in the group "the records place of a repository" hold them. One breaks the worktree's `.git` link after the daemon read the head, so `git ls-tree` fails. The other deletes the branch's ref, so the daemon drops what it read of the branch. Each was seen red against the code before the fix, with `unread` `[]` (executed), and `seal mutate` turned each new branch back into `null` and both went red (executed). The `git grep` of the evidence line, run again after the commit, prints `view.ts:2693` and `view.test.ts:5217` and `:5219`. They stand: that sentence is now shown only where every work item was read. It also prints `daemon.ts:2892` and `:2907`, the new docstring and comment, and this record. `frame/design.md` *Scope* item 6 is the framer's fold, and `trail/phases/phase-1.md:11` is phase 1's record of what it built.
+```
+
 ### 2. The head of the dialog's list of named work items draws as body text, the same as the titles under it
 
 ```seal
@@ -63,6 +69,11 @@ Why it matters: `gaps.md:10` leaves the drawing of a named work item to this rev
 ```
 
 The two rows each gain the head, in place. In `docs/design.md:443`, "and under it each work item whose records the app's readers refuse" becomes "and under it, under the caption "Work items whose records Owlery's readers refuse", each work item whose records the app's readers refuse". In `docs/design.ko.md:443`, "그 아래에 앱의 읽기 도구가 기록을 거절하는 작업마다" becomes "그 아래에 "Work items whose records Owlery's readers refuse"라는 캡션을 두고, 앱의 읽기 도구가 기록을 거절하는 작업마다".
+
+```seal
+verdict: fixed 5c5bbd6e
+answer: `#records-unread-head` takes `class="caption"`. Both rows at line 443 gain the caption in place, in the words the round gives. Each row also says "refuse or did not read" (`거절하거나 읽지 못한`), since finding 1's fix names a work item that was not read under the same caption. `records-dialog.test.ts` and `view.test.ts` pass (executed). No case pins a class, and the drawing of the caption is read, not executed.
+```
 
 ### 3. An edit saved while the setup re-plans is written over and committed, and the closing memo puts the window in the wrong place
 
@@ -102,6 +113,12 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
 
 The refusal is thrown before `replaced` is set and before anything is staged, so the cleanup writes nothing back and unstages nothing. The fix pass rewrites `gaps.md:15` in place. The docstring of `setUpRecords` at `records-place.ts:546-557` gains the sentence that the move is refused where the workflow changed while the plan was made again. A case of `records-place.test.ts` cannot time an edit inside the plan's git runs. The fix pass therefore says how it showed the refusal red, or leaves that as a row of `gaps.md` *Not verified*.
 
+```seal
+verdict: fixed 5c5bbd6e
+location: `apps/desktop/test/records-place.test.ts`
+answer: `setUpRecords` reads the workflow's bytes before it makes the plan again, and refuses the move with the stale-plan sentence where the bytes read just before the write differ. The throw comes before `replaced` is set and before anything is staged, as the round's snippet gives. The docstring of `setUpRecords` gains the sentence on that refusal, and `gaps.md:15` is rewritten in place: only the two system calls of one synchronous step remain. A case of `records-place.test.ts` does time the edit inside the plan. It puts a `git` shim first on the PATH, which appends the person's line to the workflow the first time the plan runs `git check-ignore`, after the plan hashed the file. Against the code at the target the setup resolved and committed over the edit, "promise resolved instead of rejecting" (executed, seen red). After the fix it throws, the edit stands, HEAD is unchanged and only ` M` of the workflow shows (executed). `seal mutate` dropping the byte comparison went red (executed).
+```
+
 ### 4. The docstring of `planRecords` still says Owlery's workflow is kept wherever the commit holds it, and that the arms read every path the plan writes
 
 ```seal
@@ -128,6 +145,11 @@ Why it matters: the first *Removes* row of `frame/design.md` says the sentence "
 
 With these two edits, the last sentence of the paragraph at `:381-387`, "the arms on folders, letters and what the commit holds read the files the setup creates alone", repeats the list. The fix pass may cut it to "The moved workflow is compared below as a kept file."
 
+```seal
+verdict: fixed 5c5bbd6e
+answer: Both sentences are rewritten in place in the round's words: the kept workflow is Owlery's "where the commit holds it as a file and the plan does not move its check", and the arms on folders and on what the commit holds read "a path the setup creates". The paragraph on the move ends at "The moved workflow is compared below as a kept file." The `git grep` of the evidence line, run again after the commit, prints `records-place.ts:376` alone, the rewritten sentence, and no "a path the plan writes". `records-place.test.ts` passes whole (executed). The change is to comments only.
+```
+
 ### 5. `frame/plan.md` dates the milestone a day before the routing does
 
 ```seal
@@ -140,6 +162,11 @@ Why it matters: `d41cefea` changed `routing.md:16` to "the minimum for Owlery to
 
 ```markdown
 | #223 | `view.ts` (the approval line), `daemon.ts` and `protocol.ts`, from its frame's list of files | Whichever of the two seals first; this work expects to | The two change different functions of the same files. This work is smaller and its milestone, `release: 0.1.0`, is due 2026-11-29. |
+```
+
+```seal
+verdict: fixed 3d4a5801
+answer: The framer dated the milestone Sunday 2026-11-29 in `frame/plan.md`'s row, as `routing.md:16` says (`3d4a5801`); `grep -rn '11-28'` over the frame prints nothing. Records alone.
 ```
 
 ## Confirmations
