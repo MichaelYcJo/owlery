@@ -1548,7 +1548,7 @@ describe("the approval line", () => {
     expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
   });
 
-  it("is composed from the work item alone, so no pane's state and no headless session changes it", () => {
+  it("is composed from the work item alone, so no pane's agent state and no headless session changes it", () => {
     expect(approvalPlaces.length).toBe(1);
     const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
     const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
