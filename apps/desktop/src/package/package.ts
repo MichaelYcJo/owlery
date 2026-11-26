@@ -161,9 +161,10 @@ export type Build = (options: { projectDir: string; config: Configuration; mac: 
 export async function packageApp(appDir: string, env: Record<string, string | undefined>, build: Build, log: (line: string) => void, tag?: string): Promise<{ way: SigningWay; dmg: string }> {
   if (tag !== undefined) checkTag(tag, (JSON.parse(readFileSync(join(appDir, "package.json"), "utf8")) as { version: string }).version);
   const way = signingWay(env);
-  // The packager reads a signing variable as set wherever it is defined, so an empty CSC_LINK makes it import the
-  // project's folder as the certificate and fail ("… not a file"). GitHub gives a secret that is not set as an
-  // empty string, so the empty ones leave the environment, as `signingWay` already counts them.
+  // The packager reads CSC_LINK and CSC_KEY_PASSWORD as set wherever they are defined, so an empty CSC_LINK makes it
+  // import the project's folder as the certificate and fail ("… not a file"); it reads the three notarization
+  // variables as set only where they hold text. GitHub gives a secret that is not set as an empty string, so the
+  // empty ones leave the environment, as `signingWay` already counts them, and the ones that hold text stay.
   for (const name of SIGNING_VARIABLES) if (env[name] === "") delete env[name];
   const built = run(process.execPath, ["build.mjs"], { cwd: appDir });
   if (built.status !== 0) throw new Error(`The build of dist/ failed: node build.mjs ${outcome(built)}`);

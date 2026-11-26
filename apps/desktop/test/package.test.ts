@@ -90,6 +90,17 @@ describe("packageApp", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("keeps the signing variables that hold text, so the Developer ID way hands the packager its certificate", async () => {
+    const dir = bare();
+    const env: Record<string, string | undefined> = { PATH: "/usr/bin", ...ALL };
+    try {
+      await expect(packageApp(dir, env, packager, () => {}, "v0.1.0")).rejects.toThrow("The build of dist/ failed");
+      expect(env).toEqual({ PATH: "/usr/bin", ...ALL });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("packagerConfig", () => {
