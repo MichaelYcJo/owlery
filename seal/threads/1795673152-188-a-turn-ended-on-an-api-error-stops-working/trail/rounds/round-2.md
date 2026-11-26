@@ -29,6 +29,11 @@ and also for a subagent's turn that ends on an API error, whose input then names
 API 오류로 끝난 서브에이전트의 턴에서도 실행하며, 그때 입력에 서브에이전트의 `agent_id`가 들어 있습니다.
 ```
 
+```seal
+verdict: fixed d1e4dd5c
+answer: Both `to` sentences of *Rule changes* in `frame/design.md` are replaced as given: the English one says the hook runs for a subagent's turn that ends on an API error, the Korean one says the same. `agent-events.ts:18-20` is left as it is, as the finding says. The fix touches the work item's records alone.
+```
+
 ### 2. The closing memo does not name the unverified claim the subagent guard stands on
 
 ```seal
@@ -43,6 +48,11 @@ Why it matters: the unit is the guard `257939bc` added at `agent-events.ts:23`, 
 ```markdown
 <!-- gaps.md, ## Not verified, a row after line 7 -->
 | That a subagent's `StopFailure` names the subagent's `agent_id` in its input and the session's own `StopFailure` names none, which the guard at `apps/desktop/src/daemon/agent-events.ts:23` stands on. Read in review round 1 from the minified code of Claude Code 2.1.332, not from a session. Q1's run shows it only where its prompt starts a subagent. | the owner, by allowing one run of a real `claude` against a stand-in server |
+```
+
+```seal
+verdict: fixed d1e4dd5c
+answer: The row is added to `gaps.md` *Not verified* after the row of the reference's example, word for word as given. The fix touches the work item's records alone.
 ```
 
 ## Confirmations
