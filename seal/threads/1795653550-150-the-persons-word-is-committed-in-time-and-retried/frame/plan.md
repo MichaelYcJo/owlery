@@ -17,7 +17,7 @@ The tree as read at `82a55e8f`.
 **Constraints.**
 
 - A case that leaves a `reversed` or an `answered` block in a worktree's record without a commit now sees the daemon commit it once the records are read. The builder finds each such case of `apps/desktop/test/daemon.test.ts` and the built-app files by running the files it changes, and adjusts the case or makes its commit expected. `apps/desktop/test/screenshots.test.ts:663` writes the parked work item's record with open questions alone, which is no person's word.
-- The existing cases of `describe("the commit of a person's word")` pin the subjects of a reversal and of the answers, the trailer, the order of two words, the close's wait and the log's line. Four of them were rewritten in phase 2: the subject of a commit that takes several words at once, the session and pane cases that scenario I now states, an ended pane, and the hook case that scenario K now states (`trail/phases/phase-2.md`).
+- The existing cases of `describe("the commit of a person's word")` pin the subjects of a reversal and of the answers, the trailer, the order of two words, the close's wait and the log's line. Four of them were rewritten in phase 2: the subject of a commit that takes several words at once, the session and pane cases that scenario I now states, an interrupted pane, and the hook case that scenario K now states (`trail/phases/phase-2.md`).
 - The cases wait on what happens, with short limits given through the options, and never on a fixed sleep of the default limits.
 - A case that starts a hook which never ends removes its processes in its cleanup by the process ids it recorded.
 
