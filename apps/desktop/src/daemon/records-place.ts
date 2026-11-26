@@ -228,7 +228,7 @@ export function readRecordsPlace(folder: string, version?: string): RecordsPlace
   const root = rootOf(folder);
   const value = root === null ? undefined : configOf(folder, root)?.["Broad gate"];
   const check = checkOf(folder);
-  const pinned = version === undefined || check !== WORKFLOW ? null : pinnedVersion(textOf(join(folder, WORKFLOW)));
+  const pinned = version === undefined ? null : pinnedVersion(textOf(join(folder, WORKFLOW)));
   return { root, check, broadGate: typeof value === "string" ? value : null, olderCheck: pinned !== null && version !== undefined && olderVersion(pinned, version) ? pinned : null };
 }
 
