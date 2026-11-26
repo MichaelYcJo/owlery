@@ -3,8 +3,8 @@
 // setup would write, and the setup itself, which is the commit Owlery makes
 // in a repository at its connection, and the commit that moves the check
 // to the app's version once the person read it (docs/architecture.md,
-// "Records are committed to the repository"). Git runs with arguments, never through
-// a shell: the setup's `git add` and `git commit` through
+// "Records are committed to the repository"). Git runs with arguments,
+// never through a shell: the setup's `git add` and `git commit` through
 // `worktrees.ts#commitRunner`, under its limit, and every other git with
 // execFile.
 import { execFile } from "node:child_process";
