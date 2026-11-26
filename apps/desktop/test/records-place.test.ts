@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { commitFile, git, runs, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
@@ -783,6 +783,55 @@ describe("the records place", () => {
     expect(existsSync(join(repo, "seal"))).toBe(false);
     expect(existsSync(join(repo, ".github", "workflows"))).toBe(false);
     expect(status(repo)).toBe("A  other.txt\n");
+  });
+
+  /**
+   * A temporary repository with one commit on `main` and a program at
+   * `.git/hooks/<name>` that notes its process id and then waits for a file
+   * that never comes, and the ids noted so far. The case's cleanup ends by its id each one that still
+   * runs.
+   */
+  const hanging = (name: string): { repo: string; started: () => number[] } => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const noted = join(made.base, "hook-pids.txt");
+    write(made.repo, `.git/hooks/${name}`, `#!/bin/sh\necho $$ >> '${noted}'\nwhile [ ! -e '${join(made.base, "never")}' ]; do sleep 0.2; done\n`, 0o755);
+    const started = (): number[] => (existsSync(noted) ? readFileSync(noted, "utf8").split("\n").filter((line) => line !== "").map(Number) : []);
+    cleanups.push(() => {
+      for (const pid of started()) if (runs(pid)) process.kill(pid, "SIGKILL");
+    });
+    return { repo: made.repo, started };
+  };
+
+  it("ends a setup whose pre-commit hook never ends at the limit, and one whose clean filter holds git add: each throws the command and the limit, no file or folder of the setup stands, and nothing of it is staged", async () => {
+    for (const [name, command] of [
+      ["pre-commit", "git commit"],
+      ["never-filter", "git add"],
+    ] as const) {
+      const { repo, started } = hanging(name);
+      if (name === "never-filter") {
+        git(repo, "config", "filter.never.clean", join(repo, ".git", "hooks", name));
+        write(repo, ".git/info/attributes", "seal/README.md filter=never\n");
+      }
+      const before = [head(repo), tree(repo)];
+      const plan = await planRecords(repo, "pnpm test", VERSION);
+      await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 2000)).rejects.toThrow(`${command} did not end in 2 seconds and was ended`);
+      expect(started()).toHaveLength(1);
+      expect([head(repo), tree(repo)]).toEqual(before);
+      expect(status(repo)).toBe("");
+      expect(existsSync(join(repo, ".git", "index.lock"))).toBe(false);
+    }
+  });
+
+  it("keeps a setup's commit that was made before it was ended: a post-commit hook that never ends leaves the commit of the plan's files on the branch, each file standing and nothing staged", async () => {
+    const { repo, started } = hanging("post-commit");
+    const before = head(repo);
+    const plan = await planRecords(repo, "pnpm test", VERSION);
+    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 2000);
+    expect(started()).toHaveLength(1);
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(status(repo)).toBe("");
   });
 
   it("writes over nothing that appeared after the plan was made: a file that stands at a path of the setup by the time it is written refuses the setup, and stays as it is", async () => {

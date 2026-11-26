@@ -1,0 +1,166 @@
+# Design: the person's word is committed in time and retried
+
+## Grounding
+
+The tree as read at `82a55e8f`.
+
+| Policy clause | What it fixes for this work |
+|---|---|
+| `docs/architecture.md` *Records are committed to the repository*, "Uncommitted records cannot support a seal." | A reversal or an answer that stays out of every commit is a record the pull request check and another clone do not hold. The daemon's commit of it is owed, and so is saying where it did not land. |
+| `docs/architecture.md` *Records are committed to the repository*, the setup's paragraph: "The commit holds those files alone, runs the repository's hooks, and is not pushed." | No commit of Owlery's skips a hook or a signature to stay inside a time limit. The limit ends the commit and leaves the file written. |
+| `docs/architecture.md` *Records are committed to the repository*, "The daemon reads the file in the work item's worktree, whether or not it is committed" | The window shows a word before any commit holds it, so the window is where a word that is not committed has to be named. |
+| `docs/architecture.md` *Code runs the order, the orchestrator judges*, "The daemon keeps no position of its own." and "the daemon stores no queue" | Which word no commit holds is read from the worktree and the commit, and no list of owed words is stored. |
+| `docs/product.md` *Foundation*, the paragraph that opens "A work item's line shows the decisions made for it in place of asking" | The line and the view are where a person meets their reversal, so the words on a word not committed stand there. |
+| `docs/design.md` *Principles*, 2 "The window reports, and does not converse" | The window says that a word is not committed and that the daemon tries again. It gains no button for the retry. |
+| `docs/design.md` *Principles*, 8 "Every form is stated here" | The sentence that states where the new words stand is written into *Components and their states* in this pull request, in both editions. |
+| `docs/design.md` *A pull request that changes the window carries its screenshots* | The pull request carries the inbox and the parked view, drawn with a word whose commit failed. |
+
+**The policy root states nothing of who commits a person's word.** `read`: a search of `docs/architecture.md`, `docs/design.md` and `docs/product.md` for "revers", "is committed", "not committed" and "commits the" names the paragraphs above and none on the daemon's commit of a reversal or an answer. The records of issue #119 said the same of *Records are committed to the repository* (`git show 01acf5bf^:seal/threads/1795330500-no-question-holds-the-run/trail/phases/phase-7.md`, `executed`). The unsettled designs under `seal/threads/` change no sentence of that section (`grep` of each `## Rule changes`, `executed`).
+
+**The code this work changes, `read` at `82a55e8f`.**
+
+- `apps/desktop/src/daemon/worktrees.ts#commitPaths` runs `git add`, `git diff --cached --quiet` and `git commit` through `gitIn`, which is `execFile` with no time limit. Its callers are `Daemon#commitWord` (`apps/desktop/src/daemon/daemon.ts:2902`) and `apps/desktop/src/daemon/stage-records.ts#commitRecords` (`:92`), which the daemon's chain and the chain command of a pane both call.
+- `apps/desktop/src/daemon/records-place.ts#setUpRecords` commits through a `git` helper of its own (`:512` to `:514`), also `execFile` with no limit.
+- `Daemon#commitWord` (`daemon.ts:2895`) commits nothing where `this.chains.has(id)` or `this.works(id)` holds at its turn, and logs a failed commit. Nothing comes back to either. `Daemon#personWrote` (`:2822`) hands it the subject.
+- `Daemon#close` (`daemon.ts:776`) waits for every promise of `words` and `wordCommits`, with no limit.
+- `Daemon#checkIdle` (`daemon.ts:4248`) ends a daemon that holds no client, no live pane, no working headless session and no chain after 60 seconds, so nothing the daemon keeps in memory outlives a closed window by more than that.
+- `Daemon#readCommits` (`daemon.ts:4131`) reads each open work item's record and branch on a timer that runs only while a client is connected (`scheduleCommitRead`, `:4025`).
+- `worktrees.ts#askRemote` (`:293`) already runs a git as the leader of a process group of its own and ends the group at a time limit.
+- The handlers of `reverseDecision` and `answerQuestions` (`daemon.ts:1239`, `:1257`) are the only callers that write a person's word: `grep -rn` for `withReversal` and `withAnswer` under `apps/desktop/src` names them and `decision-record.ts` (`executed`).
+
+**What an ended `git commit` leaves, `executed` on 2026-11-26 with git 2.50.1.** One probe, `test_tmp_commit_limit.mjs`, in temporary repositories under the framer's scratch directory. It started `git commit -m second -- a.md` with Node's `spawn`, and sent each signal one second after the start.
+
+| Case | Signal | What it left |
+|---|---|---|
+| `pre-commit` runs `sleep` | SIGTERM to git's process group | git ended at the signal. No `index.lock`, no new commit, the path still staged, the hook's process gone. `git reset --quiet -- a.md` then unstaged it. |
+| `pre-commit` ignores SIGTERM | SIGTERM to the group, SIGKILL to the group a second later | git ended at the SIGTERM with no `index.lock`. The hook held git's output pipe open until the SIGKILL. |
+| `post-commit` runs `sleep` | SIGTERM to the group | The commit was made before the hook ran: the branch held it, and `git diff --cached --quiet -- a.md` exited 0. |
+| `commit-msg` runs `sleep` | SIGTERM to the group | As the first case. |
+| `pre-commit` runs `sleep` | SIGKILL to the group, with no SIGTERM first | `index.lock` stayed, and `git reset` then failed with "Unable to create ... index.lock: File exists". |
+| `pre-commit` runs `sleep`, git not a group leader | SIGTERM to git alone, which is what `execFile`'s `timeout` sends | git ended, the hook's `sleep` went on running, and git's output pipe was still open six seconds later. `execFile` calls back when that pipe closes. |
+| a signing program (`gpg.program`) runs `sleep`, in a repository with no commit yet | SIGTERM to the group | git ended at the signal with no `index.lock` and the signer's process gone. The probe's setup made this repository's first commit fail, so the case ran on a repository with no commit. |
+
+**The issue's comments, `executed`: `gh issue view 150 --json body,comments`.** The comments of 2026-11-22T16:18:30Z and 17:05:41Z say that `Daemon#decided` and `Daemon#park` write a stage's block without asking `worktrees.ts#whyNoCommit`, and give that refusal to issues #51, #41 and #42. The issue's *Done when* names none of it. `read`: `Daemon#runChain` asks `whyNoCommit` at the head of each step (`daemon.ts:3110`), and both writers are called from inside a step (`:3320`, `:3351`, `:3353`, `:3413`). `executed`: `gh issue view` shows #41 and #42 closed and #51 open in milestone 0.0.6. This work leaves the stage's writers as they are (*Scope*, out).
+
+**The earlier work item.** `executed`: `git show 01acf5bf^:seal/threads/1795330500-no-question-holds-the-run/gaps.md`. Its *Not done* names the gaps this issue carries, and says that "a git that is stopped in the middle of a commit can leave the index locked, so a limit needs its own design". The probe above answers it: SIGTERM leaves no lock and SIGKILL does. Its *Not verified* row on a repository that signs its commits names the owner as its answerer.
+
+**The latest release's note holds no *Process changes* table.** `executed`: `gh release view --json tagName,body` gives `v0.0.4`, and its body holds no such heading. No `changelog.md` under `seal/threads/` holds one either (`grep -l`, `executed`).
+
+## Scope
+
+In:
+
+1. **A commit has a time limit.** `worktrees.ts#commitPaths` runs its `git add` and its `git commit` under one limit, `COMMIT_LIMIT_MS`, five minutes, unless its caller gives another. Each of the two is started as the leader of a process group of its own, with no input. At the limit the group is sent SIGTERM. `COMMIT_END_GRACE_MS`, two seconds, after that signal, where git has not exited or its output pipe is still open, the group is sent SIGKILL. `commitPaths` then takes its paths out of the index, as it does after any failure, and throws a sentence that names the command and the limit, as in "git commit did not end in 300 seconds and was ended". It never removes an `index.lock`.
+2. **A commit that was made before it was ended stands.** Where the ended `git commit` leaves the index holding each path as the branch's newest commit does, the commit was made, as under a `post-commit` hook that does not end. `commitPaths` then returns as it does after a commit.
+3. **A caller ends a commit under way.** `commitPaths` takes a signal. Where it fires, the command under way is ended as at the limit, and `commitPaths` throws "the commit was ended". Where it has fired before a command starts, nothing is started.
+4. **The setup of the records place commits under the same limit.** `records-place.ts#setUpRecords` runs its `git add` and its `git commit` through the runner of item 1. At the limit it throws the same sentence, and its own failure path unstages its paths and removes what it wrote, as after any failure, except where the ended `git commit` had already made the commit: then the setup keeps it and succeeds, as *Scope* item 2 reads a commit.
+5. **The daemon's close waits for a commit, and ends one that does not end.** `Daemon#close` waits `COMMIT_CLOSE_WAIT_MS`, three seconds, for the commits under way, then fires the signal of item 3 for each that is still running and waits for its end. A commit whose turn comes after the close commits nothing. Every commit the daemon makes takes that signal: a person's word, a renamed branch's routing and a chain's stage.
+6. **Which word no commit holds is read from the tree.** A person's word is owed where the work item's record in its worktree holds a decision that stands `reversed`, or a question that stands `answered`, and the record at the worktree's HEAD holds that block in no such state or does not hold it. A pure function of `decision-record.ts` gives the owed blocks from the two texts. The daemon asks git for the committed text only for a work item whose record holds such a block, and, when it reads the record, only where the record's text or the branch's head is another than when it last asked. A try asks git before and after its commit each time. It asks at the read of the records (`Daemon#readCommits`), after a person's word is written, and after each commit it tries. It stores no list of owed words on disk, and what it holds in memory is what that reading gave.
+7. **One unit commits an owed word.** It replaces the record's arm of `Daemon#commitWord`. At its turn among the worktree's commits it reads what is owed. Where nothing is, it does nothing. Where the work item's chain is running, or a live pane or a headless session of it is working, it commits nothing and the word waits for a session. Otherwise it commits the record alone through `commitPaths`, with the trailer `Seal-Routing:` as today and a subject made from what is owed: `chore: record the person's reversal of decision <id>` for one reversal alone, `chore: record the person's answers` for answers alone, and `chore: record the person's word` for anything else. `Daemon#personWrote` no longer takes a subject.
+8. **The daemon comes back to an owed word.** A timer of its own runs while a work item that is not archived owes a word, with or without a client, and stops when none does or the daemon closes. A word that waits for a session is not tried while the session works; the first turn of the timer after the session's end tries it, every `WORD_PASS_MS`, three seconds, so it is committed within one turn of the session's end. A word whose commit failed is tried again `WORD_RETRY_MS`, one minute, after the failure, and after each further failure the wait doubles, to `WORD_RETRY_MAX_MS`, one hour, at most. A change of the record's text, or of the branch's head as the daemon last read it while a client is connected, makes the next try due at once. The log holds "the person's word was not committed: " and the reason for each failed try whose reason is another than the try before it gave. The timer tries no work item `Daemon#whyNoRun` names.
+9. **The lists carry what is owed.** `WorkItem` gains the optional field `wordOwed`: null where nothing is owed, and otherwise what the word waits for, `session` or `retry`, with why as the second half of a sentence. It is null too while the first try is due or under way, and `session` stands before `retry` where both hold. For `session` it is "a session of the work item is working" or "the work item's chain is running". For `retry` it is the first line that is not empty of what the failed commit said, cut as the daemon cuts a state's text, without the periods and the colon at its end. The daemon sends the lists when the field changes. The look keeps none of it, and it is no change of the work item since the last look. It changes no state, no group and no notification.
+10. **The window says it.** The preview and the work item's view hold one sentence above the decisions while a word is owed. For `session`: "The record holds a word of yours that no commit holds yet: \<why\>. Owlery commits it once that has ended." For `retry`: "The record holds a word of yours that was not committed: \<why\>. Owlery tries again." The inbox's line says "word not committed" in its second row, after the count of the decisions, for `retry` alone. A word that waits for a working session is the usual case and marks no line.
+11. **The form's sentence is written into the design document.** `docs/design.md` *Components and their states*, the row "A row of a list of records", gains the sentence that states where the sentence of item 10 stands and its ink: `--ink-muted` for `session` and `--state-failed` for `retry`. `docs/design.ko.md` gains the same sentence in its row. Both are edited in this pull request, as principle 8 asks.
+12. **The screenshot scene holds a word whose commit failed.** The screenshot run writes one decision made without asking into the parked work item's record, with the person's reversal of it. Before the app starts, after the parked worktree's commits, it writes a `pre-commit` hook that refuses only a commit holding that record, since the daemon tries the word at its first read of the records. The inbox's view waits for the line's words and the parked view's for the sentence. The pull request carries the inbox and the parked view in Night watch's dark and light appearances.
+13. **The comments that state the old behaviour are rewritten in place.** They are the docstrings of `commitPaths`, `Daemon#commitWord`, `Daemon#personWrote` and `Daemon#close`, and the comments of `reverseDecision` and `answerQuestions` in `apps/desktop/src/shared/protocol.ts`, which say that a word left for a session waits for the session's own commit and that a failed commit changes nothing.
+
+Out:
+
+- **The refusal of a stage's block while a git operation is under way** (`Daemon#decided`, `Daemon#park`). The issue's comments give it to #51, #41 and #42, and *Done when* names none of it. The chain asks `whyNoCommit` at each step's head. What is left, a rebase begun during a stage's session, stays with #51, which is open.
+- **A retry of the commit that names a renamed branch in `routing.md`.** That commit gains the time limit and the close's signal. It is not a person's word, and nothing reads whether it landed. The builder names it in `gaps.md`.
+- **A check in a repository that signs its commits.** The cases run with `commit.gpgsign` off. The owner makes the check in the running app, and the builder carries the row into `gaps.md` *Not verified* with the owner as its answerer.
+- **A button that tries the commit again.** The timer tries, and a new word tries at once.
+- **A time limit on the git commands that only read**, and on the creation, the rename and the removal of a worktree or a branch. They run no hook of the repository.
+- **A retry in the chain and in the chain command.** A stage's commit that is ended at the limit stops the chain with the sentence, as a hook's refusal does, and the chain's next start reads the records.
+- **An archived work item's owed word.** No read reaches an archived work item, and the timer reaches none either.
+
+## User scenarios & acceptance *(mandatory)*
+
+| Scenario | Given / When / Then | Verifiable how |
+|---|---|---|
+| A. A hook that never ends | Given a repository whose `pre-commit` hook waits for a file that never comes. When `commitPaths` runs with a limit of two seconds. Then it rejects with the sentence of *Scope* item 1 within the limit and the grace, the branch holds no new commit, the path is written and not staged, no `index.lock` stands, and the hook's process is gone. | A case of `describe("committing files of a worktree")` in `apps/desktop/test/worktrees.test.ts`. |
+| B. A hook that ignores the signal | Given a `pre-commit` hook that ignores SIGTERM. When the limit passes. Then `commitPaths` rejects within the limit and the grace, and what scenario A names holds. | A case of the same group. |
+| C. A hook that hangs after the commit | Given a `post-commit` hook that never ends. When the limit passes. Then `commitPaths` resolves, the branch holds the commit with its paths, and nothing is staged. | A case of the same group. |
+| D. A hook that waits for input | Given a `pre-commit` hook that reads its input to the end before it exits 0. When `commitPaths` runs with its default limit. Then the commit is made at once, because git and its hooks have no input. | No case. git gives a hook no input whatever the runner hands git, so a case passed against the old runner and against the runner with its input piped, and pinned nothing (`trail/phases/phase-1.md`). The runner's `stdio: "ignore"` stands unpinned in `gaps.md`. |
+| E. A caller ends the commit | Given a hook that never ends and a signal. When the signal fires while the commit runs. Then `commitPaths` rejects with "the commit was ended" and what scenario A names holds. | A case of the same group. |
+| F. The setup of the records place | Given a repository whose `pre-commit` hook never ends. When `setUpRecords` runs with a short limit. Then it rejects with the sentence, no file it wrote stands, and nothing is staged. | A case of `describe("the records place")` in `apps/desktop/test/records-place.test.ts`. |
+| G. The worktree's later commits and the close are not held | Given a daemon whose commit limit is short and a hook that never ends. When a person reverses a decision and then a second one. Then both are answered `done`, the log holds the sentence of the limit, the second word's turn comes, and `close()` resolves. | A case of `describe("the commit of a person's word")` in `apps/desktop/test/daemon.test.ts`. |
+| H. The close ends a commit | Given a daemon with the default commit limit, a short close wait, and a hook that never ends. When a reversal's commit is under way and the daemon closes. Then `close()` resolves within the close wait and the grace, the record holds the reversal, the path is not staged and no `index.lock` stands. | A case of the same group. |
+| I. A word left for a session | Given a work item whose pane says it is working. When the person reverses a decision. Then no commit is made and the lists carry `wordOwed` with `session`. When the pane's session then stops working without a commit. Then within a turn of the timer the branch holds one new commit of the record alone, with the subject and the trailer of *Scope* item 7, and the lists carry `wordOwed` null. The same holds for a headless session that works and for a chain that runs. | Cases of the same group, with a short `wordPassMs`. |
+| J. The session's own commit carries the word | Given scenario I's word, left for a working pane. When a commit that holds the record is made in the worktree and the pane then stops working. Then the daemon makes no commit, and the lists carry `wordOwed` null. | A case of the same group. |
+| K. A failed commit is shown and retried | Given a `pre-commit` hook that prints a line and exits 1. When the person reverses a decision. Then the request is answered `done`, the lists carry `wordOwed` with `retry` and the hook's line, and the log holds one line for it. When the hook is removed. Then at the next try the commit is made and the lists carry `wordOwed` null. With the hook kept, the tries follow one another at waits that double. | Cases of the same group, with a short `wordRetryMs`; the doubling by a hook that notes the time of each run. |
+| L. A daemon that starts again | Given a word whose commit failed, and a daemon that closed. When the hook is removed, a new daemon opens the same run folder and a client connects. Then the new daemon commits the word, with the subject of *Scope* item 7. | A case of the same group. |
+| M. A stage's block is not a person's word | Given a record whose worktree copy holds a decision that stands `decided` and an `open` question that no commit holds, and no reversed or answered block. When the records are read and the timer's interval passes. Then the daemon makes no commit and the lists carry `wordOwed` null. | A case of the same group, and the cases of the pure function in `apps/desktop/test/decision-record.test.ts`: a reversal the commit lacks, an answer the commit lacks, a block the commit holds in the same state, a record no commit holds, and a record with no such block. |
+| N. The subjects | Given one reversal owed, answers owed, or a reversal and an answer owed together. When the daemon commits. Then the subject is the one *Scope* item 7 gives for each. | The existing cases of the group that pin the subjects of a reversal and of the answers stay as they are; one new case for the third subject. |
+| O. The window's words | Given a work item whose `wordOwed` is `session`, `retry`, null or absent. Then the sentence and the line's words are those of *Scope* item 10, and an absent field reads as null. | Cases in `apps/desktop/test/view.test.ts`, beside `describe("the decisions made without asking")`. |
+| P. The look | Given a work item that owes a word when the look is taken. Then the look holds no `wordOwed`, and the work item is not counted as changed for it. | A case in `apps/desktop/test/last-look.test.ts` for the look. The second half, that the work item is not counted as changed, has no case: no case pinned a guard of `view.ts#changeOf`, and `gaps.md` holds it. |
+| Q. The screenshots | Given the screenshot run's scene. Then the inbox's line of the parked work item says "word not committed", and the parked view holds the sentence for `retry` with the hook's line. | The cases of `apps/desktop/test/screenshots.test.ts` that wait for the inbox and for the parked view, and the files of the run. |
+
+## Data & interfaces
+
+- `apps/desktop/src/daemon/worktrees.ts`: `COMMIT_LIMIT_MS = 5 * 60_000` and `COMMIT_END_GRACE_MS = 2000`, exported. `commitPaths(worktree, branch, paths, subject, trailers, bounds?)`, where `bounds` is `{ limitMs?: number; ended?: AbortSignal }`. The runner that starts one git under those bounds is exported for `records-place.ts`. It gives git's exit, what git printed, and whether it was ended and why.
+- `apps/desktop/src/daemon/records-place.ts#setUpRecords` takes the limit as its last, optional parameter.
+- `apps/desktop/src/daemon/stage-records.ts#commitRecords` reads the bounds from `Place.bounds` and hands them to `commitPaths`; its positional parameters do not change. `declaredDirectory` takes `bounds` as its last, optional argument.
+- `apps/desktop/src/daemon/decision-record.ts`: a pure function from the committed text, or null where no commit holds the record, and the written text, to `{ reversed: number[]; answered: number[] }`, the ids of the owed blocks.
+- `apps/desktop/src/daemon/daemon.ts`: `COMMIT_CLOSE_WAIT_MS = 3000`, `WORD_PASS_MS = 3000`, `WORD_RETRY_MS = 60_000`, `WORD_RETRY_MAX_MS = 60 * 60_000`. The options gain `commitLimitMs`, `commitCloseWaitMs`, `wordPassMs` and `wordRetryMs`, each read where the options name it, as `commitPollMs` is.
+- `apps/desktop/src/shared/protocol.ts`, `WorkItem`: `wordOwed?: { waits: "session" | "retry"; why: string } | null`. A daemon of an earlier build sends no such field, and a client reads its absence as null.
+- `apps/desktop/src/renderer/view.ts`: one function gives the sentence of *Scope* item 10 with whether it is a failure, or null, and one gives the line's words. `apps/desktop/src/renderer/shared.ts#detail` draws the sentence, and `apps/desktop/src/renderer/list.ts` appends the line's words to the part that holds the count of the decisions.
+- No message of the protocol is added, and none changes its shape.
+
+## Rule changes
+
+- add
+  file: docs/architecture.md
+  section: Records are committed to the repository
+  to: **The daemon commits a person's word, a reversal or an answer, and where it could not, it says so and tries again.** The record at the worktree's head commit says which words no commit holds: a decision that stands `reversed`, or a question that stands `answered`, in the worktree's file and not in the commit's. The daemon keeps no list of them, so a daemon that starts again finds each from the tree. It commits the record alone where no session of the work item is working and its chain is not running. A word written while one works waits, and the daemon commits it once that has ended, unless a commit made there carried it. A commit that fails is tried again after a minute, and after each further failure the wait doubles, to an hour at most. A change of the record, or a new commit on the branch while a window is open, ends the wait. The work item's view says that a word is not committed and why, and its line says so where a commit failed. Every commit Owlery's code makes has five minutes, a stage's and the setup of the records place among them. Git runs the repository's hooks and its signing in a process group of its own, with no input. Past the limit Owlery ends the group and leaves each file written and not staged, unless the commit was made before the end. A hook that does not end would otherwise hold every later commit of that worktree and the daemon's close. The daemon's close waits three seconds for a commit under way and then ends it.
+    check: apps/desktop/test/worktrees.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/decision-record.test.ts apps/desktop/test/records-place.test.ts
+- add
+  file: docs/architecture.ko.md
+  section: 기록은 저장소에 커밋합니다
+  to: **데몬은 사람의 말, 곧 결정을 뒤집은 말과 질문에 한 답을 커밋하고, 커밋하지 못했으면 그렇다고 알리고 다시 시도합니다.** 어느 말이 아직 커밋에 없는지는 워크트리의 HEAD 커밋에 있는 기록이 말해 줍니다. 워크트리의 파일에서는 `reversed`인 결정이나 `answered`인 질문이 그 커밋에서는 그렇지 않으면, 그 말은 아직 커밋에 없습니다. 데몬은 그런 말의 목록을 따로 두지 않으므로, 다시 시작한 데몬도 트리에서 하나하나 찾아냅니다. 데몬은 그 작업의 세션이 일하고 있지 않고 체인이 돌고 있지 않을 때 기록 파일 하나만 커밋합니다. 세션이 일하는 동안 적힌 말은 기다리고, 세션이 끝나면 데몬이 커밋합니다. 그 사이에 거기서 만들어진 커밋이 그 말을 실었으면 데몬은 커밋하지 않습니다. 실패한 커밋은 1분 뒤에 다시 시도하고, 또 실패할 때마다 기다리는 시간이 두 배가 되며, 한 시간을 넘지 않습니다. 기록이 바뀌거나, 창이 열려 있는 동안 브랜치에 새 커밋이 생기면 기다림이 끝납니다. 작업 화면은 커밋되지 않은 말이 있다는 것과 그 까닭을 말하고, 커밋이 실패했으면 작업의 줄도 그렇게 말합니다. Owlery의 코드가 만드는 커밋은 단계의 커밋과 기록 자리를 만드는 커밋까지 모두 5분 안에 끝나야 합니다. git은 저장소의 훅과 서명을 자기만의 프로세스 그룹에서 입력 없이 돌립니다. 5분이 지나면 Owlery는 그 그룹을 끝내고, 파일은 적힌 채로, 스테이징되지 않은 채로 둡니다. 끝내기 전에 커밋이 이미 만들어졌으면 그 커밋은 그대로 남습니다. 그러지 않으면 끝나지 않는 훅이 그 워크트리의 뒤따르는 커밋과 데몬의 종료를 모두 붙잡습니다. 데몬은 종료할 때 진행 중인 커밋을 3초 기다린 뒤 끝냅니다.
+    check: apps/desktop/test/worktrees.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/decision-record.test.ts apps/desktop/test/records-place.test.ts
+- change
+  file: docs/product.md
+  section: Foundation: the inbox, the AgenticSeal process and the back of the seal, with terminals on call
+  from: A person reverses one there with a message, which the work item's record keeps.
+  to: A person reverses one there with a message, which the work item's record keeps. Where the record holds a word of the person's that no commit holds yet, the view says so and why, and the line says so where a commit of it failed.
+- change
+  file: docs/product.ko.md
+  section: 바탕: 작업함, AgenticSeal 프로세스, 인장의 뒷면, 그리고 불러 쓰는 터미널
+  from: 사람은 거기서 메시지를 적어 결정을 뒤집고, 그 메시지는 작업의 기록에 남습니다.
+  to: 사람은 거기서 메시지를 적어 결정을 뒤집고, 그 메시지는 작업의 기록에 남습니다. 사람의 말이 기록에는 적혔는데 아직 어느 커밋에도 없으면 작업 화면이 그 사실과 까닭을 말하고, 그 말의 커밋이 실패했으면 작업의 줄도 그렇게 말합니다.
+- add
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  to: **The scene's parked work item holds a reversal whose commit failed.** The run writes one decision made without asking into that work item's record, with the person's reversal of it. Before the app starts, after the parked worktree's commits, it writes a `pre-commit` hook that refuses only a commit holding that record, so the daemon's commit of the word fails each time it is tried. The inbox's screenshot shows the line's words for a word not committed, and the parked view's shows the sentence above the decisions with the hook's line.
+    check: apps/desktop/test/screenshots.test.ts
+- add
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  to: **장면의 멈춰 둔 작업에는 커밋이 실패한 뒤집기가 하나 있습니다.** 실행은 그 작업의 기록에 묻지 않고 내린 결정 하나와 사람이 그 결정을 뒤집은 말을 적습니다. 실행은 앱을 띄우기 전, 멈춰 둔 워크트리의 커밋을 마친 뒤에, 그 기록을 담은 커밋만 거절하는 `pre-commit` 훅을 씁니다. 그래서 데몬이 그 말을 커밋하려 할 때마다 실패합니다. 작업함의 스크린샷은 커밋되지 않은 말을 알리는 줄의 문구를 보이고, 멈춰 둔 작업 화면의 스크린샷은 결정 위에 놓인 문장을 훅이 낸 줄과 함께 보입니다.
+    check: apps/desktop/test/screenshots.test.ts
+
+- change
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  from: Its approval line counts the one round and marks the sealer's place, which waits on the questions, below what the parked view's shot shows, which opens at the questions.
+  to: Its approval line counts the one round and marks the sealer's place, which waits on the questions. The parked view's shot scrolls its column until the decisions stand last, so it shows the approval line and the sentence of a word not committed.
+- change
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  from: 그 작업의 승인 줄은 회차 하나를 세고 질문을 기다리는 sealer의 자리를 표시하지만, 질문에서 시작하는 그 화면의 스크린샷에는 그 아래라서 나오지 않습니다.
+  to: 그 작업의 승인 줄은 회차 하나를 세고 질문을 기다리는 sealer의 자리를 표시합니다. 멈춰 둔 화면의 스크린샷은 결정이 맨 아래에 올 때까지 그 열을 내려서 찍으므로, 승인 줄과 커밋되지 않은 말의 문장이 함께 나옵니다.
+
+## Removes
+
+| Removes | Coordinate | Where it lands, or why it can go |
+|---|---|---|
+| The `subject` parameter of `personWrote`, and the subject each handler writes for it | `apps/desktop/src/daemon/daemon.ts#personWrote`, and the `reverseDecision` and `answerQuestions` arms of the daemon's message handler | The unit of *Scope* item 7 makes the subject from what is owed, so a try the handler never saw, as after a restart, has one. |
+| The record's arm of `commitWord`: its test of a working session that returns and never comes back, and its `catch` that logs and ends | `apps/desktop/src/daemon/daemon.ts#commitWord` | The unit of *Scope* item 7 and the timer of item 8. `commitWord` keeps the commit of a renamed branch's `routing.md`. |
+| The unbounded `execFile` under the `git add` and the `git commit` of a commit | `apps/desktop/src/daemon/worktrees.ts#commitPaths`, and `apps/desktop/src/daemon/records-place.ts#setUpRecords` | The runner of *Scope* item 1. `gitIn` stays for the commands that only read and for `git reset`. |
+| The close's wait, with no limit, for every commit under way | `apps/desktop/src/daemon/daemon.ts#close`, the line that awaits `words` and `wordCommits` | *Scope* item 5. |
+| The sentences that say a word left for a session waits for the session's own commit, and that a failed commit changes nothing | The docstring of `apps/desktop/src/daemon/daemon.ts#commitWord`, and the comments of `reverseDecision` and `answerQuestions` in `apps/desktop/src/shared/protocol.ts` | Rewritten in place (*Scope* item 13). |
+
+The rules this work adds to the policy root take none out in return. The policy root stated nothing of who commits a person's word (*Grounding*), so no sentence there stood on the old behaviour.
+
+Framed 2026-11-26 by framer, before the build.

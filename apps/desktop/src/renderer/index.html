@@ -97,7 +97,7 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
-      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
+      /* On a line, how many decisions made without asking the person has not seen, how many reversals wait for a stage, and that a word of the person's was not committed where its commit failed. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
       .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
       .line .decided:empty { display: none; }
       /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
@@ -189,6 +189,9 @@
       .decision .age { flex: 1; }
       /* A line of the work item's record that was not read, under the decisions: a fault of the record, in the colour of a failure. */
       .decisions .unread { padding: var(--space-2) 0; font-size: var(--size-second); color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      /* Above the decisions, a word of the person's that no commit holds yet: in the muted ink while it waits for a session, in the colour of a failure where its commit failed. Git's reason is plain text the person can select. */
+      .detail .word-owed { font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .word-owed.failed { color: var(--state-failed); }
       .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .decision .grounds, .decision .reversal { color: var(--ink-muted); }
       .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
@@ -358,7 +361,7 @@
       .preview-facts .branch { color: var(--ink); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .approval, .preview .detail .word-owed, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 

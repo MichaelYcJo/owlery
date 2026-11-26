@@ -118,6 +118,13 @@ describe("LastLook", () => {
     expect(look.get()).toEqual(LOOK);
   });
 
+  it("keeps nothing of what a work item's word of the person's waits for: a look recorded while the work item owes one holds no `wordOwed`, in memory and in its file", () => {
+    const dir = runDir();
+    new LastLook(dir).record(1234, [SESSION], [{ ...WORK_ITEM, wordOwed: { waits: "retry", why: "the hook says no" } }]);
+    expect(new LastLook(dir).get()).toEqual(LOOK);
+    expect(readFileSync(join(dir, "last-look.json"), "utf8")).not.toContain("wordOwed");
+  });
+
   it("writes last-look.json in the run directory, readable by the user alone", () => {
     const dir = runDir();
     new LastLook(dir).record(1234, [SESSION], [WORK_ITEM]);
