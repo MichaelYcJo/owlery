@@ -54,7 +54,7 @@ function accountOf(value: unknown): LedgerEntry["account"] | undefined {
 function entryOf(value: unknown): LedgerEntry | undefined {
   if (!isRecord(value)) return undefined;
   const { workItemId, repo, branch, startedAt, endedAt, state, stopped } = value;
-  if (typeof workItemId !== "number" || typeof repo !== "string" || typeof branch !== "string" || typeof startedAt !== "number" || typeof endedAt !== "number") return undefined;
+  if (typeof workItemId !== "number" || typeof repo !== "string" || (typeof branch !== "string" && branch !== null) || typeof startedAt !== "number" || typeof endedAt !== "number") return undefined;
   if (state !== "finished" && state !== "failed") return undefined;
   if (stopped !== "limit" && stopped !== "request" && stopped !== "daemon" && stopped !== null) return undefined;
   const stage = stageOf(value.stage);

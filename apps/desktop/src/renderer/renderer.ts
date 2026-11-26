@@ -42,6 +42,7 @@ import {
   baseKey,
   baseMenu,
   baseSays,
+  branchMenu,
   changedSet,
   changedSetAfter,
   commandKey,
@@ -95,6 +96,8 @@ import {
   unanswered,
   type BaseAnswer,
   type BaseChoice,
+  type BranchChoice,
+  type BranchOption,
   type FormPlan,
   type LossRow,
   type MenuAction,
@@ -139,6 +142,8 @@ let formPlan: FormPlan | null = null;
 const plansAsked = new Set<number>();
 // The base the person chose in the menu since the form opened.
 let baseChoice: BaseChoice | null = null;
+// The branch the person picked in the "Branch" menu since the form opened.
+let branchChoice: BranchChoice | null = null;
 let planTimer: ReturnType<typeof setTimeout> | undefined;
 // The bases the form asked the daemon to fetch since it opened, each under its `baseKey`: the base, the request, and what the form holds of the fetch, null once the wait for an answer has passed with none.
 const baseAnswers = new Map<string, { base: string; requestId: number; answer: BaseAnswer | null }>();
@@ -178,6 +183,8 @@ const warningPlace = byId("work-item-warning");
 const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
+const branchFieldPlace = byId("work-item-branch-field");
+const branchField = byId<HTMLSelectElement>("work-item-branch-menu");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
 const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
@@ -689,11 +696,13 @@ function onMenuKey(event: KeyboardEvent): void {
   openWorkItemMenu(of.workItem, { x: box.left + box.height, y: box.bottom }, within);
 }
 
-/** Draws what the rename dialog holds of its plan: whether the branch can be renamed too, and the branch it would get or why it keeps its name. */
+/** Draws what the rename dialog holds of its plan: whether the branch can be renamed too, or stands to be made, and the branch it would get or why it keeps its name. The choice is checked only where the plan lets the rename run with it, so what `rename` sends is the box as it stands. */
 function showRenamePlan(): void {
-  const choice = renameChoice(renamePlan);
+  // A work item the lists no longer hold is read as one with a branch: its rename is refused either way.
+  const branched = held.workItems.find((known) => known.id === renaming)?.branch !== null;
+  const choice = renameChoice(renamePlan, branched);
   renameBranch.disabled = !choice.enabled;
-  if (!choice.enabled) renameBranch.checked = false;
+  renameBranch.checked = choice.makes || (choice.enabled && renameBranch.checked);
   renamePlanPlace.textContent = choice.says;
 }
 
@@ -738,14 +747,14 @@ function openRename(workItemId: number): void {
   askRenamePlan();
 }
 
-/** Sends the rename the dialog holds: the name typed, and whether the branch is renamed too. The daemon refuses an empty name. */
+/** Sends the rename the dialog holds: the name typed, and whether the branch is renamed too, or made where the work item has none. The daemon refuses an empty name. */
 function rename(): void {
   if (renaming === undefined) return;
   renameRequest = request();
   renameError.textContent = "";
   // One rename per answer: the button stays off until the daemon answers.
   renameButton.disabled = true;
-  send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked && !renameBranch.disabled });
+  send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked });
 }
 
 /**
@@ -1192,19 +1201,22 @@ function showRemove(): void {
   REMOVE.button.disabled = !choice.enabled || waiting(REMOVE);
   const named = byId("remove-losses");
   named.hidden = !deletes;
-  // Drawn from the choice to delete, which names no work item where it is not taken, and from each work item's id, title and loss, so a check of "Force delete" or an `inbox` that changes none of them leaves the lists as they are.
-  const drawn = (deletes ? removal.workItems : []).map(({ id, title }) => ({ id, title, loss: removeLosses.get(id) ?? null }));
+  // Drawn from the choice to delete, which names no work item where it is not taken, and from each work item's id, title, loss and branch, with whether Owlery made the branch, so a check of "Force delete" or an `inbox` that changes none of them leaves the lists as they are.
+  const drawn = (deletes ? removal.workItems : []).map(({ id, title }) => {
+    const known = [...held.workItems, ...held.archived].find((workItem) => workItem.id === id);
+    return { id, title, loss: removeLosses.get(id) ?? null, branch: known?.branch, ownsBranch: known?.ownsBranch, known };
+  });
   drawWhereChanged(
     named,
-    drawn.flatMap(({ id, title, loss }) => [id, title, loss]),
+    drawn.flatMap(({ id, title, loss, branch, ownsBranch }) => [id, title, loss, branch, ownsBranch]),
     () =>
-      drawn.flatMap(({ title, loss }) => {
+      drawn.flatMap(({ title, loss, known }) => {
         const head = document.createElement("h3");
         head.className = "work-item";
         head.textContent = title;
         const says = document.createElement("p");
         says.className = "says";
-        says.textContent = deleteSays(loss);
+        says.textContent = deleteSays(loss, known);
         return [head, says, ...(loss === null ? [] : lossParts(loss))];
       }),
   );
@@ -1283,7 +1295,7 @@ function showDelete(): void {
   }
   deletion = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("delete-head").textContent = `Delete ${workItem.title}`;
-  byId("delete-says").textContent = deleteSays(deleteLoss);
+  byId("delete-says").textContent = deleteSays(deleteLoss, workItem);
   // The loss is a new object at each read, so the lists are drawn anew at a read and are left as they are at an `inbox` or a check of "Force delete".
   const loss = deleteLoss;
   drawWhereChanged(byId("delete-loss"), [loss], () => (loss === null ? [] : lossParts(loss)));
@@ -1674,8 +1686,9 @@ function openWorkItemForm(folder?: string): void {
   titleField.value = "";
   formName = generateName();
   titleField.placeholder = formName;
-  // Each opening starts from the repository's default base and from no answer, and creates a work item.
+  // Each opening starts from the repository's default base, with no branch picked and from no answer, and creates a work item.
   baseChoice = null;
+  branchChoice = null;
   formPlan = null;
   forgetBases();
   formError.textContent = "";
@@ -1688,36 +1701,59 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** A group of a menu of the form: its label over its options, or nothing where it holds none. */
+function optionGroup(label: string, options: readonly HTMLOptionElement[]): HTMLOptGroupElement[] {
+  if (options.length === 0) return [];
+  const element = document.createElement("optgroup");
+  element.label = label;
+  element.append(...options);
+  return [element];
+}
+
+/** Draws what the form holds of its plan: what the creation does of the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, the menu of bases and the "Branch" menu. Where the form registers a repository alone, it shows none of the plan and both menus are off. */
 function showPlan(): void {
   if (registerOnly.checked) {
-    branchPlace.textContent = "";
+    branchPlace.replaceChildren();
     worktreePlace.textContent = "";
     setupPlace.textContent = "";
     warningPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
+    branchField.disabled = true;
     baseStatePlace.textContent = "";
     return;
   }
-  const line = planLine(formPlan, repoField.value);
-  branchPlace.textContent = line.branch;
+  const branches = branchMenu(formPlan, branchChoice, repoField.value);
+  const line = planLine(formPlan, repoField.value, branches.value);
+  // A branch's name is set apart from the words around it.
+  branchPlace.replaceChildren(
+    ...line.branch.map(({ text, fact }) => {
+      if (!fact) return text;
+      const name = document.createElement("span");
+      name.className = "fact";
+      name.textContent = text;
+      return name;
+    }),
+  );
   worktreePlace.textContent = line.worktree;
   setupPlace.textContent = line.setup;
   warningPlace.textContent = line.warning;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
-  const group = (label: string, bases: readonly string[]): HTMLOptGroupElement[] => {
-    if (bases.length === 0) return [];
-    const element = document.createElement("optgroup");
-    element.label = label;
-    element.append(...options(bases));
-    return [element];
-  };
-  baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...group("Local", menu.local), ...group("Remote", menu.remote));
+  baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...optionGroup("Local", options(menu.local)), ...optionGroup("Remote", options(menu.remote)));
   baseField.disabled = menu.value === null;
   if (menu.value !== null) baseField.value = menu.value;
+  const offered = (listed: readonly BranchOption[]): HTMLOptionElement[] =>
+    listed.map(({ value, label, disabled }) => {
+      const option = new Option(label, value);
+      option.disabled = disabled;
+      return option;
+    });
+  branchFieldPlace.hidden = !branches.shown;
+  branchField.replaceChildren(new Option("No branch yet", ""), ...optionGroup("Local", offered(branches.local)), ...optionGroup("Remote", offered(branches.remote)));
+  branchField.disabled = branches.local.length === 0 && branches.remote.length === 0;
+  branchField.value = branches.value;
   showBase();
 }
 
@@ -1765,7 +1801,7 @@ function takeBase(requestId: number, answer: BaseAnswer): boolean {
 function askPlan(): void {
   clearTimeout(planTimer);
   planTimer = undefined;
-  const fields = workItemFields(repoField.value, titleField.value, formName, null);
+  const fields = workItemFields(repoField.value, titleField.value, formName, null, null);
   if ("error" in fields) {
     planRequest = undefined;
     formPlan = null;
@@ -1796,7 +1832,7 @@ function takePlan(requestId: number, answered: PlanAnswered): boolean {
 }
 
 function createWorkItem(): void {
-  const fields = workItemFields(repoField.value, titleField.value, formName, baseMenu(formPlan, baseChoice, repoField.value).value);
+  const fields = workItemFields(repoField.value, titleField.value, formName, baseMenu(formPlan, baseChoice, repoField.value).value, branchMenu(formPlan, branchChoice, repoField.value).value || null);
   if ("error" in fields) {
     formError.textContent = fields.error;
     return;
@@ -1812,7 +1848,7 @@ function createWorkItem(): void {
   const requestId = request();
   formRequest = requestId;
   formError.textContent = "";
-  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon cuts the work item after that fetch, and the status line says what a failed one gave.
+  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon makes the work item after that fetch, and the status line says what a failed one gave.
   createdBase = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
@@ -1949,8 +1985,8 @@ function onMessage(message: ServerMessage): void {
       return;
     }
     case "workItemPlan": {
-      // A daemon of an earlier build names no setup, and no disk.
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
+      // A daemon of an earlier build names no setup, no disk and no held branches.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, held: message.held ?? null, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }
@@ -2163,6 +2199,11 @@ titleField.addEventListener("input", askPlanSoon);
 baseField.addEventListener("change", () => {
   baseChoice = { repo: repoField.value.trim(), base: baseField.value };
   showBase();
+});
+// The place under the name says what the creation does of the branch picked.
+branchField.addEventListener("change", () => {
+  branchChoice = { repo: repoField.value.trim(), branch: branchField.value };
+  showPlan();
 });
 // A closed form asks for no plan, and waits for no answer to say that it fetches.
 workItemDialog.addEventListener("close", () => {

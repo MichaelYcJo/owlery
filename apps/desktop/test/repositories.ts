@@ -2,10 +2,47 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { StoredWorkItem } from "../src/daemon/repositories";
+import { branchName, createWorktree, makeBranch, type Worktree } from "../src/daemon/worktrees";
 
 /** Runs git in a temporary repository, never in Owlery's own. */
 export function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" });
+}
+
+/** The branch of a work item a case gave one, by a rename, by a commit and a read, or through `branchedWorktree`. It throws for a work item with no branch, so a case never hands git a name that is none. */
+export function branchOf(workItem: { branch: string | null }): string {
+  if (workItem.branch === null) throw new Error("the work item has no branch");
+  return workItem.branch;
+}
+
+/** A work item as a case writes it into the store: the fields a creation gives, with its branch and whether Owlery made it as the case says. */
+export type StoredPlace = Pick<StoredWorkItem, "id" | "title" | "createdAt" | "worktree" | "baseCommit" | "baseBranch" | "branch" | "ownsBranch">;
+
+/**
+ * Writes `repositories.json` in a run folder, before the daemon that reads
+ * it: one repository, the folder `repo`, holding the work items given with
+ * nothing set on them. A case makes a work item with no branch, or one on a
+ * branch Owlery did not make, this way.
+ */
+export function writeStore(runDir: string, repo: string, workItems: readonly StoredPlace[]): void {
+  const items = workItems.map((place): StoredWorkItem => ({ ...place, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null, worktreeSize: null }));
+  const repository = { id: 1, folder: repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, addedAt: 1, groups: [], workItems: items, accountId: null };
+  writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: Math.max(0, ...workItems.map(({ id }) => id)) + 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }), { mode: 0o600 });
+}
+
+/**
+ * A worktree a creation makes, with no branch picked, then given the branch
+ * Owlery makes for it at its first commit or a rename: the name
+ * `worktrees.ts#branchName` gives, made by `worktrees.ts#makeBranch`, the
+ * function both call, at the base commit. A case whose work item needs a
+ * branch from the start, and builds it outside a daemon, makes it this way.
+ */
+export async function branchedWorktree(options: Parameters<typeof createWorktree>[0]): Promise<Worktree & { branch: string }> {
+  const place = await createWorktree(options);
+  const branch = await branchName(place.repo, options.title, place.worktree);
+  await makeBranch(place.worktree, branch);
+  return { ...place, branch, ownsBranch: true };
 }
 
 /** Gives the repository the name its commits are made under, and no signing. */
