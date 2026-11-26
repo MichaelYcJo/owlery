@@ -112,11 +112,11 @@ A build with no signature at all is not what goes out. On such a bundle `codesig
 | Scenario | Given / When / Then | Verifiable how |
 |---|---|---|
 | A. The package is made without a certificate | Given an installed checkout and no signing variable. When `pnpm --filter @owlery/desktop run package` runs. Then `apps/desktop/out/Owlery-arm64.dmg` and the app stand, the command says it signed ad hoc, and it exits 0. | The recorded run of phase 1, one heavy command. |
-| B. The packaged `.dmg` holds an app that starts | Given the `.dmg` of scenario A. When `package:verify` runs. Then each of these holds, and the command exits 0: `codesign --verify --deep --strict` exits 0 on the app copied out of the image; the app's `Info.plist` names "Owlery", the bundle identifier and an icon file that stands in the bundle; the app holds `Contents/Resources/app/dist/bundle/` as a folder; the package's `node-pty`, loaded by the app's binary as Node, runs a process that prints a line; the app started in the background shows "Daemon running, no agent" in its status line and no notice of another build; `daemon.json`'s `build` equals the SHA-256 of the package's `dist/daemon.js`; and after the stop neither recorded process id is alive. | The recorded run of phase 1, one heavy command. The probe of *Grounding* ran each check by hand. |
+| B. The packaged `.dmg` holds an app that starts | Given the `.dmg` of scenario A. When `package:verify` runs. Then each of these holds, and the command exits 0: `codesign --verify --deep --strict` exits 0 on the app copied out of the image; the app's `Info.plist` names "Owlery", the bundle identifier and an icon file that stands in the bundle; the `package.json` inside the package names the product "Owlery"; the app holds `Contents/Resources/app/dist/bundle/` as a folder; the package's `node-pty`, loaded by the app's binary as Node, runs a process that prints a line; the app started in the background shows "Daemon running, no agent" in its status line and no notice of another build; `daemon.json`'s `build` equals the SHA-256 of the package's `dist/daemon.js`; and after the stop neither recorded process id is alive. | The recorded run of phase 1, one heavy command. The probe of *Grounding* ran each check by hand. |
 | C. The check refuses an app whose bundle is not signed | Given an app packaged with no signature. When `package:verify` runs on it. Then it exits non-zero and names the signature. | Shown once in phase 1 against a package made with `identity: null`, and recorded in `trail/phases/phase-1.md` (contract rule 15). |
 | D. The way of signing follows the variables | Given the five variables of *Data & interfaces*. When all are absent or empty, the way is ad hoc. When all hold text, the way is Developer ID with notarization. When some hold text, the function throws a sentence that names each one that is missing. | Cases of `apps/desktop/test/package.test.ts`, run by name. |
 | E. A tag is held against the version | Given version `0.1.0`. Then `v0.1.0` and `v0.1.0-rc.1` pass, and `v0.1.1`, `0.1.0` and `v0.1` are refused with a sentence that names the tag and the version. | Cases of `apps/desktop/test/package.test.ts`, run by name. |
-| F. The package's configuration is the one the probe ran | Given the configuration the command hands the packager. Then it holds `asar: false`, `npmRebuild: false`, the product name "Owlery", the output folder `out`, the artifact name `Owlery-arm64.dmg`, one `dmg` target for `arm64`, `identity: "-"` in the ad hoc way, and no `identity` with `notarize: true` in the Developer ID way. | Cases of `apps/desktop/test/package.test.ts`, run by name. |
+| F. The package's configuration is the one the probe ran | Given the configuration the command hands the packager. Then it holds `asar: false`, `npmRebuild: false`, the product name "Owlery", `extraMetadata: { productName: "Owlery" }` for the `package.json` inside the package, the output folder `out`, the artifact name `Owlery-arm64.dmg`, one `dmg` target for `arm64`, `identity: "-"` in the ad hoc way, and no `identity` with `notarize: true` in the Developer ID way. | Cases of `apps/desktop/test/package.test.ts`, run by name. |
 | G. No run a fork starts reads the signing secrets | Given the workflows. Then `git grep -n 'secrets\.' -- .github/workflows` prints lines of `.github/workflows/package.yml` alone, and `git grep -n 'pull_request' -- .github/workflows/package.yml` prints nothing. | Both searches, run by the builder at phase 2's commit. Their runs at `845a3e7a` are in *Grounding*. |
 | H. The workflow attaches the `.dmg` at a tag | Given this branch pushed, and a tag `v<version>-<suffix>` pushed at its head. When the workflow ends. Then a draft release of that tag holds `Owlery-arm64.dmg`, the run's summary says "signed ad hoc", and `package:verify` passes on the downloaded asset. | `unverified` by any agent: no agent pushes. The orchestrator's run, Q4. |
 | I. With the certificate, the download opens without an alert | Given the five secrets set. When the workflow runs for a tag. Then the summary says "signed with the Developer ID certificate and notarized", `spctl --assess --type execute` exits 0 on the app, `xcrun stapler validate` exits 0 on it, and a downloaded copy opens with no alert. | Only the certificate can verify it: Q5, the owner's. `package:verify` runs the two commands where the app carries a Developer ID signature. |
@@ -130,7 +130,7 @@ A build with no signature at all is not what goes out. On such a bundle `codesig
 
 | Script | What it runs |
 |---|---|
-| `package` | `scripts/package.mjs`: builds `dist/`, draws the `.icns`, decides the way of signing, and runs the packager. |
+| `package` | `scripts/package.mjs`: builds `dist/`, draws the `.icns`, decides the way of signing, and runs the packager. With `--tag <tag>` it first checks the tag against the version, and refuses before any build where they disagree. It writes the way of signing, or "Not packaged: …", to the run's summary where `GITHUB_STEP_SUMMARY` is set. |
 | `package:verify` | `scripts/verify-package.mjs`, with the path of a `.dmg` as its argument, and `out/Owlery-arm64.dmg` where none is given. |
 
 **Functions the cases read**, each in a module that imports nothing of Electron. The names are the builder's to settle (`frame/questions.md` Q7).
@@ -139,7 +139,7 @@ A build with no signature at all is not what goes out. On such a bundle `codesig
 |---|---|---|
 | The way of signing | the environment | `"ad-hoc"` or `"developer-id"`, or throws the sentence of scenario D |
 | The packager's configuration | the way of signing, the path of the `.icns` | the object of scenario F |
-| The tag's check | a tag, a version | nothing, or throws the sentence of scenario E |
+| The tag's check, run inside `package --tag` | a tag, a version | nothing, or throws the sentence of scenario E |
 | The icon set's images | nothing | the names, the pixel sizes and the source drawing of each image |
 | The Dock's image | whether the app is packaged, the script's folder | a path or `null` |
 
@@ -158,10 +158,10 @@ A build with no signature at all is not what goes out. On such a bundle `codesig
 - `on`: `push` with `tags: ["v*"]`, and `workflow_dispatch` with one input, `tag`.
 - `permissions`: `contents: write`, which creating a release and uploading to one need.
 - `runs-on: macos-latest`, the runner `check.yml` uses.
-- Steps: check out the tag; set up pnpm, Node.js 22 and the install as `check.yml` does; the tag's check; `package`; `package:verify`; the upload with `gh release`, as *Scope* item 8 states; the summary.
+- Steps: check out the tag; set up pnpm, Node.js 22 and the install as `check.yml` does; `package --tag`, which checks the tag and writes the way of signing to the summary; `package:verify`; the upload with `gh release`, as *Scope* item 8 states, which adds the release to the summary.
 - Each secret is named once, in the `env` of the step that packages.
 
-**The user data folder.** A packaged app's name is "Owlery", so Electron keeps its user data under `Owlery` in the user's Application Support folder. An unpackaged app keeps `@owlery/desktop`. The two run folders are apart, so a start from a checkout and an installed app each have a daemon of their own, and nothing moves from one folder to the other.
+**The user data folder.** Electron names the app from the `package.json` inside the package, not from the bundle's name, so the package sets its `productName` to "Owlery" (scenario F). A packaged app's name is then "Owlery", so Electron keeps its user data under `Owlery` in the user's Application Support folder. An unpackaged app keeps `@owlery/desktop`. The two run folders are apart, so a start from a checkout and an installed app each have a daemon of their own, and nothing moves from one folder to the other.
 
 ## Rule changes
 
