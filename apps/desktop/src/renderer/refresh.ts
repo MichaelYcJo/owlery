@@ -4,7 +4,9 @@
 // request is under way at a time, so a press while its answer is on its way
 // sends nothing. The request ends at the daemon's `done` or `error` of its
 // id, or after `REFRESH_ANSWER_MS` with no answer: a daemon of an earlier
-// build drops the message and answers nothing. The answer's lists arrive in
+// build drops the message and answers nothing, so where the window holds the
+// notice of a daemon of another build, the sentence of that end keeps the
+// notice after it. The answer's lists arrive in
 // an `inbox` before the `done`, and the window draws them as any `inbox`. The
 // module touches no page when it is imported, so the unit project imports it.
 import type { ClientMessage } from "../shared/protocol";
@@ -15,7 +17,7 @@ export const REFRESH_ANSWER_MS = 15_000;
 export const REFRESH_SAYS = "Read the work items again from git and GitHub.";
 /** What the button says while its answer is on its way. */
 export const REFRESHING_SAYS = "Reading the work items again…";
-/** What the status line says where no answer came within the wait. */
+/** What the status line says where no answer came within the wait. Where the window holds the notice of a daemon of another build (`RefreshWorld.daemonNotice`), the notice follows it after one space, so the press does not take "Restart Daemon…" out of the status line. */
 export const NO_ANSWER_SAYS = `The daemon did not answer in ${REFRESH_ANSWER_MS / 1000} seconds, so the lists stand as they were.`;
 
 /** What the refresh does in the window around it. */
@@ -31,6 +33,8 @@ export interface RefreshWorld {
   show(working: boolean): void;
   /** Says a sentence in the status line. */
   tell(text: string): void;
+  /** The notice of a daemon of another build that the window holds (./view, `daemonNotice`), or "". */
+  daemonNotice(): string;
 }
 
 /** The refresh's request: a press, and the two answers that end it. */
@@ -61,7 +65,8 @@ export function refresher(world: RefreshWorld): Refresh {
         if (under?.requestId !== requestId) return;
         under = undefined;
         world.show(false);
-        world.tell(NO_ANSWER_SAYS);
+        const notice = world.daemonNotice();
+        world.tell(notice ? `${NO_ANSWER_SAYS} ${notice}` : NO_ANSWER_SAYS);
       });
       under = { requestId, stop };
       world.show(true);

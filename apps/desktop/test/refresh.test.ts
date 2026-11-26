@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ClientMessage } from "../src/shared/protocol";
 import { NO_ANSWER_SAYS, REFRESH_ANSWER_MS, refresher } from "../src/renderer/refresh";
+import { daemonNotice } from "../src/renderer/view";
 
-/** A stand-in for the window around the refresh: what it sent, the forms it drew the button in, what it told the status line, and each wait it was asked for, which runs only when the case runs it. */
-function windowLike(ready = true) {
+/** A stand-in for the window around the refresh: what it sent, the forms it drew the button in, what it told the status line, and each wait it was asked for, which runs only when the case runs it. `notice` is the notice of a daemon of another build the window holds. */
+function windowLike(ready = true, notice = "") {
   const sent: ClientMessage[] = [];
   const shown: boolean[] = [];
   const told: string[] = [];
@@ -22,6 +23,7 @@ function windowLike(ready = true) {
     },
     show: (working) => shown.push(working),
     tell: (text) => told.push(text),
+    daemonNotice: () => notice,
   });
   return { refresh, sent, shown, told, waits };
 }
@@ -80,5 +82,14 @@ describe("refresher", () => {
     // A press after the wait sends a new request.
     refresh.press();
     expect(sent.map((message) => (message as { requestId: number }).requestId)).toEqual([7, 8]);
+  });
+
+  it("keeps the notice of a daemon of another build after the sentence of no answer, so the press does not take Restart Daemon out of the status line", () => {
+    const { refresh, told, waits } = windowLike(true, daemonNotice(true));
+    refresh.press();
+    for (const { run } of waits) run();
+    expect(told).toEqual([
+      `The daemon did not answer in 15 seconds, so the lists stand as they were. Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`,
+    ]);
   });
 });

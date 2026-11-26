@@ -131,6 +131,7 @@ const refreshing = refresher({
   },
   show: showRefresh,
   tell,
+  daemonNotice: () => held.daemonNotice,
 });
 
 // The Command key's place is the Control key's where the keyboard has none.
