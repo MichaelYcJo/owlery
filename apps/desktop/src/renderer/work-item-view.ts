@@ -551,15 +551,13 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
  * The search add-on of a screen's terminal, loaded at the screen's first
  * find. It counts one match past `FIND_LIMIT` (./view), so the bar can say
  * that more matched, and each count it gives reaches the bar while the bar
- * searches that screen. The add-on searches again as the pane prints, and
- * the match it then selects is the bar's as well.
+ * searches that screen.
  */
 function searchOf(screen: Screen): SearchAddon {
   if (screen.search) return screen.search;
   const search = new SearchAddon({ highlightLimit: FIND_LIMIT + 1 });
   search.onDidChangeResults((results) => {
     if (findScreen !== screen) return;
-    findSelected = screen.term.getSelectionPosition();
     findCountElement.textContent = findCount(results);
     findNextButton.disabled = findPreviousButton.disabled = results.resultCount === 0;
   });

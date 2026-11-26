@@ -1437,23 +1437,25 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     const handed = await paneWith(["owlescape here", "owlescape there"]);
     await findText("owlescape");
     await app.until(`${FIND_COUNT} === "1 of 2"`, "the two matches");
-    // With the keyboard in the terminal, Escape is the program's, and the bar stays.
-    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
-    await press("Escape", 27);
-    expect((await handed.next(1)).toString("hex")).toBe("1b");
-    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
-    await command("F");
-    await app.until(FIELD_HAS_KEYBOARD, "the keyboard in the bar's field again");
+    // The selection is read before any key reaches the terminal, since a key typed there ends the terminal's selection itself.
     await press("Escape", 27);
     await app.until(`!(${FIND_OPEN})`, "the bar closed");
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
     expect(await marksDrawn(0)).toEqual([]);
     expect(await app.evaluate<number>(`document.querySelectorAll("#stage .xterm-find-result-decoration").length`)).toBe(0);
-    // The Escape in the field reached no program.
+    expect(await selected()).toBeNull();
+    // The Escape in the field reached no program, and the next key typed does.
     expect((await handed.next(0)).toString("hex")).toBe("");
     await app.cdp("Input.insertText", { text: "k" });
     expect((await handed.next(1)).toString("utf8")).toBe("k");
-    expect(await selected()).toBeNull();
+    // With the keyboard in the terminal, Escape is the program's, and the bar stays.
+    await command("F");
+    await app.until(`${FIND_OPEN} && ${FIELD_HAS_KEYBOARD}`, "the find bar open again");
+    await app.evaluate(`document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").focus()`);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the terminal");
+    await press("Escape", 27);
+    expect((await handed.next(1)).toString("hex")).toBe("1b");
+    expect(await app.evaluate<boolean>(FIND_OPEN)).toBe(true);
     await closeThePane();
   });
 
