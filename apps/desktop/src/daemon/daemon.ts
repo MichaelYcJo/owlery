@@ -2397,20 +2397,19 @@ export class Daemon {
   }
 
   /**
-   * Makes the scratch folder of the headless session `id`, readable by the
-   * person alone, and gives its real path: `scratch/<id>/` of the run
-   * folder, empty, or a folder of its own under the system's temporary
-   * folder where the daemon has no run folder.
+   * Makes a new, empty scratch folder for the headless session `id`,
+   * readable by the person alone, and gives its real path: a folder of
+   * `scratch/` of the run folder whose name opens with the id, or one under
+   * the system's temporary folder where the daemon has no run folder. Its
+   * name ends with characters of its own, because the ids count from 1 in
+   * each daemon process and a folder an earlier one left may still be
+   * written by a session that outlived it.
    */
   private makeScratch(id: number): string {
     const { runDir } = this.options;
     if (runDir === undefined) return realpathSync.native(mkdtempSync(join(tmpdir(), "owlery-scratch-")));
-    const folder = join(runDir, SCRATCH_FOLDER, String(id));
-    // A folder of this id was left by an earlier daemon, whose ids counted from 1 as this one's do.
-    rmSync(folder, { recursive: true, force: true });
     mkdirSync(join(runDir, SCRATCH_FOLDER), { recursive: true, mode: 0o700 });
-    mkdirSync(folder, { mode: 0o700 });
-    return realpathSync.native(folder);
+    return realpathSync.native(mkdtempSync(join(runDir, SCRATCH_FOLDER, `${String(id)}-`)));
   }
 
   /** Removes the session's scratch folder, once: the session's process has ended, or never started. A folder that cannot be removed is named in the daemon's log. */

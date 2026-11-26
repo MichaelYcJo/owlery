@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -5742,13 +5742,13 @@ describe("headless sessions", () => {
     expect(seen.started).toEqual([expect.objectContaining({ prompt: "Where am I?", cwd: workItem.worktree, role: PROOFER })]);
   });
 
-  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a scratch folder of their own under the run folder, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
+  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
     // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
     const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
-    // An earlier daemon's session 1 left its folder, whose ids counted from 1 as this daemon's do.
-    mkdirSync(join(runDir, "scratch", "1"), { recursive: true });
-    writeFileSync(join(runDir, "scratch", "1", "stale.txt"), "left");
+    // An earlier daemon's session 1, whose ids counted from 1 as this daemon's do, left its folder, which a session that outlived that daemon may still write.
+    mkdirSync(join(runDir, "scratch", "1-before"), { recursive: true });
+    writeFileSync(join(runDir, "scratch", "1-before", "clone.txt"), "left");
     // The worktrees are made through a link, so the worktree's path is not its real one.
     mkdirSync(join(runDir, "roots"));
     symlinkSync(join(runDir, "roots"), join(runDir, "via"));
@@ -5760,17 +5760,23 @@ describe("headless sessions", () => {
     for (const pair of ROLE_STAGES) await d.startRoleSession(workItem.id, "Q", pair);
     await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
     const byRole = new Map(seen.started.map((started) => [started.role?.role, started]));
-    const scratchOf = (id: number) => join(realpathSync(runDir), "scratch", String(id));
-    expect(realpathSync(runDir)).not.toBe(runDir);
-    expect(byRole.get("proofer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: PROOFER, commands: { write: [scratchOf(1)], refuse: [worktree] }, scratch: scratchOf(1) });
+    const scratches = join(realpathSync(runDir), "scratch");
+    expect(scratches.startsWith(runDir)).toBe(false);
+    const proofers = byRole.get("proofer")?.scratch ?? "";
+    const sealers = byRole.get("sealer")?.scratch ?? "";
+    expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
+    expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
+    expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
+    expect(byRole.get("proofer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree] }, scratch: proofers });
     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
-    expect(byRole.get("sealer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [scratchOf(3)], refuse: [worktree] }, scratch: scratchOf(3) });
+    expect(byRole.get("sealer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree] }, scratch: sealers });
     expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree] } });
-    // A scratch folder for each session that writes in one, and for none other, each empty.
-    expect(readdirSync(join(runDir, "scratch")).sort()).toEqual(["1", "3"]);
-    for (const id of [1, 3]) {
-      expect(readdirSync(scratchOf(id))).toEqual([]);
-      expect(statSync(scratchOf(id)).mode & 0o777).toBe(0o700);
+    // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
+    expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
+    expect(readFileSync(join(scratches, "1-before", "clone.txt"), "utf8")).toBe("left");
+    for (const folder of [proofers, sealers]) {
+      expect(readdirSync(folder)).toEqual([]);
+      expect(statSync(folder).mode & 0o777).toBe(0o700);
     }
   });
 

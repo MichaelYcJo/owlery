@@ -2197,7 +2197,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(status(a.worktree)).toEqual([]);
     });
 
-    it("keeps each call a role's rule refused with its stage and in the work item's records: a proofer's write and its command are both refused, the round counts two, and trail/refusals.md holds a row for each with the tool and the rule and no text of the call, committed with the stage's record", async () => {
+    it("keeps each call a role's rule refused with its stage and in the work item's records: a proofer's write is refused and its command, which the sandbox bounds, is allowed, the round counts one, and trail/refusals.md holds a row for each refused call with the tool and the rule and no text of the call, committed with the stage's record (#127)", async () => {
       const refusedCalls = (_prompt: string, role?: { role: string }) => {
         if (role?.role === "proofer") return [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "rm -rf build" }];
         return role?.role === "crafter" ? [{ tool: "Write", action: "write" as const, path: "../outside.txt", text: "../outside.txt" }, { tool: "WebFetch", action: "other" as const, path: null, text: '{"url":"https://example.com/owl"}' }] : [];
@@ -2209,10 +2209,10 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 2], ["fix-pass", 2], ["round", 0], ["gate", 0], ["seal", 0], ["pull-request", 0]]);
+      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 2], ["round", 0], ["gate", 0], ["seal", 0], ["pull-request", 0]]);
       const refusals = `${DIRECTORY}/trail/refusals.md`;
       const head = [`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
-      const rows = ["| round 1 | proofer | Write | writes a file | no-write |", "| round 1 | proofer | Bash | runs a command | no-command |", "| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| fix pass 1 | crafter | WebFetch | something else | other |"];
+      const rows = ["| round 1 | proofer | Write | writes a file | no-write |", "| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| fix pass 1 | crafter | WebFetch | something else | other |"];
       const text = readFileSync(join(a.worktree, refusals), "utf8");
       expect(text.split("\n")).toEqual([...head, ...rows, ""]);
       for (const called of ["notes.md", "rm -rf", "outside.txt", "example.com"]) expect(text, called).not.toContain(called);
@@ -2227,7 +2227,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         VERDICT_COMMIT,
       ]);
       const [first] = git(a.worktree, "log", "--reverse", "--format=%H", "--", refusals).trim().split("\n");
-      expect(git(a.worktree, "show", `${first ?? ""}:${refusals}`).split("\n")).toEqual([...head, ...rows.slice(0, 2), ""]);
+      expect(git(a.worktree, "show", `${first ?? ""}:${refusals}`).split("\n")).toEqual([...head, ...rows.slice(0, 1), ""]);
       expect(status(a.worktree)).toEqual([]);
       expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     });
@@ -2947,15 +2947,15 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect([guaranteeAt(b.worktree), existsSync(join(b.worktree, GUARANTEE)), subjects(b.worktree).at(-1)]).toEqual([null, false, "chore: record the broad gate's run"]);
   });
 
-  it("refuses a sealer's write and its command by the sealer's grant: the seal's stage counts two refused calls, trail/refusals.md holds a row for each in the commit that carries the guarantee, and nothing is written or run", async () => {
+  it("refuses a sealer's write by the sealer's grant and allows its command, which the sandbox bounds: the seal's stage counts one refused call, trail/refusals.md holds its row in the commit that carries the guarantee, and nothing is written (#127)", async () => {
     const asks = (_prompt: string, role?: { role: string }) => (role?.role === "sealer" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }, { asks }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["seal", 2], ["pull-request", 0]]);
+    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["seal", 1], ["pull-request", 0]]);
     const refusals = `${DIRECTORY}/trail/refusals.md`;
-    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", "| seal 1 | sealer | Bash | runs a command | no-command |", ""]);
+    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""]);
     expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [GUARANTEE, refusals] });
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     expect(status(a.worktree)).toEqual([]);
