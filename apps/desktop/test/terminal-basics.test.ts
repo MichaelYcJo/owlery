@@ -491,7 +491,7 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     return named;
   }
 
-  it("renames a pane at \"Rename…\" of its tab's menu, in a dialog that holds the tab's label selected: the new name stands on its tab and in the delete dialog, the other tabs keep their numbers, an empty name names the pane by its kind again, and the dialog closes, naming nothing, where its pane is gone", async () => {
+  it("renames a pane at \"Rename…\" of its tab's menu, in a dialog that holds the tab's label selected: the new name stands on its tab and in the delete dialog, the other tabs keep their numbers, an empty name names the pane by its kind again, a Save of the untouched field names nothing, so the tab is numbered again once a pane before it closes, and the dialog closes, naming nothing, where its pane is gone", async () => {
     const second = await openPane("Shell");
     const third = await openPane("Shell");
     expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2", "Shell 3"]);
@@ -520,14 +520,23 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`JSON.stringify(${TABS}) === ${JSON.stringify(JSON.stringify(["Shell 1", "Shell 2", "Shell 3"]))}`, "the tab named by its kind again");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane in front once the dialog closed again");
 
-    // The pane the dialog names is closed by another client while the dialog is open.
+    // A Save of the field as it opened, the kind's label, gives the third pane no name.
     await openTabMenu(3);
     await pressTabMenuItem("Rename…");
     await app.until(NAME_DIALOG_OPEN, "the rename dialog of the third tab");
-    await closeFromElsewhere(third);
-    await app.until(`!(${NAME_DIALOG_OPEN})`, "the rename dialog closed with its pane");
-    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2"]);
+    expect(await app.evaluate<string>(`${field}.value`)).toBe("Shell 3");
+    await app.click("#pane-name-submit");
+    await app.until(`!(${NAME_DIALOG_OPEN})`, "the rename dialog closed at the untouched name");
+    expect(await app.evaluate<string[]>(TABS)).toEqual(["Shell 1", "Shell 2", "Shell 3"]);
+
+    // The pane the dialog names is closed by another client while the dialog is open. The third pane, which holds no name, is then the second of its kind.
+    await openTabMenu(2);
+    await pressTabMenuItem("Rename…");
+    await app.until(NAME_DIALOG_OPEN, "the rename dialog of the second tab");
     await closeFromElsewhere(second);
+    await app.until(`!(${NAME_DIALOG_OPEN})`, "the rename dialog closed with its pane");
+    await app.until(`JSON.stringify(${TABS}) === ${JSON.stringify(JSON.stringify(["Shell 1", "Shell 2"]))}`, "the third pane numbered as the second of its kind");
+    await closeFromElsewhere(third);
     await app.until(`${TABS}.length === 1`, "one tab");
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
   });

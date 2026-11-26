@@ -1324,14 +1324,27 @@ function openPaneName(session: SessionInfo): void {
   paneNameField.select();
 }
 
-/** Sends the name the dialog holds, which the daemon trims, and an empty one takes the pane's name off. One request per answer: "Save" stays off until the daemon answers. */
+/**
+ * Sends the name the dialog holds, which the daemon trims. An empty name
+ * takes the pane's name off, and so does the label the pane's kind gives it
+ * among its tabs (./view, `tabLabel` of the pane with no name), which the
+ * field holds at the opening of a pane with no name: a Save of the
+ * untouched field would otherwise keep that label as a name, and the number
+ * in it would stay when a pane before it closes. One request per answer:
+ * "Save" stays off until the daemon answers.
+ */
 function sendPaneName(): void {
   if (!paneNaming || paneNaming.requestId !== undefined) return;
+  const pane = paneNaming.pane;
+  const session = held.sessions.find((listed) => listed.id === pane);
+  const workItem = held.workItems.find((item) => item.id === session?.workItemId);
+  const byKind = session && workItem ? tabLabel({ ...session, name: null }, paneTabs(workItem, held.sessions), held.paneKinds, workItem.setup?.paneId ?? null) : "";
+  const trimmed = paneNameField.value.trim();
   const requestId = request();
   paneNaming.requestId = requestId;
   paneNameError.textContent = "";
   paneNameSubmit.disabled = true;
-  send({ type: "setPane", requestId, id: paneNaming.pane, name: paneNameField.value });
+  send({ type: "setPane", requestId, id: pane, name: trimmed === "" || trimmed === byKind ? null : paneNameField.value });
 }
 
 /** Takes the daemon's answer to the rename dialog's name, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it under the field with "Save" on again. */
