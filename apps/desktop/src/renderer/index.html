@@ -111,7 +111,7 @@
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines, the text of a call a session asks to make and the terminal, and a fact where the theme sets its facts in it. */
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
       .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
@@ -343,7 +343,7 @@
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
       .line .title { flex: 1; }
-      /* The second row's text is a question the work item is parked with, a call a session asks to make, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      /* The second row's text is a question the work item is parked with, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
       .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
       .line .says.branch { font-size: var(--size-caption); }
       /* The setup's words after the text, in the failure's colour where it failed. */
@@ -458,7 +458,7 @@
       #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
       #strip-size, #strip-state { flex: none; }
       #strip-worktree { flex: 1; color: var(--ink-faint); }
-      /* The right column: what it says of the work item scrolls, and the "Ask" section and the seal's place stay at its foot. */
+      /* The right column: what it says of the work item scrolls, and the list of the daemon's chain and the seal's place stay at its foot. */
       #view-facts { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-left: 1px solid var(--rule); background: var(--texture), var(--ground-column); }
       #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
       #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -518,29 +518,19 @@
       #pull-request-failure { padding: var(--space-3) var(--space-2) 0; color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
       #pull-request-more:empty, #pull-request-failure:empty { display: none; }
 
-      #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
-      #ask-form { flex: none; display: flex; gap: var(--space-3); }
-      #ask-form input { flex: 1; min-width: 0; }
-      /* The account a new headless session runs under, beside the field: its first choice is the work item's, and it keeps the prefix and about 18 characters of a name while the field gives up the width. */
-      #ask-account { flex: none; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
-      #headless { min-height: 0; overflow: auto; font-size: var(--size-second); }
-      #headless li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
-      #headless li:last-child { border-bottom: 0; }
-      #headless .row { display: flex; gap: var(--space-3); align-items: center; }
-      #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-      #headless .state { font-size: var(--size-caption); }
-      #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      /* A call the session asks the person to allow, in the form of what an agent says with the edge of what needs the person: its head names the tool, the call's text stands whole in the fixed-width face, and "Allow" and "Refuse" stand at its right foot, neither of them the main button. */
-      #headless .permission { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-5) var(--space-6); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge-waiting); }
-      #headless .permission h3 { font-weight: 500; color: var(--ink); }
-      #headless .call { font-family: var(--font-mono); font-size: var(--size-second); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      #headless .answers { display: flex; justify-content: flex-end; gap: var(--space-3); }
+      /* The list of the daemon's chain, above the seal's place, with no heading of its own: the line of the broad gate the work item's chain ran last, then a line for each headless session the daemon lists for the work item, each a row of a list of records. It scrolls past 40% of the column, and is hidden while it holds no line. */
+      #view-chain { flex: none; box-sizing: border-box; min-height: 0; max-height: 40%; overflow: auto; padding: var(--space-3) var(--space-6); border-top: 1px solid var(--rule); font-size: var(--size-second); }
+      #view-chain li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
+      #view-chain li:last-child { border-bottom: 0; }
+      #view-chain .row { display: flex; gap: var(--space-3); align-items: center; }
+      #view-chain .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      #view-chain .state { font-size: var(--size-caption); }
+      #view-chain .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
-      #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #view-chain .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       /* The broad gate's line: its command in the fixed-width face after the words "Broad gate", and, above what its command printed, which is drawn as a failed session's error output is, a note where the daemon kept the end alone. */
-      #headless .gate .command { font-family: var(--font-mono); color: var(--ink-strong); }
-      #headless .output-note { display: block; margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
-      #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
+      #view-chain .gate .command { font-family: var(--font-mono); color: var(--ink-strong); }
+      #view-chain .output-note { display: block; margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
@@ -807,16 +797,8 @@
           <dl id="view-fact-list"></dl>
           <div id="view-detail" class="detail"></div>
         </div>
-        <section id="ask">
-          <h2 class="caption">Ask</h2>
-          <form id="ask-form">
-            <input id="ask-prompt" autocomplete="off" aria-label="What to ask in this work item" />
-            <!-- Hidden where the daemon keeps no account beside System default. -->
-            <select id="ask-account" aria-label="Account of the session" hidden></select>
-            <button type="submit" id="ask-submit" class="quiet">Ask</button>
-          </form>
-          <ul id="headless"></ul>
-        </section>
+        <!-- Hidden while it holds no line (./view.ts, `chainList`). -->
+        <ul id="view-chain" aria-label="The daemon's chain" hidden></ul>
         <section id="view-seal">
           <span id="view-seal-place"></span>
           <span class="words">
