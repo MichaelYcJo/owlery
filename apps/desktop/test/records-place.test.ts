@@ -815,7 +815,7 @@ describe("the records place", () => {
       }
       const before = [head(repo), tree(repo)];
       const plan = await planRecords(repo, "pnpm test", VERSION);
-      await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 500)).rejects.toThrow(`${command} did not end in 0.5 seconds and was ended`);
+      await expect(setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 2000)).rejects.toThrow(`${command} did not end in 2 seconds and was ended`);
       expect(started()).toHaveLength(1);
       expect([head(repo), tree(repo)]).toEqual(before);
       expect(status(repo)).toBe("");
@@ -827,7 +827,7 @@ describe("the records place", () => {
     const { repo, started } = hanging("post-commit");
     const before = head(repo);
     const plan = await planRecords(repo, "pnpm test", VERSION);
-    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 500);
+    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp, 2000);
     expect(started()).toHaveLength(1);
     expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
     expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);

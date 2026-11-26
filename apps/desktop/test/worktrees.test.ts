@@ -1051,8 +1051,8 @@ describe("committing files of a worktree", () => {
     expect(status(repo)).toEqual(["?? a.md", "?? b.md"]);
   });
 
-  /** The limit the cases of a commit that does not end give, in milliseconds. */
-  const LIMIT_MS = 500;
+  /** The limit the cases of a commit that does not end give, in milliseconds: long enough that git reaches the hook while other suites load the machine. */
+  const LIMIT_MS = 2000;
   /**
    * Writes a program of the repository's at `path` below its folder, which
    * notes its process id in a file beside the repository and then runs
@@ -1089,7 +1089,7 @@ describe("committing files of a worktree", () => {
     write(made.repo, "a.md", "a\n");
     const hook = program(made, ".git/hooks/pre-commit", never(made));
     const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
-    expect(commit.said).toBe("git commit did not end in 0.5 seconds and was ended");
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
     expect(commit.took).toBeGreaterThanOrEqual(LIMIT_MS);
     // SIGTERM ends this hook, so no SIGKILL is waited for.
     expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS);
@@ -1105,7 +1105,7 @@ describe("committing files of a worktree", () => {
     git(filtered.repo, "config", "filter.never.clean", join(filtered.repo, ".git", "never-filter"));
     write(filtered.repo, ".git/info/attributes", "a.md filter=never\n");
     const add = await timed(commitPaths(filtered.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
-    expect(add.said).toBe("git add did not end in 0.5 seconds and was ended");
+    expect(add.said).toBe("git add did not end in 2 seconds and was ended");
     expect(add.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS);
     expect(filter()).toHaveLength(1);
     await gone(filter);
@@ -1119,7 +1119,7 @@ describe("committing files of a worktree", () => {
     write(made.repo, "a.md", "a\n");
     const hook = program(made, ".git/hooks/pre-commit", `trap '' TERM\n${never(made)}`);
     const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
-    expect(commit.said).toBe("git commit did not end in 0.5 seconds and was ended");
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
     expect(commit.took).toBeGreaterThanOrEqual(LIMIT_MS + COMMIT_END_GRACE_MS);
     expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS + 3000);
     await gone(hook);
@@ -1135,7 +1135,7 @@ describe("committing files of a worktree", () => {
     const holder = `$p = fork; if ($p) { open(F, ">>", $ARGV[0]); print F "$p\\n"; close(F); exit 0 } setsid; exec "sleep", "60"`;
     const hook = program(made, ".git/hooks/pre-commit", (noted) => `perl -MPOSIX -e '${holder}' '${noted}'\n${never(made)}`);
     const commit = await timed(commitPaths(made.repo, "main", ["a.md"], "chore: record", [TRAILER], { limitMs: LIMIT_MS }));
-    expect(commit.said).toBe("git commit did not end in 0.5 seconds and was ended");
+    expect(commit.said).toBe("git commit did not end in 2 seconds and was ended");
     expect(commit.took).toBeLessThan(LIMIT_MS + COMMIT_END_GRACE_MS + 3000);
     const [own, held] = hook();
     expect(held === undefined ? false : runs(held)).toBe(true);
