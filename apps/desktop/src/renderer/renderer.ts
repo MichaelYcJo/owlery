@@ -21,6 +21,7 @@ import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
+import { initSettings, readEditorState } from "./app-settings";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
@@ -105,7 +106,7 @@ import {
   type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -360,14 +361,17 @@ function dialogOpen(): boolean {
   return document.querySelector('dialog[open], [role="menu"]') !== null;
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, W closes the pane in front, F opens the find bar over the pane in front, and G with or without the Shift key goes to the previous or the next match while the bar is open (./view, `commandKey`). The key is kept from the terminal whatever it did. */
 function onCommandKey(event: KeyboardEvent): void {
-  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen() });
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen(), paneInFront: findable(), finding: finding() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
   if (key === "search") focusSearch();
   else if (key === "new") openWorkItemForm();
+  else if (key === "find") openFind();
+  else if (key === "findNext") stepFind(true);
+  else if (key === "findPrevious") stepFind(false);
   else closeFront();
 }
 
@@ -1852,6 +1856,8 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one given no reader of the machine, send no machine, and the Machine button is then hidden.
       held.machine = message.machine ?? null;
       showMachineEntry();
+      // A window that connected again holds terminals made under what the daemon said before.
+      showScrollback();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
@@ -1899,6 +1905,7 @@ function onMessage(message: ServerMessage): void {
       // A cap changed, here or in another client, the count of agents or the queue of heavy commands changed, or the daemon read the machine again for this window.
       held.machine = message.machine;
       showMachineEntry();
+      showScrollback();
       draws.draw(drawMachineDialog);
       // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
       draws.draw(drawLists);
@@ -2238,6 +2245,9 @@ byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
 byId("accounts-folder").addEventListener("click", addAccount);
 byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
+initSettings();
+// A link's card names the editor the person chose, read once the page loads and again at each Save (./app-settings).
+void readEditorState();
 byId("machine-button").addEventListener("click", () => {
   // Against a daemon that keeps no cap the button is hidden, and nothing opens over another dialog.
   if (held.machine === null || !opened(MACHINE)) return;

@@ -3,13 +3,14 @@
 // repository with seven work items, one in each state a work item has, one
 // parked with questions, a finished one whose seal holds, and one whose seal
 // a later commit broke, and writes one PNG file for each view (the summary,
-// the inbox, a work item's view, the view of the parked work item, the view
-// of the finished work item, the view of the broken one, a work item's menu,
+// the inbox, a work item's view, the find bar over that view's pane, the
+// view of the parked work item, the view of the finished work item, the
+// view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
-// the row that login named, the Machine dialog and the delete dialog of a
-// work item with many commits) in each
+// the row that login named, the Machine dialog, the app's Settings dialog
+// and the delete dialog of a work item with many commits) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -343,6 +344,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-summary.png",
       "night-watch-dark-inbox.png",
       "night-watch-dark-view.png",
+      "night-watch-dark-find.png",
       "night-watch-dark-parked.png",
       "night-watch-dark-finished.png",
       "night-watch-dark-broken.png",
@@ -354,10 +356,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-accounts-adding.png",
       "night-watch-dark-accounts-added.png",
       "night-watch-dark-machine.png",
+      "night-watch-dark-app-settings.png",
       "night-watch-dark-delete.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
+      "night-watch-light-find.png",
       "night-watch-light-parked.png",
       "night-watch-light-finished.png",
       "night-watch-light-broken.png",
@@ -369,12 +373,13 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-accounts-adding.png",
       "night-watch-light-accounts-added.png",
       "night-watch-light-machine.png",
+      "night-watch-light-app-settings.png",
       "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(90);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(90);
-    expect(all[89]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(102);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(102);
+    expect(all[101]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -567,6 +572,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // The approval line stands under what the agent says, past the column's first screen, so the column is scrolled until the line is the last thing in it.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
+    find: async () => {
+      await show.view();
+      // Command+F, as a person's key arrives: the bar opens over the pane in front, the Claude Code pane, whose lines name the login's files three times.
+      const key = { modifiers: 4, windowsVirtualKeyCode: 70, code: "KeyF", key: "f" };
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...key });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+      await app.until(`document.getElementById("find-bar").hidden === false && document.activeElement === document.getElementById("find-field")`, "the find bar with the keyboard in its field");
+      await app.cdp("Input.insertText", { text: "login" });
+      await app.until(`document.getElementById("find-count").textContent === "1 of 3" && document.querySelectorAll("#stage .pane:not([hidden]) .xterm-find-result-decoration").length === 4`, 'the find bar over the pane, with the three matches of "login" marked and the newest in front');
+    },
     parked: async () => {
       await app.click(PARKED_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output" && document.querySelector("#view-detail .word-owed.failed")?.textContent === ${JSON.stringify(PARKED_OWED)}`, "the parked work item's view with its questions, its approval line, the line of its broad gate, which passed, and the sentence of the reversal whose commit the hook refused");
@@ -629,6 +644,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await app.click("#machine-button");
       await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
+      // The dialog keeps the scroll the theme before left it at (`leave.machine`), so each shot starts at its heading.
+      await app.evaluate(`document.getElementById("machine-dialog").scrollTop = 0`);
+    },
+    "app-settings": async () => {
+      await show.inbox();
+      // The dialog opens from "Settings…" of the application menu, which the main process holds.
+      await app.evaluateMain(`electron.Menu.getApplicationMenu().getMenuItemById("settings").click()`);
+      await app.until(`document.getElementById("app-settings-dialog").open && document.getElementById("app-settings-editor").options.length > 0`, "the Settings dialog with its editors and Finder");
     },
     delete: async () => {
       await show.inbox();
@@ -641,6 +664,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
   const leave: Partial<Record<View, () => Promise<void>>> = {
+    find: async () => {
+      // Escape in the bar's field closes it, with its marks.
+      await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
+      await app.until(`document.getElementById("find-bar").hidden === true`, "the find bar closed");
+    },
     menu: async () => {
       await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
       await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
@@ -677,9 +706,15 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await leave.accounts?.();
     },
     machine: async () => {
-      // A cancel keeps every cap as the run set it.
+      // A cancel keeps every cap as the run set it. The run's queues make the dialog taller than the window, so its buttons stand below the fold until the dialog is scrolled to them, as a person scrolls it.
+      await app.evaluate(`document.getElementById("machine-cancel").scrollIntoView({ block: "nearest" })`);
       await app.click("#machine-cancel");
       await dialogClosed("machine-dialog");
+    },
+    "app-settings": async () => {
+      // A cancel keeps no choice.
+      await app.click("#app-settings-cancel");
+      await dialogClosed("app-settings-dialog");
     },
     delete: async () => {
       // A cancel deletes nothing.
@@ -747,6 +782,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {
+        // The Settings dialog opens from the application menu, which the main process holds.
+        inspectMain: true,
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
           // One account handed over by its folder, an empty one of the run's own. The parked work item's shell pane runs under it, so its row offers no refresh, and no refresh starts. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them.
