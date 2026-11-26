@@ -158,7 +158,7 @@ A build with no signature at all is not what goes out. On such a bundle `codesig
 - `on`: `push` with `tags: ["v*"]`, and `workflow_dispatch` with one input, `tag`.
 - `permissions`: `contents: write`, which creating a release and uploading to one need.
 - `runs-on: macos-latest`, the runner `check.yml` uses.
-- Steps: check out the tag, with `persist-credentials: false`; set up pnpm (its action pinned to a commit), Node.js 22 and the install as `check.yml` does; `package --tag`, which checks the tag and writes the way of signing to the summary; `package:verify`; the upload with `gh release`, as *Scope* item 8 states, which adds the release to the summary.
+- Steps: check out the tag, with `persist-credentials: false`; set up pnpm with its action pinned to a commit, where `check.yml` names the tag `v4`; set up Node.js 22 and the install as `check.yml` does; `package --tag`, which checks the tag and writes the way of signing to the summary; `package:verify`; the upload with `gh release`, as *Scope* item 8 states, which adds the release to the summary.
 - Each secret is named once, in the `env` of the step that packages.
 
 **The user data folder.** Electron names the app from the `package.json` inside the package, not from the bundle's name, so the package sets its `productName` to "Owlery" (scenario F). A packaged app's name is then "Owlery", so Electron keeps its user data under `Owlery` in the user's Application Support folder. An unpackaged app keeps `@owlery/desktop`. The two run folders are apart, so a start from a checkout and an installed app each have a daemon of their own, and nothing moves from one folder to the other.
