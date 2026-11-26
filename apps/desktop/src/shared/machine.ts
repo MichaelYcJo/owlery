@@ -32,7 +32,7 @@ export const SCROLLBACK_MOST = 50_000;
 /** The lines of history a pane's terminal holds where the daemon sends no scrollback, as one of an earlier build does. */
 export const SCROLLBACK_WITHOUT_DAEMON = 1000;
 
-/** The characters of a pane's output the daemon keeps for each line of the scrollback: today's 262,144 characters for 1,000 lines, rounded down. */
+/** The characters of a pane's output the daemon keeps for each line of the scrollback: the 262,144 characters an earlier build kept for every pane, over 1,000 lines and rounded down. */
 export const CHARS_PER_LINE = 256;
 
 /** The bytes a line of history takes in the window for each of its columns: xterm.js keeps three 32-bit numbers a cell. */

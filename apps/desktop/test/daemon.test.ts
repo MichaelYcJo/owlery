@@ -6753,7 +6753,7 @@ describe("the caps on the machine", () => {
     heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
     scrollback: { proposed: 5000, set: null },
   };
-  const told =(c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
+  const told = (c: { messages: ServerMessage[] }): Machine[] => c.messages.flatMap((m) => (m.type === "machine" ? [m.machine] : []));
 
   /** A reader that gives `READING` and notes the folder of each read. */
   function reader() {
