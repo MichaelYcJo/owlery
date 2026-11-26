@@ -42,3 +42,34 @@ The tests below ran in a clone of the branch at `<scratchpad>/1795610869-217-a-n
 target: c57035132bd3b2fa0003632c8f64885f416845a4 against 3fb1dedd0c293dfdd18f6c46fccf5534e421457d
 Verdict: sealed
 ```
+
+## The audit at `c7660672`
+
+The base `release/v0.0.5` resolved to `c35c8271` through `release/v0.0.5@{upstream}`. Since the block above, three commits stand on the branch. `a2da7d80` commits this file. `f9e4f756` merges `c35c8271`, which brings #272, the packaged app. `c7660672` adds the new broad run to `trail/gate.md`. The audit re-ran what those commits touched and read the parties again. No claim of the run above stands at a coordinate they changed, so none was run again.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only the work item's records follow | `trail/gate.md`, its last block, `run: f9e4f756 against c35c8271` | `git merge-base --is-ancestor f9e4f756 HEAD`; `git log --no-merges --name-only f9e4f756..HEAD ^c35c8271` | Holds (executed). `f9e4f756` is an ancestor of HEAD, and only `c7660672` follows it, which changes `trail/gate.md` alone. The run's pass is the orchestrator's account, and the audit did not run the gate. |
+| The merge took the release as it stands and resolved nothing | the merge's message, "no conflict" | `git show --cc f9e4f756`; `git diff --stat a2da7d80 f9e4f756` against `git diff --stat 3fb1dedd c35c8271` | Holds (executed). The combined diff prints no hunk, and the two stats list the same 29 files with the same counts. |
+| The merge reaches no code of this work | the release's side of the merge | `comm -12` of `git diff --name-only 3fb1dedd...c5703513` and `git diff --name-only 3fb1dedd c35c8271`; `git diff --stat c5703513 HEAD -- apps/desktop/src/daemon apps/desktop/src/renderer apps/desktop/src/shared apps/desktop/test` | Holds (executed). The two lists share no file. Under those paths HEAD adds `test/package.test.ts` alone, #272's file. The release changes `main/main.ts`, `main/dock-image.ts`, `package/package.ts`, `build.mjs`, `package.json`, the lockfile, the README files and its own work item's records. A search of its diff of `apps/desktop/src`, `build.mjs` and `package.json` for `branch`, `worktree`, `WorkItem` and `protocol` prints nothing. |
+| This work's records changed only by this file and the gate record | `seal/threads/1795610869-217-a-new-work-item-picks-its-branch/` | `git diff --stat c5703513 HEAD -- <that directory>` | Holds (executed): `guarantee.md` and `trail/gate.md` alone. |
+| The pull request body is `pr.md` above the heading, and the records' text below it | the body file at the scratch path the prompt names | `seal pr-body seal/threads/1795610869-217-a-new-work-item-picks-its-branch --body <file> --check` | Holds (executed): exit 0, "matches". |
+| The chain's records agree with HEAD | the rounds' `target:` lines and their closes | `python3 skills/code-review/scripts/chain_check.py --baseline c35c8271 --root <worktree> --sealing` | Holds (executed): exit 0. It printed only that no pull request stands. |
+| The deferral the run above found unanswered is filed | the run above, *The parties*, the last round's row | `gh issue view 273` | Holds (executed): #273 is open, "fix: a window of an earlier build attached to a daemon of this build reads a work item with no branch as a branch". |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | As the run above read it. No commit since changed it. | The issue and the tree, as above. The merge changes no file the design names. | None. |
+| the build | As the run above read it. No commit since changed a phase record or a file of this work's code. | The tree at HEAD. | None. |
+| the last round | Round 6, as the run above read it. The merge brings code no round read, and that code touches no reader of the branch, no file this work changed and no record of this work. | The tree at HEAD. | None. |
+| the changelog | Unchanged since the run above. | The tree at HEAD. | None. |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged since the run above. The body `seal pr-body` wrote again matches it. | The records and the tree. | None. |
+
+```seal
+target: c7660672c7e5ec924266a17b12fc167dcdd7fbdb against c35c8271aa9f1b21b1a2abe5fec2f32f1fb51a23
+Verdict: sealed
+```
