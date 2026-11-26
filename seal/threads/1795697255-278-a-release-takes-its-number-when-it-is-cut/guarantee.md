@@ -58,3 +58,37 @@ Verdict: withheld reason: refused: seal/threads/1795697255-278-a-release-takes-i
 target: fa994ec535f1d541fc964ef3e8fdf1a47495f855 against f683c69381e03d621f098c6f280f214201d50ad9
 Verdict: sealed
 ```
+
+## The audit at 1e23b71f
+
+Since the last verdict's target `fa994ec5`, three commits follow: `87fd2633` commits `guarantee.md`; `6cb29a59` merges `origin/release/v0.0.5` at `8a19d3e2` (#215, PR #290); and `1e23b71f` records the broad gate against `8a19d3e2`. The base resolves through `release/v0.0.5@{upstream}` to `8a19d3e2`. This audit re-runs the claims whose coordinates the merge could reach, namely the eight documents, the documents leg, the anchors and the body, and reads the gate record. The claims of the audit at `fa994ec5` that rest on the tracker and on `records-place.ts` touch no path the merge changed (`git diff --quiet 8a19d3e2 HEAD -- apps` exits 0, and `apps` holds no change of this work), so they stand as that block states.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only the work item's records follow | `trail/gate.md:8` (`run: 6cb29a59 against 8a19d3e2`) | `git -C /Users/yc/Documents/GitHub/owlery-wt-278 log --no-merges --name-only 6cb29a59..HEAD ^8a19d3e2` | holds (executed): `6cb29a59` is an ancestor of HEAD, and `1e23b71f` touches `trail/gate.md` alone. The gate's log in the scratch directory reads `BROAD GATE PASSED … @ 6cb29a59 against origin/release/v0.0.5 @ 8a19d3e2` (read) |
+| The merge brought nothing into this work's documents | the orchestrator's message | `diff` of `git diff f683c693 87fd2633 -- <the eight documents>` against `git diff 8a19d3e2 HEAD -- <the eight documents>`; `git diff --quiet 87fd2633 HEAD -- <the eight documents>`; `git diff --name-only 87fd2633 HEAD` | holds (executed): the two diffs are identical (exit 0), and the eight documents are unchanged since `87fd2633` (exit 0). What the merge brought is #215's renderer and tests, `docs/design.md` and its edition, and #215's records. #215's `## Rule changes` holds the no-change block and names no section of the eight documents (read) |
+| The diff against the new base changes documents and this work item's records alone | `routing.md` *Why this way* | `git diff --name-only 8a19d3e2...HEAD`, filtered against `docs/`, `README` and this work item's directory | holds (executed): no other path |
+| Scenarios B, C, D and G at HEAD, `docs/design.md`'s new lines among them | `frame/design.md:75-77,80` | the scenarios' `git grep` at HEAD | holds (executed): each prints nothing and exits 1 |
+| Scenario F at HEAD | `frame/design.md:79` | `git grep -c -F 'is signed ad hoc until then' HEAD -- docs/roadmap.md` | holds (executed): `docs/roadmap.md:1` |
+| Scenario H at HEAD, with #215's `docs/design.md` | `frame/design.md:81` | `grep -c '^#'` and `grep -c '^\|'` per pair; `git grep -n -e '도장' -- docs README.md README.ko.md` | holds (executed): roadmap 11/11 and 40/40, architecture 27/27 and 124/124, design 15/15 and 390/390, name 5/5 and 0/0, product 15/15 and 36/36, README 7/7 and 16/16; `도장` exits 1 |
+| No dead anchor at HEAD | `frame/design.md:80` | `<scratchpad>/1795697255-278-a-release-takes-its-number-when-it-is-cut/sealer/test_tmp_widths_anchors.py` | holds (executed): 192 links checked, none unresolved |
+| No changelog fragment of the release says the old rule | `docs/roadmap.md:81` | `grep -rn -E 'v0\.[1-9]\|0\.0\.[6-9]\|0\.[2-9]\.0' seal/threads/*/changelog.md`, this work item's own fragment left out | holds (executed): exit 1 |
+| The tables still match the tracker | `docs/roadmap.md:49-67` | `gh api 'repos/MichaelYcJo/owlery/milestones?state=open&per_page=50'` | holds (executed): the same eight open milestones; #9 holds three open issues; #215 is in `release: 0.0.5` |
+| The pull request body is what `seal pr-body` composes at HEAD | the orchestrator's message | `seal pr-body seal/threads/1795697255-278-a-release-takes-its-number-when-it-is-cut --body <scratchpad>/1795697255-278-a-release-takes-its-number-when-it-is-cut/body.md --check` | holds (executed): exit 0; its *Broad gate* section carries both `run:` blocks of `trail/gate.md` (read) |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | as at `fa994ec5`; no frame file changed since | issue #278 and the tree at HEAD | none |
+| the build | as at `fa994ec5`; the merge changed none of its lines | the design; the scenarios re-run above | none |
+| the last round | round 2, unchanged, opens no finding | the build at HEAD, since the merge changed none of the eight documents and none of this work item's records but `trail/gate.md` | none |
+| the changelog | unchanged since `fa994ec5` | the design, the build and the tracker | none |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged since `fa994ec5` | the design and the plan, as the audit at `fa994ec5` reads them; the merge, the gate record and the body check above | none |
+
+```seal
+target: 1e23b71f2d8172572135371f19aa0e481cf42672 against 8a19d3e2a2457877c829271858ec585c97d30103
+Verdict: sealed
+```
