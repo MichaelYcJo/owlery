@@ -28,8 +28,8 @@ export function buildApp(): void {
   execFileSync(process.execPath, ["build.mjs"], { cwd: APP_DIR, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "pipe" });
 }
 
-/** A port the system gave as free at this moment, so two worktrees that run the suite at once do not meet on one. */
-function freePort(): Promise<number> {
+/** A port the system gave as free at this moment, so two worktrees that run the suite at once do not meet on one. Nothing listens on it once it is given. */
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = createServer();
     server.once("error", reject);
