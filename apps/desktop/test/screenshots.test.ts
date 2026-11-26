@@ -590,6 +590,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await app.click("#machine-button");
       await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
+      // The dialog keeps the scroll the theme before left it at (`leave.machine`), so each shot starts at its heading.
+      await app.evaluate(`document.getElementById("machine-dialog").scrollTop = 0`);
     },
     "app-settings": async () => {
       await show.inbox();
@@ -637,7 +639,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await dialogClosed("accounts-dialog");
     },
     machine: async () => {
-      // A cancel keeps every cap as the run set it.
+      // A cancel keeps every cap as the run set it. The run's queues make the dialog taller than the window, so its buttons stand below the fold until the dialog is scrolled to them, as a person scrolls it.
+      await app.evaluate(`document.getElementById("machine-cancel").scrollIntoView({ block: "nearest" })`);
       await app.click("#machine-cancel");
       await dialogClosed("machine-dialog");
     },
