@@ -34,6 +34,11 @@ A commit that `commitPaths` is asked for after the close fired starts no `git ad
 
 A search of the work item's records found one other statement of this reset: `git grep -n -e "git reset" -e "staged" 8ac53e0f -- seal/threads/1795653550-150-the-persons-word-is-committed-in-time-and-retried` (`executed`). That statement is `trail/phases/phase-1.md:23`. It says the paths are unstaged after a signal fired before the `git add`, cites *Scope* item 3, and names no path. So it stands as written. The search's other lines state the reset after a failure or a limit in general, or the frame's probe. That search is a sample.
 
+```seal
+verdict: fixed 2f0d0665
+answer: The orchestrator replaced the third paragraph of `gaps.md` *Not done* with the record's paste-ready paragraph, word for word. It now names the stage's files and `trail/refusals.md` among the paths the reset reaches, and grounds the choice on `frame/design.md` *Scope* items 1 and 3. The code stays as it is, as the finding judged.
+```
+
 ### 2. `frame/plan.md` says a change of the branch's head ends a failed try's wait, without the condition that a window is open
 
 ```seal
@@ -52,6 +57,11 @@ The row's verdict describes what the work does, so it is read against the target
 ```
 
 The row is the frame's, so the fix is the orchestrator's as the frame's writer, as `376515e4` was.
+
+```seal
+verdict: fixed c46b5ae3
+answer: The orchestrator, as the frame's writer, replaced the row of *Alternatives considered* at `frame/plan.md:44` with the record's paste-ready row, word for word. It now carries the condition that a window is open, as *Scope* item 8 and the two `to:` lines do.
+```
 
 ## Confirmations
 
