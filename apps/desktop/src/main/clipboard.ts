@@ -56,8 +56,8 @@ export const PASTED_DAYS = 7;
 export async function pastedImage(clipboard: Clipboard, folder: string, now: number): Promise<string | null> {
   const bytes = await clipboard.readImage();
   if (bytes === null) return null;
-  mkdirSync(folder, { recursive: true, mode: 0o700 });
-  // A folder made before with another mode is taken back to the person alone.
+  // The folder is taken to the person alone before anything is written in it, a folder made before with another mode among them.
+  mkdirSync(folder, { recursive: true });
   chmodSync(folder, 0o700);
   for (const name of readdirSync(folder)) {
     const file = join(folder, name);
