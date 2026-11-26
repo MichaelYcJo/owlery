@@ -84,7 +84,7 @@ The spawn named #188, #133 and #231. #201 and #80 are open issues of the same mi
 
 ## Operational impact
 
-- **A new dependency.** `electron-builder` 26.18.0, a `devDependency` of `apps/desktop`. The first package on a machine downloads Electron's archive for the packager.
+- **A new dependency.** `electron-builder` 26.18.0, a `devDependency` of `apps/desktop`. The first package on a machine downloads Electron's archive and dmg-builder's `dmgbuild-bundle-arm64` for the packager.
 - **A new workflow, with write access to releases.** `.github/workflows/package.yml` holds `contents: write`. It runs at every pushed tag that starts with `v`.
 - **Five repository secrets, none of which exists yet.** `MAC_CERTIFICATE_P12`, `MAC_CERTIFICATE_PASSWORD`, `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`. With none set, the workflow signs ad hoc. The owner sets all five once the certificate exists, and then runs the workflow for the released tag, which replaces the release's `.dmg` under the same name.
 - **The order of a release's last steps.** Push the tag. The workflow creates a draft release that holds the `.dmg`. Write the note into that draft and publish it. A release created before the workflow ends gets its `.dmg` when the workflow ends.
