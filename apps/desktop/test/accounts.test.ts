@@ -1,7 +1,7 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import type { AccountLogins, LoginStatus, RoleAdapter } from "../src/daemon/adapters/adapter";
@@ -131,7 +131,7 @@ describe("AccountStore", () => {
     expect(contents(handed)).toEqual(before);
   });
 
-  it("refuses with a sentence a path that is not absolute, a path where no folder stands, a file, a folder that is already an account's by another spelling, and the store's own folder of made folders or a folder inside it, a folder whose first sign-in runs among them, before an add and at it, and adds nothing at any of them", () => {
+  it("refuses with a sentence a path that is not absolute, a path where no folder stands, a file, a folder that is already an account's by another spelling, and the store's own folder of made folders or a folder inside it, a folder whose first sign-in runs among them, where another spelling is a link or, on a volume that ignores letter case, other capitals, before an add and at it, and adds nothing at any of them", () => {
     const runDir = folder();
     const store = new AccountStore(runDir);
     const handed = handedFolder();
@@ -156,6 +156,18 @@ describe("AccountStore", () => {
     ] as const) {
       expect(() => store.handedPath(path)).toThrow(refusal);
       expect(() => store.addHanded("Again", path, "claude")).toThrow(refusal);
+    }
+    // On a volume that compares names without their letter case, as macOS's does by default, a path spelt with other capitals names the same folder and is refused as that folder is.
+    const otherCase = join(runDir, "ACCOUNTS", basename(adding));
+    if (existsSync(otherCase)) {
+      const work = join(dirname(handed), "HANDED");
+      for (const [path, refusal] of [
+        [work, `The folder ${work} is already the account "Work".`],
+        [otherCase, `The folder ${otherCase} is the folder Owlery makes its accounts' folders in, or stands inside it, so it is not handed over.`],
+      ] as const) {
+        expect(() => store.handedPath(path)).toThrow(refusal);
+        expect(() => store.addHanded("Again", path, "claude")).toThrow(refusal);
+      }
     }
     // A folder that may be handed over is answered as the store keeps its path.
     const other = handedFolder();

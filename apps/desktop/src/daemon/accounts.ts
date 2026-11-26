@@ -68,10 +68,10 @@ function stands(path: string): boolean {
   }
 }
 
-/** The folder a path names once its links are followed, or the path itself where nothing stands there to follow. */
+/** The folder a path names once its links are followed, with each name spelt as the disk spells it, so a volume that ignores letter case answers one path for every spelling of a folder; or the path itself where nothing stands there to follow. */
 function realOf(folder: string): string {
   try {
-    return realpathSync(folder);
+    return realpathSync.native(folder);
   } catch {
     return folder;
   }
@@ -198,10 +198,11 @@ export class AccountStore {
    * The path an account handed over by `folder` is kept under: the folder as
    * its path names it, without a slash at its end. It throws, with a sentence
    * a person reads, for a path that is not absolute, a path where no folder
-   * stands, a folder that is already an account's, however the two paths
-   * spell it, and the folder the store makes its accounts' folders in or a
-   * folder inside it, a folder whose first sign-in runs among them. Nothing is
-   * read or written inside the folder.
+   * stands, a folder that is already an account's, and the folder the store
+   * makes its accounts' folders in or a folder inside it, a folder whose first
+   * sign-in runs among them. Each is refused however the path spells it,
+   * through a link or, on a volume that ignores letter case, in other
+   * capitals. Nothing is read or written inside the folder.
    */
   handedPath(folder: string): string {
     if (!isAbsolute(folder)) throw new Error(`The folder of an account is an absolute path, and "${folder}" is not one.`);
