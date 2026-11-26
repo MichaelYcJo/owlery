@@ -1351,10 +1351,11 @@ function deleteNamed(): void {
 /**
  * Draws the dialog of the records place, from the daemon's lists as they are
  * now and from the plan the daemon answered with, in the words of ./view's
- * `recordsDialog`: what is out of scope, the commit, each file with its
- * text, the field of the broad gate command, how an administrator makes the
- * seal check required, and the buttons. It closes the
- * dialog where the window's lists no longer hold the repository.
+ * `recordsDialog`: what is out of scope, the versions of a move, the
+ * commit, each file with its text, the work items whose records the
+ * daemon's readers refuse, the field of the broad gate command, how an
+ * administrator makes the seal check required, and the buttons. It closes
+ * the dialog where the window's lists no longer hold the repository.
  */
 function showRecords(): void {
   const repository = repositoryOf(recordsRepository);
@@ -1369,6 +1370,7 @@ function showRecords(): void {
   };
   byId("records-head").textContent = words.head;
   byId("records-scope").textContent = words.scope;
+  say("records-move", words.move);
   say("records-commit", words.commit);
   say("records-blocked", words.blocked);
   byId("records-holds").hidden = words.holds.length === 0;
@@ -1388,10 +1390,24 @@ function showRecords(): void {
         path.textContent = file.path;
         const text = document.createElement("pre");
         text.textContent = file.text;
-        part.append(path, text);
+        // A file a move writes over the committed one says so between its path and its text.
+        const says = file.says === "" ? [] : [Object.assign(document.createElement("p"), { className: "says", textContent: file.says })];
+        part.append(path, ...says, text);
         return part;
       }),
     );
+    const unread = byId("records-unread");
+    unread.hidden = words.unread === null;
+    say("records-unread-head", words.unread?.head ?? "");
+    byId("records-unread-list").replaceChildren(
+      ...(words.unread?.items ?? []).map(({ name, why }) => {
+        const item = document.createElement("li");
+        item.append(Object.assign(document.createElement("span"), { className: "name", textContent: name }), Object.assign(document.createElement("span"), { className: "why", textContent: why }));
+        return item;
+      }),
+    );
+    byId("records-unread-list").hidden = (words.unread?.items.length ?? 0) === 0;
+    say("records-unread-says", words.unread?.says ?? "");
   }
   byId("records-gate-label").hidden = !words.gate.shown;
   byId("records-gate-name").textContent = words.gate.label;
@@ -2142,6 +2158,7 @@ initSidebar(
       const box = from.getBoundingClientRect();
       openRepositoryMenu(repositoryId, { x: box.left, y: box.bottom }, () => rowButton(repositoryId, ".repository-menu"));
     },
+    openRecords,
     openHidden,
     search(query) {
       held.query = query;
