@@ -7,7 +7,7 @@
 // view of the parked work item, the view of the finished work item, the
 // view of the broken one, a work item's menu, the view of the work item at
 // review with its tabs marked in each colour and the menu of one tab open,
-// the "New work item" form, the dialog of the chain choice, the
+// the dialog that renames that tab, the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
 // the row that login named, the Machine dialog, the app's Settings dialog
@@ -356,6 +356,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-broken.png",
       "night-watch-dark-menu.png",
       "night-watch-dark-tabs.png",
+      "night-watch-dark-rename.png",
       "night-watch-dark-dialog.png",
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
@@ -374,6 +375,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-broken.png",
       "night-watch-light-menu.png",
       "night-watch-light-tabs.png",
+      "night-watch-light-rename.png",
       "night-watch-light-dialog.png",
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
@@ -385,9 +387,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(108);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(108);
-    expect(all[107]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(114);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(114);
+    expect(all[113]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -625,9 +627,20 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     tabs: async () => {
       await app.click(`#repositories button[data-work-item="${AT_REVIEW_ID}"]`);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(AT_REVIEW)} && ${TAB_COLOURS_DRAWN} === ",${TAB_COLOURS.join()}" && [...document.querySelectorAll("#tabs .tab:not(.back) .label")].map((label) => label.textContent).join() === "Shell 1,Shell 2,${MARKED_NAME},Shell 4"`, `the view of ${AT_REVIEW} with its first tab plain, its others marked ${TAB_COLOURS.join(", ")}, and its blue tab named ${MARKED_NAME}`);
-      // The menu of the blue tab, opened by a press of the right button in the middle of its label, checks Blue in its row.
-      await openMenu(`#tabs .tab[data-colour="blue"] .label`);
+      // The menu of the blue tab checks Blue in its row. It is opened by a press of the right button at the bottom left of the tab's label, so it opens under the strip and leaves the tabs' bars in sight.
+      const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#tabs .tab[data-colour="blue"] .label').getBoundingClientRect(); return { x: box.x + 4, y: box.y + box.height - 1 }; })()`);
+      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+      await app.until(`document.querySelector('${MENU}')`, "the blue tab's menu");
       await app.until(`document.querySelector('${MENU} [role="menuitemradio"][aria-checked="true"]')?.getAttribute("aria-label") === "Blue"`, "the tab's menu with Blue checked");
+    },
+    rename: async () => {
+      // "Rename…" of the blue tab's menu opens the dialog, with the tab's name in its field, selected.
+      await show.tabs();
+      await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Rename…"); })()`);
+      await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
+      await dialogOpen("pane-name-dialog");
+      await app.until(`document.getElementById("pane-name-head").textContent === ${JSON.stringify(`Rename ${MARKED_NAME}`)} && document.getElementById("pane-name-field").value === ${JSON.stringify(MARKED_NAME)} && document.activeElement === document.getElementById("pane-name-field")`, `the rename dialog of ${MARKED_NAME}, with the keyboard in its field`);
     },
     dialog: async () => {
       await show.inbox();
@@ -709,6 +722,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     tabs: async () => {
       await leave.menu?.();
+    },
+    rename: async () => {
+      await app.click("#pane-name-cancel");
+      await dialogClosed("pane-name-dialog");
     },
     dialog: async () => {
       await app.click("#work-item-cancel");
