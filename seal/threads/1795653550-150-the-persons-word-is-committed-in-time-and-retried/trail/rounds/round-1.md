@@ -28,6 +28,11 @@ The case of `frame/design.md` scenario D, a `pre-commit` hook that reads its inp
 The commit of a renamed branch's `routing.md` is not tried again (`frame/design.md` *Scope*, Out). Where it fails, is ended at the limit or at the close, or finds a session of the work item working, `Daemon#commitWord` logs it, or does nothing, and the file stands written until a commit a session makes carries it. Nothing in the window says so. It is not a person's word, and nothing reads whether it landed.
 ```
 
+```seal
+verdict: fixed 2104c5de
+answer: `gaps.md` *Not done* gains a paragraph that says the commit of a renamed branch's `routing.md` is not tried again, and what each case leaves: a session or a chain at work commits nothing, a failed or ended commit is logged, and the file stands written until a session's commit carries it, with nothing said in the window. The paste-ready text was written in the pass's own words: its "logs it, or does nothing" left unclear which case does which, so the paragraph names each. The evidence's search, `git grep -n "routing" -- .../gaps.md`, run again at 2104c5de, prints row 11 and the new paragraph (line 28); its third line (line 30) is the pass's paragraph on the reset after a commit ended before its add, below.
+```
+
 ### 2. The docstring of `Daemon#commitWord` says a stage's commit or the daemon's next commit carries the renamed branch's `routing.md`, and none does
 
 ```seal
@@ -61,6 +66,11 @@ Why it matters: the diff narrowed `commitWord` to the `routing.md` of a renamed 
       // A running chain is at work in the worktree between two stages too, so nothing is committed while it runs.
 ```
 
+```seal
+verdict: fixed 607caa50
+answer: The docstring of `Daemon#commitWord` and its comment were rewritten as the paste-ready fix gives them, after reading `stage-records.ts#commitRecords` (a stage commits the files it names with the record and the refusals) and `#declaredDirectory` (it commits a `routing.md` only where no directory names the branch), and `Daemon#commitOwed` (the record alone). A `git grep` for "carries the file", "next stage's commit carries" and "carries it" over `apps/desktop/src`, `apps/desktop/test`, `docs` and the work item's records found one other statement of who carries a file left written, `daemon.ts:3115`, which is about the record, which a stage's commit does hold, so it stands. `gaps.md` *Not done* now says the same of `routing.md` (finding 1). The module's import was run by the narrow set, which passed.
+```
+
 ### 3. The rule this work adds says a new commit on the branch ends a failed try's wait, and the daemon sees one only while a window is open
 
 ```seal
@@ -80,6 +90,11 @@ Why it matters: the `add` to `docs/architecture.md` *Records are committed to th
 ```
 
 The fix pass replaces the one sentence in each `to:` and leaves the rest of each line as it stands; the `...` marks the text it keeps.
+
+```seal
+verdict: fixed 376515e4
+answer: The orchestrator replaced the one sentence in each `to:` line in 376515e4, as the frame's writer. The evidence's `git grep`, run again after this pass's last commit, prints `frame/design.md:115` with "A change of the record, or a new commit on the branch while a window is open, ends the wait." and `:120` with "기록이 바뀌거나, 창이 열려 있는 동안 브랜치에 새 커밋이 생기면 기다림이 끝납니다.", and the other lines it printed at 39fc28f7, *Scope* item 8, `changelog.md:9`, `frame/plan.md:42`, `trail/phases/phase-2.md:17` and the daemon's comments on a connected client, each state the condition or another fact. Finding 4's second case now holds the head's half while a client is connected.
+```
 
 ### 4. No case holds that a change of the record or of the branch's head makes a failed word's next try due at once
 
@@ -112,6 +127,11 @@ Why it matters: *Scope* item 8 states "A change of the record's text, or of the 
 
 The snippet uses the helpers the group already defines (`reversal`, `rests`, `withDirectory`, `commitsIn`) and needs `readFileSync` and `rmSync`, which the file already imports. Its edit of the grounds assumes `DEFAULT.grounds` stands once in the record; the fix pass checks that against the record `withDecision` writes. The fix pass shows it red with the guard taken out, as contract rule 15 asks. A second case for the branch's head, with a commit made by hand while the client is connected, is owed by the same reasoning; where the fix pass judges one case enough, it says why in its answer.
 
+```seal
+verdict: fixed 675d2f54
+answer: Two cases were added to `describe("the commit of a person's word")`, beside scenario K's: one for the record's text and one for the branch's head, since each condition of `passWords` is its own guard and a break of one leaves the other's case green. Both start from the paste-ready case with the wait at a minute. Each waits 300 ms after the hook is removed and expects no commit, so the change that follows is what makes the try due, and each ends on the commit's subject and paths as scenario K does. The record's case checks that `DEFAULT.grounds` stands once in the record before it edits it. The head's case gives `commitPollMs: 30` and makes a commit of another file by hand, so the daemon's commit is the third. Seen red, `executed`, each with `seal mutate` over `daemon.ts` at 675d2f54 against its own case alone: `passWords` without `this.recordText(held) !== tried.text` failed the record's case at its wait for the commit (`daemon.test.ts:4907`), and without the head's condition failed the head's case at its wait for the commit (`:4926`), each verdict red with the baseline passing. The narrow set passed after the last commit.
+```
+
 ### 5. The rewrite of scenario I's case dropped the check that a pane whose process exited while it said it was working holds no word
 
 ```seal
@@ -143,6 +163,11 @@ Why it matters: at `9f9ba1da` the case "leaves the record written and not commit
 ```
 
 The `commandFor` line is the one the case at `9f9ba1da` used. The fix pass shows it red with `info.alive &&` taken out of `works`.
+
+```seal
+verdict: fixed 675d2f54
+answer: The case was added to the same group as the paste-ready fix gives it, with a comment that the exit leaves the pane's state as its agent last said it. Its name says it pins that a pane that is not alive holds no word. Seen red, `executed`: `seal mutate` over `daemon.ts` at 675d2f54 with `info.alive &&` taken out of `works`, against this case alone, failed it at its wait for the commit (`daemon.test.ts:4945`), after the inbox that carried the pane with `alive: false` and `state: "working"` and `wordOwed` still `session`; the baseline passed. The narrow set after the last commit, `test/daemon.test.ts test/accounts.test.ts test/gate.test.ts test/chain.test.ts test/chain-command.test.ts test/seal-state.test.ts` through the repository's runner, passed (`executed`, exit 0, 654 cases). The files that load the built app and import `daemon.ts` through a helper did not run: the pass changed a docstring of `daemon.ts` and cases of `daemon.test.ts` alone. The pass read its range, 607caa50 to 2104c5de, whole after its last commit, and `routing.md`, the three frame files, `gaps.md` and `changelog.md`. `frame/plan.md:20` calls the third rewritten case "an ended pane", where `trail/phases/phase-2.md:8` calls it "the case of an interrupted pane"; that line is the frame's and is named for the orchestrator's fold. Of the round's three gaps in prose, the reset after a commit ended before its `git add` now has a paragraph in `gaps.md` *Not done* (2104c5de). The grace's SIGKILL to a group id whose processes have all exited owes no line: the comment at `worktrees.ts:929` states its condition, and the remaining risk is the system handing that id to a new group within two seconds, which no check in the runner could close. `changelog.md` changes nothing, since no fix changes what the work item ships.
+```
 
 ## Confirmations
 
