@@ -35,6 +35,11 @@ The fix rewrites the sentences of the answer at `round-1.md:45` that list the se
 It prints `chain-command.test.ts:167` and `:194`, which name a ceiling of 2 as their cases ask. It prints `chain-command-run.ts:40`, `:43` and `:59`, the doc, the signature and the call of `commandOn`, which say and pass the command's own ceiling where a case names none, and read true. It prints `chain.test.ts:1978`, the daemon's case. It prints `frame/design.md:22`, `:38`, `:52`, `:62` and `:88`, each of which still reads true. It prints `trail/phases/phase-1.md:15`, `:31` and `:43`, which record phase 1 at `68ebf8fe`, and a fix pass writes no phase record.
 ```
 
+```seal
+verdict: fixed e9fead31
+answer: The finding holds. I ran the same search again before the edit (executed, at `a23a8434`, round records left out). It printed the four lines the close of round-1#1 left out: `apps/desktop/test/chain-command-run.ts:40`, `:43` and `:59`, and `trail/phases/phase-1.md:43`. I read `chain-command-run.ts:40-41`, which says "`roundsCeiling` is the round the command stops at, its own ceiling where none is given.", and it reads true. `e9fead31` replaces, in place, the sentences of `round-1.md:45` that list what the search printed, with the round's text. That text is correct against the tree: `:40` is `commandOn`'s doc, `:43` its signature, `:59` its call, and `phase-1.md:43` the phase's sample paragraph. No other text of that answer changes, and no code or document line changes, since all four lines read true. Nothing heavy ran. The search is a sample: a statement of the fact in other words was not reached.
+```
+
 ## Confirmations
 
 ```seal
