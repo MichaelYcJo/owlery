@@ -31,7 +31,7 @@ The failure scenario of the chosen approach, six months on: rule 5 lands as its 
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 15 of `frame/design.md`, in both editions of each file | Scenarios B, C, D, F and G of `frame/design.md`, each search run at the phase's commit. Scenarios A and E read. The counts of scenario H run by the crafter, and the broad gate by the orchestrator. No test, since no code changes. | |
+| 1 | *Scope* items 1 to 15 of `frame/design.md`, in both editions of each file | Scenarios B, C, D, F and G of `frame/design.md`, each search run at the phase's commit. Scenarios A and E read. The counts of scenario H run by the crafter, and the broad gate by the orchestrator. No test, since no code changes. | `f8a059e8` |
 
 ## Overlap with the release
 
