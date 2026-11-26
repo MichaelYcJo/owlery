@@ -34,6 +34,11 @@ Why it matters: `docs/design.md:515` states that "the pull request's body shows 
 ![The sidebar's head in Desk, light](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/desk-light-inbox.png?raw=true)
 ```
 
+```seal
+verdict: fixed 9428c76f
+answer: The six links stand in `gaps.md` under the paragraph "Only the inbox's shots are committed", as the paste-ready block gives them, after reading it against `docs/design.md` *A pull request that changes the window carries its screenshots*. `git log --format=%H -- <png>` gives `7336a3a1f4fd764e7ba9485e9458734fd3240445` for each of the six files, the commit the links name. The finding's command run again at HEAD (`pr_body.py ... --body <scratch>/body.md`, then `grep -c "raw=true"`) prints 7: the six links, and the line of this finding's `evidence:` that the body quotes. `frame/plan.md:40`, the one statement of the link the round's search found, is now true, and stands.
+```
+
 ### 2. The frame and the phase 2 record say `refresh.ts` exports the four sentences of the words table, and it exports three
 
 ```seal
@@ -52,6 +57,11 @@ In `trail/phases/phase-2.md`, the paragraph "Departure: the tests pin the words 
 The module still exports the window's three sentences, and `sidebar.ts` reads the two sentences of the button from it.
 ```
 
+```seal
+verdict: fixed 9428c76f
+answer: The orchestrator folded the `frame/design.md` half at `5275d783`, and `9428c76f` writes the sentence of `trail/phases/phase-2.md:13` as the paste-ready block gives it. The finding's `git grep` run again at HEAD, with this round's own record left out, prints `trail/phases/phase-2.md:13` alone, on its quote "It exports the words below, and the tests import them". That quote is of the frame as phase 2 judged it, and the paragraph says so, so it stands.
+```
+
 ### 3. The plan says the no-answer sentence stands beside the notice of a daemon of another build, and it replaces that notice
 
 ```seal
@@ -64,6 +74,12 @@ Why it matters: `frame/plan.md:55` says that against a daemon of an earlier buil
 
 ```markdown
 The protocol gains one client message, `readLists`, and one daemon option, `listsWaitMs`. A window of this build against a running daemon of an earlier build gets no answer to a press. After 15 s its status line says that the daemon did not answer, in place of the notice it shows for a daemon of another build, which names "Restart Daemon…" (`docs/architecture.md` *Overall layout*). That notice comes back at the window's next request that the daemon answers with `done`, since the status line shows the window's own notice first (`view.ts#statusNotice`). No migration, no environment variable, no dependency and no move of the version.
+```
+
+```seal
+verdict: fixed 2e099317
+location: `apps/desktop/src/renderer/refresh.ts`, `apps/desktop/src/renderer/renderer.ts`, `apps/desktop/test/refresh.test.ts`
+answer: Repaired in the code, by the route of the second row of `frame/plan.md` *Judgments of the run* and the words table's row "The status line where no answer came and the daemon is of another build" in `frame/design.md`, which the orchestrator folded at `5275d783` with `frame/plan.md:55`; the paste-ready block is not applied. `RefreshWorld` gains `daemonNotice(): string`, which `renderer.ts` gives from `held.daemonNotice`, and the wait's end tells `NO_ANSWER_SAYS`, one space, then that notice where it is not empty. The new case of `refresh.test.ts` pins the joined sentence as a literal; it was seen red against the old `refresh.ts`, on its line of the status line. Two `seal mutate` runs went red: the join removed (the new case) and the join made unconditional (the 15-second case). The fix's commit also brings `changelog.md` and the row of `gaps.md` of the 15-second wait along. The line of `renderer.ts` that gives the notice runs in no case, which `gaps.md` names.
 ```
 
 ### 4. `frame/plan.md` *Judgments of the run* holds no row, so `pr.md` quotes no reason for the title's prefix
@@ -82,6 +98,11 @@ In `frame/plan.md` *Judgments of the run*, in place of the empty row:
 
 In `pr.md`, after the quote of `frame/questions.md` Q1:
 - "The pull request's title takes the prefix `feat:`." (`frame/plan.md` *Judgments of the run*)
+```
+
+```seal
+verdict: fixed 5275d783
+answer: The orchestrator wrote the row of the title's prefix in `frame/plan.md` *Judgments of the run* and its quote in `pr.md`, after checking the draft against its own judgment: the work adds a control and a client message, and nothing that existed was broken.
 ```
 
 ## Confirmations
