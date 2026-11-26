@@ -9,6 +9,8 @@
     "postinstall": "electron-rebuild --only node-pty",
     "build": "node build.mjs",
     "start": "node build.mjs && electron .",
+    "package": "node scripts/package.mjs",
+    "package:verify": "node scripts/verify-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test-in-electron.mjs",
     "test:app": "node scripts/test-in-electron.mjs --project app",
@@ -36,6 +38,7 @@
     "@types/node": "22.20.5",
     "@types/ws": "8.18.2",
     "electron": "45.3.3",
+    "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
     "typescript": "5.9.3",
     "vitest": "4.1.12"
