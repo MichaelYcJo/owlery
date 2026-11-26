@@ -61,10 +61,12 @@ import {
   DECISIONS_HEAD,
   droppedText,
   emptyList,
+  emptySidebar,
   fileLines,
   fileOpener,
   type FileOpener,
   filterChoices,
+  filterMark,
   FIND_LIMIT,
   findCount,
   findQuery,
@@ -3666,6 +3668,18 @@ describe("filterChoices", () => {
   });
 });
 
+describe("filterMark", () => {
+  it("is off at All with nothing typed, and says so to a pointer", () => {
+    expect(filterMark("", "all")).toEqual({ on: false, says: "Showing: All" });
+  });
+
+  it("is on while a state is chosen, a search is typed, or both, and says the state's label and what is typed", () => {
+    expect(filterMark("", "none")).toEqual({ on: true, says: "Showing: Asleep" });
+    expect(filterMark("logs", "all")).toEqual({ on: true, says: 'Showing: All, matching "logs"' });
+    expect(filterMark("logs", "waiting")).toEqual({ on: true, says: 'Showing: Needs you, matching "logs"' });
+  });
+});
+
 describe("emptyList", () => {
   it("says nothing where the list has a line", () => {
     expect(emptyList("inbox", 3, 1)).toBe("");
@@ -3683,6 +3697,28 @@ describe("emptyList", () => {
     expect(emptyList("archived", 0, 0)).toBe("No work item of this repository is archived.");
     expect(emptyList("archived", 2, 0)).toBe("No work item matches.");
     expect(emptyList("archived", 2, 1)).toBe("");
+  });
+});
+
+describe("emptySidebar", () => {
+  const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+  const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true };
+
+  it("names the state chosen, the search typed, or both, and how many repositories the daemon keeps that the sidebar does not list, the hidden left out", () => {
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "", "waiting")).toBe('No work item stands under "Needs you", so the sidebar lists none of its 2 repositories.');
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "logs", "all")).toBe('No work item matches "logs", so the sidebar lists none of its 2 repositories.');
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "logs", "none")).toBe('No work item under "Asleep" matches "logs", so the sidebar lists none of its 2 repositories.');
+  });
+
+  it("says of one repository that the sidebar does not list it", () => {
+    expect(emptySidebar([PROJECT, hidden], 0, "", "decided")).toBe('No work item stands under "Decided without asking", so the sidebar does not list its repository.');
+  });
+
+  it("says nothing where the sidebar lists a repository, where nothing narrows it, and where every repository is hidden", () => {
+    expect(emptySidebar([PROJECT, docs], 1, "logs", "waiting")).toBe("");
+    expect(emptySidebar([PROJECT, docs], 0, "", "all")).toBe("");
+    expect(emptySidebar([hidden], 0, "logs", "waiting")).toBe("");
+    expect(emptySidebar([], 0, "logs", "waiting")).toBe("");
   });
 });
 
