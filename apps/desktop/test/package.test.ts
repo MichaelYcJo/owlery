@@ -99,6 +99,11 @@ describe("packagerConfig", () => {
     expect(config.mac.target).toEqual([{ target: "dmg", arch: ["arm64"] }]);
   });
 
+  it("writes the product name Owlery into the package's package.json, which Electron names the app and its user data folder by, apart from an app started from a checkout", () => {
+    expect(packagerConfig("ad-hoc", ICNS).extraMetadata).toEqual({ productName: "Owlery" });
+    expect(packagerConfig("developer-id", ICNS).extraMetadata).toEqual({ productName: "Owlery" });
+  });
+
   it("keeps the bundle identifier of the owner's default", () => {
     expect(BUNDLE_ID).toBe("app.owlery.desktop");
   });

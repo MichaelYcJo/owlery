@@ -64,13 +64,17 @@ type MacConfig = NonNullable<Configuration["mac"]>;
  * install has rebuilt `node-pty` for Electron, so the packager rebuilds
  * nothing. The ad hoc way names the identity `-`, so a certificate of the
  * keychain is never used; the Developer ID way names none, and the packager
- * takes the certificate of `CSC_LINK`.
+ * takes the certificate of `CSC_LINK`. The package's `package.json` gains
+ * the product name: Electron names the app by it, and so its user data
+ * folder, which an app started from a checkout keeps under the package's
+ * `name`. The configuration's own `productName` names the bundle alone.
  */
 export function packagerConfig(way: SigningWay, icns: string): Configuration & { mac: MacConfig } {
   const signing = way === "ad-hoc" ? { identity: "-", notarize: false } : { notarize: true };
   return {
     appId: BUNDLE_ID,
     productName: "Owlery",
+    extraMetadata: { productName: "Owlery" },
     asar: false,
     npmRebuild: false,
     directories: { output: "out" },
@@ -283,6 +287,10 @@ export async function verifyPackage(dmg: string, log: (line: string) => void): P
     const bundle = join(appFiles, "dist", "bundle");
     check(existsSync(bundle) && statSync(bundle).isDirectory(), "the role bundle", "Contents/Resources/app/dist/bundle is not a folder");
     log("ok   the role bundle stands as the folder Contents/Resources/app/dist/bundle");
+
+    const manifest = JSON.parse(readFileSync(join(appFiles, "package.json"), "utf8")) as { productName?: unknown };
+    check(manifest.productName === "Owlery", "the app's name", `Contents/Resources/app/package.json names the product ${JSON.stringify(manifest.productName)}, not "Owlery", so the app would keep its user data with an app started from a checkout`);
+    log(`ok   the app's package.json names the product Owlery, so its user data stands under "Owlery"`);
 
     const binary = join(contents, "MacOS", "Owlery");
     const line = "owlery-pane-check";
