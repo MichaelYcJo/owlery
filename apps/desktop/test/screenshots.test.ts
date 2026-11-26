@@ -104,8 +104,9 @@
 // types the code a setup pane ends with. The inbox's shot previews the work
 // item that needs the person, with its agent's question and its approval
 // line. The view's shot scrolls its side column until the approval line is
-// the last thing in it, and the parked view's shot opens at the top of the
-// column, where its questions stand. With
+// the last thing in it, and the parked view's shot scrolls it until the
+// decisions are the last thing in it, under the sentence of the word not
+// committed. With
 // `OWLERY_SCREENSHOT_THEMES` it captures other themes too: `all`, or names
 // with commas between them. It writes into `screenshots/<the run's start>`
 // under the app's folder, or into the folder `OWLERY_SCREENSHOT_DIR` names.
@@ -543,8 +544,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     parked: async () => {
       await app.click(PARKED_LINE);
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(PARKED)} && !document.getElementById("questions").hidden && document.querySelectorAll("#questions fieldset[data-question]").length === ${ASKED_OF_PARKED.length} && document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelector('${place("sealer")} .state-icon.waiting') && document.querySelector("#headless li.gate .state.finished") && document.querySelector("#headless li.gate .command")?.textContent === ${JSON.stringify(GATE)} && [...document.querySelectorAll("#headless li.gate button")].map((button) => button.textContent).join() === "Show output" && document.querySelector("#view-detail .word-owed.failed")?.textContent === ${JSON.stringify(PARKED_OWED)}`, "the parked work item's view with its questions, its approval line, the line of its broad gate, which passed, and the sentence of the reversal whose commit the hook refused");
-      // The questions stand at the top of the column, which the shown work item's view left scrolled.
-      await app.evaluate(`document.getElementById("view-scroll").scrollTop = 0`);
+      // The sentence of the word not committed stands above the decisions, past the column's first screen, which the questions fill, so the column is scrolled until the decisions are the last thing in it.
+      await app.evaluate(`document.querySelector("#view-detail section.decisions").scrollIntoView({ block: "end" })`);
     },
     finished: async () => {
       await app.click(`#repositories button[data-work-item="${FINISHED_ID}"]`);
