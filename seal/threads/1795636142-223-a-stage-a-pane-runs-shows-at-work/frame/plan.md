@@ -31,7 +31,7 @@ The approach: the chain command tells the daemon, on the turn socket, the stage 
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1, 2, 3, 4, 5 and 9, with their cases of item 7 in `test/chain-command.test.ts`, `test/heavy-run.test.ts` and `test/daemon.test.ts`: scenarios 1 to 6 and 10 at the daemon's side. | `cd apps/desktop && node scripts/test-in-electron.mjs test/chain-command.test.ts test/heavy-run.test.ts`, and `test/daemon.test.ts` narrowed with `-t` to the new cases; each new case seen red; `git grep -n -i 'for one thing' -- apps` prints nothing. | |
+| 1 | *Scope* items 1, 2, 3, 4, 5 and 9, with their cases of item 7 in `test/chain-command.test.ts`, `test/heavy-run.test.ts` and `test/daemon.test.ts`: scenarios 1 to 6 and 10 at the daemon's side. | `cd apps/desktop && node scripts/test-in-electron.mjs test/chain-command.test.ts test/heavy-run.test.ts`, and `test/daemon.test.ts` narrowed with `-t` to the new cases; each new case seen red; `git grep -n -i 'for one thing' -- apps` prints nothing. | `9a89bb20` |
 | 2 | *Scope* items 6 and 8, with their cases of item 7 in `test/view.test.ts`: scenarios 1, 2, 6, 7 and 8 at the window's side. | `cd apps/desktop && node scripts/test-in-electron.mjs test/view.test.ts`; `test/approval-line.test.ts` in the built-app batch at the phase's end, once; each new case seen red. | |
 
 ## Overlap with the release
