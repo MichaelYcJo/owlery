@@ -2,10 +2,11 @@
 // have the role `menuitem`, each with the description a pointer over it is
 // told. An entry that opens a submenu is an item of it too, and its submenu
 // is a second element with the role `menu`, drawn beside the menu while it
-// is open. The system draws none of it, so the page's
+// is open. A row is an element with the role `group` whose items have the
+// role `menuitemradio`, one of them checked. The system draws none of it, so the page's
 // themes colour it and a case can read and press it. What a menu holds is a
 // function of ./view, one menu is open at a time, and one submenu of it.
-import { submenuPlace, type MenuAction, type MenuEntry, type MenuItem, type Submenu } from "./view";
+import { submenuPlace, type MenuAction, type MenuEntry, type MenuRow, type Submenu } from "./view";
 
 /** How long an open submenu stays once the pointer has come onto another item of the menu. On its way from the submenu's item to a lower item of the submenu the pointer crosses the menu's next items, and the submenu waits for it. */
 export const SUBMENU_LEAVE_MS = 300;
@@ -27,8 +28,9 @@ export function menuOpen(): boolean {
   return shown !== undefined;
 }
 
+/** The items of a menu or of a submenu, in the order they stand, the items of a row among them, which the arrow keys move through. */
 function items(menu: HTMLElement): HTMLElement[] {
-  return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  return [...menu.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemradio"]')];
 }
 
 /** An element with the role `menu`, named to a screen reader by `says`, with no item yet. */
@@ -43,13 +45,17 @@ function menuElement(says: string): HTMLElement {
   return menu;
 }
 
+/** A rule above an entry of a menu, where the entry divides. */
+function ruleAbove(menu: HTMLElement, entry: MenuEntry): void {
+  if (!entry.divides) return;
+  const rule = document.createElement("div");
+  rule.setAttribute("role", "separator");
+  menu.append(rule);
+}
+
 /** An item of a menu, with a rule above it where the entry divides. */
-function itemElement(menu: HTMLElement, entry: MenuEntry): HTMLElement {
-  if (entry.divides) {
-    const rule = document.createElement("div");
-    rule.setAttribute("role", "separator");
-    menu.append(rule);
-  }
+function itemElement(menu: HTMLElement, entry: Exclude<MenuEntry, MenuRow>): HTMLElement {
+  ruleAbove(menu, entry);
   const item = document.createElement("button");
   item.type = "button";
   item.setAttribute("role", "menuitem");
@@ -60,6 +66,38 @@ function itemElement(menu: HTMLElement, entry: MenuEntry): HTMLElement {
   item.title = entry.description;
   menu.append(item);
   return item;
+}
+
+/**
+ * A row of a menu, with a rule above it where the entry divides, named to a
+ * screen reader by the row's words. Each of its items draws its colour's
+ * mark, or the mark of no colour, and no words: a screen reader is told its
+ * words, and a pointer over it the description, which opens with them. The
+ * item that holds is checked. A press of an item closes the menu and hands
+ * its action to `press`. The row's items are returned in their order.
+ */
+function rowElement(menu: HTMLElement, entry: MenuRow, press: (action: MenuAction) => void): HTMLElement[] {
+  ruleAbove(menu, entry);
+  const row = document.createElement("div");
+  row.className = "swatches";
+  row.setAttribute("role", "group");
+  row.setAttribute("aria-label", entry.label);
+  row.title = entry.description;
+  const made = entry.row.map((inside) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", String(inside.checked));
+    item.setAttribute("aria-label", inside.label);
+    item.tabIndex = -1;
+    item.title = inside.description;
+    if (inside.colour !== null) item.dataset.colour = inside.colour;
+    pressed(item, inside, press);
+    return item;
+  });
+  row.append(...made);
+  menu.append(row);
+  return made;
 }
 
 function stay(): void {
@@ -110,7 +148,7 @@ function openSubmenu(entry: Submenu, item: HTMLElement, press: (action: MenuActi
 }
 
 /** Has a press of an item close the submenu and the menu, and hand the item's action to `press`. */
-function pressed(item: HTMLElement, entry: MenuItem, press: (action: MenuAction) => void): void {
+function pressed(item: HTMLElement, entry: { action: MenuAction }, press: (action: MenuAction) => void): void {
   item.addEventListener("click", () => {
     closeMenu();
     press(entry.action);
@@ -196,7 +234,16 @@ export function openMenu(says: string, entries: readonly MenuEntry[], at: { x: n
   const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const menu = menuElement(says);
   const openers = new Map<HTMLElement, (withKeyboard: boolean) => void>();
+  // The pointer that comes onto an item that opens no submenu starts the pause before the open submenu closes.
+  const leaves = (item: HTMLElement): void =>
+    item.addEventListener("pointerenter", () => {
+      if (shown?.submenu && leaving === undefined) leaving = setTimeout(closeSubmenu, SUBMENU_LEAVE_MS);
+    });
   for (const entry of entries) {
+    if ("row" in entry) {
+      for (const item of rowElement(menu, entry, press)) leaves(item);
+      continue;
+    }
     const item = itemElement(menu, entry);
     if ("opens" in entry) {
       item.setAttribute("aria-haspopup", "menu");
@@ -207,9 +254,7 @@ export function openMenu(says: string, entries: readonly MenuEntry[], at: { x: n
       item.addEventListener("pointerenter", () => opens(false));
     } else {
       pressed(item, entry, press);
-      item.addEventListener("pointerenter", () => {
-        if (shown?.submenu && leaving === undefined) leaving = setTimeout(closeSubmenu, SUBMENU_LEAVE_MS);
-      });
+      leaves(item);
     }
   }
   menu.addEventListener("focusin", (event) => {

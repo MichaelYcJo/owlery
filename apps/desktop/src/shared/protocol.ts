@@ -538,6 +538,13 @@ export interface Seal {
   why: string | null;
 }
 
+/** The colours a person can mark a pane's tab with, in the order the tab's menu offers them. */
+export const TAB_COLOURS = ["green", "blue", "pink"] as const;
+export type TabColour = (typeof TAB_COLOURS)[number];
+
+/** The longest name a pane's tab takes, in the characters a field counts, once the white space at its ends is taken off. */
+export const PANE_NAME_CHARS = 60;
+
 export interface SessionInfo {
   id: number;
   kind: PaneKind;
@@ -558,6 +565,10 @@ export interface SessionInfo {
   stateTool: string | null;
   /** The questions the event that began `state` asks the person in the agent's own pane, each with the choices the agent offers, and each of their texts 2000 characters at most. Null where that event asked none, and where no event began the state. A daemon of a build before it sends no such field, which a client reads as null. */
   stateQuestions: AskedQuestion[] | null;
+  /** The name a person gave the pane's tab, or null where it has none. It lasts as long as the pane, through a change of its account and the end of its process. A daemon of an earlier build sends no such field, and a client reads its absence as a daemon that keeps no name and no colour of a pane. */
+  name?: string | null;
+  /** The colour a person marked the pane's tab with, or null where it has none. It lasts as the name does, and a daemon of an earlier build sends no such field either. */
+  colour?: TabColour | null;
 }
 
 /** One question an agent asks the person in its own pane, with the choices it offers. */
@@ -928,6 +939,8 @@ export type ClientMessage =
   | { type: "forget"; id: number; keepModes?: true }
   // Ends the session's process if it is alive, and takes the session off the lists.
   | { type: "close"; id: number }
+  // Sets the name and the colour of a pane's tab, or one of them: a field that is absent is left as it is. The name is kept without the white space at its ends, and an empty one, or null, takes the name off, so the tab is named by its kind again. A colour is one of `TAB_COLOURS`, or null, which takes the colour off. The daemon refuses, with an `error` and setting nothing of the message, an id it lists no pane under, a sign-in pane, which has no tab, a name longer than `PANE_NAME_CHARS` once trimmed, and a colour that is neither null nor one of `TAB_COLOURS`. Otherwise it answers with `done`, before the `inbox` that carries the change. Both last as long as the pane, through a change of its account and the end of its process.
+  | { type: "setPane"; requestId: number; id: number; name?: string | null; colour?: TabColour | null }
   // Runs the setup of a work item's worktree again, as its repository's two files name it now, in a pane of the size given. The daemon refuses it with an `error`, and changes nothing, for a work item it does not list, an archived one, one being deleted, one whose setup still runs, and one whose repository holds neither file now. Otherwise it takes the earlier setup pane off the lists, copies the included paths that do not stand in the worktree, starts a new setup pane where a command stands and it is `setupCommand`, whole, the command the client showed the person, records the new setup in place of the old, and answers with `started` and the new pane, whose output the client receives, or with `done` where no pane started. Where the file holds another command than `setupCommand`, or one where it is null or absent, or none where it is a command, no command runs, and the setup records the command the file holds and a sentence that says it did not run, so the client shows that command before the next run.
   | { type: "runSetup"; requestId: number; workItemId: number; cols: number; rows: number; setupCommand?: string | null }
   // Ends the broad gate's command that runs for the work item: the daemon signals the command's process group to end and kills it where it has not exited two seconds later, the gate's stage is `failed`, nothing is committed, and the chain is `stopped`. A gate that waits for its turn on the machine has its ask ended and no command starts, and its stage fails and its chain stops the same way. The daemon answers with `done`, and with an `error` where no broad gate of the work item runs or waits.
