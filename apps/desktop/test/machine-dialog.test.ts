@@ -309,7 +309,7 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
 });
 
 // A third start, whose login shell is the stand-in of the screenshot run, which names the stand-in for the CLI (fixtures/sample-pane.sh, fixtures/sample-cli.sh), so a session a person asks for runs no `claude` of the person's. The cap on agents is 1, set in the run folder before the start.
-describe.skipIf(process.platform !== "darwin")("the sessions that wait for the machine, in the Machine dialog of the built app", { timeout: 120_000 }, () => {
+describe.skipIf(process.platform !== "darwin")("the sessions that wait for the machine, in the Machine dialog and the delete dialog of the built app", { timeout: 120_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
   /** The prompt the stand-in for the CLI holds: it asks the person to allow a command and waits, so its session works until the app stops. */
@@ -386,5 +386,22 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
     expect(await queue()).toEqual({ label: "Waiting for the machine", entries: [{ name: TITLE, detail: `Asked: ${WAITS}`, under: true, aligned: true, muted: true }] });
     await app.click("#machine-cancel");
     await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+  });
+
+  it("names in the delete dialog the session that works under \"Running sessions that end\", and the session that waits for the machine apart from it under \"Sessions waiting for the machine that leave the queue\"", async () => {
+    // The case above left the work item a session of each kind: the held one works in the one place, and the second waits for it.
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#repositories button[data-work-item="1"]').getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+    await app.until(`document.querySelector('[role="menu"]')`, "the work item's menu");
+    await app.evaluate(`(() => { for (const item of document.querySelectorAll('[role="menu"] [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
+    await app.click(`[role="menu"] [role="menuitem"][data-pressed-here]`);
+    await app.until(`document.getElementById("delete-dialog").open && document.querySelectorAll("#delete-sessions li").length === 2`, "the delete dialog with the work item's two sessions");
+    expect(await app.evaluate<[string, string[]][]>(`[...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])`)).toEqual([
+      ["Running sessions that end", [`Asked: ${HELD}`]],
+      ["Sessions waiting for the machine that leave the queue", [`Asked: ${WAITS}`]],
+    ]);
+    await app.click("#delete-cancel");
+    await app.until(`!document.getElementById("delete-dialog").open`, "the delete dialog closed");
   });
 });
