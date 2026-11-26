@@ -820,14 +820,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
   /** The list under that heading, within an element. */
   const twelveIn = (within: string): string => `[...document.querySelectorAll("${within} section")].find((section) => section.querySelector("h3").textContent === ${JSON.stringify(TWELVE)}).querySelector("ul")`;
 
-  /**
-   * Mutes or unmutes the first work item from a second client of the daemon,
-   * as another window would, and waits until the sidebar shows it. The daemon
-   * then sends this window an `inbox`, which changes nothing an open dialog
-   * of another work item names. The first work item is muted at this point of
-   * the file, by the case that mutes it.
-   */
-  async function mutedElsewhere(muted: boolean): Promise<void> {
+  /** Sends the daemon one message from a second client, as another window would, and waits until the window shows what it changed: the daemon sends this window an `inbox` for it. */
+  async function fromElsewhere(message: object, shown: string, what: string): Promise<void> {
     const discovery = readDiscovery(join(app.userData, "run"));
     if (!discovery) throw new Error("the daemon wrote no discovery file");
     const other = new WebSocket(`ws://127.0.0.1:${String(discovery.port)}`);
@@ -837,12 +831,19 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
         other.once("error", reject);
       });
       other.send(JSON.stringify({ type: "hello", token: discovery.token }));
-      other.send(JSON.stringify({ type: "setWorkItem", requestId: 1, id: 1, muted }));
-      await app.until(`(document.querySelector('${line(SIDEBAR, 1)} .line-mark[aria-label="Notifications muted"]') !== null) === ${String(muted)}`, muted ? "the first work item muted again" : "the first work item unmuted");
+      other.send(JSON.stringify(message));
+      await app.until(shown, what);
     } finally {
       other.close();
     }
   }
+
+  /** Mutes or unmutes the first work item from a second client, which changes nothing an open dialog of the work items names. The first work item is muted at this point of the file, by the case that mutes it. */
+  const mutedElsewhere = (muted: boolean): Promise<void> =>
+    fromElsewhere({ type: "setWorkItem", requestId: 1, id: 1, muted }, `(document.querySelector('${line(SIDEBAR, 1)} .line-mark[aria-label="Notifications muted"]') !== null) === ${String(muted)}`, muted ? "the first work item muted again" : "the first work item unmuted");
+
+  /** Renames the first work item from a second client, and waits until its line in the sidebar says the name. */
+  const renamedElsewhere = (title: string): Promise<void> => fromElsewhere({ type: "renameWorkItem", requestId: 2, id: 1, title, branch: false }, `document.querySelector('${line(SIDEBAR, 1)} .title').textContent === ${JSON.stringify(title)}`, `the first work item renamed ${title}`);
 
   it("names in the delete dialog the branch, the folder, the commit no other branch holds by its hash and its subject apart, the untracked file and the ignored file, each under a heading that counts them, on rows of one height, and the session the delete ends, with its lead in the ink of what is read and Delete off until Force delete is checked; shows a refusal there and reads the loss again; and after Delete the line is gone from the sidebar and from the inbox, and the clone holds no such branch and no such folder", async () => {
     await create("Doomed");
@@ -967,7 +968,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await dialogClosed("delete-dialog");
   });
 
-  it("keeps in the removal's dialog each work item's loss, the list of its work items and the list of its sessions as they are drawn where the daemon sends lists that change none of them and where Force delete is checked: a list of commits keeps its scroll and its rows", async () => {
+  it("keeps in the removal's dialog each work item's loss, the list of its work items and the list of its sessions as they are drawn where the daemon sends lists that change none of them and where Force delete is checked: a list of commits keeps its scroll and its rows; and draws the list of sessions anew where a session's line changes", async () => {
     // The work item of the case above, whose twelve commits are more than a list shows at once.
     const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((button) => button.querySelector(".title").textContent === "Long list").dataset.workItem)`);
     await fromMenu(1, "Remove");
@@ -988,6 +989,13 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#remove-force");
     expect(await value<boolean>(`document.getElementById("remove-force").checked`)).toBe(true);
     expect(await kept()).toEqual([2 * row, true, true, true, true]);
+    // A session's line that changes is drawn anew, though its list holds as many lines as before.
+    const sessions = (): Promise<string[]> => value(`[...document.querySelectorAll("#remove-sessions li")].map((item) => item.textContent)`);
+    const before = await sessions();
+    await renamedElsewhere("Renamed there");
+    expect(await sessions()).toEqual(before.map((words) => words.replace("Renamed here", "Renamed there")));
+    expect(before).toContain("Shell in Renamed here");
+    await renamedElsewhere("Renamed here");
     await app.click("#remove-cancel");
     await dialogClosed("remove-dialog");
     // The work item leaves as the delete before left, so the cases after this one meet the lists they met before the case above.
