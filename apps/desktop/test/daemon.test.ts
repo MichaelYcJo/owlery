@@ -4773,7 +4773,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
 
 describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
   /** A daemon whose clock the case moves, with work items of these titles and no pass of reads while the case runs, and a pane's command the case names before each start. */
-  async function stagesOn(titles: string[], options: { linked?: boolean } = {}) {
+  async function stagesOn(titles: string[], options: { linked?: boolean; endWaitMs?: number } = {}) {
     const clock = { now: NOW };
     const pane = { command: "sleep 30" };
     const stood = await standing(cleanups, titles, { ...options, commitPollMs: 60_000, now: () => clock.now, commandFor: () => ({ command: "/bin/sh", args: ["-c", pane.command], env: {} }) });
@@ -4831,6 +4831,24 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
     await on.carried(b.id, (stage) => stage !== null);
     expect([a, b].map(({ id }) => on.c.workItem(id)?.paneStage)).toEqual([null, { kind: "round", round: 2, since: NOW }]);
     expect((await on.sent(a.id))?.paneStage).toBeNull();
+  });
+
+  it("holds no stage told for an archived work item, by a pane that outlived the archive's wait for it to end (issue #223)", async () => {
+    const on = await stagesOn(["Archived work", "Other work"], { endWaitMs: 200 });
+    const [a, b] = on.workItems as [(typeof on.workItems)[number], (typeof on.workItems)[number]];
+    // The pane's process ignores the signal that ends it, says so, and exits by itself after a moment.
+    on.pane.command = "trap '' HUP; echo deaf; sleep 3";
+    const deaf = await on.opened(a.id);
+    await on.c.until(() => (on.c.messages.some((m) => m.type === "output" && m.id === deaf && m.data.includes("deaf")) ? true : undefined));
+    expect((await on.c.asked({ type: "archiveWorkItem", requestId: 1, id: a.id, running: { panes: [deaf], headless: [] } })).type).toBe("done");
+    await on.c.until(() => (on.c.workItem(a.id)?.archivedAt !== null ? true : undefined));
+    on.d.stageTold({ is: "stage", folder: a.worktree, pane: deaf, kind: "round", round: 1 });
+    on.pane.command = "sleep 30";
+    const other = await on.opened(b.id);
+    on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "round", round: 1 });
+    await on.carried(b.id, (stage) => stage !== null);
+    expect(on.c.workItem(a.id)?.paneStage).toBeNull();
+    await on.c.message("exit", (m) => m.id === deaf);
   });
 
   it("drops the stage at a `stage-ended` line, and sends in the same lists the work item's records read again (issue #223)", async () => {
