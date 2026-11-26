@@ -39,6 +39,10 @@ The class: the round listed every assertion of an absence that the diff adds, fr
 ```
 
 The fix pass shows the changed case red with `daemon.ts:671` kept from ending the watch at `turn-failed`, as rule 15 asks, and says so in its close.
+```seal
+verdict: fixed bbc76486
+answer: The case waits 60 ms after the prompt, as the proofer gave it, and phase-1.md's bullet is rewritten as given. Shown red with only the guard removed: `seal mutate` over `daemon.ts` (`else if (event !== "turn-failed") this.endLog(session);`) failed the case at `expect(interruptions(c)).toEqual([])`, executed, exit 0 for the tool, tree restored by it.
+```
 
 ### 2. A subagent's API error turns the session to "Needs you" and raises a notification while the main agent works on
 
@@ -91,6 +95,10 @@ and also at the end of a subagent's turn, whose input then names the subagent's 
 ```
 
 The fix pass shows the new assertion red against the current `agentEventFor` and says so in its close.
+```seal
+verdict: fixed 257939bc
+answer: Fixed in the proofer's shape, written in the crafter's own words in one respect: the subagent test is inline in the body of `agentEventFor` (`hookName === "StopFailure" && typeof payload.agent_id === "string"`) and adds no module-level name, because the frame holds no such unit; the function gains a `payload` parameter and `daemon.ts:663` passes it. Cases: the assertion of the proofer in "maps each Claude Code hook", and a daemon case that a working session stays working at a subagent's `StopFailure` with no `turn-failed` message. Both seen red against the code before the fix (`expected 'turn-failed' to be undefined`; one `turn-failed` message), green after; `seal mutate` over `daemon.ts` (payload not passed) and over `agent-events.ts` (the `agent_id` test made `false`) each red, exit 0. Frame: *Scope* item 3 and both `to` sentences of *Rule changes* written as given, in the same commit. The frame's line 80 of `design.md` (`Daemon#agentEvent` does not change) and `plan.md` *Technical context* ('needs no change') now state a daemon that changed by one argument; they stand in files the crafter does not write and are named in the hand-back for the orchestrator. Read against the code's real inputs: the subagent's hook input is a claim read from the CLI's minified code and not a recorded event, so Q1's run still decides it.
+```
 
 ### 3. The changelog says Owlery listened to neither event, though it listened to `Stop`
 
@@ -104,6 +112,10 @@ Why it matters: the settle turns this fragment into the release notes. "Claude C
 
 ```markdown
 Issue #188. For a turn that ends on an API error, Claude Code sends `StopFailure` in place of `Stop`, and Owlery did not listen to `StopFailure`, so the session kept its "Working" for good.
+```
+```seal
+verdict: fixed 23a71b51
+answer: The opening sentence is replaced as given. `git grep -n -F 'listened to neither'` after the commit prints only this record's own quotes of it, and no file of the tree.
 ```
 
 ## Confirmations
