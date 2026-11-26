@@ -277,9 +277,10 @@ const ceilingOf = (context: CommandContext): number => context.roundsCeiling ?? 
  * daemon's own rule (`chain.ts#gateBefore`): given no stored stage, since the
  * command stores none, and a run whose `judged` is true, since a pane's
  * session makes the judgment of convergence itself, the rule answers the
- * ceiling or nothing. The person's word is the first step of a run the
- * person's word made, where it names the step's round, so a word given for
- * one round's stop passes no later one.
+ * ceiling or nothing. A call whose `--persons-word` names the step's round
+ * is the first step of a run the person's word made, and a call whose word
+ * names another round is not, so a word given for one round's stop passes
+ * no later one.
  */
 function ceilingStops(context: CommandContext, step: Extract<Step, { is: "fix-pass" }>, word: number | null): boolean {
   return gateBefore(step, [], ceilingOf(context), { judged: true, first: word === step.round }) === "ceiling";

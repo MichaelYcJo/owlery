@@ -440,9 +440,10 @@ export function passedBefore(stages: readonly ChainStage[], round: number): bool
  * - A fix pass on that record already finished: nothing. The gate was passed
  *   before that pass.
  * - The round is the ceiling or a later one: the chain stops and asks no
- *   judgment, but at the first step of a run a person's word made, which
- *   is the answer: the daemon's start by the person, or a call of the chain
- *   command whose `--persons-word` names the round (`chain-command.ts`).
+ *   judgment, but at the first step of a run a person's word made, since
+ *   that word is the answer: the daemon's start by the person, or a call of
+ *   the chain command whose `--persons-word` names the round
+ *   (`chain-command.ts`).
  * - The round is round 1: nothing. No record yet shows whether a fix held.
  * - This run asked the orchestrator after that round and was answered yes:
  *   nothing.
