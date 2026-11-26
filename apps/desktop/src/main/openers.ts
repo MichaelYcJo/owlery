@@ -1,6 +1,7 @@
-// What the main process does for a menu's "Open in" and "Copy" items, and
-// for a repository's removal: which editors and terminals the Mac holds,
-// opening a folder in Finder or in one of them, writing the clipboard, and
+// What the main process does for a menu's "Open in" and "Copy" items, for
+// a click on a file a pane printed, and for a repository's removal: which
+// editors and terminals the Mac holds, opening a folder in Finder or in one
+// of them, opening a file in an editor at a line, writing the clipboard, and
 // moving a repository's folder to the Trash. What reads the disk, runs a
 // command, opens a folder, writes the clipboard and moves a folder to the
 // Trash is handed in, so the cases run without Electron, open no app and
@@ -13,7 +14,7 @@ export interface KnownApp extends InstalledApp {
   bundle: string;
 }
 
-/** The apps Owlery opens a folder in, the editors before the terminals. No other app is ever opened. */
+/** The apps Owlery opens a folder in, the editors before the terminals, and opens a file in, the editors alone. No other app is ever opened. */
 export const KNOWN_APPS: readonly KnownApp[] = [
   { name: "Visual Studio Code", kind: "editor", bundle: "Visual Studio Code.app" },
   { name: "Cursor", kind: "editor", bundle: "Cursor.app" },
@@ -45,6 +46,8 @@ export function installedApps(exists: (path: string) => boolean, home: string): 
 export interface Openers {
   /** Whether anything stands at a path: a bundle, a folder, or the `.git` at a folder's top. A symlink is followed, as `existsSync` follows one. */
   exists(path: string): boolean;
+  /** Whether a file stands at a path, and not a folder. A symlink is followed. */
+  isFile(path: string): boolean;
   /** The person's home folder. */
   home: string;
   /** Runs a command with its arguments and no shell, and rejects with the failure's sentence. */
@@ -76,6 +79,76 @@ export async function openFolder(folder: unknown, app: unknown, openers: Openers
   if (!installed) return `${String(app)} is not installed.`;
   try {
     await openers.run("open", ["-a", installed.path, folder]);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+/**
+ * How each editor of the list takes a file and its line: the command that
+ * takes one, inside the editor's bundle except Xcode's, and the arguments it
+ * is handed for a file with a line and a column, a line alone, or neither.
+ * The commands of Visual Studio Code and Xcode were read with `--help` on a
+ * Mac that holds them. Those of Cursor, Zed and Sublime Text are each
+ * editor's documented command, and no Mac that holds them was read.
+ */
+export const EDITOR_COMMANDS: Readonly<Record<string, { command(bundle: string): string; args(file: string, line?: number, column?: number): string[] }>> = {
+  "Visual Studio Code": { command: (bundle) => join(bundle, "Contents/Resources/app/bin/code"), args: (file, line, column) => (line === undefined ? [file] : ["--goto", place(file, line, column)]) },
+  Cursor: { command: (bundle) => join(bundle, "Contents/Resources/app/bin/cursor"), args: (file, line, column) => (line === undefined ? [file] : ["--goto", place(file, line, column)]) },
+  Zed: { command: (bundle) => join(bundle, "Contents/MacOS/cli"), args: (file, line, column) => [place(file, line, column)] },
+  "Sublime Text": { command: (bundle) => join(bundle, "Contents/SharedSupport/bin/subl"), args: (file, line, column) => [place(file, line, column)] },
+  // Xcode takes no column.
+  Xcode: { command: () => "/usr/bin/xed", args: (file, line) => (line === undefined ? [file] : ["--line", String(line), file]) },
+};
+
+/** A file and the place in it as `<file>:<line>:<column>`, without the column where none is named and without both where no line is. */
+function place(file: string, line?: number, column?: number): string {
+  if (line === undefined) return file;
+  return column === undefined ? `${file}:${line}` : `${file}:${line}:${column}`;
+}
+
+/** A line or a column the window passed on, where it is a whole number from 1, and none otherwise. */
+function placeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : undefined;
+}
+
+/**
+ * Opens a file a pane printed in the editor the person chose, `editor`,
+ * which the main process read from `editor.json`, at `line` and `column`.
+ * It answers null, or why nothing was opened, as a sentence the window shows
+ * as it is. The disk is read again here, since the path comes from the
+ * window: only a whole path from / at which a file stands is opened, in an
+ * editor of the list that the Mac holds. A folder, an app's bundle among
+ * them, is opened in no editor, and no app but the list's editors ever
+ * opens a file, since the app the system gives a file may run it. A line is
+ * a whole number from 1, and a column is handed only with its line. The
+ * editor's own command, run with no shell, takes the place
+ * (`EDITOR_COMMANDS`). Where that command does not stand, the file is opened
+ * at no line by `open -a <the bundle's path> <the file>`. Where the start was
+ * given a stand-in, `program`, it is run in the editor's place, with the
+ * file and its place as one argument, in the background too. Otherwise an
+ * app started in the background opens nothing and answers null.
+ */
+export async function openInEditor(path: unknown, line: unknown, column: unknown, editor: unknown, openers: Openers, start: { program: string | null; background: boolean }): Promise<string | null> {
+  if (typeof path !== "string" || !isAbsolute(path)) return "A file is opened by its whole path.";
+  if (!openers.exists(path)) return `${path} is gone.`;
+  if (!openers.isFile(path)) return "Owlery opens a file in an editor, and nothing else.";
+  if (editor === null || editor === "finder") return "No editor is chosen in Settings.";
+  const commands = typeof editor === "string" && KNOWN_APPS.some((known) => known.name === editor && known.kind === "editor") ? EDITOR_COMMANDS[editor] : undefined;
+  if (commands === undefined) return `${String(editor)} is not an editor Owlery opens a file in.`;
+  const installed = installedApps(openers.exists, openers.home).find((known) => known.name === editor);
+  if (!installed) return `${String(editor)} is not installed.`;
+  const at = placeNumber(line);
+  const from = at === undefined ? undefined : placeNumber(column);
+  try {
+    if (start.program !== null) await openers.run(start.program, [place(path, at, from)]);
+    else if (start.background) return null;
+    else {
+      const command = commands.command(installed.path);
+      if (openers.exists(command)) await openers.run(command, commands.args(path, at, from));
+      else await openers.run("open", ["-a", installed.path, path]);
+    }
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);

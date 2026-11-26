@@ -15,8 +15,10 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
 import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { editorOpener, openSettings } from "./app-settings";
 import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import { tell } from "./sidebar";
 import {
   answersFor,
   askButton,
@@ -59,6 +61,7 @@ import {
   paneMenu,
   type PaneMenuAct,
   paneTabs,
+  pasteAct,
   pathCandidates,
   pullRequestFacts,
   pathTarget,
@@ -281,12 +284,27 @@ function screenOf(pane: number | undefined): Screen | undefined {
   return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
 }
 
-/** Does with a link's target what a click or a row of the card chose (./view, `LinkAct`). The main process decides whether an address is one it opens, and reads the disk again before it shows a path. */
+/**
+ * Does with a link's target what a click or a row of the card chose (./view,
+ * `LinkAct`). The main process decides whether an address is one it opens,
+ * and reads the disk again before it shows a path or opens a file. A file
+ * opens in the editor the person chose, and where none was chosen the
+ * Settings dialog opens first, and a Save that names an editor opens the
+ * file (./app-settings). Why the editor opened nothing is said in the
+ * status line.
+ */
 function act(chosen: LinkAct, target: LinkTarget): void {
   if (chosen === "copy") void window.owlery.copyText(target.kind === "web" ? target.address : target.path);
   else if (target.kind === "web") void window.owlery.openLink(target.address);
   else if (chosen === "workItem" && target.kind === "workItem") openWorkItem(target.workItemId);
-  else void window.owlery.showInFinder(target.path);
+  else if (chosen === "editor" && target.kind === "file") {
+    const open = (): void =>
+      void window.owlery.openInEditor(target.path, target.line, target.column).then((failure) => {
+        if (failure !== null) tell(failure);
+      });
+    if (editorOpener() === "ask") void openSettings(open);
+    else open();
+  } else void window.owlery.showInFinder(target.path);
 }
 
 /** Answers a click on a link the terminal found as an address, printed as text or behind a name: it opens outside Owlery where the click held the key that opens one (./view, `linkClick`). An address that is no web address is handed on as it is, and the main process opens nothing for it. */
@@ -316,7 +334,7 @@ function cardLeaves(): void {
  * a button that does what it names and takes the card away.
  */
 function showCard(target: LinkTarget, term: Terminal): void {
-  const { title, rows } = linkCard(target, mac);
+  const { title, rows } = linkCard(target, mac, editorOpener());
   linkCardElement.replaceChildren(
     part("target", title),
     ...rows.map(({ text, keys, act: chosen }) => {
@@ -389,9 +407,11 @@ function wholeLine(term: Terminal, row: number): { text: string; cells: { x: num
  * link add-on finds. For the line under the pointer, the main process is
  * asked once what stands at each candidate of the line (./view,
  * `pathCandidates`), read from the worktree of the pane's work item, and a
- * candidate is a link only where a file or a folder stands there. Nothing
- * is kept between two requests. A click does what `linkClick` answers for
- * the path's target, and the pointer's rest on the link shows its card.
+ * candidate is a link only where a file or a folder stands there. A file's
+ * link carries the line and the column the pane printed after its path.
+ * Nothing is kept between two requests. A click does what `linkClick`
+ * answers for the path's target and for the editor the person chose, and
+ * the pointer's rest on the link shows its card.
  */
 function findsPaths(term: Terminal, turns: ScreenTurns): void {
   term.registerLinkProvider({
@@ -420,12 +440,12 @@ function findsPaths(term: Terminal, turns: ScreenTurns): void {
             const end = cells[candidate.end - 1];
             if (!stands || !start || !end) return;
             // What the path leads to is read from the window's lists at the moment it is asked for.
-            const target = (): LinkTarget => pathTarget(stands.path, held.workItems, held.viewing);
+            const target = (): LinkTarget => pathTarget(stands.path, held.workItems, held.viewing, stands.folder ? undefined : { line: candidate.line, column: candidate.column });
             links.push({
               range: { start: { x: start.x, y: start.y }, end: { x: end.x + end.width - 1, y: end.y } },
               text: candidate.text,
               activate(event) {
-                const chosen = linkClick(target().kind, { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac);
+                const chosen = linkClick(target().kind, { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac, editorOpener());
                 if (chosen !== null) act(chosen, target());
               },
               hover: () => overLink(target(), term),
@@ -451,7 +471,10 @@ function closeMenu(giveKeyboard = true): void {
  * Does what an item of a pane's menu names, for the pane a screen holds.
  * The clipboard is the main process's (src/main/clipboard.ts). A paste is
  * handed to the terminal as a dropped path is, so a program that asked for
- * pastes in brackets receives one, and an empty clipboard pastes nothing.
+ * pastes in brackets receives one. It is the clipboard's text, and where the
+ * clipboard holds none, the path of the image it holds, which the main
+ * process writes as a file (`pasteImage`). A clipboard that holds neither
+ * pastes nothing.
  * Before the terminal is cleared or reset the daemon is told to forget what
  * the pane printed: its replay draws the pane each time it comes onto the
  * stage, and would draw again what the person cleared. A clear asks the
@@ -468,7 +491,8 @@ function menuAct(chosen: PaneMenuAct, screen: Screen): void {
   else if (chosen === "paste")
     void window.owlery.clipboardText().then((text) => {
       // The screen may have gone to another pane while the main process answered.
-      if (text !== "" && turns.pane === pane) term.paste(text);
+      if (text === "") pasteImage(screen);
+      else if (turns.pane === pane) term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
   else if (chosen === "find") openFind(screen);
@@ -665,6 +689,48 @@ export function findable(): boolean {
   return screenOf(front) !== undefined;
 }
 
+/** Has the main process write the image the clipboard holds as a file, and pastes its path into the pane the screen holds, as a dropped file's path, where the clipboard held an image and the screen still holds that pane. */
+function pasteImage({ term, turns }: Screen): void {
+  const pane = turns.pane;
+  void window.owlery.pastedImage().then((path) => {
+    const text = path === null ? "" : droppedText([path]);
+    if (text !== "" && turns.pane === pane) term.paste(text);
+  });
+}
+
+/**
+ * Has the screen read a paste into its terminal before the terminal does
+ * (./view, `pasteAct`): files that are on a disk are pasted as their paths,
+ * as dropped files are, a paste that holds text is left to the terminal,
+ * and an image with no text is pasted as the path of the file the main
+ * process writes from the clipboard (`pasteImage`). A paste that holds none
+ * of them pastes nothing, where the terminal would send an empty paste. A
+ * paste into the find bar's field is the field's.
+ */
+function takesPastes(screen: Screen): void {
+  const { element, term } = screen;
+  element.addEventListener(
+    "paste",
+    (event) => {
+      const data = event.clipboardData;
+      if (!data || !(event.target instanceof Node && term.element?.contains(event.target))) return;
+      const files = [...data.files];
+      const chosen = pasteAct({
+        paths: files.map((file) => window.owlery.pathOf(file)),
+        text: data.getData("text/plain") !== "",
+        image: [...data.items].some((item) => item.kind === "file" && item.type.startsWith("image/")),
+      });
+      if (chosen?.kind === "text") return;
+      // The terminal's own listener stands under this element, and reads the event after it.
+      event.preventDefault();
+      event.stopPropagation();
+      if (chosen?.kind === "paths") term.paste(chosen.text);
+      else if (chosen?.kind === "image") pasteImage(screen);
+    },
+    { capture: true },
+  );
+}
+
 /**
  * Has an element take the files a person drops on it, for the terminal of
  * the screen it holds: the terminal is handed the files' paths as a paste
@@ -696,8 +762,8 @@ function takesDrops(element: HTMLElement, term: Terminal): void {
  * that holds it at that moment where that pane's process runs, and a free
  * screen sends nothing. What a person types and what the terminal answers
  * go where the screen's turns say (./view, `screenTurns`), and so do the
- * line feed of Shift+Enter, the bytes of the three editing keys and the
- * paths of dropped files. A press inside
+ * line feed of Shift+Enter, the bytes of the three editing keys, the
+ * paths of dropped files and what a paste hands the pane (`takesPastes`). A press inside
  * the screen gives its pane the keyboard, so that pane is in front. A link
  * the pane printed opens outside Owlery at a click with the Command key,
  * a path it printed is a link where something stands at it (`findsPaths`),
@@ -749,6 +815,7 @@ function newScreen(): Screen {
     return false;
   });
   takesDrops(element, term);
+  takesPastes(screen);
   findsPaths(term, turns);
   // A press of the right button, and a press with the Control key, ask for a menu. The pane's own opens in place of the system's. The terminal has read the press by then: it took the keyboard, so the pane is the one in front, and on a Mac it selected the word under the pointer.
   element.addEventListener("contextmenu", (event) => {

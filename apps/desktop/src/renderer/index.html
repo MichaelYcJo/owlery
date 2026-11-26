@@ -1003,6 +1003,24 @@
         </div>
       </form>
     </dialog>
+    <!-- The app's own Settings, which the application menu opens, as against a repository's above. -->
+    <dialog id="app-settings-dialog">
+      <form id="app-settings-form">
+        <h2 class="head">Settings</h2>
+        <label>
+          Open files in
+          <span class="row">
+            <select id="app-settings-editor"></select>
+          </span>
+        </label>
+        <p class="says">A ⌘ click on a file a pane printed opens it here, at the line the pane named. ⇧ ⌘ click shows it in Finder.</p>
+        <p id="app-settings-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="app-settings-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="app-settings-submit" class="primary">Save</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="machine-dialog">
       <!-- The daemon refuses a value it does not take, in its own words, so the page asks the browser to check nothing. -->
       <form id="machine-form" novalidate>

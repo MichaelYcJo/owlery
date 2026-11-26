@@ -20,8 +20,11 @@ const CLOSE_WINDOW: MenuEntry = { label: "Close Window", role: "close", accelera
 /** The id of the entry that opens the window's Accounts dialog. The main process gives it its click (./main), which the window takes. */
 export const ACCOUNTS = "accounts";
 
-// The entry has no key, and its label ends in an ellipsis, because it opens a dialog.
-const OPEN_ACCOUNTS: MenuEntry[] = [SEPARATOR, { id: ACCOUNTS, label: "Accounts…" }];
+/** The id of the entry that opens the window's Settings dialog, given its click as "Accounts…" is. */
+export const SETTINGS = "settings";
+
+// Each label ends in an ellipsis, because each entry opens a dialog. "Accounts…" has no key, and "Settings…" has the key a Mac app's settings open on, which the window's page does not read.
+const OPEN_ACCOUNTS: MenuEntry[] = [SEPARATOR, { id: ACCOUNTS, label: "Accounts…" }, { id: SETTINGS, label: "Settings…", accelerator: "CommandOrControl+," }];
 
 /** The ids of the two entries that end the daemon. The main process gives each its click (./main), and the window asks the person first. */
 export const RESTART_DAEMON = "restart-daemon";
@@ -38,10 +41,10 @@ const END_DAEMON: MenuEntry[] = [SEPARATOR, { id: RESTART_DAEMON, label: "Restar
  *
  * On macOS it is the menu Electron gives an app that sets none, with four
  * differences: the app's menu says "Owlery" where Electron would write the
- * package's name, it holds "Accounts…" after "About Owlery" and the two
- * entries that end the daemon before its quit, and "Close Window" is on
- * Shift+Command+W. Another platform has no app menu, so "Accounts…", those
- * two entries and "Quit" stand under "File". Its "Window" menu is
+ * package's name, it holds "Accounts…" and "Settings…" after "About Owlery"
+ * and the two entries that end the daemon before its quit, and "Close
+ * Window" is on Shift+Command+W. Another platform has no app menu, so
+ * "Accounts…", "Settings…", those two entries and "Quit" stand under "File". Its "Window" menu is
  * written out entry by entry: no case runs on such a platform to read which
  * keys the menu Electron fills there would bring.
  */

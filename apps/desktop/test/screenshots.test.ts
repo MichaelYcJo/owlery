@@ -7,8 +7,8 @@
 // view of the parked work item, the view of the finished work item, the
 // view of the broken one, a work item's menu,
 // the "New work item" form, the dialog of the chain choice, the
-// repository's settings, the Accounts dialog, the Machine dialog and the
-// delete dialog of a work item with many commits) in each
+// repository's settings, the Accounts dialog, the Machine dialog, the app's
+// Settings dialog and the delete dialog of a work item with many commits) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -319,6 +319,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
       "night-watch-dark-machine.png",
+      "night-watch-dark-app-settings.png",
       "night-watch-dark-delete.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
@@ -333,12 +334,13 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
       "night-watch-light-machine.png",
+      "night-watch-light-app-settings.png",
       "night-watch-light-delete.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(84);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(84);
-    expect(all[83]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
+    expect(all).toHaveLength(90);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(90);
+    expect(all[89]).toEqual({ theme: "desk", appearance: "light", view: "delete", file: "desk-light-delete.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -589,6 +591,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click("#machine-button");
       await app.until(`document.getElementById("machine-dialog").open && [...document.querySelectorAll("#machine-caps .cap-queue li")].map((entry) => entry.querySelector(".name").textContent + " / " + entry.querySelector(".detail").textContent).join() === ${JSON.stringify(`${QUEUED} / Asked: ${ASKED_TO_WAIT}`)} && document.querySelectorAll("#machine-caps .heavy-queue li").length === 2 && document.querySelectorAll("#machine-caps .heavy-ran li").length === 3`, `the Machine dialog with the session of ${QUEUED} that waits for the machine under the cap on agents, and the heavy commands that run, wait and ran under their limit`);
     },
+    "app-settings": async () => {
+      await show.inbox();
+      // The dialog opens from "Settings…" of the application menu, which the main process holds.
+      await app.evaluateMain(`electron.Menu.getApplicationMenu().getMenuItemById("settings").click()`);
+      await app.until(`document.getElementById("app-settings-dialog").open && document.getElementById("app-settings-editor").options.length > 0`, "the Settings dialog with its editors and Finder");
+    },
     delete: async () => {
       await show.inbox();
       await openMenu(QUEUED_LINE);
@@ -632,6 +640,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       // A cancel keeps every cap as the run set it.
       await app.click("#machine-cancel");
       await dialogClosed("machine-dialog");
+    },
+    "app-settings": async () => {
+      // A cancel keeps no choice.
+      await app.click("#app-settings-cancel");
+      await dialogClosed("app-settings-dialog");
     },
     delete: async () => {
       // A cancel deletes nothing.
@@ -696,6 +709,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {
+        // The Settings dialog opens from the application menu, which the main process holds.
+        inspectMain: true,
         writeRun: (runDir) => {
           writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: 3, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }));
           // One account handed over by its folder, an empty one of the run's own. The parked work item's shell pane runs under it, so its row offers no refresh, and no refresh starts. Its row says it is signed in, as the CLI last said, so the dialog draws a sign-in, and holds the limit values a session last handed over, so the dialog draws them.

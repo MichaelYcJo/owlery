@@ -4,21 +4,26 @@
 // session is working asks before it closes, a file dropped on a pane types
 // its path, a link opens at a click with the Command key, Shift+Enter
 // sends a line feed, a path a pane printed is a link where something stands
-// at it, a link under the pointer shows a card of what a click does, a
-// press of the right button on a pane opens the pane's menu, the left
+// at it, a file's link opens in the editor the person chose at the line the
+// pane printed, a link under the pointer shows a card of what a click does,
+// a paste of an image hands the pane a file's path, Control+V stays the
+// program's, a press of the right button on a pane opens the pane's menu, the left
 // arrow, the right arrow and Backspace with the Command key are the editing
 // keys of macOS, a pane's terminal holds the lines of history the scrollback
 // names, and holds them again once it came back onto the stage, and the find
 // bar searches them.
 // One start of the app serves every case, so the cases run in the order
-// they stand in. No case opens the system's browser or Finder: the app is
-// started with `OWLERY_OPENER` naming a program that notes the address or
-// the path it was handed. No case reads or writes the system's clipboard:
-// the app starts in the background, where it keeps a clipboard of its own.
+// they stand in. No case opens the system's browser, Finder or an editor:
+// the app is started with `OWLERY_OPENER` naming a program that notes the
+// address or the path it was handed. No case reads or writes the system's
+// clipboard: the app starts in the background, where it keeps a clipboard
+// of its own.
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { installedApps } from "../src/main/openers";
 import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
@@ -53,6 +58,21 @@ const OVER_LINK = overLink(FIRST_TILE);
 /** The keys a card's row names for a click with the key that opens a link, and for one with the Shift key as well. */
 const KEY_CLICK = process.platform === "darwin" ? "\u2318 Click" : "Ctrl Click";
 const SHIFT_KEY_CLICK = process.platform === "darwin" ? "\u21e7 \u2318 Click" : "Shift Ctrl Click";
+/** The editors of the main process's list this Mac holds, which the Settings dialog offers. */
+const EDITORS = installedApps(existsSync, homedir()).flatMap(({ name, kind }) => (kind === "editor" ? [name] : []));
+/** The rows of a file's card before an editor is chosen: the first asks for one on a Mac that holds an editor of the list, and a file's card is a path's on one that holds none. */
+const FILE_ROWS =
+  EDITORS.length > 0
+    ? [
+        ["Open in an editor…", KEY_CLICK],
+        ["Show in Finder", SHIFT_KEY_CLICK],
+        ["Copy path", ""],
+      ]
+    : [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ];
+const SETTINGS_OPEN = `document.getElementById("app-settings-dialog")?.open === true`;
 /** A row of the screen no case prints on, where the pointer is over no link. */
 const EMPTY_ROW = 15;
 const SCREEN_IN_FRONT = `["summary-screen", "inbox-screen", "history-screen", "work-item-view"].find((id) => document.getElementById(id)?.hidden === false)`;
@@ -786,10 +806,10 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await linkAt(3, 1)).toBe(true);
   });
 
-  it("shows a path's file in Finder at a click with the Command key held, and copies the whole path from its card", async () => {
+  it("shows a path's file in Finder at a click with the Command and the Shift keys held, and copies the whole path from its card (scenario C2)", async () => {
     const file = join(await worktreeInFront(), PRINTED_PATH);
     const before = await opened(2);
-    await clickLink(2, COMMAND);
+    await clickLink(2, COMMAND | SHIFT);
     expect(await opened(3)).toEqual([...before, file]);
     await clickLink(2, 0);
     await clickLink(2, SHIFT);
@@ -799,19 +819,13 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await opened(4)).toEqual([...before, file, wrapped]);
 
     await restOn(9, 3);
-    expect(await card()).toEqual({
-      title: file,
-      rows: [
-        ["Show in Finder", KEY_CLICK],
-        ["Copy path", ""],
-      ],
-    });
-    await pressCardRow(1);
+    expect(await card()).toEqual({ title: file, rows: FILE_ROWS });
+    await pressCardRow(FILE_ROWS.length - 1);
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     expect(await clipboard()).toBe(file);
     expect(await opened(4)).toHaveLength(4);
     await restOn(9, 2);
-    await pressCardRow(0);
+    await pressCardRow(FILE_ROWS.length - 2);
     expect(await app.evaluate<boolean>(CARD_SHOWN)).toBe(false);
     expect(await opened(5)).toEqual([...before, file, wrapped, file]);
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
@@ -917,6 +931,92 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await opened(before.length + 2)).toEqual([...before, second, second]);
     await clickLink(ownRow, COMMAND);
     expect(await opened(before.length + 3)).toEqual([...before, second, second, first]);
+
+    await closeFromElsewhere(pane);
+    await app.until(`${TABS}.length === 1`, "one tab");
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  /** The editor "Open files in" holds in the Settings dialog. */
+  const editorField = (): Promise<string> => app.evaluate<string>(`document.getElementById("app-settings-editor").value`);
+  /** Chooses an editor, or "finder", in the open Settings dialog and presses Save, and waits until the dialog has closed. */
+  async function saveEditor(chosen: string): Promise<void> {
+    await app.evaluate(`void (document.getElementById("app-settings-editor").value = ${JSON.stringify(chosen)})`);
+    await app.click("#app-settings-submit");
+    await app.until(`!(${SETTINGS_OPEN})`, "the Settings dialog closed at Save");
+  }
+  /** What `editor.json` of the app's user data folder holds, or null where it stands nowhere. */
+  const keptEditor = (): unknown => (existsSync(join(app.userData, "editor.json")) ? JSON.parse(readFileSync(join(app.userData, "editor.json"), "utf8")) : null);
+
+  it.runIf(EDITORS.length > 0)("asks for an editor at the first click on a file with the Command key, keeps the one chosen, opens the file in it at the line and the column the pane printed, and shows it in Finder with the Shift key as well (scenarios C1, C2 and C3)", async () => {
+    const file = join(await worktreeInFront(), PRINTED_PATH);
+    writeFileSync(linesFile, `${PRINTED_PATH}:12:5\n`);
+    const pane = await openPane("Shell");
+    await pidOf(pane);
+    await app.until(PANE_HAS_KEYBOARD, "the keyboard in the new pane");
+    await comeOnto(9, 2, OVER_LINK, "the link of the file the pane printed");
+    // The link is the path, and the line and the column after it are not.
+    expect(await linkAt(PRINTED_PATH.length - 1, 2)).toBe(true);
+    expect(await linkAt(PRINTED_PATH.length, 2)).toBe(false);
+    expect(keptEditor()).toBeNull();
+    await restOn(9, 2);
+    expect(await card()).toEqual({ title: file, rows: FILE_ROWS });
+    await pointAway();
+    const before = await opened(0);
+
+    // No editor is chosen, so the click asks, and opens nothing.
+    await clickLink(2, COMMAND);
+    await app.until(SETTINGS_OPEN, "the Settings dialog, at the first click on a file");
+    expect(await app.evaluate<string[]>(`[...document.getElementById("app-settings-editor").options].map((option) => option.textContent)`)).toEqual([...EDITORS, "Show in Finder"]);
+    expect(await editorField()).toBe(EDITORS[0]);
+    await app.click("#app-settings-cancel");
+    await app.until(`!(${SETTINGS_OPEN})`, "the Settings dialog closed at Cancel");
+    expect(keptEditor()).toBeNull();
+    expect(await opened(before.length)).toEqual(before);
+
+    // A Save that names an editor keeps it and opens the file, at its line and its column, in the stand-in the start runs in the editor's place.
+    const chosen = EDITORS.at(-1) ?? "";
+    await clickLink(2, COMMAND);
+    await app.until(SETTINGS_OPEN, "the Settings dialog, at the click again");
+    await saveEditor(chosen);
+    expect(keptEditor()).toEqual({ editor: chosen });
+    expect(await opened(before.length + 1)).toEqual([...before, `${file}:12:5`]);
+    // The next click opens the file and asks nothing.
+    await clickLink(2, COMMAND);
+    expect(await app.evaluate<boolean>(SETTINGS_OPEN)).toBe(false);
+    expect(await opened(before.length + 2)).toEqual([...before, `${file}:12:5`, `${file}:12:5`]);
+    await restOn(9, 2);
+    expect(await card()).toEqual({
+      title: file,
+      rows: [
+        [`Open in ${chosen}`, KEY_CLICK],
+        ["Show in Finder", SHIFT_KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pressCardRow(0);
+    expect(await opened(before.length + 3)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`]);
+    await clickLink(2, COMMAND | SHIFT);
+    expect(await opened(before.length + 4)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`, file]);
+
+    // "Settings…" of the application menu opens the dialog on the choice kept. A Save of Finder gives the file a path's card and clicks.
+    await app.evaluateMain(`electron.Menu.getApplicationMenu().getMenuItemById("settings").click()`);
+    await app.until(SETTINGS_OPEN, 'the Settings dialog, at "Settings…" of the menu');
+    expect(await editorField()).toBe(chosen);
+    await saveEditor("finder");
+    expect(keptEditor()).toEqual({ editor: "finder" });
+    expect(await opened(before.length + 4)).toHaveLength(before.length + 4);
+    await restOn(9, 2);
+    expect(await card()).toEqual({
+      title: file,
+      rows: [
+        ["Show in Finder", KEY_CLICK],
+        ["Copy path", ""],
+      ],
+    });
+    await pointAway();
+    await clickLink(2, COMMAND);
+    expect(await opened(before.length + 5)).toEqual([...before, `${file}:12:5`, `${file}:12:5`, `${file}:12:5`, file, file]);
 
     await closeFromElsewhere(pane);
     await app.until(`${TABS}.length === 1`, "one tab");
@@ -1145,6 +1245,58 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.until(`!(${MENU_OPEN})`, "the menu closed with its pane");
     // The menu had the keyboard, and the pane that is left has it now.
     await app.until(PANE_HAS_KEYBOARD, "the keyboard in the pane that is left");
+  });
+
+  /** Dispatches a paste into the terminal of the pane in front, holding the text given and an image file with no path where `image`, as a paste of a screenshot arrives. */
+  function pasteInto(text: string | null, image: boolean): Promise<unknown> {
+    return app.evaluate(`void (() => {
+      const data = new DataTransfer();
+      if (${JSON.stringify(text)} !== null) data.setData("text/plain", ${JSON.stringify(text)});
+      if (${image}) data.items.add(new File([new Uint8Array([137, 80, 78, 71])], "image.png", { type: "image/png" }));
+      document.querySelector("#stage .pane:not([hidden]) .xterm-helper-textarea").dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    })()`);
+  }
+
+  it('pastes the path of the file the main process writes for an image with no text, at a paste and at "Paste" of the pane\'s menu, leaves a text to the terminal, and leaves Control+V to the pane\'s program (scenarios D1, D2 and D5)', async () => {
+    await untilReplayDrawn();
+    await received.next(0);
+    // An app started in the background reads no image of the system's clipboard, so the main process's answer to the window is replaced, and counts the window's requests. No case after this one pastes.
+    const image = join(repository.base, "pasted shot.png");
+    writeFileSync(image, "");
+    await app.evaluateMain(`void (() => {
+      globalThis.__pasted = 0;
+      electron.ipcMain.removeHandler("owlery:pasted-image");
+      electron.ipcMain.handle("owlery:pasted-image", () => {
+        globalThis.__pasted += 1;
+        return ${JSON.stringify(image)};
+      });
+    })()`);
+    const path = pasted(`${repository.base}/pasted\\ shot.png `);
+
+    await pasteInto(null, true);
+    expect((await received.next(Buffer.byteLength(path))).toString("utf8")).toBe(path);
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // Text beside an image is the terminal's own paste, and the main process writes no file for it.
+    await pasteInto("owl text", true);
+    expect((await received.next(Buffer.byteLength(pasted("owl text")))).toString("utf8")).toBe(pasted("owl text"));
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+    // A paste of nothing hands nothing, not an empty paste either.
+    await pasteInto(null, false);
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(1);
+
+    // "Paste" of the menu: the clipboard holds no text, so the pane is handed the image's path.
+    await app.evaluate(`window.owlery.copyText("")`);
+    await pressMenuItem("Paste");
+    expect((await received.next(Buffer.byteLength(path))).toString("utf8")).toBe(path);
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(2);
+
+    // Control+V reaches the program as its byte, and the window does nothing else with it.
+    await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", windowsVirtualKeyCode: 86, code: "KeyV", key: "v", modifiers: 2 });
+    await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", windowsVirtualKeyCode: 86, code: "KeyV", key: "v", modifiers: 2 });
+    expect((await received.next(1)).toString("hex")).toBe("16");
+    expect(await handedMeanwhile()).toBe("");
+    expect(await app.evaluateMain<number>("globalThis.__pasted")).toBe(2);
   });
 
   /** The numbered lines a pane is to print under its links, `line-0001` and on. */

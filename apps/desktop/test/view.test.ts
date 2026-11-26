@@ -60,6 +60,8 @@ import {
   droppedText,
   emptyList,
   fileLines,
+  fileOpener,
+  type FileOpener,
   filterChoices,
   FIND_LIMIT,
   findCount,
@@ -122,6 +124,7 @@ import {
   pinnedFirst,
   pathCandidates,
   pathTarget,
+  pasteAct,
   PLAN_AWAITED,
   planAnswer,
   planLine,
@@ -4018,6 +4021,31 @@ describe("droppedText", () => {
   });
 });
 
+describe("pasteAct", () => {
+  it("hands the pane the paths of files that are on a disk, written as dropped files' paths are, before any text or image beside them (scenario D2)", () => {
+    expect(pasteAct({ paths: ["/t/a b.png", "/t/c.txt"], text: true, image: true })).toEqual({ kind: "paths", text: "/t/a\\ b.png /t/c.txt " });
+    expect(pasteAct({ paths: ["", "/t/c.txt"], text: false, image: false })).toEqual({ kind: "paths", text: "/t/c.txt " });
+  });
+
+  it("leaves a paste that holds text to the terminal, though an image stands beside it (scenario D2)", () => {
+    expect(pasteAct({ paths: [], text: true, image: true })).toEqual({ kind: "text" });
+    // A file with no path, as an image copied from a page arrives, is no path to hand on.
+    expect(pasteAct({ paths: [""], text: true, image: true })).toEqual({ kind: "text" });
+  });
+
+  it("hands the pane the path of the image the main process writes, where the paste holds an image and no text (scenario D1)", () => {
+    expect(pasteAct({ paths: [""], text: false, image: true })).toEqual({ kind: "image" });
+    expect(pasteAct({ paths: [], text: false, image: true })).toEqual({ kind: "image" });
+    // A path the pane could not take is no path either.
+    expect(pasteAct({ paths: ["/t/a\tb.png"], text: false, image: true })).toEqual({ kind: "image" });
+  });
+
+  it("hands the pane nothing where the paste holds no path, no text and no image", () => {
+    expect(pasteAct({ paths: [], text: false, image: false })).toBeNull();
+    expect(pasteAct({ paths: ["", "/t/a\u001bb.png"], text: false, image: false })).toBeNull();
+  });
+});
+
 describe("paneKey", () => {
   const enter = { key: "Enter", shift: false, ctrl: false, alt: false, meta: false, isComposing: false, keyCode: 13 };
   /** The three editing keys, each pressed with the Command key and no other modifier, and what each does. */
@@ -4189,16 +4217,19 @@ describe("pathCandidates", () => {
     expect(texts("[src/a.ts] {src/b.ts} <src/c.ts> src/d.ts; src/e.ts! src/f.ts? src/g.ts: src/h.ts.")).toEqual(["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts", "src/g.ts", "src/h.ts"]);
   });
 
-  it("cuts a line number, and a column after it, from a path's end", () => {
+  it("keeps a line number, and a column after it, apart from the path at its end, and leaves them out of the link's range", () => {
     expect(pathCandidates("at src/a.ts:12 and src/b.ts:12:5")).toEqual([
-      { text: "src/a.ts", start: 3, end: 11 },
-      { text: "src/b.ts", start: 19, end: 27 },
+      { text: "src/a.ts", start: 3, end: 11, line: 12 },
+      { text: "src/b.ts", start: 19, end: 27, line: 12, column: 5 },
     ]);
     // As a search prints a match, and as a sentence closes on one.
-    expect(texts("src/a.ts:12: const a = 1")).toEqual(["src/a.ts"]);
-    expect(texts("(src/a.ts:12:5).")).toEqual(["src/a.ts"]);
+    expect(pathCandidates("src/a.ts:12: const a = 1")).toEqual([{ text: "src/a.ts", start: 0, end: 8, line: 12 }]);
+    expect(pathCandidates("(src/a.ts:12:5).")).toEqual([{ text: "src/a.ts", start: 1, end: 9, line: 12, column: 5 }]);
+    // A path with no number has neither.
+    expect(Object.keys(pathCandidates("src/a.ts")[0] ?? {})).toEqual(["text", "start", "end"]);
     // A number that is part of the name stays.
     expect(texts("logs/2026-11-20 v1/a:b")).toEqual(["logs/2026-11-20", "v1/a:b"]);
+    expect(pathCandidates("v1/a:b")[0]?.line).toBeUndefined();
   });
 });
 
@@ -4217,11 +4248,33 @@ describe("webTarget and pathTarget", () => {
     expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], undefined)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
   });
 
-  it("reads the worktree of the view on screen, a folder inside a worktree and any other path as another path", () => {
+  it("reads the worktree of the view on screen, a folder inside a worktree and any other folder as another path", () => {
     expect(pathTarget(LOGIN.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: LOGIN.worktree });
     expect(pathTarget(`${SEARCH.worktree}/src`, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: `${SEARCH.worktree}/src` });
-    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc/hosts" });
+    expect(pathTarget("/etc", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc" });
     expect(pathTarget(SEARCH.worktree, [LOGIN], LOGIN.id)).toEqual({ kind: "path", path: SEARCH.worktree });
+  });
+
+  it("reads a path a file stands at as a file, with the line and the column the pane printed after it", () => {
+    expect(pathTarget("/w/project/fix login/src/a.ts", [LOGIN, SEARCH], LOGIN.id, { line: 12, column: 5 })).toEqual({ kind: "file", path: "/w/project/fix login/src/a.ts", line: 12, column: 5 });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id, { line: 3 })).toEqual({ kind: "file", path: "/etc/hosts", line: 3 });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id, {})).toEqual({ kind: "file", path: "/etc/hosts" });
+  });
+});
+
+describe("fileOpener", () => {
+  it("opens a file in the editor the person chose, where the Mac still holds it", () => {
+    expect(fileOpener({ chosen: "Zed", installed: ["Visual Studio Code", "Zed"] })).toEqual({ editor: "Zed" });
+  });
+
+  it("shows a file in Finder where the person chose Finder, where the chosen editor is gone, and where no choice was made and the Mac holds no editor of the list (scenario C5)", () => {
+    expect(fileOpener({ chosen: "finder", installed: ["Visual Studio Code"] })).toBe("finder");
+    expect(fileOpener({ chosen: "Zed", installed: ["Visual Studio Code"] })).toBe("finder");
+    expect(fileOpener({ chosen: null, installed: [] })).toBe("finder");
+  });
+
+  it("asks where no choice was made and the Mac holds an editor of the list (scenario C3)", () => {
+    expect(fileOpener({ chosen: null, installed: ["Xcode"] })).toBe("ask");
   });
 });
 
@@ -4280,19 +4333,62 @@ describe("linkClick and linkCard", () => {
     expect(linkCard(PATH, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
   });
 
+  const FILE: LinkTarget = { kind: "file", path: "/w/project/fix login/src/a.ts", line: 12, column: 5 };
+
+  it("opens a file in the chosen editor at a click with the key, shows it in Finder with the Shift key as well, and copies its path from the card (scenarios C1 and C2)", () => {
+    const zed = { editor: "Zed" };
+    expect(linkClick("file", { ...none, meta: true }, true, zed)).toBe("editor");
+    expect(linkClick("file", { ...none, meta: true, shift: true }, true, zed)).toBe("finder");
+    expect(linkClick("file", none, true, zed)).toBeNull();
+    expect(linkClick("file", { ...none, ctrl: true }, true, zed)).toBeNull();
+    expect(linkCard(FILE, true, zed)).toEqual({
+      title: "/w/project/fix login/src/a.ts",
+      rows: [
+        { text: "Open in Zed", keys: "⌘ Click", act: "editor" },
+        { text: "Show in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+        { text: "Copy path", keys: "", act: "copy" },
+      ],
+    });
+  });
+
+  it('asks for an editor at a click with the key where none was chosen, and names the row "Open in an editor…" (scenario C3)', () => {
+    expect(linkClick("file", { ...none, meta: true }, true, "ask")).toBe("editor");
+    expect(linkClick("file", { ...none, meta: true, shift: true }, true, "ask")).toBe("finder");
+    expect(linkCard(FILE, true, "ask").rows).toEqual([
+      { text: "Open in an editor…", keys: "⌘ Click", act: "editor" },
+      { text: "Show in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+      { text: "Copy path", keys: "", act: "copy" },
+    ]);
+  });
+
+  it("gives a file the clicks and the card of a path where no editor opens it (scenario C5)", () => {
+    for (const shift of [false, true]) expect(linkClick("file", { ...none, meta: true, shift }, true, "finder")).toBe("finder");
+    expect(linkCard(FILE, true, "finder")).toEqual({ ...linkCard(PATH, true), title: FILE.path });
+    // A file's link shows in Finder where no opener is named, as a path's does.
+    expect(linkClick("file", { ...none, meta: true }, true)).toBe("finder");
+  });
+
   it.each([true, false])("names on no row a key the click does not answer with that row's act (a Mac keyboard: %s)", (mac) => {
     // The click a row's keys name, read from the row's own words.
     const clickOf = (keys: string) => ({ meta: keys.includes("⌘"), ctrl: keys.includes("Ctrl"), shift: keys.includes("⇧") || keys.includes("Shift") });
     let named = 0;
-    for (const target of [WEB, WORK_ITEM, PATH]) {
-      for (const { keys, act } of linkCard(target, mac).rows) {
+    const cases: [LinkTarget, FileOpener | undefined][] = [
+      [WEB, undefined],
+      [WORK_ITEM, undefined],
+      [PATH, undefined],
+      [FILE, { editor: "Xcode" }],
+      [FILE, "ask"],
+      [FILE, "finder"],
+    ];
+    for (const [target, opener] of cases) {
+      for (const { keys, act } of linkCard(target, mac, opener).rows) {
         if (keys === "") continue;
         expect(keys.endsWith(" Click")).toBe(true);
-        expect(linkClick(target.kind, clickOf(keys), mac)).toBe(act);
+        expect(linkClick(target.kind, clickOf(keys), mac, opener)).toBe(act);
         named += 1;
       }
     }
-    expect(named).toBe(4);
+    expect(named).toBe(9);
   });
 });
 

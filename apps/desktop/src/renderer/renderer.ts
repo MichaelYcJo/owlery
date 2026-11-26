@@ -21,6 +21,7 @@ import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
+import { initSettings, readEditorState } from "./app-settings";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
@@ -2213,6 +2214,9 @@ byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
 byId("accounts-folder").addEventListener("click", addAccount);
 byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
+initSettings();
+// A link's card names the editor the person chose, read once the page loads and again at each Save (./app-settings).
+void readEditorState();
 byId("machine-button").addEventListener("click", () => {
   // Against a daemon that keeps no cap the button is hidden, and nothing opens over another dialog.
   if (held.machine === null || !opened(MACHINE)) return;
