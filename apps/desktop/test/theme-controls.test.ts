@@ -336,30 +336,52 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
 
-  it("gives the record of an account's row the row's whole width, so the email the login named stands on one line, and stands the row's six buttons on a line of their own under the record (Scope item 14)", async () => {
+  it("gives the record of an account's row the row's whole width, so the email the login named stands on one line, and stands the row's six buttons on a line of their own under the record, wrapped inside the row where the dialog is too narrow for them (Scope item 14)", async () => {
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
-    const laid = await app.evaluate<{ name: string; nameLines: number; rowWidth: number; recordWidth: number; recordBottom: number; buttons: { text: string | null; top: number }[] }>(`(() => {
-      const row = document.querySelector('#accounts-list li[data-account="1"]');
-      const record = row.querySelector(".account-name");
-      const name = record.firstElementChild;
-      const range = document.createRange();
-      range.selectNodeContents(name);
-      const style = getComputedStyle(row);
-      return {
-        name: name.textContent,
-        nameLines: new Set([...range.getClientRects()].map((box) => Math.round(box.top))).size,
-        rowWidth: row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        recordWidth: record.getBoundingClientRect().width,
-        recordBottom: record.getBoundingClientRect().bottom,
-        buttons: [...row.querySelectorAll("button")].map((button) => ({ text: button.textContent, top: button.getBoundingClientRect().top })),
-      };
-    })()`);
-    expect(laid.name).toBe("stand-in@example.com");
-    expect(laid.nameLines).toBe(1);
-    expect(laid.recordWidth).toBeCloseTo(laid.rowWidth, 0);
-    expect(laid.buttons.map((button) => button.text)).toEqual(["Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
-    for (const button of laid.buttons) expect(button.top).toBeGreaterThanOrEqual(laid.recordBottom);
+    interface Laid {
+      name: string;
+      nameLines: number;
+      rowWidth: number;
+      rowRight: number;
+      recordWidth: number;
+      recordBottom: number;
+      buttons: { text: string | null; top: number; right: number }[];
+    }
+    // The row as drawn in the dialog of the width given, or of its own width where none is given.
+    const laid = (width: string): Promise<Laid> =>
+      app.evaluate<Laid>(`(() => {
+        const dialog = document.getElementById("accounts-dialog");
+        dialog.style.width = ${JSON.stringify(width)};
+        const row = document.querySelector('#accounts-list li[data-account="1"]');
+        const record = row.querySelector(".account-name");
+        const name = record.firstElementChild;
+        const range = document.createRange();
+        range.selectNodeContents(name);
+        const style = getComputedStyle(row);
+        const box = row.getBoundingClientRect();
+        const laid = {
+          name: name.textContent,
+          nameLines: new Set([...range.getClientRects()].map((line) => Math.round(line.top))).size,
+          rowWidth: row.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+          rowRight: box.right - parseFloat(style.paddingRight),
+          recordWidth: record.getBoundingClientRect().width,
+          recordBottom: record.getBoundingClientRect().bottom,
+          buttons: [...row.querySelectorAll("button")].map((button) => { const at = button.getBoundingClientRect(); return { text: button.textContent, top: at.top, right: at.right }; }),
+        };
+        dialog.style.width = "";
+        return laid;
+      })()`);
+    const wide = await laid("");
+    expect(wide.name).toBe("stand-in@example.com");
+    expect(wide.nameLines).toBe(1);
+    expect(wide.recordWidth).toBeCloseTo(wide.rowWidth, 0);
+    expect(wide.buttons.map((button) => button.text)).toEqual(["Make the default", "Sign in", "Check sign-in", "Refresh usage", "Rename", "Remove…"]);
+    for (const button of wide.buttons) expect(button.top).toBeGreaterThanOrEqual(wide.recordBottom);
+    // At 360px the six buttons do not fit on one line, so they take a second one and none stands past the row's edge.
+    const narrow = await laid("360px");
+    expect(new Set(narrow.buttons.map((button) => Math.round(button.top))).size).toBeGreaterThan(1);
+    for (const button of narrow.buttons) expect(button.right).toBeLessThanOrEqual(narrow.rowRight + 0.5);
     await app.click("#accounts-close");
     await app.until(`!document.getElementById("accounts-dialog").open`, "the Accounts dialog closed");
   });
