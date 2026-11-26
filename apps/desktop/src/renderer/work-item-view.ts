@@ -135,7 +135,7 @@ let backDrawn: string | undefined;
 let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
-// The panes the dialog that asks before a close of panes asked about last, in the tabs' order, which its main button closes. Nothing reads them once that dialog has closed.
+// The panes the dialog that asks before a close of panes asked about last, in the tabs' order, which its main button closes. Once that dialog has closed they decide nothing, since a close of a dialog that is not open does nothing.
 let asking: number[] = [];
 // Whether the keyboard is a Mac's, which has the Command key.
 let mac = false;
@@ -1313,8 +1313,8 @@ export function closeFront(): void {
  * drawn anew at each `inbox`. A close that asks nothing leaves the keyboard
  * on the pane in front, and a close that takes that pane hands it to the
  * pane that comes in front after it. Where the menu closes with no press,
- * the keyboard returns to the tab, and to the pane in front where the tab
- * has been drawn anew.
+ * the keyboard returns to where it was when the menu opened, and to the pane
+ * in front where that element has been drawn anew.
  */
 function openTabMenu(pane: number, at: { x: number; y: number }): void {
   const workItem = viewed();
