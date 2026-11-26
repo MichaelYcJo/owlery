@@ -49,7 +49,9 @@
 // dialog, and its worktree an untracked file at a nested path and the
 // ignored `.env`. The delete dialog's view opens that work item's menu in
 // the sidebar, presses Delete, waits until the head of its commits counts
-// 39 and the heads of its untracked file and its ignored file stand, and
+// 39, the heads of its untracked file and its ignored file stand, and
+// "Running sessions that end" lists its shell pane while "Sessions waiting
+// for the machine that leave the queue" lists its session that waits, and
 // Cancel then closes the dialog, which deletes nothing.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
@@ -295,6 +297,11 @@ const QUEUED_COMMITS = [
 ];
 /** The heads of that work item's delete dialog the view waits for: its commits', which counts them, its untracked file's and its ignored file's. */
 const QUEUED_HEADS = [`${String(QUEUED_COMMITS.length)} commits no other branch, no remote and no tag holds`, "1 untracked file", "1 ignored file or folder, which goes with the folder"];
+/** The session sections of that work item's delete dialog the view waits for, each head with its lines: the shell pane that runs, and apart from it the asked session that waits for the machine. */
+const QUEUED_SESSIONS = [
+  ["Running sessions that end", ["Shell"]],
+  ["Sessions waiting for the machine that leave the queue", [`Asked: ${ASKED_TO_WAIT}`]],
+];
 /** The untracked file at a nested path and the ignored file the run writes into that work item's worktree with what each holds, so its delete dialog lists the untracked files and the ignored files and folders. They are invented examples. */
 const QUEUED_UNTRACKED = { path: "notes/settings/keys-to-move.md", text: "theme, editor, proxy, channel\n" };
 const QUEUED_IGNORED = { path: ".env", text: "SETTINGS_FILE=settings.json\n" };
@@ -613,7 +620,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await openMenu(QUEUED_LINE);
       await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
       await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
-      await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(QUEUED_HEADS)}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted))`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits, and the heads of its untracked file and its ignored file`);
+      await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(QUEUED_HEADS)}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted)) && JSON.stringify([...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])) === ${JSON.stringify(JSON.stringify(QUEUED_SESSIONS))}`, `the delete dialog of ${QUEUED}, its heading counting its ${String(QUEUED_COMMITS.length)} commits, the heads of its untracked file and its ignored file, its shell pane under "Running sessions that end", and its session that waits for the machine under "Sessions waiting for the machine that leave the queue"`);
     },
   };
 
