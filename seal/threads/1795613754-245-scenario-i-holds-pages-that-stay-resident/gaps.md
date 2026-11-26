@@ -8,8 +8,8 @@ Scenario I of `apps/desktop/test/heavy-run.test.ts` starts its child with random
 
 | Item | Who must answer |
 |---|---|
-| The whole suite at this branch's head | the orchestrator's broad gate |
-| Whether `.github/workflows/owlery-seal.yml` at 0.0.5 runs on GitHub: its clone of `v0.0.5` fails until the tag exists, and its clone of `release/v0.0.5` needs that branch on the remote | the orchestrator, from the pull request's checks |
+| closed The whole suite at this branch's head | answered: the broad gate passed at `2873f66e`, the last run of this work item's `trail/gate.md`, after which only the work item's records changed (`git diff --name-only 2873f66e 67299565` outside its directory prints nothing); the `check` workflow passed on pull request #247 at `67299565`, the head it merged from |
+| closed Whether `.github/workflows/owlery-seal.yml` at 0.0.5 runs on GitHub: its clone of `v0.0.5` fails until the tag exists, and its clone of `release/v0.0.5` needs that branch on the remote | answered: the `seal` check, which `.github/workflows/owlery-seal.yml` runs, passed on pull request #247 and on every later pull request of the release, the last #301 at `a25cb04a`, by its clone of `release/v0.0.5` while no tag `v0.0.5` exists |
 
 ## Not done
 

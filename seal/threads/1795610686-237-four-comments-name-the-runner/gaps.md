@@ -8,7 +8,7 @@ The comments at `apps/desktop/src/daemon/hooks.ts` (the docstring of `paneComman
 
 | Item | Who must answer |
 |---|---|
-| The whole suite at this branch's head | the orchestrator's broad gate |
+| closed The whole suite at this branch's head | answered: the broad gate passed at `35fdee35`, the last run of this work item's `trail/gate.md`, after which only the work item's records changed (`git diff --name-only 35fdee35 a42e11be` outside its directory prints nothing); the `check` workflow passed on pull request #255 at `a42e11be`, the head it merged from |
 
 ## Not done
 

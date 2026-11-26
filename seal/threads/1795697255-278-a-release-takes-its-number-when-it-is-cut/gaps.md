@@ -4,8 +4,8 @@
 
 | Item | Who must answer |
 |---|---|
-| How the Korean diagram's line 20 in `docs/architecture.ko.md` draws in the fixed-width font GitHub renders it in. Phase 1 measured it by Unicode East Asian Width alone, and no one looked at the rendered page. | the owner, reading the rendered page on GitHub |
-| The broad gate at the work item's last commit: the repository's `check` scripts and the documents leg the phase ran by hand. | the orchestrator, at the broad gate |
+| closed How the Korean diagram's line 20 in `docs/architecture.ko.md` draws in the fixed-width font GitHub renders it in. Phase 1 measured it by Unicode East Asian Width alone, and no one looked at the rendered page. | a measurement no record asks for: the answer would decide whether line 20 of the Korean diagram takes another space; no failure or issue names it |
+| closed The broad gate at the work item's last commit: the repository's `check` scripts and the documents leg the phase ran by hand. | answered: the broad gate passed at `6cb29a59`, the last run of this work item's `trail/gate.md`, after which only the work item's records changed (`git diff --name-only 6cb29a59 efb63413` outside its directory prints nothing); the `check` workflow passed on pull request #293 at `efb63413`, the head it merged from |
 
 ## Not done
 

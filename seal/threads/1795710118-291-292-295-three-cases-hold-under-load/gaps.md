@@ -8,8 +8,8 @@ Three cases of the desktop suite, `daemon.test.ts` › the inbox › "reads no c
 
 | Item | Who must answer |
 |---|---|
-| The broad gate at the work item's last commit, `daemon.test.ts` and `chain.test.ts` whole among it. The phase ran only the cases it changed. | the orchestrator, at the broad gate |
-| The `check` job on GitHub's runner, where #291 and #295 failed. The load runs were on this Mac. | the orchestrator, from the pull request's `check` job |
+| closed The broad gate at the work item's last commit, `daemon.test.ts` and `chain.test.ts` whole among it. The phase ran only the cases it changed. | answered: the broad gate passed at `2cb7a448`, the last run of this work item's `trail/gate.md`, after which only the work item's records changed (`git diff --name-only 2cb7a448 3a9d2dbe` outside its directory prints nothing); the `check` workflow passed on pull request #297 at `3a9d2dbe`, the head it merged from |
+| closed The `check` job on GitHub's runner, where #291 and #295 failed. The load runs were on this Mac. | answered: the `check` workflow passed on GitHub's runner on pull request #297 at `3a9d2dbe`, and on #298, #299 and #301 after it |
 
 ## Not done
 
