@@ -12,20 +12,18 @@
 
 ## Not done
 
-**Only the inbox's shots are committed.** Every view of the screenshot run shows the sidebar's head, and the head row draws nothing that depends on the view. So the six shots of the inbox, one for each theme and appearance, show the row the work changes. The other 72 shots of the run stand in the crafter's scratch directory and are not committed. Grounds: `docs/design.md` *A pull request that changes the window carries its screenshots* asks for a shot of each view the pull request changed, and what this work changes in each view is the row these shots hold.
+**Only the inbox's shots are committed.** Every view of the screenshot run shows the sidebar's head, and the head row draws nothing that depends on the view. So the six shots of the inbox, one for each theme and appearance, show the row the work changes. The other 102 shots of the run, made at the merge of `release/v0.0.5` at `8a19d3e2`, stand in the crafter's scratch directory and are not committed. Grounds: `docs/design.md` *A pull request that changes the window carries its screenshots* asks for a shot of each view the pull request changed, and what this work changes in each view is the row these shots hold.
 
-![The sidebar's head in Night watch, dark](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/night-watch-dark-inbox.png?raw=true)
+![The sidebar's head in Night watch, dark](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/night-watch-dark-inbox.png?raw=true)
 
-![The sidebar's head in Night watch, light](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/night-watch-light-inbox.png?raw=true)
+![The sidebar's head in Night watch, light](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/night-watch-light-inbox.png?raw=true)
 
-![The sidebar's head in Register, dark](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/register-dark-inbox.png?raw=true)
+![The sidebar's head in Register, dark](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/register-dark-inbox.png?raw=true)
 
-![The sidebar's head in Register, light](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/register-light-inbox.png?raw=true)
+![The sidebar's head in Register, light](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/register-light-inbox.png?raw=true)
 
-![The sidebar's head in Desk, dark](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/desk-dark-inbox.png?raw=true)
+![The sidebar's head in Desk, dark](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/desk-dark-inbox.png?raw=true)
 
-![The sidebar's head in Desk, light](../blob/7336a3a1f4fd764e7ba9485e9458734fd3240445/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/desk-light-inbox.png?raw=true)
-
-**The six shots predate the release's #215, #217 and #224.** They were made at `7336a3a1`, before the branch merged `release/v0.0.5` at `8a19d3e2`. There #215 (`8a19d3e2`) gives the filter's control its `on` edge beside the refresh button, and #215, #217 (`f683c693`) and #224 (`3fb1dedd`) each change the page and the screenshot run. They are made again, and the links above then name the new commit, once the orchestrator says the Mac is free of the broad gate that runs alone on it. Grounds: `frame/plan.md` *Judgments of the run*, the row of round 1's finding 1.
+![The sidebar's head in Desk, light](../blob/247cfd6c6c79a13bc472c7eb02912192b8ef9188/seal/threads/1795632147-216-the-window-reads-the-lists-again/screenshots/desk-light-inbox.png?raw=true)
 
 **No shot shows the refresh button while it works.** `frame/questions.md` Q1 stands on its default (a), the head row at rest. A shot of the working form would need the run's stand-in for `gh` to hang for one pull request while the run presses the button, and a view added to the run's list in both editions of `docs/design.md`. Grounds: the default of Q1, taken under the routing answer Automation yes.
