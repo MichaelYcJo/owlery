@@ -63,7 +63,7 @@ import { composeBack } from "../src/shared/seal-back";
 import { untilGone } from "./built-app";
 import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenSeal, guaranteeRecord, head, noted, proofs, roles, roundRecord, rulingBlock, sealSection, sealedBy, standing, status, write } from "./chain-run";
 import { interruptToolCall, sessionLog } from "./interrupted-turn";
-import { git } from "./repositories";
+import { branchOf, git } from "./repositories";
 
 const cleanups: Cleanups = [];
 afterEach(async () => {
@@ -936,7 +936,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(git(a.worktree, "log", "-1", "--format=%an <%ae>, %cn <%ce>").trim()).toBe("Owlery Test <test@owlery.invalid>, Owlery Test <test@owlery.invalid>");
     expect(status(a.worktree)).toEqual([]);
     const [routing, first, fix, , second] = git(a.worktree, "log", "--reverse", "--format=%H", `${built}..HEAD`).trim().split("\n") as [string, string, string, string, string];
-    expect(git(a.worktree, "show", `${routing}:${DIRECTORY}/routing.md`)).toBe(routingText(NAME, a.branch, TODAY));
+    expect(git(a.worktree, "show", `${routing}:${DIRECTORY}/routing.md`)).toBe(routingText(NAME, branchOf(a), TODAY));
     // Round 1 read the commit that holds the routing, against the work item's base, and round 2 the commits after that target.
     expect(answers[0]).toBe(roundRecord(HEADING(1), `${routing} against ${a.baseBranch ?? a.baseCommit}`, [1]));
     expect(git(a.worktree, "show", `${first}:${record(1)}`)).toBe(answers[0]);
@@ -1163,7 +1163,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const { c, d } = stood;
     const a = stood.workItems[0]!;
     const directory = "seal/threads/1795388700-decided";
-    write(a.worktree, `${directory}/routing.md`, routingText("1795388700-decided", a.branch, TODAY));
+    write(a.worktree, `${directory}/routing.md`, routingText("1795388700-decided", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
     expect(status(a.worktree)).toEqual([`?? ${directory}/decisions.md`]);
@@ -1200,7 +1200,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const { adapter, started } = noted(roles());
     const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
     const a = stood.workItems[0]!;
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // Round 1's session has ended, and the chain is held at the commit of its record while the worktree's HEAD is detached.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1265,7 +1265,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["First name"], { roleAdapter: roles() });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "seal/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", a.branch, TODAY));
+    write(a.worktree, "seal/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // The commit of the routing's new row is held, and the start waits for it.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1326,7 +1326,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Shelved"], { roleAdapter: adapter });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "seal/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", a.branch, TODAY));
+    write(a.worktree, "seal/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // Round 1's session has ended, and the chain is held at the commit of its record.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1500,12 +1500,18 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
     });
 
+    it("refuses a work item with no branch yet, with what makes one, and writes nothing", async () => {
+      const stood = await standing(cleanups, ["No branch yet"], { branchless: true });
+      const a = stood.workItems[0]!;
+      await refusedWith(stood, a.id, "The work item has no branch yet. Owlery makes one at the first commit in its worktree, or when it is renamed.", stands(a.worktree));
+    });
+
     it("refuses a worktree that is not on the work item's branch, and one with a merge under way", async () => {
       const stood = await standing(cleanups, ["Detached"]);
       const a = stood.workItems[0]!;
       git(a.worktree, "checkout", "--quiet", "--detach");
       await refusedWith(stood, a.id, `Owlery cannot commit a record in the worktree now: the worktree is not on the branch ${a.branch}.`, stands(a.worktree));
-      git(a.worktree, "checkout", "--quiet", a.branch);
+      git(a.worktree, "checkout", "--quiet", branchOf(a));
       writeFileSync(join(git(a.worktree, "rev-parse", "--absolute-git-dir").trim(), "MERGE_HEAD"), `${head(a.worktree)}\n`);
       await refusedWith(stood, a.id, "Owlery cannot commit a record in the worktree now: a merge is under way in the worktree.", stands(a.worktree));
     });
@@ -1525,7 +1531,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at seal\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
       rmSync(join(a.worktree, "seal/threads/9-other"), { recursive: true });
       // Inside the work item's directory a file no commit holds refuses nothing.
-      write(a.worktree, "seal/threads/1795388700-changed/routing.md", routingText("1795388700-changed", a.branch, TODAY));
+      write(a.worktree, "seal/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
       commitAll(a.worktree, "chore: declare the routing by hand");
       write(a.worktree, "seal/threads/1795388700-changed/notes.md", "notes\n");
       expect(await stood.c.startChain(a.id)).toBe("done");
@@ -1539,8 +1545,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Twice named"]);
       const b = stood.workItems[0]!;
-      write(b.worktree, "seal/threads/1-one/routing.md", routingText("1-one", b.branch, TODAY));
-      write(b.worktree, "seal/threads/2-two/routing.md", routingText("2-two", b.branch, TODAY));
+      write(b.worktree, "seal/threads/1-one/routing.md", routingText("1-one", branchOf(b), TODAY));
+      write(b.worktree, "seal/threads/2-two/routing.md", routingText("2-two", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing twice");
       await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: seal/threads/1-one and seal/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
     });
@@ -1582,7 +1588,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const stood = await standing(cleanups, ["Parked"], { roleAdapter: roles() });
       const b = stood.workItems[0]!;
       const directory = "seal/threads/1795388700-parked";
-      write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", b.branch, TODAY));
+      write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing by hand");
       stood.d.park(b.id, { by: "crafter", questions: [{ asks: "May the pass change the protocol?", grounds: "The frame names no such change." }] });
       await refusedWith(stood, b.id, "The work item waits for the answers to its open questions. Answer them first.", stands(b.worktree));
@@ -1600,7 +1606,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const withRoundOne = async (options: Parameters<typeof standing>[2], close: boolean) => {
       const stood = await standing(cleanups, ["Sealed work"], options);
       const a = stood.workItems[0]!;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
       const record = `${DIRECTORY}/trail/rounds/round-1.md`;
       write(a.worktree, record, roundRecord(HEADING(1), `${target} against main`, [1]));
@@ -1651,7 +1657,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
       const record = (number: number): string => `${DIRECTORY}/trail/rounds/round-${String(number)}.md`;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
       write(a.worktree, record(1), roundRecord(HEADING(1), `${target} against main`));
       const at = commitAll(a.worktree, "chore: record review round 1");
@@ -1812,7 +1818,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
       const a = stood.workItems[0]!;
       const record = `${DIRECTORY}/trail/rounds/round-1.md`;
-      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+      write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
       const text = roundRecord(HEADING(1), `${target} against main`, [1]);
       write(a.worktree, record, text);
@@ -1824,7 +1830,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       // A fix a person committed after round 1's record and before the pass: the pass closes the finding with that commit.
       const taken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${head(cwd)}`) }) });
       const b = taken.workItems[0]!;
-      write(b.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, b.branch, TODAY));
+      write(b.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(b), TODAY));
       const reviewed = commitAll(b.worktree, "chore: declare the work item's routing");
       write(b.worktree, record, roundRecord(HEADING(1), `${reviewed} against main`, [1]));
       commitAll(b.worktree, "chore: record review round 1");
@@ -2230,7 +2236,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   it("parks a running chain where the record holds an open question at its next step: no stage starts, and the chain says that it waits for the answers", async () => {
     const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { delayMs: 80 }) });
     const a = stood.workItems[0]!;
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await stood.c.startChain(a.id)).toBe("done");
     await stood.c.until(() => (stood.c.workItem(a.id)?.chain?.stages[0]?.state === "working" ? true : undefined));
@@ -2918,7 +2924,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     for (const [options, why, prepare] of cases) {
       const { c, workItems } = await standing(cleanups, ["Sealed work"], options);
       const a = workItems[0]!;
-      prepare?.(a.worktree, a.branch);
+      prepare?.(a.worktree, branchOf(a));
       expect(await c.startChain(a.id)).toBe("done");
       expect((await c.chain(a.id, "stopped")).says, why).toBe(`The sealer's session failed: ${why}.`);
       expect([guaranteeAt(a.worktree), existsSync(join(a.worktree, GUARANTEE)), subjects(a.worktree).at(-1), status(a.worktree)], why).toEqual([null, false, "chore: record the broad gate's run", []]);
@@ -3074,7 +3080,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const { adapter, started } = noted(roles({}, { session }));
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
     const a = workItems[0]!;
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     write(a.worktree, `${DIRECTORY}/frame/design.md`, "# Design\n");
     write(a.worktree, `${DIRECTORY}/trail/phases/phase-1.md`, "# Phase 1\n");
     write(a.worktree, `${DIRECTORY}/changelog.md`, "- A greeting.\n");
@@ -3121,7 +3127,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Sealed work", "Other work"], { roleAdapter: adapter });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     // The records of a branch whose chain an earlier build rested: one round and the gate's run, and no guarantee.
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     const target = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${DIRECTORY}/trail/rounds/round-1.md`, roundRecord(HEADING(1), `${target} against main`));
     const read = commitAll(a.worktree, "chore: record review round 1");
@@ -3240,7 +3246,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const { made, c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     // With the routing the daemon writes, the second start would stop at the pull request stage: the rebase replaced the head the first stage pushed, and the stage never forces a push.
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await c.startChain(a.id)).toBe("done");
     await restedWith(c, a.id, 3);
@@ -3310,7 +3316,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     // The records of a first round that a pane's chain ran against another base: the routing, and round 1 with no finding, whose target names `release/x`.
     git(made.repo, "branch", "release/x", "main");
     const directory = "seal/threads/1795388700-rebased-work";
-    write(a.worktree, `${directory}/routing.md`, routingText("1795388700-rebased-work", a.branch, TODAY));
+    write(a.worktree, `${directory}/routing.md`, routingText("1795388700-rebased-work", branchOf(a), TODAY));
     const routed = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${directory}/trail/rounds/round-1.md`, roundRecord("# Review round 1: 1795388700-rebased-work", `${routed} against release/x`));
     const gate = commitAll(a.worktree, "chore: record review round 1");
@@ -3459,7 +3465,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     await parked.c.chain(parked.workItems[0]!.id, "parked");
     const stops = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
     const a = stops.workItems[0]!;
-    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, a.branch, TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
+    write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await stops.c.startChain(a.id)).toBe("done");
     const sealed = await stops.c.chain(a.id, "rested");

@@ -138,12 +138,15 @@ describe("LastLook", () => {
     expect(new LastLook(dir).get()).toEqual(LOOK);
   });
 
-  it("reads a session with no work item, a session with no state and a work item with neither base commit, base branch, count, commits nor changes", () => {
+  it("reads a session with no work item, a session with no state, a work item with neither base commit, base branch, count, commits nor changes, and a work item with no branch yet", () => {
     const dir = runDir();
     const look: Look = {
       at: 1,
       sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null }],
-      workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }],
+      workItems: [
+        { ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null },
+        { ...WORK_ITEM, id: 4, branch: null },
+      ],
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify(look));
     expect(new LastLook(dir).get()).toEqual(look);

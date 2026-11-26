@@ -138,12 +138,11 @@ import { RECORD_FILE, withDecision, withQuestion, withReversal } from "../src/da
 import { PARKED_SAYS, pullRequestOpenSays, routingText, stoppedSays } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
-import { createWorktree } from "../src/daemon/worktrees";
 import { copyIncluded } from "../src/daemon/worktree-setup";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { branchedWorktree, branchOf, commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, parkedOnAQuestion, roundRecord, TODAY, write } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
@@ -546,7 +545,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
-  /** Opens the "New work item" form with a name typed in it, and waits for the branch the name gets. */
+  /** Opens the "New work item" form with a name typed in it, and waits for the branch the first commit or a rename would make for the name, with no branch picked. */
   const openForm = async (name: string): Promise<void> => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -555,11 +554,12 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.cdp("Input.insertText", { text: made.repo });
     }
     const branch = `document.getElementById("work-item-branch").textContent`;
-    await app.until(`${branch}.startsWith("owlery/") && !document.getElementById("work-item-base").disabled`, "the branch and the base of the name the form generated");
+    const later = `${branch}.startsWith("No branch yet. The first commit or a rename makes owlery/")`;
+    await app.until(`${later} && !document.getElementById("work-item-base").disabled && !document.getElementById("work-item-branch-menu").disabled`, "the branch, the base and the Branch menu of the name the form generated");
     const generated = await app.evaluate<string>(branch);
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: name });
-    await app.until(`${branch}.startsWith("owlery/") && ${branch} !== ${JSON.stringify(generated)}`, `the branch of ${name}`);
+    await app.until(`${later} && ${branch} !== ${JSON.stringify(generated)}`, `the branch of ${name}`);
   };
 
   /** Brings a view to the front, as a person does, and waits until it is drawn. */
@@ -671,7 +671,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
       const queued = (await listed()).workItems.find((item) => item.title === QUEUED);
       if (!queued) throw new Error(`the daemon lists no work item ${QUEUED}`);
-      const commits = Number(git(queued.worktree, "rev-list", "--count", queued.branch, "--not", `--exclude=${queued.branch}`, "--branches", "--remotes", "--tags").trim());
+      // The run stores it on a branch (`parkedOnAQuestion`), and its commits are on that branch.
+      const { branch } = queued;
+      if (branch === null) throw new Error(`the daemon lists ${QUEUED} with no branch, though the run stored it on one that holds its commits`);
+      const commits = Number(git(queued.worktree, "rev-list", "--count", branch, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags").trim());
       if (commits < QUEUED_COMMITS.length) throw new Error(`the branch of ${QUEUED} holds ${String(commits)} commits no other branch holds, fewer than the run made`);
       await app.until(`document.getElementById("delete-dialog").open && ${JSON.stringify(queuedHeads(commits))}.every((wanted) => [...document.querySelectorAll("#delete-loss h3")].some((head) => head.textContent === wanted)) && JSON.stringify([...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])) === ${JSON.stringify(JSON.stringify(QUEUED_SESSIONS))}`, `the delete dialog of ${QUEUED}, its heading counting its ${String(commits)} commits, the heads of its untracked file and its ignored file, its shell pane under "Running sessions that end", and its stage that waits for the machine under "Sessions waiting for the machine that leave the queue"`);
     },
@@ -772,16 +775,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
     writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
     writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
-    // The four work items the run stores before the app starts, each in a worktree cut from `main` as the daemon cuts one. The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's and a decision the person reversed. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at. The queued one holds its routing and one open question, and its chain is parked on it. The shown one had its setup copy the ignored files and run its command, which succeeded, and its chain stopped where its broad gate failed after round 1; the run commits its records once the app has started.
+    // The four work items the run stores before the app starts, each in a worktree made from `main`, on the branch Owlery makes at a first commit (`branchedWorktree`). The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no seal, and its record of questions holds two of the sealer's and a decision the person reversed. The finished one holds one commit, and the commits of a chain that sealed it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at. The queued one holds its routing and one open question, and its chain is parked on it. The shown one had its setup copy the ignored files and run its command, which succeeded, and its chain stopped where its broad gate failed after round 1; the run commits its records once the app has started.
     const stored = Date.now();
-    const parkedAt = await createWorktree({ folder: made.repo, title: PARKED, root: made.root });
+    const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
     commitSeal(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
     const parkedRecord = `seal/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
     writeFileSync(join(parkedAt.worktree, parkedRecord), withReversal(withDecision(ASKED_OF_PARKED.reduce(withQuestion, ""), DECIDED_FOR_PARKED), ASKED_OF_PARKED.length + 1, REVERSED_SAYS));
     // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
     writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
-    const finishedAt = await createWorktree({ folder: made.repo, title: FINISHED, root: made.root });
+    const finishedAt = await branchedWorktree({ folder: made.repo, title: FINISHED, root: made.root });
     const unsealed = commitFile(finishedAt.worktree, "export.ts");
     commitSealedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
     const sealedAt = git(finishedAt.worktree, "rev-parse", "HEAD").trim();
@@ -795,7 +798,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const queued = await parkedOnAQuestion({ repo: made.repo, root: made.root, id: QUEUED_ID, title: QUEUED, workItem: QUEUED_RECORDS, asks: "Which keys does the settings file hold?", at: stored - 2 * 60 * 60_000 });
     queuedQuestion = queued.questionId;
     nameSetup("succeeded");
-    const shownAt = await createWorktree({ folder: made.repo, title: SHOWN, root: made.root });
+    const shownAt = await branchedWorktree({ folder: made.repo, title: SHOWN, root: made.root });
     const copy = await copyIncluded(made.repo, shownAt.worktree);
     if (copy.failure !== null || copy.failed.length > 0) throw new Error(`the setup of ${SHOWN} did not copy every ignored path: ${JSON.stringify(copy)}`);
     const shownSetup: WorktreeSetup = { copied: copy.copied, copiedCount: copy.copiedCount, failedCopies: [], command: SETUP_FILES[".worktreesetup"], paneId: null, state: "succeeded", exitCode: SETUP_ENDS_WITH, failure: null, startedAt: stored - 110 * 60_000, endedAt: stored - 109 * 60_000 };
@@ -854,6 +857,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.until(`!document.getElementById("work-item-dialog").open && !document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
       // The events follow the pane's start at once: a Claude Code pane that says nothing for ten seconds is listed as waiting.
       for (const event of events) feed(createdPane(await listed(), title).id, event);
+      // A rename to its own name gives the work item its branch, as a person gives one with no branch yet its branch, so its line and its view show a branch as a work item that has commits does.
+      const created = (await listed()).workItems.find((item) => item.title === title);
+      if (!created) throw new Error(`the daemon lists no work item ${title}`);
+      await listed({ type: "renameWorkItem", requestId: 900 + created.id, id: created.id, title, branch: true });
+      for (const deadline = Date.now() + 15_000; !(await listed()).workItems.find((item) => item.id === created.id)?.branch; await new Promise((resolve) => setTimeout(resolve, 100))) {
+        if (Date.now() >= deadline) throw new Error(`the rename gave ${title} no branch`);
+      }
       if (setup === null) continue;
       const begun = await setupOf(title);
       if (begun?.state !== "running" || begun.paneId === null) throw new Error(`the setup of ${title} is not running in a pane: ${JSON.stringify(begun)}`);
@@ -912,7 +922,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     // The broken work item's seal: the records of a chain that sealed it, committed with git in its worktree, and one commit after them, which breaks the seal. The ledger holds no entry of it.
     const broken = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
     if (!broken?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
-    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: broken.branch, base: broken.baseCommit });
+    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(broken), base: broken.baseCommit });
     brokenBy = commitFile(broken.worktree, AFTER_THE_SEAL);
     const sealOfBroken = async (): Promise<WorkItem["seal"]> => (await listed()).workItems.find((workItem) => workItem.id === broken.id)?.seal ?? null;
     for (let deadline = Date.now() + 20_000, seal = await sealOfBroken(); seal?.state !== "broken" || seal.commit !== brokenAt; seal = await sealOfBroken()) {
@@ -924,7 +934,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const atReview = (await listed()).workItems.find((item) => item.title === AT_REVIEW);
     if (!atReview) throw new Error(`the daemon lists no work item ${AT_REVIEW}`);
     commitFile(atReview.worktree, "history.ts");
-    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, shown.branch, TODAY));
+    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
     const routed = commitAll(shown.worktree, "chore: declare the work item's routing");
     write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
     commitAll(shown.worktree, "chore: record review round 1");

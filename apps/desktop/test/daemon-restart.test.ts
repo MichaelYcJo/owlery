@@ -19,7 +19,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
 import { openReceiverPane, Received, RECEIVER } from "./korean-pane";
 import { type Cleanups, clean, client, commitSeal, roles, standing } from "./chain-run";
-import { git, temporaryRepository } from "./repositories";
+import { branchOf, git, temporaryRepository } from "./repositories";
 
 /** The title `openReceiverPane` gives the work item it creates. */
 const TITLE = "Korean input";
@@ -234,7 +234,7 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     });
     expect(rests.says).toBe("Pull request #1 is open.");
     const sealedAt = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: b.branch, base: b.baseCommit });
+    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: branchOf(b), base: b.baseCommit });
     writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(b.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const seals = (c: typeof stood.c) => () => {

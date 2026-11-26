@@ -458,6 +458,8 @@ describe("the built app's role bundle", () => {
     }
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: the check and the records place");
+    // The branch the work item checks out, so the chain command finds one at the pane's start: a work item with no branch yet has none until its first commit.
+    git(made.repo, "branch", "--quiet", "carried");
     // Stands for the login shell and for the pane's shell. Asked for a Claude Code pane's command, and for no other the daemon runs through a shell, it runs no `claude`: it asks the chain command its environment names for the step owed, as a pane's session would, and writes the answer after the command it was given.
     const out = join(made.base, "pane.txt");
     const shell = script(
@@ -469,7 +471,7 @@ describe("the built app's role bundle", () => {
       ].join("\n"),
     );
     const { runDir, message, send } = await builtDaemon(made, shell);
-    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Carried", kind: "claude", cols: 80, rows: 24 });
+    send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Carried", branch: "carried", kind: "claude", cols: 80, rows: 24 });
     await message("workItemCreated");
     const end = Date.now() + 10_000;
     while (!existsSync(out) && Date.now() < end) await new Promise((r) => setTimeout(r, 50));

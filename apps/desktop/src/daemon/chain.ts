@@ -267,8 +267,9 @@ export interface Standing {
 /**
  * What round 1's target names the branch against: the work item's base
  * branch where the round block's `target:` line takes its name
- * (`record-blocks.ts#ROUND_BASE`), and otherwise the commit the branch was
- * cut at, or the branch's head where the work item records none. A record
+ * (`record-blocks.ts#ROUND_BASE`), and otherwise the commit the work
+ * starts from (`baseCommit`), or the branch's head where the work item
+ * records none. A record
  * whose target named a base the line does not take would be refused by the
  * daemon's reader and by the pull request check at every round 1, and a
  * commit is always a word the line takes.
