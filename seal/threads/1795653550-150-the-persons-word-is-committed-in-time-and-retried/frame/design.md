@@ -61,7 +61,7 @@ In:
 9. **The lists carry what is owed.** `WorkItem` gains the optional field `wordOwed`: null where nothing is owed, and otherwise what the word waits for, `session` or `retry`, with why as the second half of a sentence. It is null too while the first try is due or under way, and `session` stands before `retry` where both hold. For `session` it is "a session of the work item is working" or "the work item's chain is running". For `retry` it is the first line that is not empty of what the failed commit said, cut as the daemon cuts a state's text, without the periods and the colon at its end. The daemon sends the lists when the field changes. The look keeps none of it, and it is no change of the work item since the last look. It changes no state, no group and no notification.
 10. **The window says it.** The preview and the work item's view hold one sentence above the decisions while a word is owed. For `session`: "The record holds a word of yours that no commit holds yet: \<why\>. Owlery commits it once that has ended." For `retry`: "The record holds a word of yours that was not committed: \<why\>. Owlery tries again." The inbox's line says "word not committed" in its second row, after the count of the decisions, for `retry` alone. A word that waits for a working session is the usual case and marks no line.
 11. **The form's sentence is written into the design document.** `docs/design.md` *Components and their states*, the row "A row of a list of records", gains the sentence that states where the sentence of item 10 stands and its ink: `--ink-muted` for `session` and `--state-failed` for `retry`. `docs/design.ko.md` gains the same sentence in its row. Both are edited in this pull request, as principle 8 asks.
-12. **The screenshot scene holds a word whose commit failed.** The screenshot run writes one decision made without asking into the parked work item's record, with the person's reversal of it. After its own commits it writes a `pre-commit` hook that refuses a commit holding that record. The inbox's view waits for the line's words and the parked view's for the sentence. The pull request carries the inbox and the parked view in Night watch's dark and light appearances.
+12. **The screenshot scene holds a word whose commit failed.** The screenshot run writes one decision made without asking into the parked work item's record, with the person's reversal of it. Before the app starts, after the parked worktree's commits, it writes a `pre-commit` hook that refuses only a commit holding that record, since the daemon tries the word at its first read of the records. The inbox's view waits for the line's words and the parked view's for the sentence. The pull request carries the inbox and the parked view in Night watch's dark and light appearances.
 13. **The comments that state the old behaviour are rewritten in place.** They are the docstrings of `commitPaths`, `Daemon#commitWord`, `Daemon#personWrote` and `Daemon#close`, and the comments of `reverseDecision` and `answerQuestions` in `apps/desktop/src/shared/protocol.ts`, which say that a word left for a session waits for the session's own commit and that a failed commit changes nothing.
 
 Out:
@@ -132,13 +132,24 @@ Out:
 - add
   file: docs/design.md
   section: A pull request that changes the window carries its screenshots
-  to: **The scene's parked work item holds a reversal whose commit failed.** The run writes one decision made without asking into that work item's record, with the person's reversal of it. After its own commits it writes a `pre-commit` hook that refuses a commit holding that record, so the daemon's commit of the word fails each time it is tried. The inbox's screenshot shows the line's words for a word not committed, and the parked view's shows the sentence above the decisions with the hook's line.
+  to: **The scene's parked work item holds a reversal whose commit failed.** The run writes one decision made without asking into that work item's record, with the person's reversal of it. Before the app starts, after the parked worktree's commits, it writes a `pre-commit` hook that refuses only a commit holding that record, so the daemon's commit of the word fails each time it is tried. The inbox's screenshot shows the line's words for a word not committed, and the parked view's shows the sentence above the decisions with the hook's line.
     check: apps/desktop/test/screenshots.test.ts
 - add
   file: docs/design.ko.md
   section: 창을 바꾸는 PR은 스크린샷을 싣습니다
-  to: **장면의 멈춰 둔 작업에는 커밋이 실패한 뒤집기가 하나 있습니다.** 실행은 그 작업의 기록에 묻지 않고 내린 결정 하나와 사람이 그 결정을 뒤집은 말을 적습니다. 실행은 자기 커밋을 다 한 뒤에, 그 기록을 담은 커밋을 거절하는 `pre-commit` 훅을 씁니다. 그래서 데몬이 그 말을 커밋하려 할 때마다 실패합니다. 작업함의 스크린샷은 커밋되지 않은 말을 알리는 줄의 문구를 보이고, 멈춰 둔 작업 화면의 스크린샷은 결정 위에 놓인 문장을 훅이 낸 줄과 함께 보입니다.
+  to: **장면의 멈춰 둔 작업에는 커밋이 실패한 뒤집기가 하나 있습니다.** 실행은 그 작업의 기록에 묻지 않고 내린 결정 하나와 사람이 그 결정을 뒤집은 말을 적습니다. 실행은 앱을 띄우기 전, 멈춰 둔 워크트리의 커밋을 마친 뒤에, 그 기록을 담은 커밋만 거절하는 `pre-commit` 훅을 씁니다. 그래서 데몬이 그 말을 커밋하려 할 때마다 실패합니다. 작업함의 스크린샷은 커밋되지 않은 말을 알리는 줄의 문구를 보이고, 멈춰 둔 작업 화면의 스크린샷은 결정 위에 놓인 문장을 훅이 낸 줄과 함께 보입니다.
     check: apps/desktop/test/screenshots.test.ts
+
+- change
+  file: docs/design.md
+  section: A pull request that changes the window carries its screenshots
+  from: Its approval line counts the one round and marks the sealer's place, which waits on the questions, below what the parked view's shot shows, which opens at the questions.
+  to: Its approval line counts the one round and marks the sealer's place, which waits on the questions. The parked view's shot scrolls its column until the decisions stand last, so it shows the approval line and the sentence of a word not committed.
+- change
+  file: docs/design.ko.md
+  section: 창을 바꾸는 PR은 스크린샷을 싣습니다
+  from: 그 작업의 승인 줄은 회차 하나를 세고 질문을 기다리는 sealer의 자리를 표시하지만, 질문에서 시작하는 그 화면의 스크린샷에는 그 아래라서 나오지 않습니다.
+  to: 그 작업의 승인 줄은 회차 하나를 세고 질문을 기다리는 sealer의 자리를 표시합니다. 멈춰 둔 화면의 스크린샷은 결정이 맨 아래에 올 때까지 그 열을 내려서 찍으므로, 승인 줄과 커밋되지 않은 말의 문장이 함께 나옵니다.
 
 ## Removes
 
