@@ -47,6 +47,11 @@ In `pr.md`, line 9, the quote follows item 8a word for word:
 
 The changelog's "these dialogs" are the delete dialog, the repository's removal dialog and the session dialogs, which the bullet and the one above it name.
 
+```seal
+verdict: fixed fd604953
+answer: The finding holds. `git grep -n "showModal()" -- apps/desktop/src` (executed) printed eight calls, and only `renderer.ts:418` is in `opened`. So my round-2 close was wrong to say `opened` is the one path every dialog opens by. A reset for the Accounts dialog and the dialog of hidden repositories would change dialogs that `frame/design.md` *Scope*, *Out* leaves as they are, so the words owe the fix and the code does not. `fd604953` rewrites the last sentence of the bullet at `changelog.md:8` to the round's text, "Each opening of one of these dialogs starts every list at its top, …". I read the bullet and the one above it: "these dialogs" names the delete dialog, the repository's removal dialog and the session dialogs, and each of them opens through `opened` (`renderer.ts:1228`, `:1314`, `:1484`, `:1515`). The frame and `pr.md` parts are the orchestrator's `bf459877`: *Scope* item 8a is narrowed to the dialogs that open through `opened`, and `pr.md:9` quotes it word for word (read in `git show bf459877`). After `fd604953` (executed), `git grep -n -F "Each opening" -- seal/threads/1795651594-249-251-delete-dialog-names-the-queue-and-keeps-its-scroll docs apps`, outside the round records, printed these lines. `changelog.md:8`, `frame/design.md:63` and `pr.md:9` now name only the dialogs that open through `opened`. `docs/design.md:458` and the quote at `frame/design.md:146` speak of the delete dialog alone, which opens through `opened`, so they hold. `renderer.ts:1668` and `work-item-form.test.ts:155` are about the new-work-item form and state nothing of this reset. That search is a sample, since a statement in other words escapes it. In my own range, the comments of `opened` and `drawnFrom` (`renderer.ts:412-421`, `:475`) and the `gaps.md` row on the reset all name `opened` and hold. No code changed, so nothing was run beyond the searches.
+```
+
 ### 2. The scenario row "A kept list at an opening" names the commits' list, which is drawn anew at each opening, and the case reads the list of sessions
 
 ```seal
@@ -64,6 +69,11 @@ The search printed four lines. Line 84 and line 86 are the redraw rows, which re
 
 ```markdown
 | A kept list at an opening | Given the delete dialog with its list of sessions scrolled past its top. When the person closes the dialog and opens it again with the same sessions. Then the list of sessions is the same element and its `scrollTop` is 0. | The long-list delete case of `work-item-menu.test.ts` makes `#delete-sessions ul` scroll by a style, closes the dialog and opens it again after its redraw. Shown red against `19d1bf8c`'s `renderer.ts` (contract rule 15). |
+```
+
+```seal
+verdict: fixed bf459877
+answer: The finding holds. The case at `work-item-menu.test.ts:967-979` reads `#delete-sessions ul`, and `openDelete` reads the loss again at each opening, so the commits' list is never the same element at an opening. The orchestrator's `bf459877` rewrote the row at `frame/design.md:85` to the round's text (read in `git show bf459877`). After `fd604953` (executed), `git grep -n -F "commits' list" -- seal/threads/1795651594-249-251-delete-dialog-names-the-queue-and-keeps-its-scroll`, outside the round records, printed three lines. `frame/design.md:84` and `:86` are the redraw rows, which read the commits' list while the dialog stays open and hold. `trail/phases/phase-3.md:12` is about the shots. None speaks of an opening. Read of the range after `fd604953`: I printed the one hunk of `fd604953` and the three hunks of `bf459877`. `routing.md` changed in neither commit. Not done: nothing. The full suite and the broad gate stay `unverified`, and the orchestrator answers them.
 ```
 
 ## Confirmations
