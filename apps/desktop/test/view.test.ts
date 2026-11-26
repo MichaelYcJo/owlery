@@ -1137,7 +1137,7 @@ describe("the decisions made without asking", () => {
 });
 
 describe("a word of the person's that no commit holds", () => {
-  it("says above the decisions what the commit of the word waits for: for a working session or a running chain, its why and that Owlery commits it once that has ended, in no failure's ink; for a failed commit, git's reason and that Owlery tries again, as a failure", () => {
+  it("says above the decisions what the commit of the word waits for: for a working session or a running chain, its why and that Owlery commits it once that has ended, not as a failure; for a failed commit, git's reason and that Owlery tries again, as a failure", () => {
     expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "session", why: "a session of the work item is working" } })).toEqual({
       text: "The record holds a word of yours that no commit holds yet: a session of the work item is working. Owlery commits it once that has ended.",
       failed: false,
