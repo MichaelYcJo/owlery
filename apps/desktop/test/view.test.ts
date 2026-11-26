@@ -137,12 +137,14 @@ import {
   rowButtons,
   RUN_SETUP_SAYS,
   runningSessions,
+  sameValues,
   screenMoves,
   screenTurns,
   sealNotifications,
   sealShown,
   sealSinceLook,
   selectedLine,
+  sessionSections,
   settingsBases,
   settingsChain,
   settingsFields,
@@ -706,18 +708,26 @@ describe("removalOf", () => {
         { id: 2, title: "Speed up search", archived: false },
         { id: 4, title: "Shelved", archived: true },
       ],
-      sessions: [],
+      sessions: { running: [], queued: [] },
       running: { panes: [], headless: [] },
     });
-    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: [], running: { panes: [], headless: [] } });
+    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: { running: [], queued: [] }, running: { panes: [], headless: [] } });
   });
 
   it("names each running session of those work items, a pane by its tab's label and a headless session by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another repository's work item", () => {
     const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 3 }), session(9, { workItemId: 4 }), session(10, { workItemId: null })];
     const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?" })];
     expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED], sessions, asked, KINDS)).toMatchObject({
-      sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"],
+      sessions: { running: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Where is the index built?"], queued: [] },
       running: { panes: [5, 7, 9], headless: [1, 5] },
+    });
+  });
+
+  it("names a headless session that waits for the machine apart from the running ones, by its work item and its prompt, and gives its id among those the removal sends", () => {
+    const asked = [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?" }), headless(3, { workItemId: 2, state: "queued", prompt: "Who asked?" })];
+    expect(removalOf(PROJECT, [LOGIN, SEARCH], [], [session(5, { kind: "shell" })], asked, KINDS)).toMatchObject({
+      sessions: { running: ["Shell in Fix the login bug", "Asked in Fix the login bug: Where is the index built?"], queued: ["Asked in Fix the login bug: Which file holds the login form?", "Asked in Speed up search: Who asked?"] },
+      running: { panes: [5], headless: [2, 1, 3] },
     });
   });
 });
@@ -814,24 +824,61 @@ describe("archivalOf", () => {
     const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 2 }), session(9), session(10, { workItemId: null })];
     const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 2 })];
     expect(archivalOf(LOGIN, sessions, asked, KINDS)).toEqual({
-      sessions: ["Shell 1", "Shell 3", "Claude Code", "Asked: Which file holds the login form?"],
+      sessions: { running: ["Shell 1", "Shell 3", "Claude Code", "Asked: Which file holds the login form?"], queued: [] },
       running: { panes: [5, 7, 9], headless: [1] },
     });
   });
 
-  it("names a headless session that waits for the machine among what the archive ends, and gives its id (scenario 9)", () => {
-    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: ["Asked: Which file holds the login form?"], running: { panes: [], headless: [1] } });
-    expect(removalOf(PROJECT, [LOGIN], [], [], [headless(1, { state: "queued" })], KINDS).running).toEqual({ panes: [], headless: [1] });
+  it("names a headless session that waits for the machine apart from the running ones, by its prompt, and gives its id among those the archive sends", () => {
+    expect(archivalOf(LOGIN, [session(5, { kind: "shell" })], [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?" })], KINDS)).toEqual({
+      sessions: { running: ["Shell", "Asked: Where is the index built?"], queued: ["Asked: Which file holds the login form?"] },
+      running: { panes: [5], headless: [2, 1] },
+    });
+    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: { running: [], queued: ["Asked: Which file holds the login form?"] }, running: { panes: [], headless: [1] } });
   });
 
   it("names the pane the work item's setup names Setup, as its tab does", () => {
     const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
-    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
-    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
+    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions.running).toEqual(["Setup", "Shell"]);
+    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions.running).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
   });
 
-  it("names none where no session of the work item runs, so its archive asks nothing first", () => {
-    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  it("names none where no session of the work item runs or waits, so its archive asks nothing first", () => {
+    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: { running: [], queued: [] }, running: { panes: [], headless: [] } });
+  });
+});
+
+describe("sessionSections", () => {
+  const RUNS = "Running sessions that end";
+  const WAITS = "Sessions waiting for the machine that leave the queue";
+
+  it("gives a section of the sessions that run, headed as what ends, and under it a section of the sessions that wait for the machine, headed as what leaves the queue, each with its lines in their order", () => {
+    expect(sessionSections({ running: ["Shell", "Asked: Where is the index built?"], queued: ["Asked: Which file holds the login form?", "Asked: Who asked?"] })).toEqual([
+      { caption: RUNS, lines: ["Shell", "Asked: Where is the index built?"] },
+      { caption: WAITS, lines: ["Asked: Which file holds the login form?", "Asked: Who asked?"] },
+    ]);
+  });
+
+  it("gives no section for a kind that holds no line, so a dialog whose only session waits shows the queue's section alone, and one with no session shows none", () => {
+    expect(sessionSections({ running: [], queued: ["Asked: Who asked?"] })).toEqual([{ caption: WAITS, lines: ["Asked: Who asked?"] }]);
+    expect(sessionSections({ running: ["Shell"], queued: [] })).toEqual([{ caption: RUNS, lines: ["Shell"] }]);
+    expect(sessionSections({ running: [], queued: [] })).toEqual([]);
+  });
+});
+
+describe("sameValues", () => {
+  const loss = { stamp: "a" };
+
+  it("answers the same for lists that hold the same values in the same places, an object by its identity, so a dialog's part drawn from one is left as it is for the other", () => {
+    expect(sameValues([7, "Renamed here", loss], [7, "Renamed here", loss])).toBe(true);
+    expect(sameValues([], [])).toBe(true);
+  });
+
+  it("answers not the same where one value differs, an object read again among them, and where one list holds the other and more, so a section or a line added at the end is drawn", () => {
+    expect(sameValues([loss], [{ stamp: "a" }])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell in First item"])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell", "Sessions waiting for the machine that leave the queue", 1, "Asked: Who asked?"])).toBe(false);
+    expect(sameValues(["Shell", "Asked: Who asked?"], ["Shell"])).toBe(false);
   });
 });
 
@@ -856,7 +903,7 @@ describe("daemonEnding", () => {
 describe("runningSessions", () => {
   const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
 
-  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited and no headless session that ended", () => {
+  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited, no headless session that ended and none that waits", () => {
     const sessions = [
       session(5, { kind: "shell" }),
       session(6, { kind: "shell", alive: false }),
@@ -867,24 +914,30 @@ describe("runningSessions", () => {
       session(11, { kind: "shell", workItemId: null, alive: false }),
     ];
     const asked = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?" }), headless(6, { workItemId: 99, state: "finished" })];
-    expect(runningSessions([LOGIN], [SHELVED], sessions, asked, KINDS)).toEqual([
-      "Shell 1 in Fix the login bug",
-      "Claude Code 1 in Shelved",
-      "Shell",
-      "Claude Code",
-      "Asked in Fix the login bug: Which file holds the login form?",
-      "Asked in Shelved: Where is the index built?",
-      "Asked: Who asked?",
-    ]);
+    expect(runningSessions([LOGIN], [SHELVED], sessions, asked, KINDS)).toEqual({
+      running: [
+        "Shell 1 in Fix the login bug",
+        "Claude Code 1 in Shelved",
+        "Shell",
+        "Claude Code",
+        "Asked in Fix the login bug: Which file holds the login form?",
+        "Asked in Shelved: Where is the index built?",
+        "Asked: Who asked?",
+      ],
+      queued: [],
+    });
   });
 
-  it("names a headless session that waits for the machine as one that runs, of a listed work item and of none (scenario 9)", () => {
-    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued" })], KINDS)).toEqual(["Asked in Fix the login bug: Which file holds the login form?", "Asked: Who asked?"]);
+  it("names each headless session that waits for the machine apart from the running ones, of a listed work item by it and its prompt and of none by its prompt alone", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(3, { workItemId: 4, prompt: "Where is the index built?" }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued" })], KINDS)).toEqual({
+      running: ["Asked in Shelved: Where is the index built?"],
+      queued: ["Asked in Fix the login bug: Which file holds the login form?", "Asked: Who asked?"],
+    });
   });
 
-  it("names none where no session runs", () => {
-    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual([]);
-    expect(runningSessions([], [], [], [], KINDS)).toEqual([]);
+  it("names none where no session runs or waits", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual({ running: [], queued: [] });
+    expect(runningSessions([], [], [], [], KINDS)).toEqual({ running: [], queued: [] });
   });
 });
 
@@ -4709,7 +4762,7 @@ describe("accounts in the window", () => {
     expect(paneTabs(LOGIN, [signIn])).toEqual([]);
     expect(inboxLine(LOGIN, [signIn], KINDS)).toEqual(inboxLine(LOGIN, [], KINDS));
     expect(lineAccount(LOGIN, { ...PROJECT, accountId: 2 }, [signIn], [], HELD)).toBe("");
-    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual(["Shell"]);
+    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual({ running: ["Shell"], queued: [] });
   });
 
   it("gives an account's menu a first choice that leaves the account to the setting above, named with the account it gives, then each account in the daemon's order", () => {

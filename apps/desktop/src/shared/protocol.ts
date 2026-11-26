@@ -135,7 +135,7 @@ export interface Repository {
   accountId?: number | null;
 }
 
-/** The running sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that are working, each by its id. */
+/** The sessions a person was told of before a request that ends them: the panes whose process is alive and the headless sessions that work or wait for the machine, each by its id. */
 export interface Running {
   panes: number[];
   headless: number[];
