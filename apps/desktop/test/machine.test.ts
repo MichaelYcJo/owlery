@@ -139,6 +139,11 @@ describe("what the window says of the reading, and of a value a person gives a c
     expect(capRefusal("heavyCommands", 40)).toBeNull();
     expect(capRefusal("heavyCommands", 0)).toBe("The limit on heavy commands at once is a whole number from 1.");
   });
+
+  it("refuses a scrollback that is no whole number from 1,000 to 50,000, with a sentence (scenario B2)", () => {
+    for (const lines of [1000, 5000, 50_000]) expect(capRefusal("scrollback", lines)).toBeNull();
+    for (const lines of [999, 50_001, 2500.5, "5000", 1]) expect(capRefusal("scrollback", lines)).toBe("The scrollback is a whole number from 1,000 to 50,000.");
+  });
 });
 
 describe("the reading of the machine", () => {
@@ -237,15 +242,15 @@ describe("the caps a person set", () => {
   it("keeps them in `limits.json` of the run folder, readable by the user alone, where a store started later reads them, and drops a cap returned to its proposal", () => {
     const runDir = folder();
     const store = new LimitsStore(runDir);
-    expect(store.get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null });
+    expect(store.get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null, scrollback: null });
     store.set({ agents: 3 });
     expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3}');
     expect(statSync(join(runDir, "limits.json")).mode & 0o777).toBe(0o600);
     store.set({ panes: 12 });
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: 12, heavyCommands: null });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: 12, heavyCommands: null, scrollback: null });
     store.set({ agents: null });
     expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"panes":12}');
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 12, heavyCommands: null });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 12, heavyCommands: null, scrollback: null });
   });
 
   it("keeps the limit on heavy commands under its own key beside the caps, where a store started later reads it (scenario E)", () => {
@@ -253,26 +258,36 @@ describe("the caps a person set", () => {
     const store = new LimitsStore(runDir);
     store.set({ agents: 3, heavyCommands: 2 });
     expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"agents":3,"heavyCommands":2}');
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: null, heavyCommands: 2 });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: 3, worktrees: null, panes: null, heavyCommands: 2, scrollback: null });
     store.set({ heavyCommands: null });
     expect(new LimitsStore(runDir).get().heavyCommands).toBeNull();
   });
 
+  it("keeps the scrollback under its own key beside the caps, where a store started later reads it (scenario B2)", () => {
+    const runDir = folder();
+    const store = new LimitsStore(runDir);
+    store.set({ panes: 2, scrollback: 20_000 });
+    expect(readFileSync(join(runDir, "limits.json"), "utf8")).toBe('{"panes":2,"scrollback":20000}');
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: 2, heavyCommands: null, scrollback: 20_000 });
+    store.set({ scrollback: null });
+    expect(new LimitsStore(runDir).get().scrollback).toBeNull();
+  });
+
   it.each([
-    ["values the daemon would refuse", '{"agents":0,"worktrees":2.5,"panes":17,"heavyCommands":0}'],
+    ["values the daemon would refuse", '{"agents":0,"worktrees":2.5,"panes":17,"heavyCommands":0,"scrollback":999}'],
     ["text that is no JSON", "agents=3"],
     ["JSON that is no object", "null"],
     ["numbers given as text", '{"agents":"3"}'],
   ])("reads a file that holds %s as no cap set", (_, text) => {
     const runDir = folder();
     writeFileSync(join(runDir, "limits.json"), text);
-    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null });
+    expect(new LimitsStore(runDir).get()).toEqual({ agents: null, worktrees: null, panes: null, heavyCommands: null, scrollback: null });
   });
 
   it("keeps the caps in memory alone where it is given no run folder", () => {
     const store = new LimitsStore(undefined);
     store.set({ worktrees: 4 });
-    expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null, heavyCommands: null });
+    expect(store.get()).toEqual({ agents: null, worktrees: 4, panes: null, heavyCommands: null, scrollback: null });
   });
 });
 

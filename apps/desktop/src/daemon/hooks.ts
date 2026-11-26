@@ -21,6 +21,7 @@ export const HOOK_EVENTS = [
   "PermissionRequest",
   "Notification",
   "Stop",
+  "StopFailure",
 ] as const;
 
 export interface HookEvent {

@@ -12,8 +12,8 @@ import { writeWholeFile } from "./whole-file";
 
 const FILE = "limits.json";
 
-/** The caps in the order the file and the dialog give them, the limit on heavy commands last. */
-export const CAPS: readonly Cap[] = ["agents", "worktrees", "panes", "heavyCommands"];
+/** The caps in the order the file and the dialog give them, the scrollback after the panes and the limit on heavy commands last. */
+export const CAPS: readonly Cap[] = ["agents", "worktrees", "panes", "scrollback", "heavyCommands"];
 
 /** The program macOS asks for the performance cores. It ships with macOS. */
 const SYSCTL = "/usr/sbin/sysctl";
@@ -182,14 +182,15 @@ function givenReading(text: string): MachineReading {
 /**
  * The caps a person set. Like the choice of keep-awake they are the daemon's
  * state: they live in `limits.json` in the run directory, one key for each
- * cap a person set, as in `{"agents":3}`, and the limit on heavy commands
- * under `heavyCommands`, readable by the user alone, and are
+ * cap a person set, as in `{"agents":3}`, the limit on heavy commands
+ * under `heavyCommands` and the scrollback under `scrollback`, readable by
+ * the user alone, and are
  * read at start, so they outlive the daemon. A key that is absent, or holds a
  * value `setCaps` would refuse, is a cap that follows its proposal. Given no
  * run directory, the caps are kept in memory alone.
  */
 export class LimitsStore {
-  private readonly caps: Record<Cap, number | null> = { agents: null, worktrees: null, panes: null, heavyCommands: null };
+  private readonly caps: Record<Cap, number | null> = { agents: null, worktrees: null, panes: null, heavyCommands: null, scrollback: null };
   private readonly file: string | undefined;
 
   constructor(runDir: string | undefined) {

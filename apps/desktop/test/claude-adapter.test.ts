@@ -294,7 +294,7 @@ describe("the Claude adapter's run", () => {
     expect(await adapter.logins?.signIn(account)).toEqual({ command: cli, args: ["auth", "login"], env: { HOME: folder, USER: "person", PATH: "/usr/bin:/bin", LANG: "en_US.UTF-8", CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD: "1", CLAUDE_CONFIG_DIR: account } });
     adapter.logins?.furnish(account);
     expect(readdirSync(account)).toEqual(["settings.json"]);
-    expect(await adapter.logins?.status(account)).toEqual({ signedIn: false, loginEndsAt: null });
+    expect(await adapter.logins?.status(account)).toEqual({ signedIn: false, loginEndsAt: null, name: null });
     await adapter.logins?.signOut(account);
     expect(readFileSync(join(folder, "calls"), "utf8")).toBe(`auth status|${account}\nauth logout|${account}\n`);
   });

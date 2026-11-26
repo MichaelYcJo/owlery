@@ -5,7 +5,7 @@
 import type { InstalledApp } from "../shared/ipc";
 import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -359,6 +359,9 @@ function askedPart(question: AskedQuestion): HTMLElement {
  * text, its approval line, the decisions made for it in place of asking,
  * its commits, its changed files and its setup, each left out where the
  * daemon sent none.
+ * Above the decisions stands the sentence of a word of the person's that no
+ * commit holds yet, while the work item owes one, in the colour of a
+ * failure where its commit failed.
  * Under the decisions stands a line for each line of the work item's record
  * that the daemon did not read, and the section is drawn for those lines
  * alone where the record gave no decision. The first `gained` commits carry
@@ -377,6 +380,9 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
   if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), ...(says.questions.length > 0 ? says.questions.map(askedPart) : [part("said", says.text)])));
   const approval = approvalSection(entry);
   if (approval) parts.push(approval);
+  // The sentence of a word of the person's that no commit holds stands above the decisions, and stands where the record gave no decision too, as for an answer alone. Git's reason in it is plain text, never markup.
+  const owed = wordOwedSays(entry.workItem);
+  if (owed) parts.push(part(owed.failed ? "word-owed failed" : "word-owed", owed.text));
   const decisions = decisionLines(entry.workItem, Date.now());
   const unread = unreadLines(entry.workItem);
   if (decisions.length > 0 || unread.length > 0) {

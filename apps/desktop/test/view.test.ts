@@ -60,7 +60,12 @@ import {
   droppedText,
   emptyList,
   fileLines,
+  fileOpener,
+  type FileOpener,
   filterChoices,
+  FIND_LIMIT,
+  findCount,
+  findQuery,
   gainedSince,
   GATE_HEAD,
   GATE_OUTPUT_SHOWS,
@@ -118,6 +123,7 @@ import {
   pinnedFirst,
   pathCandidates,
   pathTarget,
+  pasteAct,
   PLAN_AWAITED,
   planAnswer,
   planLine,
@@ -136,12 +142,14 @@ import {
   rowButtons,
   RUN_SETUP_SAYS,
   runningSessions,
+  sameValues,
   screenMoves,
   screenTurns,
   sealNotifications,
   sealShown,
   sealSinceLook,
   selectedLine,
+  sessionSections,
   settingsBases,
   settingsChain,
   settingsFields,
@@ -150,6 +158,7 @@ import {
   shownSetup,
   sidebarTree,
   paneCap,
+  paneScrollback,
   sideBySideTitle,
   stageGrid,
   stageOf,
@@ -179,6 +188,8 @@ import {
   type SealSince,
   unanswered,
   unreadLines,
+  wordOwedMark,
+  wordOwedSays,
 } from "../src/renderer/view";
 import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
@@ -703,18 +714,26 @@ describe("removalOf", () => {
         { id: 2, title: "Speed up search", archived: false },
         { id: 4, title: "Shelved", archived: true },
       ],
-      sessions: [],
+      sessions: { running: [], queued: [] },
       running: { panes: [], headless: [] },
     });
-    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: [], running: { panes: [], headless: [] } });
+    expect(removalOf(PROJECT, [DOCS], [], [], [], KINDS)).toEqual({ workItems: [], sessions: { running: [], queued: [] }, running: { panes: [], headless: [] } });
   });
 
   it("names each running session of those work items, a pane by its tab's label and a headless session by its stage, never by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another repository's work item", () => {
     const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 3 }), session(9, { workItemId: 4 }), session(10, { workItemId: null })];
     const stages = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } })];
     expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED], sessions, stages, KINDS)).toMatchObject({
-      sessions: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Proofer, round in Fix the login bug", "Sealer, verdict in Speed up search"],
+      sessions: { running: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Proofer, round in Fix the login bug", "Sealer, verdict in Speed up search"], queued: [] },
       running: { panes: [5, 7, 9], headless: [1, 5] },
+    });
+  });
+
+  it("names a headless session that waits for the machine apart from the running ones, by its stage and its work item, and gives its id among those the removal sends (scenario 9)", () => {
+    const stages = [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } }), headless(3, { workItemId: 2, state: "queued", prompt: "Who asked?", role: { role: "crafter", stage: "fix-pass" } })];
+    expect(removalOf(PROJECT, [LOGIN, SEARCH], [], [session(5, { kind: "shell" })], stages, KINDS)).toMatchObject({
+      sessions: { running: ["Shell in Fix the login bug", "Sealer, verdict in Fix the login bug"], queued: ["Proofer, round in Fix the login bug", "Crafter, fix pass in Speed up search"] },
+      running: { panes: [5], headless: [2, 1, 3] },
     });
   });
 });
@@ -811,24 +830,61 @@ describe("archivalOf", () => {
     const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 2 }), session(9), session(10, { workItemId: null })];
     const stages = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 2 })];
     expect(archivalOf(LOGIN, sessions, stages, KINDS)).toEqual({
-      sessions: ["Shell 1", "Shell 3", "Claude Code", "Proofer, round"],
+      sessions: { running: ["Shell 1", "Shell 3", "Claude Code", "Proofer, round"], queued: [] },
       running: { panes: [5, 7, 9], headless: [1] },
     });
   });
 
-  it("names a headless session that waits for the machine among what the archive ends, and gives its id (scenario 9)", () => {
-    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: ["Proofer, round"], running: { panes: [], headless: [1] } });
-    expect(removalOf(PROJECT, [LOGIN], [], [], [headless(1, { state: "queued" })], KINDS).running).toEqual({ panes: [], headless: [1] });
+  it("names a headless session that waits for the machine apart from the running ones, by its stage, and gives its id among those the archive sends (scenario 9)", () => {
+    expect(archivalOf(LOGIN, [session(5, { kind: "shell" })], [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } })], KINDS)).toEqual({
+      sessions: { running: ["Shell", "Sealer, verdict"], queued: ["Proofer, round"] },
+      running: { panes: [5], headless: [2, 1] },
+    });
+    expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: { running: [], queued: ["Proofer, round"] }, running: { panes: [], headless: [1] } });
   });
 
   it("names the pane the work item's setup names Setup, as its tab does", () => {
     const setting: WorkItem = { ...LOGIN, setup: { ...RUNNING_SETUP, paneId: 5 } };
-    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup", "Shell"]);
-    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
+    expect(archivalOf(setting, [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions.running).toEqual(["Setup", "Shell"]);
+    expect(removalOf(PROJECT, [setting], [], [session(5, { kind: "shell" }), session(7, { kind: "shell" })], [], KINDS).sessions.running).toEqual(["Setup in Fix the login bug", "Shell in Fix the login bug"]);
   });
 
-  it("names none where no session of the work item runs, so its archive asks nothing first", () => {
-    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: [], running: { panes: [], headless: [] } });
+  it("names none where no session of the work item runs or waits, so its archive asks nothing first", () => {
+    expect(archivalOf(LOGIN, [session(6, { alive: false }), session(8, { workItemId: 2 })], [headless(2, { state: "finished" })], KINDS)).toEqual({ sessions: { running: [], queued: [] }, running: { panes: [], headless: [] } });
+  });
+});
+
+describe("sessionSections", () => {
+  const RUNS = "Running sessions that end";
+  const WAITS = "Sessions waiting for the machine that leave the queue";
+
+  it("gives a section of the sessions that run, headed as what ends, and under it a section of the sessions that wait for the machine, headed as what leaves the queue, each with its lines in their order", () => {
+    expect(sessionSections({ running: ["Shell", "Sealer, verdict"], queued: ["Proofer, round 1", "Crafter, fix pass 1"] })).toEqual([
+      { caption: RUNS, lines: ["Shell", "Sealer, verdict"] },
+      { caption: WAITS, lines: ["Proofer, round 1", "Crafter, fix pass 1"] },
+    ]);
+  });
+
+  it("gives no section for a kind that holds no line, so a dialog whose only session waits shows the queue's section alone, and one with no session shows none", () => {
+    expect(sessionSections({ running: [], queued: ["Proofer, round 1"] })).toEqual([{ caption: WAITS, lines: ["Proofer, round 1"] }]);
+    expect(sessionSections({ running: ["Shell"], queued: [] })).toEqual([{ caption: RUNS, lines: ["Shell"] }]);
+    expect(sessionSections({ running: [], queued: [] })).toEqual([]);
+  });
+});
+
+describe("sameValues", () => {
+  const loss = { stamp: "a" };
+
+  it("answers the same for lists that hold the same values in the same places, an object by its identity, so a dialog's part drawn from one is left as it is for the other", () => {
+    expect(sameValues([7, "Renamed here", loss], [7, "Renamed here", loss])).toBe(true);
+    expect(sameValues([], [])).toBe(true);
+  });
+
+  it("answers not the same where one value differs, an object read again among them, and where one list holds the other and more, so a section or a line added at the end is drawn", () => {
+    expect(sameValues([loss], [{ stamp: "a" }])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell in First item"])).toBe(false);
+    expect(sameValues(["Running sessions that end", 1, "Shell"], ["Running sessions that end", 1, "Shell", "Sessions waiting for the machine that leave the queue", 1, "Proofer, round 1"])).toBe(false);
+    expect(sameValues(["Shell", "Proofer, round 1"], ["Shell"])).toBe(false);
   });
 });
 
@@ -853,7 +909,7 @@ describe("daemonEnding", () => {
 describe("runningSessions", () => {
   const SHELVED: WorkItem = { ...LOGIN, id: 4, title: "Shelved", archivedAt: 50 };
 
-  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited and no headless session that ended", () => {
+  it("names every running session the window holds: each live pane of a listed work item, archived or not, by its tab's label and the work item, then a live pane of no listed work item by its kind's label, then each working headless session by its work item and its prompt, and no pane that exited, no headless session that ended and none that waits", () => {
     const sessions = [
       session(5, { kind: "shell" }),
       session(6, { kind: "shell", alive: false }),
@@ -865,24 +921,30 @@ describe("runningSessions", () => {
     ];
     // The session of work item 99 has no role, as one a daemon before release 0.0.5 started at a person's request.
     const stages = [headless(1), headless(2, { state: "finished" }), headless(3, { workItemId: 4, prompt: "Where is the index built?", role: { role: "crafter", stage: "fix-pass" } }), headless(4, { workItemId: 4, state: "failed" }), headless(5, { workItemId: 99, prompt: "Who asked?", role: null }), headless(6, { workItemId: 99, state: "finished" })];
-    expect(runningSessions([LOGIN], [SHELVED], sessions, stages, KINDS)).toEqual([
-      "Shell 1 in Fix the login bug",
-      "Claude Code 1 in Shelved",
-      "Shell",
-      "Claude Code",
-      "Proofer, round in Fix the login bug",
-      "Crafter, fix pass in Shelved",
-      "Session 5",
-    ]);
+    expect(runningSessions([LOGIN], [SHELVED], sessions, stages, KINDS)).toEqual({
+      running: [
+        "Shell 1 in Fix the login bug",
+        "Claude Code 1 in Shelved",
+        "Shell",
+        "Claude Code",
+        "Proofer, round in Fix the login bug",
+        "Crafter, fix pass in Shelved",
+        "Session 5",
+      ],
+      queued: [],
+    });
   });
 
-  it("names a headless session that waits for the machine as one that runs, of a listed work item and of none (scenario 9)", () => {
-    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued", role: { role: "orchestrator", stage: "judgment" } })], KINDS)).toEqual(["Proofer, round in Fix the login bug", "Orchestrator, judgment"]);
+  it("names each headless session that waits for the machine apart from the running ones, of a listed work item by its stage and the work item and of none by its stage alone (scenario 9)", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [], [headless(1, { state: "queued" }), headless(3, { workItemId: 4, prompt: "Where is the index built?", role: { role: "crafter", stage: "fix-pass" } }), headless(5, { workItemId: 99, prompt: "Who asked?", state: "queued", role: { role: "orchestrator", stage: "judgment" } })], KINDS)).toEqual({
+      running: ["Crafter, fix pass in Shelved"],
+      queued: ["Proofer, round in Fix the login bug", "Orchestrator, judgment"],
+    });
   });
 
-  it("names none where no session runs", () => {
-    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual([]);
-    expect(runningSessions([], [], [], [], KINDS)).toEqual([]);
+  it("names none where no session runs or waits", () => {
+    expect(runningSessions([LOGIN], [SHELVED], [session(6, { alive: false })], [headless(2, { state: "finished" })], KINDS)).toEqual({ running: [], queued: [] });
+    expect(runningSessions([], [], [], [], KINDS)).toEqual({ running: [], queued: [] });
   });
 });
 
@@ -1131,6 +1193,36 @@ describe("the decisions made without asking", () => {
     expect(decisionLines(EARLIER, NOW)).toEqual([]);
     expect(inboxLine(EARLIER, [session(2, { state: "working" })], KINDS)).toEqual(inboxLine(LOGIN, [session(2, { state: "working" })], KINDS));
     expect(lineText(EARLIER, undefined, false)).toEqual(lineText(LOGIN, undefined, false));
+  });
+});
+
+describe("a word of the person's that no commit holds", () => {
+  it("says above the decisions what the commit of the word waits for: for a working session or a running chain, its why and that Owlery commits it once that has ended, not as a failure; for a failed commit, git's reason and that Owlery tries again, as a failure", () => {
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "session", why: "a session of the work item is working" } })).toEqual({
+      text: "The record holds a word of yours that no commit holds yet: a session of the work item is working. Owlery commits it once that has ended.",
+      failed: false,
+    });
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "session", why: "the work item's chain is running" } })).toEqual({
+      text: "The record holds a word of yours that no commit holds yet: the work item's chain is running. Owlery commits it once that has ended.",
+      failed: false,
+    });
+    expect(wordOwedSays({ ...LOGIN, wordOwed: { waits: "retry", why: "the hook says no" } })).toEqual({
+      text: "The record holds a word of yours that was not committed: the hook says no. Owlery tries again.",
+      failed: true,
+    });
+  });
+
+  it("marks the line with the words after the count of the decisions where the commit failed, and with nothing while the word waits for a session", () => {
+    expect(wordOwedMark({ ...LOGIN, wordOwed: { waits: "retry", why: "the hook says no" } })).toBe("word not committed");
+    expect(wordOwedMark({ ...LOGIN, wordOwed: { waits: "session", why: "a session of the work item is working" } })).toBe("");
+  });
+
+  it("says nothing and marks nothing where nothing is owed, and reads a work item of a daemon of an earlier build, which sends no such field, as one that owes nothing", () => {
+    expect(wordOwedSays({ ...LOGIN, wordOwed: null })).toBeNull();
+    expect(wordOwedMark({ ...LOGIN, wordOwed: null })).toBe("");
+    expect("wordOwed" in LOGIN).toBe(false);
+    expect(wordOwedSays(LOGIN)).toBeNull();
+    expect(wordOwedMark(LOGIN)).toBe("");
   });
 });
 
@@ -2417,6 +2509,13 @@ describe("paneCap", () => {
     expect(paneCap(null)).toBe(4);
   });
 
+  it("gives a pane's terminal the scrollback a person set, the default of 5,000 lines where none is set, and 1,000 where the daemon sends none (scenarios B1, B2 and B3)", () => {
+    expect(paneScrollback(MACHINE)).toBe(5000);
+    expect(paneScrollback({ ...MACHINE, scrollback: { proposed: 5000, set: 20_000 } })).toBe(20_000);
+    expect(paneScrollback(EARLIER_MACHINE)).toBe(1000);
+    expect(paneScrollback(null)).toBe(1000);
+  });
+
   it("names the cap in the title of \"Side by side\"", () => {
     expect(sideBySideTitle(4)).toBe("Show up to 4 of this work item's panes at once");
     expect(sideBySideTitle(16)).toBe("Show up to 16 of this work item's panes at once");
@@ -3536,7 +3635,11 @@ const MACHINE: Machine = {
   worktrees: { proposed: null, set: null, standing: 1, perWorktreeBytes: null, keepFreeBytes: 10_000_000_000 },
   panes: { proposed: 8, set: null },
   heavy: { proposed: 1, byCores: 1, byMemory: 2, set: null, queue: [] },
+  scrollback: { proposed: 5000, set: null },
 };
+
+/** What a daemon of an earlier build sends of the same Mac: no scrollback. */
+const { scrollback: _unsent, ...EARLIER_MACHINE } = MACHINE;
 
 describe("daemonStatus", () => {
   it("says that the daemon runs and how many agents run: the live panes of a kind that reports its state", () => {
@@ -3589,9 +3692,18 @@ describe("machineDialog", () => {
         { cap: "agents", label: "Agents at once", value: 6, proposed: 6, isDefault: true, says: "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet)." },
         { cap: "worktrees", label: "Worktrees", value: null, proposed: null, isDefault: true, says: "Nothing is proposed until a worktree is measured on this Mac." },
         { cap: "panes", label: "Panes side by side", value: 8, proposed: 8, isDefault: true, says: "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB." },
+        { cap: "scrollback", label: "Scrollback lines", value: 5000, proposed: 5000, isDefault: true, says: "The default is 5,000 lines for each pane. A pane on screen holds 12 bytes for each column of a line, about 6 MB at 5,000 lines of 100 columns, and the daemon keeps up to 256 characters of output for each line." },
         { cap: "heavyCommands", label: "Heavy commands at once", value: 1, proposed: 1, isDefault: true, says: "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken." },
       ],
     });
+  });
+
+  it("draws no scrollback row against a daemon of an earlier build, which sends no scrollback (scenario B3)", () => {
+    expect(machineDialog(EARLIER_MACHINE)?.rows.map(({ cap }) => cap)).toEqual(["agents", "worktrees", "panes", "heavyCommands"]);
+  });
+
+  it("shows the scrollback a person set in place of its default, with \"Use the default\" offered (scenario B2)", () => {
+    expect(machineDialog({ ...MACHINE, scrollback: { proposed: 5000, set: 20_000 } })?.rows[3]).toMatchObject({ cap: "scrollback", value: 20_000, proposed: 5000, isDefault: false });
   });
 
   it("shows the limit on heavy commands a person set in place of its default, with \"Use the default\" offered (scenario E)", () => {
@@ -3605,6 +3717,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 3, isDefault: false },
       { cap: "worktrees", value: 40, isDefault: false },
       { cap: "panes", value: 8, isDefault: true },
+      { cap: "scrollback", value: 5000, isDefault: true },
       { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
     // The sentence still states the default, which "Use the default" returns to.
@@ -3617,6 +3730,7 @@ describe("machineDialog", () => {
       { cap: "agents", value: 6, isDefault: false },
       { cap: "worktrees", value: null, isDefault: true },
       { cap: "panes", value: 8, isDefault: false },
+      { cap: "scrollback", value: 5000, isDefault: true },
       { cap: "heavyCommands", value: 1, isDefault: true },
     ]);
   });
@@ -3729,6 +3843,7 @@ describe("capChanges", () => {
     worktrees: { text: text.worktrees ?? "", toDefault: toDefault.includes("worktrees") },
     panes: { text: text.panes ?? "8", toDefault: toDefault.includes("panes") },
     heavyCommands: { text: text.heavyCommands ?? "1", toDefault: toDefault.includes("heavyCommands") },
+    scrollback: { text: text.scrollback ?? "5000", toDefault: toDefault.includes("scrollback") },
   });
 
   it("sends the value a person typed, and nothing of a row that still shows its proposal untouched (scenario 3)", () => {
@@ -3771,7 +3886,7 @@ describe("noticeWithout", () => {
 
 describe("commandKey", () => {
   const plain = { code: "KeyK", meta: false, ctrl: false, alt: false, shift: false };
-  const free = { mac: true, dialogOpen: false, menuOpen: false };
+  const free = { mac: true, dialogOpen: false, menuOpen: false, paneInFront: false, finding: false };
 
   it("reads K with the Command key as the search's key, by the key's place on the keyboard", () => {
     expect(commandKey({ ...plain, meta: true }, free)).toBe("search");
@@ -3814,6 +3929,37 @@ describe("commandKey", () => {
     expect(commandKey({ ...plain, meta: true, shift: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, alt: true }, free)).toBeNull();
     expect(commandKey({ ...plain, meta: true, ctrl: true }, free)).toBeNull();
+  });
+
+  it("reads F with the Command key as the find bar's key on a Mac keyboard where a pane is in front, and not on another keyboard", () => {
+    const f = { ...plain, code: "KeyF" };
+    const pane = { ...free, paneInFront: true };
+    expect(commandKey({ ...f, meta: true }, pane)).toBe("find");
+    expect(commandKey({ ...f, meta: true }, { ...pane, finding: true })).toBe("find");
+    expect(commandKey({ ...f, meta: true }, free)).toBeNull();
+    // Control+F is the shell's key on a keyboard without the Command key.
+    expect(commandKey({ ...f, ctrl: true }, { ...pane, mac: false })).toBeNull();
+    expect(commandKey({ ...f, meta: true }, { ...pane, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...f, meta: true }, { ...pane, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...f, meta: true, shift: true }, pane)).toBeNull();
+    expect(commandKey({ ...f, meta: true, alt: true }, pane)).toBeNull();
+  });
+
+  it("reads G with the Command key as the step to the next match, and with the Shift key as well as the step to the previous one, only while the find bar is open", () => {
+    const g = { ...plain, code: "KeyG" };
+    const finding = { ...free, paneInFront: true, finding: true };
+    expect(commandKey({ ...g, meta: true }, finding)).toBe("findNext");
+    expect(commandKey({ ...g, meta: true, shift: true }, finding)).toBe("findPrevious");
+    // The bar's pane need not be the one in front.
+    expect(commandKey({ ...g, meta: true }, { ...finding, paneInFront: false })).toBe("findNext");
+    expect(commandKey({ ...g, meta: true }, { ...finding, finding: false })).toBeNull();
+    expect(commandKey({ ...g, meta: true, shift: true }, { ...finding, finding: false })).toBeNull();
+    expect(commandKey({ ...g, ctrl: true }, { ...finding, mac: false })).toBeNull();
+    expect(commandKey({ ...g, meta: true }, { ...finding, dialogOpen: true })).toBeNull();
+    expect(commandKey({ ...g, meta: true }, { ...finding, menuOpen: true })).toBeNull();
+    expect(commandKey({ ...g, meta: true, alt: true }, finding)).toBeNull();
+    // The Shift key still keeps K, N and W from the window while the bar is open.
+    expect(commandKey({ ...plain, code: "KeyW", meta: true, shift: true }, finding)).toBeNull();
   });
 });
 
@@ -3867,6 +4013,31 @@ describe("droppedText", () => {
     expect(droppedText(["", "/t/c.png", ""])).toBe("/t/c.png ");
     expect(droppedText([""])).toBe("");
     expect(droppedText([])).toBe("");
+  });
+});
+
+describe("pasteAct", () => {
+  it("hands the pane the paths of files that are on a disk, written as dropped files' paths are, before any text or image beside them (scenario D2)", () => {
+    expect(pasteAct({ paths: ["/t/a b.png", "/t/c.txt"], text: true, image: true })).toEqual({ kind: "paths", text: "/t/a\\ b.png /t/c.txt " });
+    expect(pasteAct({ paths: ["", "/t/c.txt"], text: false, image: false })).toEqual({ kind: "paths", text: "/t/c.txt " });
+  });
+
+  it("leaves a paste that holds text to the terminal, though an image stands beside it (scenario D2)", () => {
+    expect(pasteAct({ paths: [], text: true, image: true })).toEqual({ kind: "text" });
+    // A file with no path, as an image copied from a page arrives, is no path to hand on.
+    expect(pasteAct({ paths: [""], text: true, image: true })).toEqual({ kind: "text" });
+  });
+
+  it("hands the pane the path of the image the main process writes, where the paste holds an image and no text (scenario D1)", () => {
+    expect(pasteAct({ paths: [""], text: false, image: true })).toEqual({ kind: "image" });
+    expect(pasteAct({ paths: [], text: false, image: true })).toEqual({ kind: "image" });
+    // A path the pane could not take is no path either.
+    expect(pasteAct({ paths: ["/t/a\tb.png"], text: false, image: true })).toEqual({ kind: "image" });
+  });
+
+  it("hands the pane nothing where the paste holds no path, no text and no image", () => {
+    expect(pasteAct({ paths: [], text: false, image: false })).toBeNull();
+    expect(pasteAct({ paths: ["", "/t/a\u001bb.png"], text: false, image: false })).toBeNull();
   });
 });
 
@@ -3928,20 +4099,21 @@ describe("paneKey", () => {
 describe("paneMenu", () => {
   const texts = (mac: boolean, selection: boolean) => paneMenu(mac, selection).map((item) => (item === null ? "-" : item.text));
 
-  it("holds the six items in their order, with a rule before the two that clear and before the one that closes", () => {
-    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
+  it("holds the seven items in their order, \"Find\u2026\" after \"Select All\", with a rule before the two that clear and before the one that closes", () => {
+    expect(texts(true, false)).toEqual(["Copy", "Paste", "Select All", "Find\u2026", "-", "Clear Screen", "Reset Terminal", "-", "Close Pane"]);
     expect(texts(false, true)).toEqual(texts(true, false));
   });
 
   it("names each item's act", () => {
-    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "clear", "reset", "close"]);
+    expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [item.act]))).toEqual(["copy", "paste", "selectAll", "find", "clear", "reset", "close"]);
   });
 
-  it("shows the keys of Copy, Paste and Close Pane on a Mac keyboard, and no key on any other item", () => {
+  it("shows the keys of Copy, Paste, Find\u2026 and Close Pane on a Mac keyboard, and no key on any other item", () => {
     expect(paneMenu(true, true).flatMap((item) => (item === null ? [] : [[item.text, item.keys]]))).toEqual([
       ["Copy", "\u2318C"],
       ["Paste", "\u2318V"],
       ["Select All", ""],
+      ["Find\u2026", "\u2318F"],
       ["Clear Screen", ""],
       ["Reset Terminal", ""],
       ["Close Pane", "\u2318W"],
@@ -3949,13 +4121,49 @@ describe("paneMenu", () => {
   });
 
   it("shows no key on a keyboard without the Command key", () => {
-    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", ""]);
+    expect(paneMenu(false, true).flatMap((item) => (item === null ? [] : [item.keys]))).toEqual(["", "", "", "", "", "", ""]);
   });
 
   it("disables Copy where the terminal holds no selection, and no other item", () => {
     const disabled = (selection: boolean) => paneMenu(true, selection).flatMap((item) => (item !== null && !item.enabled ? [item.text] : []));
     expect(disabled(false)).toEqual(["Copy"]);
     expect(disabled(true)).toEqual([]);
+  });
+});
+
+describe("findQuery and findCount (scenario A3)", () => {
+  const bar = { text: "Error", matchCase: false, regex: false };
+
+  it("searches what the field holds, with the case only where \"Match case\" is on, and as a regular expression only where \"Regular expression\" is on", () => {
+    expect(findQuery(bar)).toEqual({ term: "Error", caseSensitive: false, regex: false });
+    expect(findQuery({ ...bar, matchCase: true })).toEqual({ term: "Error", caseSensitive: true, regex: false });
+    expect(findQuery({ ...bar, text: "err(or" })).toEqual({ term: "err(or", caseSensitive: false, regex: false });
+    expect(findQuery({ ...bar, text: "err(or)?", regex: true, matchCase: true })).toEqual({ term: "err(or)?", caseSensitive: true, regex: true });
+  });
+
+  it("searches nothing where the field is empty", () => {
+    expect(findQuery({ ...bar, text: "" })).toBeNull();
+    expect(findQuery({ ...bar, text: "", regex: true })).toBeNull();
+  });
+
+  it("refuses a pattern that is no regular expression with a sentence, where \"Regular expression\" is on, and searches nothing", () => {
+    expect(findQuery({ ...bar, text: "err(or", regex: true })).toEqual({ refusal: "Not a regular expression" });
+    expect(findQuery({ ...bar, text: "[a-", regex: true, matchCase: true })).toEqual({ refusal: "Not a regular expression" });
+    expect(findQuery({ ...bar, text: "a{2,1}", regex: true })).toEqual({ refusal: "Not a regular expression" });
+  });
+
+  it("counts from the newest match, which the add-on gives as the last of its results", () => {
+    expect(findCount({ resultIndex: 16, resultCount: 17 })).toBe("1 of 17");
+    expect(findCount({ resultIndex: 14, resultCount: 17 })).toBe("3 of 17");
+    expect(findCount({ resultIndex: 0, resultCount: 17 })).toBe("17 of 17");
+    expect(findCount({ resultIndex: 0, resultCount: FIND_LIMIT })).toBe("1,000 of 1,000");
+  });
+
+  it("says that nothing matched, and that it stopped counting past the limit, where the add-on counts one past it or names no match in front", () => {
+    expect(findCount({ resultIndex: -1, resultCount: 0 })).toBe("No match");
+    expect(findCount({ resultIndex: 3, resultCount: FIND_LIMIT + 1 })).toBe("More than 1,000 matches");
+    expect(findCount({ resultIndex: -1, resultCount: FIND_LIMIT + 1 })).toBe("More than 1,000 matches");
+    expect(findCount({ resultIndex: -1, resultCount: 12 })).toBe("More than 1,000 matches");
   });
 });
 
@@ -4004,16 +4212,19 @@ describe("pathCandidates", () => {
     expect(texts("[src/a.ts] {src/b.ts} <src/c.ts> src/d.ts; src/e.ts! src/f.ts? src/g.ts: src/h.ts.")).toEqual(["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts", "src/e.ts", "src/f.ts", "src/g.ts", "src/h.ts"]);
   });
 
-  it("cuts a line number, and a column after it, from a path's end", () => {
+  it("keeps a line number, and a column after it, apart from the path at its end, and leaves them out of the link's range", () => {
     expect(pathCandidates("at src/a.ts:12 and src/b.ts:12:5")).toEqual([
-      { text: "src/a.ts", start: 3, end: 11 },
-      { text: "src/b.ts", start: 19, end: 27 },
+      { text: "src/a.ts", start: 3, end: 11, line: 12 },
+      { text: "src/b.ts", start: 19, end: 27, line: 12, column: 5 },
     ]);
     // As a search prints a match, and as a sentence closes on one.
-    expect(texts("src/a.ts:12: const a = 1")).toEqual(["src/a.ts"]);
-    expect(texts("(src/a.ts:12:5).")).toEqual(["src/a.ts"]);
+    expect(pathCandidates("src/a.ts:12: const a = 1")).toEqual([{ text: "src/a.ts", start: 0, end: 8, line: 12 }]);
+    expect(pathCandidates("(src/a.ts:12:5).")).toEqual([{ text: "src/a.ts", start: 1, end: 9, line: 12, column: 5 }]);
+    // A path with no number has neither.
+    expect(Object.keys(pathCandidates("src/a.ts")[0] ?? {})).toEqual(["text", "start", "end"]);
     // A number that is part of the name stays.
     expect(texts("logs/2026-11-20 v1/a:b")).toEqual(["logs/2026-11-20", "v1/a:b"]);
+    expect(pathCandidates("v1/a:b")[0]?.line).toBeUndefined();
   });
 });
 
@@ -4032,11 +4243,33 @@ describe("webTarget and pathTarget", () => {
     expect(pathTarget(SEARCH.worktree, [LOGIN, SEARCH], undefined)).toEqual({ kind: "workItem", path: SEARCH.worktree, workItemId: SEARCH.id });
   });
 
-  it("reads the worktree of the view on screen, a folder inside a worktree and any other path as another path", () => {
+  it("reads the worktree of the view on screen, a folder inside a worktree and any other folder as another path", () => {
     expect(pathTarget(LOGIN.worktree, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: LOGIN.worktree });
     expect(pathTarget(`${SEARCH.worktree}/src`, [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: `${SEARCH.worktree}/src` });
-    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc/hosts" });
+    expect(pathTarget("/etc", [LOGIN, SEARCH], LOGIN.id)).toEqual({ kind: "path", path: "/etc" });
     expect(pathTarget(SEARCH.worktree, [LOGIN], LOGIN.id)).toEqual({ kind: "path", path: SEARCH.worktree });
+  });
+
+  it("reads a path a file stands at as a file, with the line and the column the pane printed after it", () => {
+    expect(pathTarget("/w/project/fix login/src/a.ts", [LOGIN, SEARCH], LOGIN.id, { line: 12, column: 5 })).toEqual({ kind: "file", path: "/w/project/fix login/src/a.ts", line: 12, column: 5 });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id, { line: 3 })).toEqual({ kind: "file", path: "/etc/hosts", line: 3 });
+    expect(pathTarget("/etc/hosts", [LOGIN, SEARCH], LOGIN.id, {})).toEqual({ kind: "file", path: "/etc/hosts" });
+  });
+});
+
+describe("fileOpener", () => {
+  it("opens a file in the editor the person chose, where the Mac still holds it", () => {
+    expect(fileOpener({ chosen: "Zed", installed: ["Visual Studio Code", "Zed"] })).toEqual({ editor: "Zed" });
+  });
+
+  it("shows a file in Finder where the person chose Finder, where the chosen editor is gone, and where no choice was made and the Mac holds no editor of the list (scenario C5)", () => {
+    expect(fileOpener({ chosen: "finder", installed: ["Visual Studio Code"] })).toBe("finder");
+    expect(fileOpener({ chosen: "Zed", installed: ["Visual Studio Code"] })).toBe("finder");
+    expect(fileOpener({ chosen: null, installed: [] })).toBe("finder");
+  });
+
+  it("asks where no choice was made and the Mac holds an editor of the list (scenario C3)", () => {
+    expect(fileOpener({ chosen: null, installed: ["Xcode"] })).toBe("ask");
   });
 });
 
@@ -4095,19 +4328,62 @@ describe("linkClick and linkCard", () => {
     expect(linkCard(PATH, false).rows.map(({ keys }) => keys)).toEqual(["Ctrl Click", ""]);
   });
 
+  const FILE: LinkTarget = { kind: "file", path: "/w/project/fix login/src/a.ts", line: 12, column: 5 };
+
+  it("opens a file in the chosen editor at a click with the key, shows it in Finder with the Shift key as well, and copies its path from the card (scenarios C1 and C2)", () => {
+    const zed = { editor: "Zed" };
+    expect(linkClick("file", { ...none, meta: true }, true, zed)).toBe("editor");
+    expect(linkClick("file", { ...none, meta: true, shift: true }, true, zed)).toBe("finder");
+    expect(linkClick("file", none, true, zed)).toBeNull();
+    expect(linkClick("file", { ...none, ctrl: true }, true, zed)).toBeNull();
+    expect(linkCard(FILE, true, zed)).toEqual({
+      title: "/w/project/fix login/src/a.ts",
+      rows: [
+        { text: "Open in Zed", keys: "⌘ Click", act: "editor" },
+        { text: "Show in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+        { text: "Copy path", keys: "", act: "copy" },
+      ],
+    });
+  });
+
+  it('asks for an editor at a click with the key where none was chosen, and names the row "Open in an editor…" (scenario C3)', () => {
+    expect(linkClick("file", { ...none, meta: true }, true, "ask")).toBe("editor");
+    expect(linkClick("file", { ...none, meta: true, shift: true }, true, "ask")).toBe("finder");
+    expect(linkCard(FILE, true, "ask").rows).toEqual([
+      { text: "Open in an editor…", keys: "⌘ Click", act: "editor" },
+      { text: "Show in Finder", keys: "⇧ ⌘ Click", act: "finder" },
+      { text: "Copy path", keys: "", act: "copy" },
+    ]);
+  });
+
+  it("gives a file the clicks and the card of a path where no editor opens it (scenario C5)", () => {
+    for (const shift of [false, true]) expect(linkClick("file", { ...none, meta: true, shift }, true, "finder")).toBe("finder");
+    expect(linkCard(FILE, true, "finder")).toEqual({ ...linkCard(PATH, true), title: FILE.path });
+    // A file's link shows in Finder where no opener is named, as a path's does.
+    expect(linkClick("file", { ...none, meta: true }, true)).toBe("finder");
+  });
+
   it.each([true, false])("names on no row a key the click does not answer with that row's act (a Mac keyboard: %s)", (mac) => {
     // The click a row's keys name, read from the row's own words.
     const clickOf = (keys: string) => ({ meta: keys.includes("⌘"), ctrl: keys.includes("Ctrl"), shift: keys.includes("⇧") || keys.includes("Shift") });
     let named = 0;
-    for (const target of [WEB, WORK_ITEM, PATH]) {
-      for (const { keys, act } of linkCard(target, mac).rows) {
+    const cases: [LinkTarget, FileOpener | undefined][] = [
+      [WEB, undefined],
+      [WORK_ITEM, undefined],
+      [PATH, undefined],
+      [FILE, { editor: "Xcode" }],
+      [FILE, "ask"],
+      [FILE, "finder"],
+    ];
+    for (const [target, opener] of cases) {
+      for (const { keys, act } of linkCard(target, mac, opener).rows) {
         if (keys === "") continue;
         expect(keys.endsWith(" Click")).toBe(true);
-        expect(linkClick(target.kind, clickOf(keys), mac)).toBe(act);
+        expect(linkClick(target.kind, clickOf(keys), mac, opener)).toBe(act);
         named += 1;
       }
     }
-    expect(named).toBe(4);
+    expect(named).toBe(9);
   });
 });
 
@@ -4586,7 +4862,7 @@ describe("accounts in the window", () => {
     expect(paneTabs(LOGIN, [signIn])).toEqual([]);
     expect(inboxLine(LOGIN, [signIn], KINDS)).toEqual(inboxLine(LOGIN, [], KINDS));
     expect(lineAccount(LOGIN, { ...PROJECT, accountId: 2 }, [signIn], [], HELD)).toBe("");
-    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual(["Shell"]);
+    expect(runningSessions([LOGIN], [], [signIn], [], KINDS)).toEqual({ running: ["Shell"], queued: [] });
   });
 
   it("gives an account's menu a first choice that leaves the account to the setting above, named with the account it gives, then each account in the daemon's order", () => {
