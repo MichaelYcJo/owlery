@@ -77,7 +77,7 @@ Each new case is shown red before it is committed: against the tree without the 
 - `apps/desktop/src/daemon/agent-events.ts`: `CLAUDE_CODE` gains `StopFailure: "turn-failed"`, and `CLAUDE_CODE_SAID` gains `StopFailure: { text: "last_assistant_message" }`.
 - `apps/desktop/src/daemon/agent-state.ts#agentStateAfter`: the arm of `"permission"`, `"notification"` and `"interrupted"` gains `"turn-failed"`. The function's switch is exhaustive over `AgentEvent`, so the typecheck refuses a build that adds the value and no arm.
 - `apps/desktop/src/daemon/hooks.ts#HOOK_EVENTS`: gains `"StopFailure"`. The files `claude-hooks.json` and `claude-pane-<id>.json` of the run folder gain one key under `hooks`.
-- `apps/desktop/src/daemon/daemon.ts#agentEvent` does not change: it ends the log's watch and sets the state, its time and its text for any event that leaves the session not working.
+- `apps/desktop/src/daemon/agent-events.ts#agentEventFor` takes the hook's payload beside its name, so a `StopFailure` that carries `agent_id` maps to no event, and `apps/desktop/src/daemon/daemon.ts#agentEvent` passes the payload to it. Beyond that call, `agentEvent` does not change: it ends the log's watch and sets the state, its time and its text for any event that leaves the session not working.
 - `apps/desktop/test/fixtures/claude-stop-failure.json`: `{ "source": <the page's address>, "readAt": "2026-11-26", "claudeCode": "2.1.332", "taken": <the sentence of Scope item 5>, "payload": <the reference's example> }`.
 
 ## Rule changes

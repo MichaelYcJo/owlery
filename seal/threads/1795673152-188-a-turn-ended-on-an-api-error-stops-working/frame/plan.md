@@ -11,7 +11,7 @@ The work builds on four places, each a list or a switch that names the hook even
 - `apps/desktop/src/shared/protocol.ts:9`, `AgentEvent`.
 - `apps/desktop/src/daemon/agent-state.ts:14`, `agentStateAfter`: an exhaustive switch over `AgentEvent`.
 
-`Daemon#agentEvent` (`apps/desktop/src/daemon/daemon.ts:658`) needs no change. It ends the watch of the session log and writes the state, its time and its text for any mapped event that leaves the session not working.
+`Daemon#agentEvent` (`apps/desktop/src/daemon/daemon.ts:658`) changes in one call alone: it passes the hook's payload to `agentEventFor`. It ends the watch of the session log and writes the state, its time and its text for any mapped event that leaves the session not working.
 
 Constraints: the protocol names no vendor (`docs/architecture.md` *Rules that keep it portable*), so the hook's name stays in `agent-events.ts` and `hooks.ts`. The daemon outlives the app, so a pane launched under a daemon of an earlier build keeps a settings file without the new hook (`frame/design.md` *Scope*, Out).
 
