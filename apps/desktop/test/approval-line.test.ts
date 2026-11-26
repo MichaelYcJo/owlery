@@ -286,4 +286,22 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     // The sentence stands in the foot, after the seal's words.
     expect(await app.evaluate(`(() => { const says = document.getElementById("seal-says"); return [document.getElementById("view-seal").contains(says), Boolean(document.getElementById("view-seal-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);
   });
+
+  it('holds no "Ask" section in the view, and no list above the seal\'s place where the daemon lists no session of the work item and its chain holds no gate\'s run: the list of the daemon\'s chain stands between the column\'s text and the seal\'s place, hidden and taking no height', async () => {
+    // The stored work item's chain holds no stage, and the daemon started no session for it.
+    const stored = second.item("Stored")!;
+    await openView(stored);
+    await app.until(`document.getElementById("seal-says").textContent !== ""`, "the stored work item's view");
+    expect(
+      await app.evaluate(`(() => {
+        const list = document.getElementById("view-chain");
+        return {
+          section: ["ask", "ask-form", "ask-prompt", "ask-account", "ask-submit"].filter((id) => document.getElementById(id) !== null),
+          heading: [...document.querySelectorAll("#view-facts h2")].filter((head) => head.textContent === "Ask").length,
+          list: [list.tagName, list.getAttribute("aria-label"), list.hidden, list.childElementCount, list.getBoundingClientRect().height],
+          around: [list.previousElementSibling.id, list.nextElementSibling.id],
+        };
+      })()`),
+    ).toEqual({ section: [], heading: 0, list: ["UL", "The daemon's chain", true, 0, 0], around: ["view-scroll", "view-seal"] });
+  });
 });

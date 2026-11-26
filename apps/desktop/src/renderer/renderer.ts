@@ -63,7 +63,6 @@ import {
   chainNotifications,
   notificationFor,
   parkNotifications,
-  permissionNotifications,
   sealNotifications,
   pullRequestNotifications,
   notificationOpens,
@@ -1568,8 +1567,8 @@ function restore(workItemId: number): void {
 }
 
 /** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive, in the delete dialog and in the dialog that asks before the daemon ends, where one is open: a session that started or ended is one the dialog has to say. */
-function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
-  takeHeadless(headless, requestId);
+function takeHeadlessSession(headless: HeadlessInfo): void {
+  takeHeadless(headless);
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
@@ -1628,12 +1627,12 @@ function drawAccountsDialog(): void {
   if (accountsDialog.open) showAccounts();
 }
 
-/** Draws the Machine dialog where it is open, at a `machine` message, through the hold: its draw replaces the rows of its lists. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
+/** Draws the Machine dialog where it is open, through the hold: at a `machine` message, whose draw replaces the rows of its lists, and at an `inbox`, which carries the chain's stage that names a session that waits. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
 function drawMachineDialog(): void {
   if (MACHINE.dialog.open) showMachine();
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
@@ -1649,9 +1648,9 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     notifier.raise(notification.title, notification.body).onclick = () => onNotificationClick(session);
   }
-  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a request's, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions and its requests are answered and its chain is started again, where the lists still hold it.
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions are answered and its chain is started again, where the lists still hold it.
   const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
-  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
     notifier.raise(told.title, told.body).onclick = () => {
       void window.owlery.comeForward();
       if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
@@ -1659,6 +1658,8 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
   draws.draw(drawLists);
+  // The Machine dialog names a session that waits by its chain's stage, which an `inbox` after the `machine` that queued it carries. It is its own draw, not a part of `drawLists`, since a `machine` message draws both.
+  draws.draw(drawMachineDialog);
   // The repository a registration added is in these lists, and not in the ones its answer found.
   const late = registeredLate;
   registeredLate = undefined;
@@ -2027,9 +2028,6 @@ function onMessage(message: ServerMessage): void {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
       }
-      return;
-    case "asked":
-      takeHeadlessSession(message.headless, message.requestId);
       return;
     case "headless":
       takeHeadlessSession(message.headless);
