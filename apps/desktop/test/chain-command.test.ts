@@ -5,7 +5,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BASE_RECORDED, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
+import { BASE_RECORDED, ROUNDS_CEILING, earlierRunSays, stoppedSays, twiceFailedWhy } from "../src/daemon/chain";
 import { BASE_OPTION, NO_DEFAULT, USAGE, ceilingRefusesSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
 import { BROAD_GATE_NAME, MachineTurns } from "../src/daemon/machine-turns";
 import { TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
@@ -204,6 +204,12 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.said(["fix-pass", "--by", "the session", "--persons-word", "2"])).toMatchObject({ recorded: "fix-pass", round: 2, open: [] });
     expect(commitsAfterMain(on.repo).at(-1)).toMatchObject({ subject: "chore: record the fix pass of round 2" });
     expect(status(on.repo)).toEqual([]);
+  });
+
+  it("stops at the daemon's ceiling of rounds where the command's context names none, as the built command runs, and hands each fix pass below it (issue #246)", async () => {
+    const on = commandOn(cleanups);
+    await findingTo(on, ROUNDS_CEILING);
+    expect(await on.said(["owed"])).toEqual({ step: "ceiling", round: ROUNDS_CEILING, ceiling: ROUNDS_CEILING, open: [1] });
   });
 
   it("refuses what the daemon's chain refuses, each with its sentence and with nothing committed: a record the reader refuses, a subcommand for a step the records do not owe, a head that moved after the prompt was handed, and a change outside the work item's directory", async () => {
