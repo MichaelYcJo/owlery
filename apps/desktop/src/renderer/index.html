@@ -962,7 +962,7 @@
       <h2 class="head">Accounts</h2>
       <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
       <ul id="accounts-list" class="named whole"></ul>
-      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <!-- Hidden until this window starts a sign-in, the one its "Add an account" starts among them, and again once its pane is closed. -->
       <section id="accounts-sign-in" hidden>
         <h3 id="accounts-sign-in-head" class="caption"></h3>
         <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
@@ -973,11 +973,7 @@
       </section>
       <form id="accounts-form">
         <h3 class="caption">Add an account</h3>
-        <label>
-          Name
-          <span class="row"><input id="accounts-name" autocomplete="off" /></span>
-        </label>
-        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
+        <p class="says">Add an account opens Claude Code's sign-in, and the account is named from the login. Owlery makes its folder, which shares your skills, plugins, settings and conversations. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
         <p id="accounts-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>

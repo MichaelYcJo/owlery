@@ -195,7 +195,6 @@ const settingsAccountMenu = byId<HTMLSelectElement>("settings-account");
 const accountDialog = byId<HTMLDialogElement>("account-dialog");
 const accountMenu = byId<HTMLSelectElement>("account-menu");
 const accountsDialog = byId<HTMLDialogElement>("accounts-dialog");
-const accountsName = byId<HTMLInputElement>("accounts-name");
 const accountsError = byId("accounts-error");
 const accountsButton = byId<HTMLButtonElement>("accounts-button");
 const chainDialog = byId<HTMLDialogElement>("chain-dialog");
@@ -855,7 +854,7 @@ function askAccounts(message: (requestId: number) => ClientMessage): number {
   return requestId;
 }
 
-/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
+/** Takes the daemon's answer to a request of the Accounts dialog: `done` closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
 function takeAccountsAnswer(requestId: number, refusal: string | null): boolean {
   if (!accountsAsked.delete(requestId)) return false;
   if (refusal !== null) {
@@ -864,7 +863,6 @@ function takeAccountsAnswer(requestId: number, refusal: string | null): boolean 
     return true;
   }
   accountsError.textContent = "";
-  accountsName.value = "";
   renamingAccount = undefined;
   removingAccount = undefined;
   // The `accounts` that carries a change draws the list again, and a request that changed nothing sends none.
@@ -882,7 +880,6 @@ function openAccounts(): void {
   if (held.accounts === null || dialogOpen()) return;
   renamingAccount = undefined;
   removingAccount = undefined;
-  accountsName.value = "";
   accountsError.textContent = "";
   showAccounts();
   accountsDialog.showModal();
@@ -1024,19 +1021,25 @@ function showAccounts(): void {
   );
 }
 
-/** Adds an account whose folder the daemon makes, under the name typed. The person signs it in from its row. */
+/** Adds an account whose folder the daemon makes, with no name: the daemon opens its sign-in at once, drawn under the list, and names the account from the login once the sign-in ends with one. */
 function addMadeAccount(): void {
-  const name = accountsName.value;
-  askAccounts((requestId) => ({ type: "addAccount", requestId, name }));
+  askedSignIn(
+    askAccounts((requestId) => ({ type: "addAccount", requestId, ...SIGN_IN_SIZE })),
+    null,
+  );
 }
 
-/** Adds the account a person hands over: the folder chosen in the system's dialog, under the name typed. A dialog that chose no folder adds nothing. */
+/** Adds the account a person hands over: the folder chosen in the system's dialog, which the daemon names from the folder's login, or by its last name where it holds none. A dialog that chose no folder adds nothing. */
 function addAccount(): void {
-  const name = accountsName.value;
   void window.owlery.pickFolder().then((folder) => {
     if (folder === null || !accountsDialog.open) return;
-    askAccounts((requestId) => ({ type: "addAccount", requestId, name, folder }));
+    askAccounts((requestId) => ({ type: "addAccount", requestId, folder }));
   });
+}
+
+/** Takes the daemon's word on how this window's add ended: where no account named from a login came of it, the dialog says why in its refusal line. */
+function takeAddEnded(says: string | null): void {
+  if (says !== null && accountsDialog.open) accountsError.textContent = says;
 }
 
 /** Opens the dialog that takes a repository's icon, with the one it has selected in the field. */
@@ -1881,12 +1884,16 @@ function onMessage(message: ServerMessage): void {
       held.agentNotice = message.notice;
       showStatus();
       return;
+    case "addEnded":
+      // This window's add ended: the `accounts` before it carries the account where one came of it.
+      takeAddEnded(message.says);
+      return;
     case "started":
       tell("");
       // A sign-in pane is drawn in the Accounts dialog, which keeps receiving its output.
       if (accountsAsked.delete(message.requestId)) {
         takeStarted(message.session);
-        takeSignInStarted(message.requestId, message.session.id);
+        takeSignInStarted(message.requestId, message.session);
         return;
       }
       takeStarted(message.session);

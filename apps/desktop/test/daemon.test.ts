@@ -7106,9 +7106,12 @@ describe("the caps on the machine", () => {
   it("refuses to remove an account a queued session would run under, naming the session (scenario 9)", async () => {
     const { roleAdapter } = noting();
     const { c } = await atCap({ roleAdapter });
-    const folder = mkdtempSync(join(tmpdir(), "owlery-account-"));
-    cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
-    c.send({ type: "addAccount", requestId: 1, name: "Work", folder });
+    // The account is named by its folder's last name.
+    const holder = mkdtempSync(join(tmpdir(), "owlery-account-"));
+    cleanups.push(() => rmSync(holder, { recursive: true, force: true }));
+    const folder = join(holder, "Work");
+    mkdirSync(folder);
+    c.send({ type: "addAccount", requestId: 1, folder });
     await c.message("done", (m) => m.requestId === 1);
     c.send({ type: "ask", requestId: 2, workItemId: 1, prompt: "Which file?", accountId: 1 });
     expect((await c.message("asked", (m) => m.requestId === 2)).headless).toMatchObject({ state: "queued", accountId: 1 });
@@ -7555,15 +7558,15 @@ describe("a Claude Code pane and the owl chain", () => {
     mkdirSync(join(own, "plugins"), { recursive: true });
     writeFileSync(join(own, "settings.json"), `${JSON.stringify({ enabledPlugins: { "notes@own": true } })}\n`);
     writeFileSync(join(own, "plugins", "installed_plugins.json"), '{ "version": 2, "plugins": {} }\n');
-    const handed = handedWithPlugin(join(made.base, "handed"));
-    const linked = join(made.base, "linked");
+    const handed = handedWithPlugin(join(made.base, "Handed"));
+    const linked = join(made.base, "Linked");
     mkdirSync(linked);
     symlinkSync(join(own, "settings.json"), join(linked, "settings.json"));
     symlinkSync(join(own, "plugins"), join(linked, "plugins"));
     const before = heldIn(own, handed, linked);
     const { c, runDir, settings, given } = await launching(made);
-    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
-    c.send({ type: "addAccount", requestId: 2, name: "Linked", folder: linked });
+    c.send({ type: "addAccount", requestId: 1, folder: handed });
+    c.send({ type: "addAccount", requestId: 2, folder: linked });
     await c.message("accounts", (m) => m.accounts.length === 3);
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Three logins", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
@@ -7591,10 +7594,10 @@ describe("a Claude Code pane and the owl chain", () => {
 
   it("sends a repository's chain read in the folder of the account a new pane of it takes, reads it again when the repository's account or the default changes, and launches a pane of a work item set to an account whose folder enables the plugin with nothing of the bundle while no answer is kept (scenario 16)", async () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
-    const handed = handedWithPlugin(join(made.base, "handed"));
+    const handed = handedWithPlugin(join(made.base, "Handed"));
     // The commits are read at the hello and not again within the case, so a chain read anew is read by the request that changed the account.
     const { c, settings, given } = await launching(made, { commitPollMs: 3_600_000 });
-    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
+    c.send({ type: "addAccount", requestId: 1, folder: handed });
     await c.message("accounts", (m) => m.accounts.length === 2);
     c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Asked by the repository", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
@@ -7928,11 +7931,14 @@ describe("a Claude Code pane and the owl chain", () => {
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
     writeFileSync(join(own, "CLAUDE.md"), "# mine\n");
-    const handed = sharing(join(made.base, "handed"), join(own, "projects"));
-    const logins = claudeLogins({ locate: () => Promise.reject(new Error("no CLI runs in a case")), envOf: () => ({}), ownFolder: () => own });
+    const handed = sharing(join(made.base, "Handed"), join(own, "projects"));
+    // The made account's sign-in is a process that ends at once with a login no email names, and the folder handed over holds none.
+    const logins: AccountLogins = { ...claudeLogins({ locate: () => Promise.reject(new Error("no CLI runs in a case")), envOf: () => ({}), ownFolder: () => own }), signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), status: (at) => Promise.resolve({ signedIn: at !== handed, loginEndsAt: null, name: null }) };
     const { d, c, url, runDir, settings, carried, launches, answer, size } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins }) });
-    c.send({ type: "addAccount", requestId: 1, name: "Handed", folder: handed });
-    c.send({ type: "addAccount", requestId: 2, name: "Made" });
+    // The folder handed over takes its id once the agent has answered of it, so the made one is asked for after that answer.
+    c.send({ type: "addAccount", requestId: 1, folder: handed });
+    await answer(1);
+    c.send({ type: "addAccount", requestId: 2, cols: 80, rows: 12 });
     await c.message("accounts", (m) => m.accounts.length === 3);
     const madeFolder = join(runDir, "accounts", "2");
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Moved", kind: "shell", cols: 80, rows: 24 });
@@ -7981,11 +7987,11 @@ describe("a Claude Code pane and the owl chain", () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const projects = join(made.base, "projects");
     mkdirSync(projects);
-    const withIt = handedWithPlugin(sharing(join(made.base, "with"), projects));
-    const without = sharing(join(made.base, "without"), projects);
+    const withIt = handedWithPlugin(sharing(join(made.base, "With"), projects));
+    const without = sharing(join(made.base, "Without"), projects);
     const { c, runDir, settings, carried, launches, answer } = await changing(made);
-    c.send({ type: "addAccount", requestId: 1, name: "With", folder: withIt });
-    c.send({ type: "addAccount", requestId: 2, name: "Without", folder: without });
+    c.send({ type: "addAccount", requestId: 1, folder: withIt });
+    c.send({ type: "addAccount", requestId: 2, folder: without });
     await c.message("accounts", (m) => m.accounts.length === 3);
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Plugins follow", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
@@ -8010,8 +8016,8 @@ describe("a Claude Code pane and the owl chain", () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
-    const same = sharing(join(made.base, "same"), join(own, "projects"));
-    const other = join(made.base, "other");
+    const same = sharing(join(made.base, "Same"), join(own, "projects"));
+    const other = join(made.base, "Other");
     mkdirSync(join(other, "projects"), { recursive: true });
     let release = (): void => {};
     const held = new Promise<void>((resolve) => {
@@ -8020,8 +8026,8 @@ describe("a Claude Code pane and the owl chain", () => {
     cleanups.push(() => release());
     const logins: AccountLogins = { furnish: () => {}, signIn: () => Promise.resolve({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), status: () => Promise.resolve({ signedIn: false, loginEndsAt: null, name: null }), signOut: () => Promise.resolve() };
     const { c, launches, answer, pid } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own, logins, work: () => held }) });
-    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
-    c.send({ type: "addAccount", requestId: 2, name: "Other", folder: other });
+    c.send({ type: "addAccount", requestId: 1, folder: same });
+    c.send({ type: "addAccount", requestId: 2, folder: other });
     await c.message("accounts", (m) => m.accounts.length === 3);
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Refused", kind: "shell", cols: 80, rows: 24 });
     const { workItem, session: shell } = await c.message("workItemCreated");
@@ -8046,7 +8052,7 @@ describe("a Claude Code pane and the owl chain", () => {
     // Two folders that keep no conversations at all keep none in common either.
     for (const [requestId, name] of [[20, "Bare"], [21, "Bare too"]] as const) {
       mkdirSync(join(made.base, name));
-      c.send({ type: "addAccount", requestId, name, folder: join(made.base, name) });
+      c.send({ type: "addAccount", requestId, folder: join(made.base, name) });
       await answer(requestId);
     }
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 22, workItemId: workItem.id, accountId: 3 });
@@ -8089,11 +8095,11 @@ describe("a Claude Code pane and the owl chain", () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
-    const same = sharing(join(made.base, "same"), join(own, "projects"));
-    const broken = sharing(join(made.base, "broken"), join(own, "projects"));
+    const same = sharing(join(made.base, "Same"), join(own, "projects"));
+    const broken = sharing(join(made.base, "Broken"), join(own, "projects"));
     const { d, c, launches, answer } = await changing(made, { sessionLogWaitMs: 100 }, broken);
-    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
-    c.send({ type: "addAccount", requestId: 2, name: "Broken", folder: broken });
+    c.send({ type: "addAccount", requestId: 1, folder: same });
+    c.send({ type: "addAccount", requestId: 2, folder: broken });
     await c.message("accounts", (m) => m.accounts.length === 3);
     c.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Left behind", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
@@ -8130,11 +8136,11 @@ describe("a Claude Code pane and the owl chain", () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
-    const same = sharing(join(made.base, "same"), join(own, "projects"));
-    const gone = sharing(join(made.base, "gone"), join(own, "projects"));
+    const same = sharing(join(made.base, "Same"), join(own, "projects"));
+    const gone = sharing(join(made.base, "Gone"), join(own, "projects"));
     const { d, c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }) });
-    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
-    c.send({ type: "addAccount", requestId: 2, name: "Gone", folder: gone });
+    c.send({ type: "addAccount", requestId: 1, folder: same });
+    c.send({ type: "addAccount", requestId: 2, folder: gone });
     await c.message("accounts", (m) => m.accounts.length === 3);
     const item = async (requestId: number, title: string) => {
       c.send({ type: "createWorkItem", requestId, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 });
@@ -8179,9 +8185,9 @@ describe("a Claude Code pane and the owl chain", () => {
     const made = repositoryWith(".github/workflows/owlery-seal.yml");
     const own = configOf(made);
     mkdirSync(join(own, "projects"), { recursive: true });
-    const same = sharing(join(made.base, "same"), join(own, "projects"));
+    const same = sharing(join(made.base, "Same"), join(own, "projects"));
     const { c, launches, answer } = await changing(made, { roleAdapter: fakeAdapter({ defaultLoginFolder: own }), endWaitMs: 50 });
-    c.send({ type: "addAccount", requestId: 1, name: "Same", folder: same });
+    c.send({ type: "addAccount", requestId: 1, folder: same });
     await c.message("accounts", (m) => m.accounts.length === 2);
     c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Slow", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");

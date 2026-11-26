@@ -195,18 +195,13 @@ export class AccountStore {
   }
 
   /**
-   * Adds an account the person hands over by its config folder, under the
-   * next id, and answers with it. It throws, with a sentence a person reads
-   * and nothing added, for an empty name, a path that is not absolute, a
-   * path where no folder stands, and a folder that is already an account's,
-   * however the two paths spell it. The name is kept without the white space
-   * at its ends, with a number where another account holds it (`unheld`),
-   * and the folder as its path names it, without a slash at its end. Nothing
-   * is made, read or written inside the folder.
+   * The path an account handed over by `folder` is kept under: the folder as
+   * its path names it, without a slash at its end. It throws, with a sentence
+   * a person reads, for a path that is not absolute, a path where no folder
+   * stands, and a folder that is already an account's, however the two paths
+   * spell it. Nothing is read or written inside the folder.
    */
-  addHanded(name: string, folder: string, adapter: string): StoredAccount {
-    const named = name.trim();
-    if (named === "") throw new Error("An account needs a name.");
+  handedPath(folder: string): string {
     if (!isAbsolute(folder)) throw new Error(`The folder of an account is an absolute path, and "${folder}" is not one.`);
     const path = resolve(folder);
     let isFolder: boolean;
@@ -219,24 +214,22 @@ export class AccountStore {
     const real = realOf(path);
     const holder = this.stored.accounts.find((account) => realOf(account.folder) === real);
     if (holder) throw new Error(`The folder ${folder} is already the account "${holder.name}".`);
-    const account: StoredAccount = { id: this.stored.nextId++, name: this.unheld(named), adapter, folder: path, made: false, signedIn: null, loginEndsAt: null, limits: [] };
-    this.stored.accounts.push(account);
-    this.write();
-    return account;
+    return path;
   }
 
   /**
-   * Adds an account whose config folder the store makes, under the next id,
-   * and answers with it: the folder `makeFolder` makes. The name is kept as
-   * `addHanded` keeps one. It throws, with a sentence a person reads and
-   * nothing added, for an empty name, and where the store keeps no run
-   * folder to make the folder in.
+   * Adds an account the person hands over by its config folder, under the
+   * next id, the name the daemon gives it and the agent's word on its login,
+   * none where the agent said nothing, and answers with it. It throws, with
+   * a sentence a person reads and nothing added, for any folder `handedPath`
+   * refuses. The name is kept without the white space at its ends, with a
+   * number where another account holds it (`unheld`), and the folder as
+   * `handedPath` answers it. Nothing is made, read or written inside the
+   * folder.
    */
-  addMade(name: string, adapter: string): StoredAccount {
-    const named = name.trim();
-    if (named === "") throw new Error("An account needs a name.");
-    const { id, folder } = this.makeFolder();
-    const account: StoredAccount = { id, name: this.unheld(named), adapter, folder, made: true, signedIn: null, loginEndsAt: null, limits: [] };
+  addHanded(name: string, folder: string, adapter: string, login: { signedIn: boolean | null; loginEndsAt: number | null } = { signedIn: null, loginEndsAt: null }): StoredAccount {
+    const path = this.handedPath(folder);
+    const account: StoredAccount = { id: this.stored.nextId++, name: this.unheld(name.trim()), adapter, folder: path, made: false, signedIn: login.signedIn, loginEndsAt: login.loginEndsAt, limits: [] };
     this.stored.accounts.push(account);
     this.write();
     return account;
