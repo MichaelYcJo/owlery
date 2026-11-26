@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -5678,12 +5678,12 @@ describe("headless sessions", () => {
     const c = connected[0]!;
     c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    return { daemon: d, url, clients: connected, c, workItem };
+    return { daemon: d, url, clients: connected, c, workItem, repo: made.repo };
   }
 
-  /** A fake adapter that also records where each session was started, and how many runs were stopped. */
+  /** A fake adapter that also records what each session was started with, and how many runs were stopped. */
   function watched(inner: RoleAdapter = fakeAdapter()) {
-    const seen = { started: [] as { prompt: string; cwd: string; role?: RoleStage }[], stopped: 0 };
+    const seen = { started: [] as Parameters<RoleAdapter["start"]>[0][], stopped: 0 };
     const adapter: RoleAdapter = {
       name: inner.name,
       features: inner.features, notice: inner.notice,
@@ -5727,12 +5727,81 @@ describe("headless sessions", () => {
     }
   });
 
+  /** Waits until `folder` is gone, five seconds at most, and says whether it is. */
+  async function gone(folder: string): Promise<boolean> {
+    const end = Date.now() + 5000;
+    while (existsSync(folder) && Date.now() < end) await pause(20);
+    return !existsSync(folder);
+  }
+
   it("starts the session in the work item's worktree, with the prompt and the role it was given", async () => {
     const { adapter, seen } = watched();
     const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     await d.startRoleSession(workItem.id, "Where am I?", PROOFER);
     await c.message("headless", (m) => m.headless.state === "finished");
-    expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree, role: PROOFER }]);
+    expect(seen.started).toEqual([expect.objectContaining({ prompt: "Where am I?", cwd: workItem.worktree, role: PROOFER })]);
+  });
+
+  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a scratch folder of their own under the run folder, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
+    const runDir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-scratch-run-")));
+    cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+    // An earlier daemon's session 1 left its folder, whose ids counted from 1 as this daemon's do.
+    mkdirSync(join(runDir, "scratch", "1"), { recursive: true });
+    writeFileSync(join(runDir, "scratch", "1", "stale.txt"), "left");
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { daemon: d, c, workItem, repo } = await withWorkItem({ roleAdapter: adapter, runDir });
+    const worktree = realpathSync(workItem.worktree);
+    const common = realpathSync(join(repo, ".git"));
+    for (const pair of ROLE_STAGES) await d.startRoleSession(workItem.id, "Q", pair);
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    const byRole = new Map(seen.started.map((started) => [started.role?.role, started]));
+    const scratchOf = (id: number) => join(runDir, "scratch", String(id));
+    expect(byRole.get("proofer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: PROOFER, commands: { write: [scratchOf(1)], refuse: [worktree] }, scratch: scratchOf(1) });
+    expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
+    expect(byRole.get("sealer")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [scratchOf(3)], refuse: [worktree] }, scratch: scratchOf(3) });
+    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree] } });
+    // A scratch folder for each session that writes in one, and for none other, each empty.
+    expect(readdirSync(join(runDir, "scratch")).sort()).toEqual(["1", "3"]);
+    for (const id of [1, 3]) {
+      expect(readdirSync(scratchOf(id))).toEqual([]);
+      expect(statSync(scratchOf(id)).mode & 0o777).toBe(0o700);
+    }
+  });
+
+  it("removes a session's scratch folder once the session's process has ended: one that finished, one whose result failed, one that exited without a result, one whose start the adapter refused, and one stopped; and makes it under the system's temporary folder where it has no run folder (scenario 4 of #127)", async () => {
+    const temporary = realpathSync(tmpdir());
+    for (const fail of [undefined, "result", "exit", "start"] as const) {
+      const held: boolean[] = [];
+      const adapter = fakeAdapter({ ...(fail === undefined ? {} : { fail }), work: () => void held.push(existsSync(adapter.starts.at(-1)?.scratch ?? "")) });
+      const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      await d.startRoleSession(workItem.id, "Q", PROOFER);
+      await c.message("headless", (m) => m.headless.state !== "working");
+      const scratch = adapter.starts[0]?.scratch ?? "";
+      expect(scratch.startsWith(join(temporary, "owlery-scratch-")), String(fail)).toBe(true);
+      expect(await gone(scratch), String(fail)).toBe(true);
+      // The finished session's work saw its folder.
+      if (fail === undefined) expect(held).toEqual([true]);
+    }
+    const adapter = fakeAdapter({ delayMs: 60_000 });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const headless = await d.startRoleSession(workItem.id, "Q", { role: "sealer", stage: "seal" });
+    await c.until(() => (adapter.starts.length === 1 ? true : undefined));
+    const scratch = adapter.starts[0]?.scratch ?? "";
+    expect(existsSync(scratch)).toBe(true);
+    c.send({ type: "stopHeadless", requestId: 2, id: headless.id });
+    await c.message("headless", (m) => m.headless.state === "failed");
+    expect(await gone(scratch)).toBe(true);
+  });
+
+  it("starts no crafter's session where git names no repository's folder for its worktree, and says so", async () => {
+    const adapter = fakeAdapter();
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    rmSync(join(workItem.worktree, ".git"));
+    await d.startRoleSession(workItem.id, "Q", { role: "crafter", stage: "fix-pass" });
+    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
+    expect(headless.state).toBe("failed");
+    expect(headless.error).toMatch(/^git named no repository's folder for the worktree, so the crafter's commands have no place to write: /u);
+    expect(adapter.starts).toEqual([]);
   });
 
   it("launches a role: the session starts as the pair it is given, every `headless` and a later `ready` carry the pair, and the answer names it", async () => {
@@ -5745,13 +5814,13 @@ describe("headless sessions", () => {
       expect(headless.answer).toBe('As the crafter at the stage fix-pass, you asked: "Which owl?"');
       expect(told(c).map((h) => h.role)).toEqual([role, role, role]);
     }
-    expect(seen.started).toEqual([{ prompt: "Which owl?", cwd: workItem.worktree, role }]);
+    expect(seen.started).toEqual([expect.objectContaining({ prompt: "Which owl?", cwd: workItem.worktree, role })]);
     expect((await (await client(url)).message("ready")).headless.map((h) => h.role)).toEqual([role]);
   });
 
   it("launches each pair the protocol lists", async () => {
     const { adapter, seen } = watched();
-    const { daemon: d, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     expect(ROLE_STAGES).toEqual([
       { role: "proofer", stage: "round" },
       { role: "crafter", stage: "fix-pass" },
@@ -5759,7 +5828,9 @@ describe("headless sessions", () => {
       { role: "orchestrator", stage: "judgment" },
     ]);
     for (const pair of ROLE_STAGES) expect((await d.startRoleSession(workItem.id, "Q", pair)).role).toEqual(pair);
-    expect(seen.started.map((started) => started.role)).toEqual([...ROLE_STAGES]);
+    // A crafter's run starts once git has named the repository's folder its commands write in, so the runs start in no set order.
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    expect(seen.started.map((started) => started.role)).toEqual(expect.arrayContaining([...ROLE_STAGES]));
   });
 
   it("holds a role session to its limit and to a client's stop as any other", async () => {
@@ -6505,13 +6576,21 @@ describe("headless sessions", () => {
     it.each([
       ["proofer", { role: "proofer", stage: "round" }],
       ["sealer", { role: "sealer", stage: "seal" }],
-      ["orchestrator", { role: "orchestrator", stage: "judgment" }],
-    ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report", async (name, role) => {
+    ] as const)("allows a %s's command, which the sandbox bounds to its scratch folder, and refuses its write inside the worktree and every other call, with a reason that names the role and says to name the step in the report (scenario 5 of #127)", async (name, role) => {
       const { held, adapter } = asking();
       const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
       held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
       const answers = await answersOf(d, c, workItem.id, role);
-      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, `refused: Bash: ${NO_COMMAND(name)}`, `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, "allowed: Bash", `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      for (const answer of answers.filter((line) => line.startsWith("refused: "))) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
+    });
+
+    it("refuses every request of the orchestrator, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report (scenario 5 of #127)", async () => {
+      const { held, adapter } = asking();
+      const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
+      const answers = await answersOf(d, c, workItem.id, { role: "orchestrator", stage: "judgment" });
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE("orchestrator")}`, `refused: Bash: ${NO_COMMAND("orchestrator")}`, `refused: Read: ${NO_CALL("orchestrator")}`, `refused: WebFetch: ${NO_CALL("orchestrator")}`]);
       for (const answer of answers) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
     });
 

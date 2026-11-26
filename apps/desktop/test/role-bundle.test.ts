@@ -438,7 +438,9 @@ describe("the built app's role bundle", () => {
 
     const bundleDir = join(APP_DIR, "dist", "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
-    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
+    // The proofer's commands write in the scratch folder the daemon made for the session, and are refused the worktree and the bundle.
+    const scratch = join(realpathSync(runDir), "scratch", String(headless.id));
+    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), bundleDir] }, scratch }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");

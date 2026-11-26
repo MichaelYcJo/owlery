@@ -163,6 +163,20 @@ describe("the fake adapter", () => {
     expect(events).toEqual([]);
   });
 
+  it("records what each start was given, in order, the places of a role's commands and its scratch folder among them, and a start it was told to refuse too (#127)", async () => {
+    const adapter = fakeAdapter();
+    const commands = { write: ["/run/scratch/1"], refuse: ["/nowhere"] };
+    await adapter.start({ prompt: "Q", cwd: "/nowhere", role: { role: "proofer", stage: "round" }, commands, scratch: "/run/scratch/1" }, () => {});
+    await adapter.start({ prompt: "R", cwd: "/nowhere", refresh: true }, () => {});
+    expect(adapter.starts).toEqual([
+      { prompt: "Q", cwd: "/nowhere", role: { role: "proofer", stage: "round" }, commands, scratch: "/run/scratch/1" },
+      { prompt: "R", cwd: "/nowhere", refresh: true },
+    ]);
+    const refusing = fakeAdapter({ fail: "start" });
+    await expect(refusing.start({ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"] } }, () => {})).rejects.toThrow("the fake adapter was told not to start");
+    expect(refusing.starts).toEqual([{ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"] } }]);
+  });
+
   it("reports nothing more once its run is stopped, and its stop settles at once, the same promise at each call", async () => {
     const events: RoleEvent[] = [];
     const started = await fakeAdapter({ pieces: () => ["one", "two"], delayMs: 100 }).start({ prompt: "Q", cwd: "/nowhere" }, (event) => void (event.type !== "session" && events.push(event)));

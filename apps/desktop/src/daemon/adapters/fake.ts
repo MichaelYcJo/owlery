@@ -5,7 +5,7 @@
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import type { RoleStage, Usage } from "../../shared/protocol";
-import type { AccountLogins, PermissionAction, RoleAdapter, RoleEvent, RoleFeature } from "./adapter";
+import type { AccountLogins, PermissionAction, RoleAdapter, RoleEvent, RoleFeature, RoleStart } from "./adapter";
 
 /** One request a fake session raises. With `withdraw` the session withdraws it, and waits for no answer to it. */
 export interface FakeAsk {
@@ -45,10 +45,15 @@ export interface FakeAdapterOptions {
   session?: (prompt: string, role?: RoleStage) => { id: string; model: string | null };
 }
 
-export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
+/** The fake adapter, and what each of its starts was given, in their order, a start it was told to refuse among them: the places of a role's commands and its scratch folder, which it launches nothing to hold, are read there. */
+export type FakeAdapter = RoleAdapter & { readonly starts: RoleStart[] };
+
+export function fakeAdapter(options: FakeAdapterOptions = {}): FakeAdapter {
   let sessions = 0;
+  const starts: RoleStart[] = [];
   return {
     name: "fake",
+    starts,
     features: options.features ?? ["role-tools", "permission-requests", "accounts", "limit-refresh"],
     notice: () => Promise.resolve(options.notice ?? null),
     defaultLoginFolder: () => options.defaultLoginFolder ?? null,
@@ -61,7 +66,9 @@ export function fakeAdapter(options: FakeAdapterOptions = {}): RoleAdapter {
       }
     },
     ...(options.logins ? { logins: options.logins } : {}),
-    start({ prompt, cwd, role, accountDir, refresh }, listener) {
+    start(given, listener) {
+      starts.push({ ...given });
+      const { prompt, cwd, role, accountDir, refresh } = given;
       if (options.fail === "start") return Promise.reject(new Error("the fake adapter was told not to start"));
       const asks = options.asks?.(prompt, role) ?? [];
       const under = accountDir === undefined ? "" : ` under the config folder ${accountDir}`;

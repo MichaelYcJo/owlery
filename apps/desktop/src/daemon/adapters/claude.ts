@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import { terminalEnv } from "../pty";
 import { writeWholeFile } from "../whole-file";
 import type { RoleStage, Usage } from "../../shared/protocol";
-import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun } from "./adapter";
+import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun, RoleStart } from "./adapter";
 import { CONFIG_DIR_VARIABLE, claudeLogins, conversationsIn } from "./claude-accounts";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
 
@@ -71,13 +71,20 @@ function firstOf(text: string): string {
  * reaches it, and adds the role bundle as a plugin of this session alone,
  * the role's agent of it, the file of rules appended to the system prompt,
  * and the bundle's folder among the folders the session works in, so it
- * reads the bundle's other documents. A refresh of an account's usage, which
+ * reads the bundle's other documents. A role launch also turns Claude Code's
+ * own sandbox on in the settings it passes, which on macOS runs each command
+ * under `sandbox-exec`: its commands write only in `sandbox.allowWrite`,
+ * never in `sandbox.denyWrite`, which wins over the first, and reach no host
+ * but the loopback; no command can ask to run outside it, a session whose
+ * sandbox cannot start does not start, and a sandboxed command still asks
+ * the adapter as any other does. Its scratch folder, where it has one, joins
+ * the folders the session works in. A refresh of an account's usage, which
  * has no role, holds no tool at all, takes one turn and writes no
  * transcript. No other launch is made: a session with neither a role nor a
  * refresh would keep Claude Code's default tools, with no grant to answer
  * its calls.
  */
-export function claudeArgs(cwd: string, launch: { bundleDir: string; agent: string; rulesFile: string; tools: readonly string[] } | "refresh"): string[] {
+export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[] {
   return [
     "-p",
     "--input-format",
@@ -89,7 +96,7 @@ export function claudeArgs(cwd: string, launch: { bundleDir: string; agent: stri
     "--setting-sources",
     "",
     "--settings",
-    JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false }),
+    JSON.stringify({ disableAllHooks: true, autoMemoryEnabled: false, ...(launch === "refresh" ? {} : { sandbox: sandboxOf(launch.sandbox) }) }),
     "--strict-mcp-config",
     "--permission-mode",
     "default",
@@ -99,8 +106,32 @@ export function claudeArgs(cwd: string, launch: { bundleDir: string; agent: stri
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
-    ...(launch === "refresh" ? [] : [launch.bundleDir]),
+    ...(launch === "refresh" ? [] : [launch.bundleDir, ...(launch.scratch === null ? [] : [launch.scratch])]),
   ];
+}
+
+/** What a role launch adds to the arguments: the bundle, the role's agent, its rules file and its tools, the folders its commands write in and are refused, and its scratch folder or none. */
+export interface RoleLaunch {
+  bundleDir: string;
+  agent: string;
+  rulesFile: string;
+  tools: readonly string[];
+  sandbox: { allowWrite: readonly string[]; denyWrite: readonly string[] };
+  scratch: string | null;
+}
+
+/** The `sandbox` block of a role launch's settings, as Claude Code names its keys. */
+function sandboxOf(places: RoleLaunch["sandbox"]): unknown {
+  return {
+    enabled: true,
+    failIfUnavailable: true,
+    allowUnsandboxedCommands: false,
+    // A sandboxed command still reaches the adapter as a request, so the daemon's grant answers it.
+    autoAllowBashIfSandboxed: false,
+    filesystem: { allowWrite: places.allowWrite, denyWrite: places.denyWrite },
+    // No domain is allowed, and a host is refused with no request; a local server a test starts is reached on the loopback.
+    network: { strictAllowlist: true, allowedDomains: [], allowLocalBinding: true },
+  };
 }
 
 /**
@@ -456,9 +487,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
    * What a role launch adds to the arguments, after writing the pair's rules
    * file: whole, so a session that starts meanwhile never reads half of one,
    * and again at each launch, so it holds the bundle as it stands. The folder
-   * and the file are the user's alone, as the daemon's other files are.
+   * and the file are the user's alone, as the daemon's other files are. The
+   * session's commands write where `commands` lets them, and are refused the
+   * bundle's folder beside what `commands` refuses.
    */
-  const launchOf = (role: RoleStage): { bundleDir: string; agent: string; rulesFile: string; tools: string[] } => {
+  const launchOf = (role: RoleStage, commands: RoleStart["commands"], scratch: string | undefined): RoleLaunch => {
+    if (!commands) throw new Error("the Claude adapter launches a role only with the places its commands may write, and was given none");
     const { bundleDir, rulesDir } = options;
     if (!bundleDir) throw new Error("this adapter was given no role bundle, so it launches no role");
     if (!rulesDir) throw new Error("this adapter was given no folder for the rules files, so it launches no role");
@@ -466,7 +500,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
     const rulesFile = join(rulesDir, rulesFileName(role));
     writeWholeFile(rulesFile, text);
-    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role) };
+    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role), sandbox: { allowWrite: commands.write, denyWrite: [...commands.refuse, bundleDir] }, scratch: scratch ?? null };
   };
 
   // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.
@@ -475,10 +509,10 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
   return {
     name: "claude",
     features: ["role-tools", "permission-requests", "accounts", "limit-refresh"],
-    async start({ prompt, cwd, role, accountDir, refresh }, listener) {
+    async start({ prompt, cwd, role, accountDir, refresh, commands, scratch }, listener) {
       // The daemon launches a role's session or a refresh. A session that is neither would hold Claude Code's default tools with no grant to answer its calls, so none is launched.
       if (!role && refresh !== true) throw new Error("the Claude adapter launches a role or a refresh of an account's usage, and was given neither");
-      const launch = role ? launchOf(role) : "refresh";
+      const launch = role ? launchOf(role, commands, scratch) : "refresh";
       const { cli, path, configDir } = await located();
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
       // signal to the group also reaches what the CLI started in it, such as a tool's shell. The account's folder, and

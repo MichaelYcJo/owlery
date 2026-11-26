@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
@@ -94,13 +95,13 @@ import { writeRecordFile } from "./record-writer";
 import { SessionLogWatch } from "./session-log";
 import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
 import { repositoryFileText } from "./repository-file";
-import { verdictOn } from "./role-grants";
+import { grantOf, verdictOn } from "./role-grants";
 import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
-import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
+import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, gitFolderOf, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
 /** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
@@ -178,6 +179,9 @@ export const REFRESH_PROMPT = "Reply with the single word OK.";
 
 /** How many of the headless sessions that ended the daemon keeps, where the options name no number. */
 export const HEADLESS_KEPT = 50;
+
+/** The folder of the run folder that holds a scratch folder for each headless session whose commands write in one, named by the session's id. */
+const SCRATCH_FOLDER = "scratch";
 
 /** How long the daemon's close waits for the commits under way in the worktrees before it ends each one that still runs, where the options name no time. */
 export const COMMIT_CLOSE_WAIT_MS = 3000;
@@ -318,7 +322,7 @@ export interface DaemonOptions {
   pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
-  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the caps a person set on the machine, in `limits.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`; without it the first eight are in memory alone, and no heavy command's run is kept. */
+  /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the caps a person set on the machine, in `limits.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`, and the scratch folder of each headless session whose commands write in one, in `scratch/`; without it the first eight are in memory alone, no heavy command's run is kept, and each scratch folder is made under the system's temporary folder. */
   runDir?: string;
   /** The load average of the last minute, read at each call, or null where none is read. A daemon given none reads no load, and reads no broad gate's run as over the machine's load by its load. */
   load?: () => number | null;
@@ -454,6 +458,8 @@ interface HeadlessSession {
   account: { id: number; name: string } | null;
   /** Whether the session's entry is in the ledger, or the session gets none: one whose adapter rejected its start, and one that ended while it waited for the machine, so that nothing ran. A session gets one entry at most. */
   entered: boolean;
+  /** The scratch folder the daemon made for the session's commands to write in, from its start until its process has ended and the folder is being removed, and null otherwise and for a session whose grant names none. */
+  scratch: string | null;
 }
 
 /** How often the daemon reads the resident memory of the agents while one lives. */
@@ -2360,7 +2366,64 @@ export class Daemon {
     return stopping;
   }
 
-  /** Starts a headless session's run through the adapter, under the account's folder where one is given, and keeps what its events say of it. */
+  /**
+   * The folders a role session's commands may write in and are refused, by
+   * the role's grant, as real paths, and the scratch folder made for it, or
+   * null where the grant names none. A crafter's commands write in the
+   * worktree and the repository's git folder, which a commit in a linked
+   * worktree writes, and are refused that folder's `hooks` and `config`, so
+   * no hook that would run outside the sandbox is planted. A proofer's and a
+   * sealer's write in the scratch folder alone, and the orchestrator's
+   * nowhere; each of those is refused the worktree. Each refused folder is
+   * named, so the bound holds whatever the sandbox lets a command write by
+   * default. It rejects, with a sentence a person reads, where git names no
+   * repository's folder for a crafter's worktree.
+   */
+  private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[] }; scratch: string | null }> {
+    const worktree = realpathSync.native(cwd);
+    const { commands } = grantOf(session.role);
+    if (commands === "worktree") {
+      let gitFolder: string;
+      try {
+        gitFolder = await gitFolderOf(cwd);
+      } catch (error) {
+        throw new Error(`git named no repository's folder for the worktree, so the ${session.role.role}'s commands have no place to write: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      return { commands: { write: [worktree, gitFolder], refuse: [join(gitFolder, "hooks"), join(gitFolder, "config")] }, scratch: null };
+    }
+    if (commands === "nowhere") return { commands: { write: [], refuse: [worktree] }, scratch: null };
+    session.scratch = this.makeScratch(session.info.id);
+    return { commands: { write: [session.scratch], refuse: [worktree] }, scratch: session.scratch };
+  }
+
+  /**
+   * Makes the scratch folder of the headless session `id`, readable by the
+   * person alone, and gives its real path: `scratch/<id>/` of the run
+   * folder, empty, or a folder of its own under the system's temporary
+   * folder where the daemon has no run folder.
+   */
+  private makeScratch(id: number): string {
+    const { runDir } = this.options;
+    if (runDir === undefined) return realpathSync.native(mkdtempSync(join(tmpdir(), "owlery-scratch-")));
+    const folder = join(runDir, SCRATCH_FOLDER, String(id));
+    // A folder of this id was left by an earlier daemon, whose ids counted from 1 as this one's do.
+    rmSync(folder, { recursive: true, force: true });
+    mkdirSync(join(runDir, SCRATCH_FOLDER), { recursive: true, mode: 0o700 });
+    mkdirSync(folder, { mode: 0o700 });
+    return realpathSync.native(folder);
+  }
+
+  /** Removes the session's scratch folder, once: the session's process has ended, or never started. A folder that cannot be removed is named in the daemon's log. */
+  private dropScratch(session: HeadlessSession): Promise<void> {
+    const { scratch } = session;
+    if (scratch === null) return Promise.resolve();
+    session.scratch = null;
+    return rm(scratch, { recursive: true, force: true }).catch((error: unknown) => {
+      console.error(`the scratch folder ${scratch} was not removed: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  /** Starts a headless session's run through the adapter, under the account's folder where one is given, with the places its commands write in, and keeps what its events say of it. */
   private startHeadless(session: HeadlessSession, cwd: string, accountDir: string | undefined): void {
     const { info } = session;
     const failed = (message: string): void => {
@@ -2376,6 +2439,8 @@ export class Daemon {
         return;
       }
       if (event.type === "exit") {
+        // The process has ended, so nothing writes in the scratch folder any more.
+        void this.dropScratch(session);
         // A session that left the list is told to nobody again.
         if (this.headless.get(info.id) !== session) return;
         const printed = info.errorOutput !== event.errorOutput;
@@ -2416,14 +2481,22 @@ export class Daemon {
       info.answer = event.text;
       this.headlessChanged(session);
     };
-    session.started = this.options.roleAdapter.start({ prompt: session.prompt, cwd, role: session.role, ...(accountDir === undefined ? {} : { accountDir }) }, onEvent).then(
-      (run) => {
+    const given = this.commandsOf(session, cwd).then(({ commands, scratch }) =>
+      this.options.roleAdapter.start({ prompt: session.prompt, cwd, role: session.role, commands, ...(scratch === null ? {} : { scratch }), ...(accountDir === undefined ? {} : { accountDir }) }, onEvent),
+    );
+    session.started = given.then(
+      (adapted) => {
+        // Whoever stops the run, its process has ended once the stop settles, and the scratch folder goes with it. A second stop gives the same promise.
+        let stopping: Promise<void> | undefined;
+        const run: RoleRun = { ...adapted, stop: () => (stopping ??= adapted.stop().then(() => this.dropScratch(session))) };
         // A daemon that closed while the adapter was starting stopped no run of this session, and neither did what ended the session meanwhile.
         if (this.closed || info.state !== "working") void run.stop();
         else session.run = run;
         return run;
       },
       (error: unknown) => {
+        // No process started, so nothing writes in the scratch folder.
+        void this.dropScratch(session);
         // A session that ended while its adapter was starting keeps what ended it, and is told to nobody again. One the
         // list no longer holds ended first: the bound drops only ended sessions, and a delete or a removal stops its
         // working ones before it drops them.
@@ -2486,6 +2559,7 @@ export class Daemon {
       chain,
       account: accountId === null ? null : { id: accountId, name: account?.name ?? SYSTEM_DEFAULT_NAME },
       entered: false,
+      scratch: null,
     };
     const start = (): void => {
       session.limit = setTimeout(() => void this.stopHeadless(session, "the session reached its time limit and was stopped", "limit"), this.options.headlessLimitMs ?? HEADLESS_LIMIT_MS);
