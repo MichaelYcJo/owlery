@@ -3088,11 +3088,13 @@ export class Daemon {
    * words wait for a session. Otherwise it commits the record alone
    * (`worktrees.ts#commitPaths`) under the daemon's bounds, with the trailer
    * `Seal-Routing:` that names the work item's directory and a subject made
-   * from what is owed (`wordSubject`). Where the commit fails or is ended,
-   * the file stands written, the next try is due `wordRetryMs` after the
-   * failure, twice that after the next one, and so on to
+   * from what is owed (`wordSubject`). Where the commit fails, or its limit
+   * ends it, the file stands written, the next try is due `wordRetryMs`
+   * after the failure, twice that after the next one, and so on to
    * `WORD_RETRY_MAX_MS`, and the log says why where the reason is another
-   * than the last failed try's. After the try it reads what is owed again,
+   * than the last failed try's. A commit the close ended is no failure, and
+   * the try ends there: the file stands written, the log says nothing, and
+   * the next daemon finds the word in the tree. After any other try it reads what is owed again,
    * and every client is sent the lists where `wordOwed` changed. A work item
    * nothing runs in (`whyNoRun`) is not tried. `Daemon#decided` and
    * `Daemon#park` write no word of the person's: the stage that calls them
