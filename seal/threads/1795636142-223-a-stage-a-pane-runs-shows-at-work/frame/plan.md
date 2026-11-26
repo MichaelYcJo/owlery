@@ -1,0 +1,54 @@
+# Implementation Plan: 1795636142-223-a-stage-a-pane-runs-shows-at-work (#223)
+
+## Technical context
+
+The tree as read at `8b026e67`.
+
+The approval line is composed in the window from the work item alone (`renderer/view.ts#approvalPlaces`, `:707-717`): an open question of the role, then the daemon chain's newest stage (`#byChain`, `:681-688`), then the records (`#byRecords`, `:645-670`). The daemon's chain is the only source of "at work", and no client message starts it (`shared/protocol.ts:497-498`), so a stage a pane's session runs reads "Not started" until its record is committed.
+
+The chain command (`daemon/chain-command.ts`) is a short process: `owed` prints the step and exits, the session then runs the role for minutes, and `round`, `fix-pass` or `seal` commits the answer. Its one channel to the daemon is the turn socket (`daemon/turn-socket.ts`), whose server reads one first line per connection and destroys a connection whose line is no `ask` (`:205-232`). A pane's environment names the pane in `OWLERY_PANE_ID` (`daemon/hooks.ts:173`). The daemon composes each work item per send in `workItemOf` (`daemon.ts:2892-2911`), with `machineWait` read from the keeper's queue as the pattern of a field it stores none of. A pane leaves the lists at `closePane` (`:2026-2036`), and its process's end reaches `terminal.onExit` (`:2588-2622`).
+
+The approach: the chain command tells the daemon, on the turn socket, the stage `owed` handed and that it ended; the daemon holds one stage per work item for a live pane of it, drops it when that pane ends, and sends it as `WorkItem.paneStage`, with a broad gate the command runs read from the keeper's queue; the window draws it with the notes the daemon's chain already uses.
+
+**Failure scenario, six months on.** A pane's session runs `owed` to look at the step and then does something else in the same pane, or its subagent dies without the session noticing, so the proofer's place reads "Round 1" at work for as long as the pane lives, which can be days. The line then says the opposite of the truth in the other direction. What bounds it is the pane's end, the next call of the command, and the person's eye on the pane, which shows no subagent; `frame/questions.md` Q1 holds whether a bound by time or by the pane's agent state is wanted. A second scenario: milestone 3's daemon chain (issue #55) starts in a worktree where a pane's stage is held. The daemon chain's running stage stands over the pane's (*Scope* item 6), so the line stays right, but two parties then run one worktree, which `docs/architecture.md` *What a session survives* refuses for a resume and nothing here refuses for a start. #55's frame owns that refusal.
+
+## Alternatives considered
+
+| Approach | Failure scenario | Verdict |
+|---|---|---|
+| A. `owed` tells the daemon the stage it hands, on the turn socket; `round`, `fix-pass`, `seal`, and an `owed` that hands no stage end it; the pane's end drops it. | The session leaves a stage in a live pane without another call: the place reads at work until the pane ends (the failure scenario above). A line lost on the socket leaves the place as today, "Not started", and the next call corrects it. | Chosen. It reads the round from the records through the command's own `stepOwed`, so the note is exact; it reads no hook, which `docs/product.md` *The seal* item 1 excludes; and it needs one line per stage on a socket both sides already open. |
+| B. The bundle's hooks report a subagent of the bundle's agents starting and stopping: `PreToolUse` and `PostToolUse` of the subagent tool, or `SubagentStart` and `SubagentStop`. | The pane's session may run a role in the background (`role-bundle/skills/seal/SKILL.md` *A role is a subagent of the bundle*), and the subagent tool's call then returns at once, so `PostToolUse` ends the stage at its start. `SubagentStart` and `SubagentStop` are not among `HOOK_EVENTS` (`hooks.ts:15-25`). A hook names the agent's type and not the round, so the daemon would read the records again to word the note. An `owlery:proofer` a person starts outside the chain would read as a round. And the line would read a hook, which the policy excludes. | Rejected. |
+| C. The daemon watches the prompt files `owed` writes under `chain/<work item>/` of its run folder, and takes a file's time as the stage's start. | Nothing removes a prompt file, so a file of an earlier round stands as a stage that runs. A file names no pane, so a pane's end ends nothing. A file kept beside the tree to stand for a state is what `skills/core/SKILL.md` *The rule a mechanism is kept against* refuses. | Rejected. |
+| D. The daemon reads the stage from the pane's agent state: a pane of the work item that works, and the step the records owe, give the place at work. | The pane works at the build itself before any stage, and the place would say "Round 1" while the session writes code. A role run in the background leaves the pane's turn ended while the stage works. The state comes from hooks. | Rejected. |
+| E. Keep the structure: the line reads the daemon's chain and the records alone, as milestone 2 decided. | The issue's scenario stands: for the whole of a round the line says "Not started" while the pane says the proofer works. The premise that kept the structure, that the daemon's chain is how a person runs the chain, no longer holds: since #181 (2026-11-24, `docs/architecture.md` *Code runs the order, the orchestrator judges*) the pane's chain is, and no client message starts the daemon's (`protocol.ts:497-498`). | Rejected. The premise was checked and is false in this release. |
+| F. Replace the structure: put a pane's stage into `WorkItem.chain` as a stage of a chain the daemon makes up. | `Chain.state` `running` drives the inbox line, `chainNotifications`, the commit of the person's word ("the work item's chain is running", `protocol.ts:331-336`), the refusal of a branch's rename while the chain runs (`protocol.ts:910`) and the list of the daemon's chain at the view's foot, and the chain is stored across restarts (`CHAIN_STAGES_KEPT`). A pane's stage would block a rename, be stored though no pane survives, and list a session the daemon does not run. | Rejected. A field of its own reads in one function and nowhere else. |
+| G. A socket of its own for the stage lines. | A second listener and a second path for one line per stage, where the turn socket is already the chain command's one channel and is found the same way. | Rejected. |
+| H. An open stage also ends after a time without a call. | No measurement gives the time. The issue says a round takes "often many minutes", and a limit under the longest round turns the place back to "Not started" in the middle of it, which is this issue's defect again. | Rejected; `frame/questions.md` Q1. |
+| I. Leave a pane's broad gate out, and show only the three roles' stages. | The sealer's place says "Gate passed" or "Not started" while the pane's gate runs, which can take as long as the suite, and the rule becomes "a pane's stage shows, but its gate does not". The keeper already lists the gate's ask with its folder, place and time, so it costs one read in `workItemOf`. | Rejected; the gate is *Scope* item 5. |
+| J. `stage-ended` ends only a stage of the kind and round it names. | A `round` that records round 1 while the daemon holds round 1 ends it either way; a mismatch means the records moved past the held stage, which is then over too. Naming the kind and round adds fields that change nothing. | Rejected; `stage-ended` names the folder alone. |
+
+## Phases
+
+| Phase | Delivers | Verified by | Status |
+|---|---|---|---|
+| 1 | *Scope* items 1, 2, 3, 4, 5 and 9, with their cases of item 7 in `test/chain-command.test.ts`, `test/heavy-run.test.ts` and `test/daemon.test.ts`: scenarios 1 to 6 and 10 at the daemon's side. | `cd apps/desktop && node scripts/test-in-electron.mjs test/chain-command.test.ts test/heavy-run.test.ts`, and `test/daemon.test.ts` narrowed with `-t` to the new cases; each new case seen red; `git grep -n -i 'for one thing' -- apps` prints nothing. | |
+| 2 | *Scope* items 6 and 8, with their cases of item 7 in `test/view.test.ts`: scenarios 1, 2, 6, 7 and 8 at the window's side. | `cd apps/desktop && node scripts/test-in-electron.mjs test/view.test.ts`; `test/approval-line.test.ts` in the built-app batch at the phase's end, once; each new case seen red. | |
+
+## Overlap with the release
+
+The spawn names #217, about to merge, and #215, #216 and #133, which follow in one pull request. Their frames were read in `/Users/yc/Documents/GitHub/owlery-wt-217` at `f9e4f756` and `/Users/yc/Documents/GitHub/owlery-wt-216` at `990edec5`, with their diffs against `origin/release/v0.0.5` (executed: `git diff --stat` and the hunks of the files below). The items merged into the release (#224, #259, #262, #263, #264, #265, #267, #268, #272) stand in the tree this frame read.
+
+| Work item | Where both change | Merges first | Grounds |
+|---|---|---|---|
+| #217 | `shared/protocol.ts` `WorkItem`: #217 makes `branch` `string \| null` and adds `ownsBranch`; this work adds `paneStage` after `wordOwed`. `daemon/chain-command.ts`: #217 rewrites the refusal of `here` for a detached `HEAD`; this work calls the socket after `here`, and an `owed` that `here` refuses sends nothing, so a work item with no branch holds no stage. `daemon/daemon.ts`, in other functions. `renderer/view.ts`, in other functions. | #217 | It is sealed and about to merge, and the meetings are text in different lines of the same files. |
+| #215, #216 and #133, one pull request | `daemon/main.ts`: #133 rewrites the lines around `TurnServer.listen` (`main.ts:94-95`, the stop's record beside it), and this work changes that call and its comment. `daemon/daemon.ts`: #216's `readOutside` and #133's answer to an unknown request, in other functions. `shared/protocol.ts`: #216's `readLists` among the client messages. `renderer/view.ts` and `test/view.test.ts`: #215's sidebar functions, in other parts. #133 counts live panes and working agents (`daemon.stopCounts`); a pane's stage needs a live pane, which that count already holds, so it reads nothing new. | #215, #216 and #133 | Their build stands, and they are likelier to be sealed before this work is built. The one adjacent text is the `main.ts` call, which this work's merge of the release resolves. |
+
+## Operational impact
+
+No migration, no new environment variable, no new dependency. The turn socket gains two lines. A chain command and a daemon of two builds work together as before: a daemon of an earlier build closes a stage line's connection, and the command prints what it printed; a command of an earlier build sends no line, and the place reads as today. A window of an earlier build reads no `paneStage`. This work moves no version.
+
+## Judgments of the run
+
+| Date | Judgment | Grounds | Judged against |
+|---|---|---|---|
+| | | | |

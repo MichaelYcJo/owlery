@@ -1,0 +1,17 @@
+# Questions for the planner: 1795636142-223-a-stage-a-pane-runs-shows-at-work (#223)
+
+The work item's `routing.md` answers `Automation` `yes`, so every row below runs on its default, and nothing waits on an answer.
+
+The judgments the issue left open that the tree answered, each with its grounds where it is pointed at:
+
+- How the daemon learns that a pane's session runs a stage: `plan.md` *Alternatives considered*, rows A to D.
+- Whether the line keeps reading the daemon's chain and the records alone: `plan.md` *Alternatives considered*, rows E and F.
+- When a stage the session abandoned stops reading as at work: `frame/design.md` *Scope* item 4, and `plan.md` *Alternatives considered*, rows A and H.
+- Whether a pane's broad gate shows on the sealer's place: `plan.md` *Alternatives considered*, row I.
+- Whether the approval line's row of `docs/design.md` is written in this pull request: `frame/design.md` *Scope* item 10.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | A stage a live pane's session leaves without calling the chain command again reads at work until the pane ends. Should it also stop reading at work after some time, or once the pane's own agent state says the session neither works nor waits for a subagent? How long a pane may say a role works with no word from the chain command is what the product should be. No document of the tree names a bound, the policy has the line read no hook, and no probe can say which bound a person wants. | a person | `pane's end`: the stage ends at the pane's end, the next call of the chain command, or a recorded answer, and a stage left in a live pane reads at work while the pane lives. `a time`: it also ends after a time with no call, which no measurement sets, and a round longer than the time reads "Not started" again in its middle. `the pane's state`: it also ends once the pane's session neither works nor waits, read from its hooks, which changes the rule of `docs/product.md` *The seal* item 1, and a role run in the background ends it at once. | `pane's end` | open |
+| Q2 | Does a real pane's session run `owed` right before it starts each role, as `role-bundle/skills/seal/SKILL.md` *The loop* says, so the place's age counts from the role's start, and does it ever run `owed` only to look? Only a run of the real CLI answers it, and no real `claude` session may spend the owner's usage in this run. | a measurement | `walk`: the owner's next walk of a pane's chain reads the line against the pane at each stage. `probe`: a run through the real CLI on fixture records, when the owner allows the usage. | The session follows the document: `owed` right before each role, and no `owed` only to look. | open |
+| Q3 | Does the line `owed` writes on the turn socket reach the daemon before the chain command's process exits, when the command runs under Electron's Node as the launcher runs it? Under the system's Node it does (`frame/design.md` *Grounding*, the row of the probe), and the frame runs no Electron, which the phase's case does. | the work | `waits for the write`: the command resolves once the write ended, as *Data & interfaces* says. `waits for the close`: the command waits for the connection to close, at most a second, where the first loses the line. | `waits for the write`, with the second taken where the phase's case shows the line lost. | open |
