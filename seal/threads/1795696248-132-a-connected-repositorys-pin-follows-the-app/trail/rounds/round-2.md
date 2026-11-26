@@ -54,6 +54,12 @@ The window cannot tell a refused entry from a not-read one, because an entry car
 
 In `docs/design.md:443`, "under the caption "Work items whose records Owlery's readers refuse"" becomes "under the caption "Work items whose records Owlery's readers refuse or did not read"", and "the reader's sentence" becomes "its entry's sentence". In `docs/design.ko.md:443`, the caption's words change the same way, and "읽기 도구의 문장을" becomes "그 작업의 문장을".
 
+```seal
+verdict: fixed 34829cb3
+location: `apps/desktop/src/renderer/renderer.ts:1355-1356`, `apps/desktop/src/renderer/index.html:585`
+answer: Applied as the round gives it, with no new field. Where any entry is named, the head reads "Work items whose records Owlery's readers refuse or did not read" and the sentence is `readBut`, "… of each work item of this repository but those named here as not read, …". Where none is named, `read` stays. The case at `view.test.ts:5207` carries the new name and expects the new head and `READ_BUT`. It also builds a plan whose one entry is a work item not read, and expects the same head and sentence. It was seen red with the old head in place (executed, 1 failed), and `seal mutate` putting back the old head and `read` went red twice (executed). Both rows at line 443 take the new caption, and "its entry's sentence" (`그 작업의 문장을`). The docstrings of `RecordsWords.unread` and `recordsDialog`, `renderer.ts#showRecords` and the CSS comment at `index.html:585` say "refuse or did not read" and "its entry's sentence" too. Both `git grep` runs of the evidence line, run again after the commit, print `view.ts:2685` and `:2696`, `view.test.ts:5203`, `:5213` and `:5216`, both rows, `changelog.md:8` and the round records. `view.ts:2685` and `view.test.ts:5203` are the sentence for a plan that names none, which holds.
+```
+
 ### 2. A work item whose worktree is gone is still left out, and the dialog says its records were read; scenario G says it is named
 
 ```seal
@@ -83,6 +89,12 @@ Precondition: `existsSync` follows a link, so a worktree that is a link to a fol
 The fix also reaches the statements that call every not-read entry's sentence git's. The `git grep` on "git's sentence" printed `frame/design.md:38`, `:64`, `:85` and `:109`. The Korean rule text at `frame/design.md:114` says the same in other words ("git의 문장과 함께"), and so do `protocol.ts:112` and the docstring at `daemon.ts:2889-2892` ("git's words"). The grep is a sample, since a statement in other words escapes it. In each of those places, the not-read entry is named "with the sentence that says why its records could not be read" in place of git's sentence. *Scope* item 6 then reads, in place of its second and third sentences: "It holds each work item of the repository that is not archived and has a branch, where `standingOf` at the head the daemon last read of its branch throws a `ChainStop`, with the reader's sentence; each whose head the daemon has not read yet, with the sentence that its records were not read yet; each whose worktree's folder is gone, and each whose reading throws anything else, with the sentence that says why and the words that whether the moved check refuses its records is not known. A work item whose worktree stands and holds no directory for its branch is read as one with no records." Scenario G's third work item stays as it reads. The fix makes it true, and the case at `:2108` adds the broken link beside it.
 
 The fix leaves one part of the class. A worktree that stands but whose working tree no longer holds the work item's directory, while the branch's head does, still reads as a work item with no records. The last sentence of the *Scope* item 6 text above states that limit, so the frame no longer claims the list is whole there.
+
+```seal
+verdict: fixed 34829cb3
+location: `apps/desktop/src/shared/protocol.ts:112`, `seal/threads/1795696248-132-a-connected-repositorys-pin-follows-the-app/changelog.md:8`, `seal/threads/1795696248-132-a-connected-repositorys-pin-follows-the-app/gaps.md`
+answer: The code half is applied as the round gives it. `unreadRecords` names a work item whose worktree's folder is gone, checked with `existsSync(item.worktree)` after the head is found, with "Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item <id> is gone: <folder>". A case of the group "the records place of a repository" in `daemon.test.ts` commits a work item's records, waits for the daemon to read the head, then removes the worktree's folder. It was seen red against the code before the fix, with `unread` `[]` (executed). `seal mutate` dropping the check went red (executed), and the group passes, 10 cases (executed). The docstring of `unreadRecords` and the comment on `RecordsPlan.unread` at `protocol.ts:112` no longer say "git's words". They name the sentence that says why, and the docstring states the limit, a worktree that stands without its directory. `changelog.md:8` drops "never" and states that limit, and `gaps.md` *Not done* gains it. The frame lines are the framer's fold at `666fd599`. The `git grep` on "git's sentence", run again after the commit outside the round records, prints nothing. `git grep -F "git's words" -- apps docs` prints other functions' docstrings, and `daemon.test.ts:2108`, whose case breaks the `.git` link and does get git's words.
+```
 
 ### 3. `setUpRecords` reads the workflow before the plan has refused a link, a pipe or an oversized file at its path
 
@@ -119,6 +131,12 @@ Within the frame, *Scope* item 5 says the setup "makes the plan again and refuse
 ```
 
 Precondition: the comparison is of the text decoded as UTF-8. Two files that differ only in bytes that are not UTF-8, each decoded to U+FFFD, compare equal. The read at `:593` stays `readFileSync`, because the plan has just found a plain file there, and the restore keeps the raw bytes. `repositoryFileText` is already imported at `records-place.ts:15`. A case of `records-place.test.ts`, beside the one at `:1011`, places a committed workflow, takes the plan, replaces the file with a named pipe (`mkfifo`), and expects `setUpRecords` to reject with the plan's blocked sentence. Against `62b2880e` the case waits on the pipe until its timeout, which is how it is seen red.
+
+```seal
+verdict: fixed 34829cb3
+location: `seal/threads/1795696248-132-a-connected-repositorys-pin-follows-the-app/gaps.md:15`
+answer: Applied as the round gives it. `beforePlan` reads through `repositoryFileText` and is null for whatever that refuses, the write's comparison is of UTF-8 text with a comment on that precondition, and the docstring of `setUpRecords` says the text is read as the plan reads a person's file. A case of `records-place.test.ts`, beside the one on an edit saved during the plan, replaces the committed workflow with a named pipe after the plan, and expects the plan's refusal `differs(WORKFLOW)`. Its limit is 2 seconds. A `perl` writer it starts opens the pipe after 3 seconds and is killed by its PID in the case's cleanup, so a read that waits ends and nothing hangs. Against the code before the fix it failed with "Test timed out in 2000ms" (executed, seen red). After the fix it passes, and `records-place.test.ts` and `view.test.ts` pass, 635 cases (executed). `seal mutate` restoring `readFileSync` before the plan, and dropping the text comparison, each went red (executed). No `perl` process was left (executed, `pgrep`). `gaps.md:15` now says the text is read through `repositoryFileText` and compared as UTF-8.
+```
 
 ## Confirmations
 
