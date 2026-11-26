@@ -704,8 +704,8 @@ function byChain(role: Role, workItem: WorkItem, state: "working" | "failed"): R
  * role's place works, with the note and the words of the stage's kind and
  * the time the daemon was first told of it, or its broad gate asked for its
  * turn, as the time its age counts from. The daemon's own broad gate asks
- * for its turn as a pane's does, so while the daemon's chain runs, its
- * running stage says the place and the pane's stage says none.
+ * for its turn as a pane's does, so while the daemon's chain runs a stage,
+ * that stage says the place and the pane's stage says none.
  */
 function byPane(role: Role, workItem: WorkItem): Reached | null {
   const stage = workItem.paneStage ?? null;
