@@ -37,7 +37,7 @@ Not run by the framer: no test, no linter, no typecheck, no broad gate and no sc
 
 In scope:
 
-1. **"Add an account" takes no name and opens the sign-in at once.** The press sends `addAccount` with the size of the pane and no name. The daemon makes the folder `accounts/<id>` of its run folder, lends it the person's names as it does today, and starts the sign-in pane for it in the same request. It answers with `started`. Where the adapter signs no account in, or cannot find its agent, the daemon refuses with a sentence, removes the folder it made and keeps nothing.
+1. **"Add an account" takes no name and opens the sign-in at once.** The press sends `addAccount` with the size of the pane and no name. The daemon makes the folder `accounts/<id>` of its run folder, lends it the person's names as it does today, and starts the sign-in pane for it in the same request. It answers with `started`. Where the adapter signs no account in, the daemon refuses with a sentence before it makes any folder. Where it cannot find its agent, the daemon refuses with a sentence, removes the folder it made and keeps nothing.
 2. **A folder whose first sign-in has not ended is no account.** The daemon does not list it among the accounts, and it cannot be set on a repository, a work item or a session, made the default, renamed, removed or signed in again by a request. `accounts.json` holds its id under `adding`, so the folder is accounted for when the daemon stops before the sign-in ends.
 3. **The end of that sign-in pane decides the account, on the agent's word.** The daemon asks the adapter's `status` of the folder, as it does today at a sign-in pane's end.
    - A login stands: the folder becomes an account, signed in, named as item 4 says, and the daemon closes the sign-in pane.
@@ -76,7 +76,7 @@ Out of scope:
 | H. A handed folder is never removed | Given an account handed over and signed out. When its row's sign-in is cancelled or fails. Then the account and its folder stand. Given an `accounts.json` that names an id under `adding` whose folder is not `accounts/<id>` of the run folder, the daemon removes nothing when it settles that id. | A case of the store in `accounts.test.ts`. It is shown red with the store's check of the made path taken out. |
 | I. A daemon stopped during a login | Given an add whose login is held. When the daemon stops and starts again. Then it asks `status` of the folder once and applies scenario A, B or D to it. | A case in `accounts.test.ts` over one run folder and two daemons. |
 | J. A folder not yet an account takes no setting | Given an add whose login is held. When a client names the id in `setDefaultAccount`, `renameAccount`, `removeAccount`, `signIn`, `setRepository` or `start`. Then each is refused with "No account `<id>` is kept." | A case in `accounts.test.ts`. |
-| K. The dialog | Given the built app with a CLI stand-in. When the person opens Accounts and presses "Add an account". Then the form holds no field, the sign-in section is shown with the head "Signing in to a new account", "Add an account" is disabled, and once the stand-in's login ends the list holds a row named by its email that reads "Signed in". | A built-app case in `apps/desktop/test/theme-controls.test.ts`, which the orchestrator's broad gate runs. |
+| K. The dialog | Given the built app with a CLI stand-in. When the person opens Accounts and presses "Add an account". Then the form holds no field, the sign-in section is shown with the head "Signing in to a new account", "Add an account" is disabled, and once the stand-in's login ends the list holds a row named by its email that reads "Signed in". | A built-app case in `apps/desktop/test/theme-controls.test.ts`, run once at phase 2's end and again by the orchestrator's broad gate. |
 | L. No name field is left | After the build, `git grep -n -e 'accounts-name' -e 'accountsName' -- apps/desktop` prints nothing. | The search. Its run at `c6ea6fb9` and the account of each line it printed are in *Grounding*. |
 | M. The policy row and the screenshots | The row "An account's name" states the flow in both editions. The run writes each view of *Scope* item 11 in each appearance of each theme, and the pull request carries them. | The broad gate's comparison of the two editions' headings and table rows. The proofer reads the two rows and the shots against `docs/design.md`. |
 | N. A real login | The owner presses "Add an account" in the built app and signs in. The row is named by the account's email. | Nobody in the run: `gaps.md`, answered by the owner. |
@@ -97,6 +97,7 @@ Out of scope:
 
 - No login: "The sign-in ended with no login, so no account was added."
 - The agent could not say: "Claude Code did not say whether the sign-in left a login, so the account is kept as "`<name>`". Check its sign-in from its row." The agent's own sentence follows it.
+- A login that names no email: "Claude Code named no email for the login, so the account is kept as "`<name>`". Rename it from its row."
 
 **The window** (`apps/desktop/src/renderer/index.html`, `renderer.ts`, `sign-in-pane.ts`).
 
