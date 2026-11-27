@@ -51,6 +51,11 @@ and replace the `to:` line at `:125` with:
 
 Each `from:` line stays as it is. `git grep -n -F` finds both, word for word, at `docs/architecture.md:291` and `docs/architecture.ko.md:291` (`executed`).
 
+```seal
+verdict: fixed 7ae3bab4
+answer: The orchestrator replaced the two `to:` lines at `frame/design.md:120` and `:125` with the round's text, word for word; both `from:` lines are unchanged. Records alone.
+```
+
 ## Confirmations
 
 ```seal
