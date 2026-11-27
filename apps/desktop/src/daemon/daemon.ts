@@ -89,7 +89,7 @@ import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
-import { type Held, RepositoryStore, type StoredRepository, type StoredWorkItem } from "./repositories";
+import { type Held, RepositoryStore, setAsideNotice, type StoredRepository, type StoredWorkItem } from "./repositories";
 import { writeRecordFile } from "./record-writer";
 import { SessionLogWatch } from "./session-log";
 import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
@@ -578,6 +578,8 @@ export class Daemon {
   private agentNotice: string | null = null;
   // How many times the adapter was asked for its notice. The answer of the last ask is the one kept.
   private noticeAsks = 0;
+  // What the store did with a `repositories.json` it could not read at the daemon's start, as the sentence a person reads, or null where it read its file or found none. It does not change while the daemon runs.
+  private readonly storeNotice: string | null;
   // The work items whose chain is running, by their ids, each with the promise of its run's end. A chain is here from its start until it rests, between two stages too, when no session of it works.
   private readonly chains = new Map<number, Promise<void>>();
   // The broad gates that asked for their turn on the machine and have not ended, by their work items' ids: those that wait and those whose command runs. A work item's chain runs one stage at a time, so it holds one at most.
@@ -612,6 +614,8 @@ export class Daemon {
 
   constructor(private readonly options: DaemonOptions) {
     this.store = new RepositoryStore(options.runDir, options.now);
+    const setAside = this.store.setAside();
+    this.storeNotice = setAside === null ? null : setAsideNotice(setAside);
     this.accounts = new AccountStore(options.runDir);
     // A setting that names an account the daemon keeps none of, as one whose account left the file, is cleared, so the
     // next one above is taken and an account added later under that id takes no setting it was never given.
@@ -994,7 +998,7 @@ export class Daemon {
     // A client that connects reads the load and the free disk as they are now.
     this.readMachineNow();
     const machine = this.machineNow();
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...(this.storeNotice === null ? {} : { storeNotice: this.storeNotice }), ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -1071,7 +1075,7 @@ export class Daemon {
             const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its folder is, the number it got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
-            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
+            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost, or was refused and stated no counts, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start. A refused file that states its counts keeps them (`repositories.ts#RepositoryStore`), so no id given after it is one of that file's.
             this.times.drop([stored.item.id]);
             this.flushTimes();
             // What an earlier work item's broad gate printed is kept under its id too, and is none of this one's.
@@ -1707,7 +1711,7 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
           return;
         }
-        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
+        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost or was refused stating no counts, are not read as its own.
         const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
