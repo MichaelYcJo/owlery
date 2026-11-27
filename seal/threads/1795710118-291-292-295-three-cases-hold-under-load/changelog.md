@@ -1,5 +1,0 @@
-# Changelog: three cases of the desktop suite hold under load
-
-Issues #291, #292 and #295. Three cases of the desktop suite failed when the machine was busy, on this Mac's broad gates and in the `check` job on GitHub's runner, and each failure blocked a pull request whose work was sound. Nothing Owlery does changed; each case now waits for what the daemon does by itself, or runs fewer chains, and asserts what it asserted before.
-
-- **For a contributor:** the inbox case that counts git calls after a client's close waits for the daemon's read under way to end, in place of a fixed 100 ms (#291). The repository removal case reads the disk once the work item's branch is made, so the branch the daemon makes at the first commit no longer lands between the case's two reads (#292). The pull request stage's failures were one case that ran fourteen sealed chains close to its 60-second limit. They are now six cases split by kind of failure, and on 2026-11-27, on a loaded Mac, the longest of them took 22 seconds (#295).
