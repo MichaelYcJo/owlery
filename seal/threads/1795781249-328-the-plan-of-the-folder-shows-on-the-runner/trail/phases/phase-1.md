@@ -4,7 +4,7 @@
 
 **No frame stands.** The work item is on the ladder's second rung, so it has no `frame/design.md` and no `frame/plan.md`, and `gaps.md` *Scope confirmation* stands for the plan. `routing.md` *Why this way* gives the failure as a wait for the plan of the folder on the hosted runner, and that holds: the runner's dump below shows it.
 
-**The handoff's leading reading, that something #127 changed behaves differently on the runner, is refuted.** `git diff d323b45a^ d323b45a --stat -- apps/desktop/src/renderer apps/desktop/src/main apps/desktop/test/built-app.ts apps/desktop/test/chain-choice.test.ts` prints nothing, so #127 changed nothing the failing wait runs through. The defect is in the window's code, and it came with #92 (`git log -S'workItemDialog.addEventListener("close"'` names `85c381ac`). The file was flaky on the runner before and after #127. The attempt logs of `check` show this. Each run used image `macos-26-arm64`.
+**The handoff's leading reading, that something #127 changed behaves differently on the runner, is refuted.** `git diff d323b45a^ d323b45a --stat -- apps/desktop/src/renderer apps/desktop/src/main apps/desktop/test/built-app.ts apps/desktop/test/chain-choice.test.ts` prints nothing, so #127 changed nothing the failing wait runs through. The defect is in the window's code: `git log -S'workItemDialog.addEventListener("close"'` names `85c381ac` (#92) as the commit that added the listener. The attempt logs of `check` show no failure that began with #127. #127's own head passed once and failed once, and the trees after it passed and failed on the same image. Each run used image `macos-26-arm64`.
 
 | Run, attempt | Tree | Image | `chain-choice.test.ts` |
 |---|---|---|---|
