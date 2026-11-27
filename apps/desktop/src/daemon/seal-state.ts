@@ -7,7 +7,9 @@
 // round records, `decisions.md`, `trail/gate.md` and the guarantee again
 // through `chain.ts#standingOf`. No stored chain, no pane's output and no
 // session's event is read, so an edit, a file git ignores and a record
-// written and not committed decide nothing.
+// written and not committed decide nothing. The same reading says what the
+// readers refuse of those records (`refusedAt`), which the plan that moves a
+// repository's check names.
 //
 // Whether a seal holds is the order's own answer (`chain.ts#stepOwed`): it
 // holds where the order owes nothing more at the head. This module holds no
@@ -92,4 +94,26 @@ export async function workItemSeal(item: Pick<WorkItem, "worktree" | "branch" | 
   const directory = workItemDirectory(item.worktree, item.branch);
   if (directory === null) return null;
   return sealAt(item.worktree, directory, head, roundBase(item.baseBranch, item.baseCommit, head));
+}
+
+/**
+ * What the readers refuse of a work item's records as the commit `head` of
+ * its branch holds them, found as `workItemSeal` finds them: the sentence
+ * of the `ChainStop` that `standingOf` throws, and null where it throws
+ * none and where the worktree holds no directory the routing of the branch
+ * names. The readers are those of the round records, the broad gate's run
+ * and the guarantee, which cases hold to the pull request check's answers,
+ * and none of the check's other arms. It throws what git throws other than
+ * through a `ChainStop`.
+ */
+export async function refusedAt(item: Pick<WorkItem, "worktree" | "branch" | "baseBranch" | "baseCommit">, head: string): Promise<string | null> {
+  const directory = workItemDirectory(item.worktree, item.branch);
+  if (directory === null) return null;
+  try {
+    await standingOf(item.worktree, directory, head, roundBase(item.baseBranch, item.baseCommit, head), "head");
+    return null;
+  } catch (error) {
+    if (!(error instanceof ChainStop)) throw error;
+    return error.message;
+  }
 }

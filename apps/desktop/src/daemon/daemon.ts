@@ -89,7 +89,7 @@ import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
-import { type Held, RepositoryStore, type StoredRepository, type StoredWorkItem } from "./repositories";
+import { type Held, RepositoryStore, setAsideNotice, type StoredRepository, type StoredWorkItem } from "./repositories";
 import { writeRecordFile } from "./record-writer";
 import { SessionLogWatch } from "./session-log";
 import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
@@ -97,7 +97,7 @@ import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
-import { workItemSeal } from "./seal-state";
+import { refusedAt, workItemSeal } from "./seal-state";
 import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
@@ -578,6 +578,8 @@ export class Daemon {
   private agentNotice: string | null = null;
   // How many times the adapter was asked for its notice. The answer of the last ask is the one kept.
   private noticeAsks = 0;
+  // What the store did with a `repositories.json` it could not read at the daemon's start, as the sentence a person reads, or null where it read its file or found none. It does not change while the daemon runs.
+  private readonly storeNotice: string | null;
   // The work items whose chain is running, by their ids, each with the promise of its run's end. A chain is here from its start until it rests, between two stages too, when no session of it works.
   private readonly chains = new Map<number, Promise<void>>();
   // The broad gates that asked for their turn on the machine and have not ended, by their work items' ids: those that wait and those whose command runs. A work item's chain runs one stage at a time, so it holds one at most.
@@ -612,6 +614,8 @@ export class Daemon {
 
   constructor(private readonly options: DaemonOptions) {
     this.store = new RepositoryStore(options.runDir, options.now);
+    const setAside = this.store.setAside();
+    this.storeNotice = setAside === null ? null : setAsideNotice(setAside);
     this.accounts = new AccountStore(options.runDir);
     // A setting that names an account the daemon keeps none of, as one whose account left the file, is cleared, so the
     // next one above is taken and an account added later under that id takes no setting it was never given.
@@ -994,7 +998,7 @@ export class Daemon {
     // A client that connects reads the load and the free disk as they are now.
     this.readMachineNow();
     const machine = this.machineNow();
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...(this.storeNotice === null ? {} : { storeNotice: this.storeNotice }), ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
     for (const message of early) this.handle(socket, message);
   }
 
@@ -1071,7 +1075,7 @@ export class Daemon {
             const setup = await beginSetup(place.repo, place.worktree, this.options.now ?? Date.now, shownCommand(message));
             // A work item nobody named is called what its folder is, the number it got among it. The store adds the repository first where it does not keep it, and shows it again where it was hidden.
             const stored = this.store.addWorkItem({ title: message.title.trim() || basename(place.worktree), ...place });
-            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost or read as no repository, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start, so a start that misreads `repositories.json` loses nothing that file still holds.
+            // The times of the records are keyed by a work item's id, which `repositories.json` gives. Where that file was lost, or was refused and stated no counts, its ids begin again, so what the store holds under the id given now was an earlier work item's. It is dropped here, as the id is given, and not at the daemon's start. A refused file that states its counts keeps them (`repositories.ts#RepositoryStore`), so no id given after it is one of that file's.
             this.times.drop([stored.item.id]);
             this.flushTimes();
             // What an earlier work item's broad gate printed is kept under its id too, and is none of this one's.
@@ -1309,7 +1313,8 @@ export class Daemon {
             const repository = this.store.repository(message.id);
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             if (typeof message.broadGate !== "string") throw new Error("a plan of the records place names the broad gate command, which may be empty");
-            this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: await planRecords(repository.folder, message.broadGate, this.version()) });
+            const made = await planRecords(repository.folder, message.broadGate, this.version());
+            this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { ...made, unread: made.move ? await this.unreadRecords(repository.id) : [] } });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -1706,7 +1711,7 @@ export class Daemon {
           this.send(socket, { type: "error", requestId: message.requestId, message: `no work item ${String(message.workItemId)}` });
           return;
         }
-        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost, are not read as its own.
+        // From the work item's creation on, so the entries of an earlier work item that had its id, before `repositories.json` was lost or was refused stating no counts, are not read as its own.
         const { entries, unread } = this.ledger.read(held.item.id, held.item.createdAt);
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
@@ -2953,7 +2958,7 @@ export class Daemon {
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
   private repositoryOf({ id, folder, name, icon, defaultBase, hidden, paneChain, groups, accountId }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
   }
 
   /**
@@ -2962,20 +2967,55 @@ export class Daemon {
    * whether the checkout is on the owl chain, and whether Claude Code enables
    * the AgenticSeal plugin for it under the config folder of the account a
    * new pane of the repository takes where neither the pane nor its work
-   * item names one. It answers whether any of it is another than was last
-   * read.
+   * item names one. The older check is read against the daemon's own
+   * version. It answers whether any of it is another than was last read.
    */
   private readRecords(repository: StoredRepository): boolean {
     const { id, folder } = repository;
-    const read = readRecordsPlace(folder);
-    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null };
+    const read = readRecordsPlace(folder, this.options.version);
+    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null };
     this.records.set(id, read);
     // Read under the account a new pane of the repository takes where neither the pane nor its work item names one.
     const { configDir } = this.foldersOf(accountFor(null, { accountId: null }, repository, this.accounts.defaultId()));
     const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder, configDir) ?? false };
     const chained = this.paneChains.get(id) ?? { owl: false, plugin: false };
     this.paneChains.set(id, chain);
-    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
+  }
+
+  /**
+   * The work items of the repository whose records the daemon's readers
+   * refuse, for the plan that moves its check: each one that is not
+   * archived and has a branch, read at the head of its branch the daemon
+   * last read (`seal-state.ts#refusedAt`), with the reader's sentence cut at
+   * `STATE_TEXT_CHARS`. A work item whose head the daemon holds no reading
+   * of is named with the sentence that its records were not read yet. One
+   * whose worktree's folder is gone, and one whose reading throws anything
+   * other than a refusal, is named with the sentence that says why its
+   * records could not be read, and the log says the second. A work item
+   * whose worktree stands and holds no directory for its branch is read as
+   * one with no records, though the branch's head may hold one.
+   */
+  private async unreadRecords(repositoryId: number): Promise<{ id: number; title: string; why: string }[]> {
+    const items = this.store.workItems().flatMap(({ repository, item }) => (repository.id === repositoryId && item.archivedAt === null && item.branch !== null ? [item] : []));
+    const read = await Promise.all(
+      items.map(async (item) => {
+        const head = this.branches.get(item.id)?.head;
+        if (head === undefined) return { id: item.id, title: item.title, why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." };
+        // A person can remove a worktree's folder by hand (`whyNoRun`). The branch's head still holds its records, and `refusedAt` would find no directory there and answer as for a work item with none. `existsSync` follows a link, so a link to a folder that stands is read as before.
+        if (!existsSync(item.worktree)) return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item ${String(item.id)} is gone: ${item.worktree}`) };
+        try {
+          const why = await refusedAt(item, head);
+          return why === null ? null : { id: item.id, title: item.title, why: cutText(why) };
+        } catch (error) {
+          const said = error instanceof Error ? error.message : String(error);
+          console.error(`the records of work item ${String(item.id)} were not read for the move of the check: ${said}`);
+          // Named, not dropped: the dialog's sentence that the readers refuse no work item's records holds only where each one was read.
+          return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: ${said}`) };
+        }
+      }),
+    );
+    return read.filter((entry) => entry !== null);
   }
 
   /** The version the workflow of a setup fetches the check at. A daemon given none refuses the plan and the setup. */

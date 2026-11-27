@@ -78,6 +78,8 @@ export interface RecordsPlace {
   check: string | null;
   /** The value of the `Broad gate` key of the root's `config.json`, or null where there is no root, no file, or no such key. */
   broadGate: string | null;
+  /** The version of Owlery whose pull request check the workflow fetches, where it is older than the daemon's own, and null otherwise: for no Owlery workflow, a workflow whose version line the daemon does not read, a version as new as the daemon's or newer, and a daemon given no version. A daemon of an earlier build sends none, and a client reads its absence as null. */
+  olderCheck?: string | null;
 }
 
 /** The chain a person chose for the Claude Code panes of a repository: the owl chain, which is Owlery's, or the AgenticSeal plugin's. */
@@ -93,18 +95,22 @@ export interface RepositoryChain {
   chosen: ChainChoice | null;
 }
 
-/** What a setup of the records place would do. */
+/** What a setup of the records place would do, or the move of its check to the daemon's version. */
 export interface RecordsPlan {
   /** The branch the commit lands on, or null where the checkout stands on none. */
   branch: string | null;
   /** The commit's subject. */
   subject: string;
-  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
+  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept; a plan with a `move` gives the committed workflow the text it is written over with. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
   files: { path: string; text: string | null }[];
   /** Why the setup cannot run, as a sentence the window shows as it is, or null. */
   blocked: string | null;
   /** A command the daemon read from the repository as its likely broad gate, for the window to put in the field before the person types, or null where it read none. It is no part of the stamp. */
   proposedBroadGate: string | null;
+  /** The move of the workflow's pin that the plan's one written file makes, from the version the commit's workflow names to the daemon's, or null where the plan moves nothing. A daemon of an earlier build sends none. */
+  move?: { from: string; to: string } | null;
+  /** Where the plan moves the pin: each work item of the repository whose records at its branch's head the daemon's readers refuse, with the reader's sentence; each one whose branch's head the daemon holds no reading of, with the sentence that its records were not read yet; and each one whose worktree's folder is gone or whose records could not be read there for another reason, with the sentence that says why. Empty where each one was read and none is refused, and where the plan moves nothing. It is no part of the stamp. */
+  unread?: { id: number; title: string; why: string }[];
   /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
   stamp: string;
 }
@@ -980,8 +986,8 @@ export type ClientMessage =
   | { type: "resize"; id: number; cols: number; rows: number };
 
 export type ServerMessage =
-  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap. `answersUnknown` says that the daemon answers a request whose type it does not know with an `error` that carries `unknown`. A daemon of an earlier build sends none, and a client reads its absence as a daemon that leaves such a request unanswered.
-  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine; answersUnknown?: true }
+  // `repositories` holds every repository the daemon keeps, the hidden among them, in the order they were added. `workItems` holds the work items that are not archived, and `archived` the archived ones. `lastLook` is the look as it stood when the client said hello, or null where no client ever sent `looked`. A daemon of a build before the repositories sends neither `repositories` nor `archived`. A daemon that can hold nothing, and a daemon of an earlier build, send no `keepAwake`, and a client reads its absence as a daemon that offers no such choice. `agentNotice` is what the adapter last said a person should know of its agent, such as that the installed one is older than the oldest version checked, as a sentence the window shows as it is, or null where it said nothing or has not answered yet. A daemon of an earlier build sends none, and a client reads its absence as null. `storeNotice` says, as a sentence the window shows as it is, that the daemon could not read its `repositories.json` at its start, and where it kept the file aside or that it could not move it; it stands unchanged while the daemon runs. A daemon that read its file or found none, and a daemon of an earlier build, send none, and a client reads its absence as nothing to say. `accounts` holds every account the daemon keeps, System default first and then the others in the order they were added, and `defaultAccountId` names the default one. A daemon of an earlier build sends neither, and a client reads their absence as a daemon that keeps no accounts. `refreshesUsage` is whether the role adapter refreshes an account's usage (`refreshUsage`), and a client reads its absence as no. `machine` is what the daemon read of the machine and the caps it keeps there. A daemon given no reader of the machine, and a daemon of an earlier build, send none, and a client reads its absence as a daemon that keeps no cap. `answersUnknown` says that the daemon answers a request whose type it does not know with an `error` that carries `unknown`. A daemon of an earlier build sends none, and a client reads its absence as a daemon that leaves such a request unanswered.
+  | { type: "ready"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[]; paneKinds: PaneKindInfo[]; headless: HeadlessInfo[]; lastLook: Look | null; keepAwake?: KeepAwake; agentNotice: string | null; storeNotice?: string; accounts?: Account[]; defaultAccountId?: number; refreshesUsage?: boolean; machine?: Machine; answersUnknown?: true }
   // The whole of the four lists, sent to every client whenever one of them changes, and to the client that sent a `readLists` alone, as its answer, before that request's `done`.
   | { type: "inbox"; sessions: SessionInfo[]; repositories: Repository[]; workItems: WorkItem[]; archived: WorkItem[] }
   | { type: "started"; requestId: number; session: SessionInfo }

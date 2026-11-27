@@ -1,0 +1,58 @@
+# Review round 7: 1795696248-132-a-connected-repositorys-pin-follows-the-app
+
+```seal
+target: d0554e3b, fixes 0ac71364..d0554e3b
+```
+
+This verifying round reads the range `0ac71364..d0554e3b`, which holds two commits (`executed`, `git log 0ac71364..d0554e3b`). `d11dc115` adds the sealer's re-audit to `guarantee.md` and touches nothing else. `d0554e3b` changes five lines of `apps/desktop/test/daemon.test.ts` and touches nothing else (`executed`, `git show --stat`). No finding named `d0554e3b`. It is a fix pass made outside a round, after the hosted runner's `check` job failed at `d11dc115` (run `45930931264`). Round 6 closed no finding, so no `confirms:`, `regression:` or `reopens:` line is owed. A defect in the fix would have been a `regression: round-6`, and the round found none.
+
+The round read each record whole at `d0554e3b`: `routing.md`, `frame/design.md`, `frame/plan.md`, `frame/questions.md`, `gaps.md`, `changelog.md`, `pr.md`, `trail/gate.md`, `guarantee.md` and both phase records. It also read round 6 whole, and rounds 1 to 5 for the coordinates of this case. No `pr.<lang>.md` stands, because both language keys of `config.json` read English. The range does not change `frame/`, `gaps.md`, `changelog.md` or `pr.md` (`executed`, `git diff --stat 0ac71364 d0554e3b -- <those paths>`). The changed case does not contradict any sentence of them. The *Scope* item 6 entry at `frame/design.md:38`, scenario G at `:64`, and the changelog's fourth bullet at `changelog.md:8` each say that a work item whose records git could not read is named "with the sentence that says why". The case still holds that. `pr.md` quotes *Scope* items 1, 3, 5, 6, 7 and 8 and the `to:` at `frame/design.md:120`, and each quote stands at its coordinate.
+
+The coordinates were carried from rounds 1 to 3 and not searched again: `daemon.ts#unreadRecords`, `seal-state.ts#refusedAt`, `chain.ts#standingOf` and `worktrees.ts#filesAt`. Each was re-read at the target, since the new assertion rests on them.
+
+**The claims, and what was found.**
+
+- The commit message claims that git 2.50.1 (Apple Git-155) prints "not a git repository" for the broken link, and that the runner's git prints "gitfile does not point to a valid repository". Here, `git --version` prints `git version 2.50.1 (Apple Git-155)` (`executed`). The log of run `45930931264` shows the case failing with `why` "Owlery could not read these records, so whether the moved check refuses them is not known: fatal: gitfile does not point to a valid repository: `<tmp>`/worktrees/project/unreadable-work/.git" against the old pattern `.*not a git repository`, and "Failed Tests 1" (`executed`, `gh run view 45930931264 --log-failed`). Both halves hold.
+- The spawn claims that the new assertion holds *Scope* item 6 as "git's own words, whatever its version". *Scope* item 6 does not use those words. `frame/design.md:38` names such a work item "with the sentence that says why and the words that whether the moved check refuses its records is not known". The code builds that sentence from its opening and git's words: `daemon.ts:3007` takes the thrown error's message, and `daemon.ts:3010` appends it to "Owlery could not read these records, so whether the moved check refuses them is not known: ". `worktrees.ts:45` rejects with `stderr.trim()`. The case at `daemon.test.ts:2163` now expects exactly that opening followed by `said`, the `stderr.trim()` of the same command in the same folder. That pins the sentence *Scope* item 6 and scenario G ask for, with whatever words the running git prints. The pattern it replaces asked for one git's words. The equality is also stricter than the pattern was: a cut, a prefix or a second line would now fail. `expect(said).toMatch(/^fatal: /u)` at `:2162` keeps an empty `stderr` from making the expectation hold on a sentence with nothing after the colon. Read.
+- The spawn and the test's comment at `daemon.test.ts:2160` claim that the case runs the command the daemon's reading runs first. `unreadRecords` (`daemon.ts:2995-3015`) reads the branch's head from its cache and calls `existsSync`, then `refusedAt` (`seal-state.ts:109-119`). `refusedAt` calls `workItemDirectory` (`decision-record.ts:163-192`), which reads the folder with `readdirSync` and runs no git, and `roundBase` (`chain.ts:277-279`), which computes a name. Then it calls `standingOf`. The first git command of `standingOf` is `filesAt` (`chain.ts:508-510`), and `filesAt` runs `git ls-tree -z --name-only <head> -- <folder>/` (`worktrees.ts:1382-1384`). The folder is `seal/threads/<NAME>/trail/rounds`, joined from `ROUNDS_FOLDER` (`chain.ts:62`), and `filesAt` adds the trailing `/`. The case's arguments at `daemon.test.ts:2161` are the same. Both runs spawn `git` by name with the process's own environment: the daemon through `execFile` (`worktrees.ts:44`), the case through `spawnSync`. The `Daemon` runs in the test's own process (`daemon.test.ts:13`). So both resolve the same binary and run it with the same arguments in the same folder. The claim holds. Read.
+- The spawn claims that the case was seen red, by `seal mutate` dropping git's words. No output of that run was handed to this round. Reading settles it. With `${said}` dropped from `daemon.ts:3010`, `why` ends at "not known: ". The expected value then carries a `said` that `:2162` has just found to start with "fatal: ", so `toEqual` fails at `:2163`, which is the line that pins git's words. Read, not executed.
+- The case passes at the target on this Mac's git (`executed`, the narrow run in `## Probes`). The hosted `check` job at the target, run `45937453262`, ended `success` on the runner's git (`executed`, `gh run view --json status,conclusion`). So the case holds on both gits whose words differ.
+
+**Whether another case of this work pins a git version's words.** The crafter's search found none. The round built its own list from the artefact. It read every line that `git diff 450c6e09 HEAD -- apps/desktop/test` adds. That diff is this work's alone, since `450c6e09` is the merge base. The lines are in `daemon.test.ts`, `records-place.test.ts`, `records-dialog.test.ts`, `view.test.ts`, `screenshots.test.ts` and `screenshots.ts`. The round took each added line that holds a string matcher (`toThrow`, `toMatch`, `stringMatching`, `toContain`, a `why:` value or a `blocked` value) and traced where its expected text comes from (`executed`, the `grep` in `## Probes`). Only this case's `said` comes from git. The rest are Owlery's own sentences: `differs(WORKFLOW)` (`records-place.test.ts:20-21`), "The repository changed since the plan was read" (`:979`, `:1025`), the unread sentences of the cases at `daemon.test.ts:2166` and `:2185`, the opening of the reader's refusal at `:2141`, and the dialog's words in `view.test.ts` and `records-dialog.test.ts`. One is a hook's output: "the hook says no" (`records-place.test.ts:1005`) is what the test's own `pre-commit` hook echoes at `:1001`, matched as a substring. The rest are the workflow's own text (`toContain("--branch release/v0.0.3 \\")` and the like). Taking the added lines apart this way makes the list whole for this work's added assertions. It does not reach the lines this work left as the release had them.
+
+The five older cases the spawn names were opened and are noted, not written up as findings. Each pins words of git's own: `worktree-setup.test.ts:419` ("not a git repository", for a folder that is no repository), `worktrees.test.ts:511` and `:584` ("does not appear to be a git repository"), `:524` ("couldn't find remote ref refs/heads/gone") and `:1278` ("pathspec 'no-such.md' did not match any files"). The run at `d11dc115` failed one test, so on the runner's git at that run those five held (`executed`, the log above).
+
+**The changed case against its group.** The change adds no test. It rewrites the assertion of the case at `daemon.test.ts:2144`, which still holds the `catch` branch of `unreadRecords`. The cases at `:2119` (a refused record), `:2166` (a gone folder) and `:2185` (a head not read) each hold another branch, so the case repeats none of them.
+
+## Findings
+
+This round opens no finding.
+
+## Confirmations
+
+What matched: the assertion at `apps/desktop/test/daemon.test.ts:2161-2163` expects the sentence *Scope* item 6 states (`frame/design.md:38`). That sentence is the opening at `daemon.ts:3010` followed by git's words, which `worktrees.ts:45` passes through, read from the same git by the command `filesAt` runs first (`worktrees.ts:1382-1384`). Read and executed.
+
+What matched: the commit message's account of the two gits' words agrees with this Mac's `git --version` and with the log of the failed run `45930931264`. Executed.
+
+What matched: `guarantee.md:46-64`, the re-audit `d11dc115` adds, states facts of `0ac71364`, and the target does not contradict them as statements of that commit. Its `Verdict: sealed` names `0ac71364`, and `trail/gate.md` names a broad run at `42b7f4d2`. `d0554e3b` changes `apps/desktop/test/daemon.test.ts` after both, so neither covers the target. Read.
+
+## Not judged
+
+| What | Location | Who answers |
+|---|---|---|
+| The broad gate at `d0554e3b`. `trail/gate.md` names `42b7f4d2`, and `d0554e3b` changes a test file after it, so the suite is `unverified` at the target | `trail/gate.md` | the orchestrator, at the broad gate |
+| The seal at `d0554e3b`. `guarantee.md` seals `0ac71364`, and a test file changed after it | `guarantee.md:61-64` | the sealer, after the orchestrator's broad run |
+| Whether `/usr/bin/perl` stands on every machine that runs `records-place.test.ts`, carried from rounds 3 to 6 | `apps/desktop/test/records-place.test.ts:1041` | the orchestrator, at the broad gate and in CI |
+| Whether an open pull request's next run takes the moved pin once the base holds it (Q3) | `frame/questions.md:16` | a measurement on GitHub |
+
+This round leaves nothing open. What comes due is the orchestrator's broad run at HEAD, then the sealer's spawn. The sealer is also the first reader of any sentence a fix pass writes after this record.
+
+## Probes
+
+| Command | Result |
+|---|---|
+| `cd apps/desktop && OWLERY_BACKGROUND=1 sh <scratchpad>/heavy.sh node scripts/test-in-electron.mjs test/daemon.test.ts -t "whose records git could not read"`, at `d0554e3b` | exit 0: 1 passed, 440 skipped, on `git version 2.50.1 (Apple Git-155)` |
+| `gh run view 45930931264 --log-failed` | the `check` job at `d11dc115` failed one test, this case, with `why` ending "fatal: gitfile does not point to a valid repository: `<tmp>`/worktrees/project/unreadable-work/.git" against `.*not a git repository` |
+| `gh run view 45937453262 --json status,conclusion`, the `check` job at `d0554e3b` | `completed`, `success`. The job that failed this case at `d11dc115` on the runner's git, which says "gitfile does not point to a valid repository", passes at the target. Its log could not be fetched yet (`gh run view --log` exit 1), so the case's own line in it was not read |
+| `git diff 450c6e09 HEAD -- apps/desktop/test \| grep '^+' \| grep -n -E "toThrow\|toMatch\|stringMatching\|toContain\|stringContaining\|rejects\|why:\|blocked"` | the added lines with a string matcher. Each one's expected text was traced to its source, and only `daemon.test.ts:2161-2163` takes git's words |
+| `python3 skills/code-review/scripts/chain_check.py --baseline origin/release/v0.1.0 --root <the branch worktree> --worktree`, after this record | exit 0. It refuses nothing in this record and names no finding as open. It judges the pull request a draft, and says that the newest gate run and the guarantee are behind HEAD, because `d0554e3b` touches `apps/desktop/test/daemon.test.ts`. It prints no notice at a line of `frame/design.md` |
