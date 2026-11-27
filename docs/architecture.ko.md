@@ -359,7 +359,7 @@ Claude Code 2.1.326의 `claude --help`에서 확인한 것입니다(2026-11-17).
 | `--plugin-dir <path>` | 앱 안의 Owlery 역할 묶음을 그 세션에만 싣습니다. 역할 세션, 그리고 owl 체인을 쓰는 폴더의 Claude Code 칸입니다 |
 | `--agent <agent>` | 역할 세션을 그 역할의 에이전트 정의로 띄웁니다 |
 | `--append-system-prompt-file <file>` | 역할 세션의 시스템 프롬프트에는 그 역할과 단계의 규칙을, owl 체인을 실은 칸의 시스템 프롬프트에는 칸의 머리말을 붙입니다 |
-| 칸의 `--settings <file>` | Claude Code 칸은 모두 Owlery의 훅 설정인 실행 폴더의 `claude-hooks.json`으로 뜹니다. owl 체인을 고른 칸은 자기만의 파일 `claude-pane-<pane id>.json`으로 뜨고, 이 파일은 같은 훅과 함께 AgenticSeal 플러그인의 키를 `false`로 둔 `enabledPlugins`를 담습니다. 2.1.331의 `claude --help`에 `--plugin-dir`, `--settings`, `--append-system-prompt-file`이 나오고, 셋 모두 대화형 세션에서 실험했습니다(2026-11-24) |
+| 칸의 `--settings <file>` | Claude Code 칸은 모두 Owlery의 훅 설정인 실행 폴더의 `claude-hooks.json`으로 뜹니다. 2.1.331의 `claude --help`에 `--plugin-dir`, `--settings`, `--append-system-prompt-file`이 나오고, 셋 모두 대화형 세션에서 실험했습니다(2026-11-24) |
 | `--setting-sources`, `--settings`, `--strict-mcp-config`, `--permission-mode`, `--add-dir` | 역할 세션을 사용자 환경에서 뗍니다([역할 세션은 사용자 환경에서 떼어 띄웁니다](#역할-세션은-사용자-환경에서-떼어-띄웁니다)) |
 | `--tools` | `--tools`는 역할 세션이 가질 내장 도구를 이름으로 정하고, 그 밖의 도구는 그 세션에 들어가지 않습니다. 계정의 사용량을 새로 읽는 세션은 역할이 없고 도구도 하나도 가지지 않습니다(`--tools ""`) |
 | `--permission-prompt-tool stdio` | 데몬은 권한 요청을 세션의 출력 스트림에서 받고, 그 역할의 허락에 따라 세션의 입력 스트림으로 답합니다. 2.1.330의 `claude --help`에는 이 옵션이 나오지 않지만 CLI는 이 옵션을 읽습니다(2026-11-22 실험). `--permission-prompts`는 기본값 `host` 그대로 둡니다 |
