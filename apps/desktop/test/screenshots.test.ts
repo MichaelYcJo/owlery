@@ -11,8 +11,9 @@
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
 // the row that login named, the Machine dialog, the app's Settings dialog,
-// the delete dialog of a work item with many commits, and the sidebar where
-// a filter and a search leave no repository) in each
+// the delete dialog of a work item with many commits, the sidebar where a
+// filter and a search leave no repository, and the dialog of the records
+// place moving the check) in each
 // appearance of the theme a first run opens in. The daemon keeps one account
 // beside System default, handed over by an empty folder of the run's own, and the parked
 // work item is set to it, so its line names it and the settings show the
@@ -63,7 +64,13 @@
 // the sidebar's filter over the inbox and types into the search field a
 // word only other work items' titles hold, waits until the sidebar says
 // that it does not list its one repository and the filter's icon stands
-// inside its edge, and then empties the field and chooses All again.
+// inside its edge, and then empties the field and chooses All again. The
+// view of the move commits Owlery's workflow of an older version on the
+// repository's branch, waits until the repository's row holds the button
+// of the older check, presses it and waits for the plan of the move.
+// Cancel then closes the dialog, which commits nothing, and the run takes
+// its commit back and waits until the row holds no such button, so the
+// next theme's views draw the row as before.
 // Two commands ask for their turn on the daemon's turn socket, as the
 // runner does, and hold their connections to the run's end: a command of
 // the work item at review takes the one turn, and one in a folder no work
@@ -144,7 +151,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { PARKED_SAYS, pullRequestOpenSays, routingText, stoppedSays } from "../src/daemon/chain";
 import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
-import { MARKER } from "../src/daemon/records-place";
+import { MARKER, workflowText } from "../src/daemon/records-place";
 import { copyIncluded } from "../src/daemon/worktree-setup";
 import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
@@ -373,6 +380,7 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-app-settings.png",
       "night-watch-dark-delete.png",
       "night-watch-dark-narrowed.png",
+      "night-watch-dark-check-move.png",
       "night-watch-light-summary.png",
       "night-watch-light-inbox.png",
       "night-watch-light-view.png",
@@ -393,11 +401,12 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-app-settings.png",
       "night-watch-light-delete.png",
       "night-watch-light-narrowed.png",
+      "night-watch-light-check-move.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(120);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(120);
-    expect(all[119]).toEqual({ theme: "desk", appearance: "light", view: "narrowed", file: "desk-light-narrowed.png" });
+    expect(all).toHaveLength(126);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(126);
+    expect(all[125]).toEqual({ theme: "desk", appearance: "light", view: "check-move", file: "desk-light-check-move.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -479,6 +488,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** Types into the sidebar's search field, as a person's typing arrives there. */
   const searchSidebar = (query: string): Promise<void> =>
     app.evaluate(`(() => { const field = document.getElementById("search-field"); field.value = ${JSON.stringify(query)}; field.dispatchEvent(new Event("input")); })()`);
+  /** Owlery's workflow, and the older version the view of the move commits it at. */
+  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const OLDER_CHECK = "0.0.4";
+  /** The button of the older check on the scene's repository's row. */
+  const CHECK_BUTTON = `#repositories section[data-repository="1"] .repository-check`;
 
   /** Opens the menu of the sidebar's line a selector finds, by a press of the right button in its middle, as a person's press arrives. */
   const openMenu = async (line: string): Promise<void> => {
@@ -731,6 +745,16 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await searchSidebar(NARROWED_QUERY);
       await app.until(`document.getElementById("sidebar-empty")?.textContent === ${JSON.stringify(NARROWED_SAYS)} && document.getElementById("show-every")?.textContent === "Show every work item" && document.querySelectorAll("#repositories section").length === 0 && (() => { const control = document.getElementById("sidebar-filter-control"); return control.classList.contains("on") && control.title === ${JSON.stringify(`Showing: Decided without asking, matching "${NARROWED_QUERY}"`)} && getComputedStyle(control).boxShadow !== "none"; })()`, `the inbox with "Decided without asking" chosen in the sidebar's filter and "${NARROWED_QUERY}" typed in its search, the filter's icon inside its edge and the sidebar saying "${NARROWED_SAYS}"`);
     },
+    "check-move": async () => {
+      await show.inbox();
+      // Owlery's workflow of an older version, committed on the repository's branch, so the daemon reads the repository's check as older than its own and its row holds the button. The leave takes the commit back.
+      writeFileSync(join(made.repo, WORKFLOW), workflowText(OLDER_CHECK));
+      git(made.repo, "add", WORKFLOW);
+      git(made.repo, "commit", "--quiet", "-m", "chore: the pull request check of an older Owlery");
+      await app.until(`document.querySelector('${CHECK_BUTTON}')?.textContent === "Check ${OLDER_CHECK}"`, `the button "Check ${OLDER_CHECK}" on the repository's row`, 20_000);
+      await app.click(CHECK_BUTTON);
+      await app.until(`document.getElementById("records-dialog").open && !document.getElementById("records-submit").disabled && document.getElementById("records-submit").textContent === "Move and commit" && document.getElementById("records-move").textContent.includes("Owlery ${OLDER_CHECK}") && !document.getElementById("records-unread-says").hidden`, "the dialog of the records place with the plan of the move", 20_000);
+    },
   };
 
   /** Closes what a view opened over the window, so the next view starts from the window alone. */
@@ -804,6 +828,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await searchSidebar("");
       await filterSidebar("all");
       await app.until(`!document.getElementById("sidebar-empty") && document.querySelectorAll("#repositories section").length === 1 && document.getElementById("search-field").value === "" && !document.getElementById("sidebar-filter-control").classList.contains("on")`, "the sidebar listing its repository again, the search empty and the filter at All");
+    },
+    "check-move": async () => {
+      // A cancel commits nothing. The commit of the older workflow is taken back, and the row loses its button before the next view.
+      await app.click("#records-cancel");
+      await dialogClosed("records-dialog");
+      git(made.repo, "reset", "--quiet", "--keep", "HEAD~1");
+      await app.until(`document.querySelector('#repositories section[data-repository="1"]') && !document.querySelector('${CHECK_BUTTON}')`, "the repository's row with no button of an older check", 20_000);
     },
   };
 

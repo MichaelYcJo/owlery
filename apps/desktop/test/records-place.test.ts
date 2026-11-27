@@ -2,12 +2,14 @@
 // repository creates them: what a plan names, what a setup writes and
 // commits, and what stands and is kept. Each case runs in a temporary
 // repository, never in Owlery's own, which one case reads for its workflow.
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { MARKER, SUBJECT, onOwlChain, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
+import { MARKER, SUBJECT, moveSubject, olderVersion, onOwlChain, pinnedVersion, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
-import { commitFile, git, runs, temporaryRepository } from "./repositories";
+import { commitFile, git, runs, temporaryClone, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
@@ -85,7 +87,7 @@ describe("the records place", () => {
     expect(git(repo, "show", "--name-only", "--format=%s|%an", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([`${SUBJECT}|Owlery Test`, WORKFLOW, "seal/README.md", "seal/config.json"]);
     for (const { path, text } of plan.files) expect(readFileSync(join(repo, path), "utf8"), path).toBe(text);
     expect(status(repo)).toBe("A  other.txt\n");
-    expect(readRecordsPlace(repo)).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(readRecordsPlace(repo)).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null });
     // What stands now is kept: a second plan writes no file.
     expect((await planRecords(repo, "another", VERSION)).files).toEqual([
       { path: "seal/README.md", text: null },
@@ -114,7 +116,7 @@ describe("the records place", () => {
     write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
     commitAll(repo, "chore: the plugin's root");
     const before = [head(repo), tree(repo)];
-    expect(readRecordsPlace(repo)).toEqual({ root: "seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" });
+    expect(readRecordsPlace(repo)).toEqual({ root: "seal", check: ".github/workflows/hygiene.yml", broadGate: "make check", olderCheck: null });
     const plan = await planRecords(repo, "pnpm test", VERSION);
     expect(plan.blocked).toBeNull();
     expect(plan.files).toEqual([
@@ -148,6 +150,21 @@ describe("the records place", () => {
     expect(readRecordsPlace(plugin).check).toBe(".github/workflows/hygiene.yml");
   });
 
+  it("reads an older check from Owlery's workflow in the working tree, committed or not: the version it pins where that is older than the one given, and none for the same version, a newer one, no version given, a workflow whose version line is not read, and AgenticSeal's hygiene.yml", () => {
+    const repo = repository();
+    expect(readRecordsPlace(repo, VERSION).olderCheck).toBeNull();
+    write(repo, WORKFLOW, workflowText("1.2.2"));
+    expect(readRecordsPlace(repo, VERSION)).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: "1.2.2" });
+    expect(readRecordsPlace(repo, "1.2.2").olderCheck).toBeNull();
+    expect(readRecordsPlace(repo, "1.2.1").olderCheck).toBeNull();
+    expect(readRecordsPlace(repo).olderCheck).toBeNull();
+    write(repo, WORKFLOW, workflowText("1.2.2").replace("--branch v1.2.2 \\", "--branch main \\"));
+    expect(readRecordsPlace(repo, VERSION).olderCheck).toBeNull();
+    const plugin = repository();
+    write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}# --branch v1.2.2 \\\n# --branch release/v1.2.2 \\\n`);
+    expect(readRecordsPlace(plugin, VERSION)).toEqual({ root: null, check: ".github/workflows/hygiene.yml", broadGate: null, olderCheck: null });
+  });
+
   it("reads a folder as on the owl chain where Owlery's workflow stands in it, committed or not, and as on none where AgenticSeal's check stands alone, where a project's own hygiene.yml does, and where no workflow does", () => {
     const repo = repository();
     expect(onOwlChain(repo)).toBe(false);
@@ -167,7 +184,7 @@ describe("the records place", () => {
     write(repo, "agentic-seal/README.md", `${MARKER}\n`);
     write(repo, WORKFLOW, "name: seal\n");
     commitAll(repo, "chore: a root with no config");
-    expect(readRecordsPlace(repo)).toEqual({ root: "agentic-seal", check: WORKFLOW, broadGate: null });
+    expect(readRecordsPlace(repo)).toEqual({ root: "agentic-seal", check: WORKFLOW, broadGate: null, olderCheck: null });
     const plan = await planRecords(repo, "pnpm test", VERSION);
     expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
       ["agentic-seal/README.md", true],
@@ -186,7 +203,7 @@ describe("the records place", () => {
       { path: "seal/README.md", text: null },
       { path: "seal/config.json", text: null },
     ]);
-    expect(readRecordsPlace(keyless)).toEqual({ root: "seal", check: null, broadGate: null });
+    expect(readRecordsPlace(keyless)).toEqual({ root: "seal", check: null, broadGate: null, olderCheck: null });
     // A config.json that is no JSON, and a key that holds no text, give no command.
     write(keyless, "seal/config.json", "{ not json");
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
@@ -231,14 +248,14 @@ describe("the records place", () => {
     const repo = repository();
     write(repo, "seal/README.md", "# The seals of the harbour\n");
     commitAll(repo, "docs: the seals");
-    expect(readRecordsPlace(repo)).toEqual({ root: null, check: null, broadGate: null });
+    expect(readRecordsPlace(repo)).toEqual({ root: null, check: null, broadGate: null, olderCheck: null });
     const plan = await planRecords(repo, "pnpm test", VERSION);
     expect(plan.blocked).toBeNull();
     expect(plan.files.map((file) => file.path)).toEqual(["agentic-seal/README.md", "agentic-seal/config.json", WORKFLOW]);
     await setUpRecords(repo, "pnpm test", VERSION, plan.stamp);
     expect(readdirSync(join(repo, "seal"))).toEqual(["README.md"]);
     expect(readFileSync(join(repo, "seal/README.md"), "utf8")).toBe("# The seals of the harbour\n");
-    expect(readRecordsPlace(repo)).toEqual({ root: "agentic-seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(readRecordsPlace(repo)).toEqual({ root: "agentic-seal", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null });
     // The project's file is named in small letters: it is no `README.md` of the place, on a disk that tells the two names apart and on one that does not.
     const small = repository();
     write(small, "seal/readme.md", "# The seals of the harbour\n");
@@ -876,6 +893,158 @@ describe("the records place", () => {
     expect(status(fresh)).toBe("");
   });
 
+  /** Commits in the repository a whole records place whose workflow is the one a setup of `version` writes. */
+  const placed = (repo: string, version: string): void => {
+    write(repo, "seal/README.md", `${MARKER}\n`);
+    write(repo, "seal/config.json", '{ "Broad gate": "make check" }\n');
+    write(repo, WORKFLOW, workflowText(version));
+    commitAll(repo, `chore: the records place of ${version}`);
+  };
+
+  it("offers the move of the check where the commit holds every part of the place and its workflow pins an older version: the plan writes the workflow alone, whole, for the version given, carries the move under the move's subject, and writes nothing; the same version and a newer one move nothing", async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    const before = [head(repo), tree(repo)];
+    const plan = await planRecords(repo, "", VERSION);
+    expect(plan.blocked).toBeNull();
+    expect(plan.files).toEqual([
+      { path: "seal/README.md", text: null },
+      { path: "seal/config.json", text: null },
+      { path: WORKFLOW, text: workflowText(VERSION) },
+    ]);
+    expect(plan.move).toEqual({ from: "1.2.2", to: VERSION });
+    expect(plan.subject).toBe(moveSubject(VERSION));
+    expect(plan.subject).toBe("chore: move the pull request check to Owlery 1.2.3");
+    expect(plan.proposedBroadGate).toBeNull();
+    expect([head(repo), tree(repo)]).toEqual(before);
+    expect(status(repo)).toBe("");
+    // The stamp covers the move: a plan for another version is another.
+    expect((await planRecords(repo, "", "1.2.4")).stamp).not.toBe(plan.stamp);
+    for (const version of ["1.2.2", "1.2.1"]) {
+      const kept = await planRecords(repo, "", version);
+      expect([kept.files.map((file) => file.text), kept.move, kept.subject, kept.blocked]).toEqual([[null, null, null], null, SUBJECT, null]);
+    }
+  });
+
+  it("offers no move where the plan writes a file of the setup, and none where the commit's workflow pins no version the daemon reads: the workflow is kept as it is", async () => {
+    const lacking = repository();
+    write(lacking, "seal/README.md", `${MARKER}\n`);
+    write(lacking, WORKFLOW, workflowText("1.2.2"));
+    commitAll(lacking, "chore: a root with no config.json");
+    const setup = await planRecords(lacking, "make check", VERSION);
+    expect([setup.files.map((file) => [file.path, file.text === null]), setup.move, setup.subject]).toEqual([
+      [
+        ["seal/README.md", true],
+        ["seal/config.json", false],
+        [WORKFLOW, true],
+      ],
+      null,
+      SUBJECT,
+    ]);
+    const edited = repository();
+    write(edited, "seal/README.md", `${MARKER}\n`);
+    write(edited, "seal/config.json", '{ "Broad gate": "make check" }\n');
+    write(edited, WORKFLOW, workflowText("1.2.2").replace("--branch v1.2.2 \\", "--branch main \\"));
+    commitAll(edited, "chore: a workflow the person edited");
+    const kept = await planRecords(edited, "", VERSION);
+    expect([kept.files.map((file) => file.text), kept.move, kept.blocked]).toEqual([[null, null, null], null, null]);
+  });
+
+  it("blocks a move where the checkout does not hold the workflow as the commit does, edited and not staged, or staged, and names the workflow; a setup of it writes nothing", async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    write(repo, WORKFLOW, `${workflowText("1.2.2")}# the person's line\n`);
+    const edited = await planRecords(repo, "", VERSION);
+    expect([edited.move, edited.blocked]).toEqual([{ from: "1.2.2", to: VERSION }, differs(WORKFLOW)]);
+    await expect(setUpRecords(repo, "", VERSION, edited.stamp)).rejects.toThrow(differs(WORKFLOW));
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(`${workflowText("1.2.2")}# the person's line\n`);
+    git(repo, "add", WORKFLOW);
+    expect((await planRecords(repo, "", VERSION)).blocked).toBe(differs(WORKFLOW));
+    expect(status(repo)).toBe(`M  ${WORKFLOW}\n`);
+    // An edit git's status is told not to look at is read from the file's text.
+    git(repo, "reset", "--quiet", "--", WORKFLOW);
+    git(repo, "update-index", "--skip-worktree", WORKFLOW);
+    expect(status(repo)).toBe("");
+    expect((await planRecords(repo, "", VERSION)).blocked).toBe(differs(WORKFLOW));
+  });
+
+  it("moves the check in one commit of the workflow alone under the move's subject, on the checked-out branch, pushes nothing and leaves another staged file staged; a plan read before a commit landed moves nothing", async () => {
+    const made = temporaryClone();
+    cleanups.push(made.remove);
+    const { repo } = made;
+    placed(repo, "1.2.2");
+    const pushed = git(made.origin, "rev-parse", "main").trim();
+    const stale = await planRecords(repo, "", VERSION);
+    commitFile(repo, "landed.txt");
+    await expect(setUpRecords(repo, "", VERSION, stale.stamp)).rejects.toThrow("The repository changed since the plan was read");
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(workflowText("1.2.2"));
+    write(repo, "other.txt", "staged by the person\n");
+    git(repo, "add", "other.txt");
+    const before = head(repo);
+    const plan = await planRecords(repo, "", VERSION);
+    await setUpRecords(repo, "", VERSION, plan.stamp);
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repo, "symbolic-ref", "--short", "HEAD").trim()).toBe("main");
+    expect(git(repo, "show", "--name-only", "--format=%s|%an", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([`${moveSubject(VERSION)}|Owlery Test`, WORKFLOW]);
+    expect(git(repo, "show", `HEAD:${WORKFLOW}`)).toBe(workflowText(VERSION));
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(workflowText(VERSION));
+    expect(status(repo)).toBe("A  other.txt\n");
+    expect(git(made.origin, "rev-parse", "main").trim()).toBe(pushed);
+    expect(readRecordsPlace(repo, VERSION).olderCheck).toBeNull();
+    // Moved, the plan moves nothing more.
+    expect((await planRecords(repo, "", VERSION)).move).toBeNull();
+  });
+
+  it("leaves the workflow as the commit holds it where the commit of a move fails: the hook's output is the refusal, and git's status prints nothing", async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    write(repo, ".git/hooks/pre-commit", "#!/bin/sh\necho 'the hook says no'\nexit 1\n", 0o755);
+    const before = [head(repo), tree(repo)];
+    const plan = await planRecords(repo, "", VERSION);
+    expect(plan.move).toEqual({ from: "1.2.2", to: VERSION });
+    await expect(setUpRecords(repo, "", VERSION, plan.stamp)).rejects.toThrow("the hook says no");
+    expect([head(repo), tree(repo)]).toEqual(before);
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(workflowText("1.2.2"));
+    expect(status(repo)).toBe("");
+  });
+
+  it("refuses a move where the workflow changed while the plan was made again, after the plan compared it with the commit: the person's edit stands, and nothing is committed or staged", async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    const plan = await planRecords(repo, "", VERSION);
+    const before = head(repo);
+    // A `git` first on the PATH that saves the person's edit the first time the plan asks git what it ignores, which the plan does after it compared the workflow with the commit.
+    const shim = mkdtempSync(join(tmpdir(), "owlery-git-shim-"));
+    cleanups.push(() => rmSync(shim, { recursive: true, force: true }));
+    const real = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
+    const edited = `${workflowText("1.2.2")}# saved while the plan ran\n`;
+    write(shim, "git", `#!/bin/sh\nif [ "$1" = "check-ignore" ] && [ ! -e '${join(shim, "saved")}' ]; then\n  : > '${join(shim, "saved")}'\n  printf '# saved while the plan ran\\n' >> '${join(repo, WORKFLOW)}'\nfi\nexec '${real}' "$@"\n`, 0o755);
+    const path = process.env.PATH;
+    process.env.PATH = `${shim}:${path ?? ""}`;
+    try {
+      await expect(setUpRecords(repo, "", VERSION, plan.stamp)).rejects.toThrow("The repository changed since the plan was read");
+    } finally {
+      process.env.PATH = path;
+    }
+    expect(existsSync(join(shim, "saved"))).toBe(true);
+    expect(readFileSync(join(repo, WORKFLOW), "utf8")).toBe(edited);
+    expect([head(repo), status(repo)]).toEqual([before, ` M ${WORKFLOW}\n`]);
+  });
+
+  it("refuses, without waiting on it, a named pipe that stands at the workflow's path when the plan is made again: the setup reads it as the plan reads a person's file, and the plan's refusal is the answer", { timeout: 2000 }, async () => {
+    const repo = repository();
+    placed(repo, "1.2.2");
+    const plan = await planRecords(repo, "", VERSION);
+    rmSync(join(repo, WORKFLOW));
+    execFileSync("mkfifo", [join(repo, WORKFLOW)]);
+    // A writer opens the pipe after the case's limit, so a read that waits on a writer ends then, and the case has failed at its limit, not hung.
+    const writer = spawn("/usr/bin/perl", ["-e", "sleep 3; open(my $f, '>', $ARGV[0]); close $f", join(repo, WORKFLOW)], { stdio: "ignore" });
+    cleanups.push(() => {
+      writer.kill();
+    });
+    await expect(setUpRecords(repo, "", VERSION, plan.stamp)).rejects.toThrow(differs(WORKFLOW));
+  });
+
   it("writes a workflow that fetches the check from Owlery's repository at the version's tag, falls back to the release's branch, runs a script that stands under pr-check/, and lets it post `seal` with the run's token from a job of another name, `records`", () => {
     const text = workflowText(VERSION);
     expect(text).toContain("\nname: seal\n");
@@ -895,6 +1064,39 @@ describe("the records place", () => {
     expect(text).toContain("        env:\n          GITHUB_TOKEN: ${{ github.token }}\n");
     // The marker the root's README opens with is the one the taken check tells a root by.
     expect(readFileSync(join(PR_CHECK, "lib", "optin.py"), "utf8")).toContain(`\nMARKER = ${JSON.stringify(MARKER)}\n`);
+  });
+
+  it("reads the version the clone step of Owlery's workflow names, in the one spelling workflowText writes, and none where a line of the step is missing, the two lines name different versions, or the text is no such workflow", () => {
+    expect(pinnedVersion(workflowText("0.0.4"))).toBe("0.0.4");
+    expect(pinnedVersion(workflowText("0.1.0-rc.1"))).toBe("0.1.0-rc.1");
+    const apart = workflowText("0.0.4").replace("--branch release/v0.0.4 \\", "--branch release/v0.0.3 \\");
+    expect(apart).toContain("--branch release/v0.0.3 \\");
+    expect(pinnedVersion(apart)).toBeNull();
+    const fallbackless = workflowText("0.0.4").replace(/ {10}\|\| git clone [^\n]*\n[^\n]*\n/u, "");
+    expect(fallbackless).not.toContain("release/v0.0.4");
+    expect(pinnedVersion(fallbackless)).toBeNull();
+    const stepless = workflowText("0.0.4").replace(/ {10}git clone [^\n]*\n[^\n]*\n {10}\|\| git clone [^\n]*\n[^\n]*\n/u, "");
+    expect(stepless).not.toContain("--branch");
+    expect(pinnedVersion(stepless)).toBeNull();
+    expect(pinnedVersion("name: seal\n")).toBeNull();
+    expect(pinnedVersion(null)).toBeNull();
+  });
+
+  it("tells an older version by its numbers, compared as numbers from the first, a version with a suffix older than the same numbers without one, and no version older or newer than text that does not parse as one", () => {
+    expect(olderVersion("0.0.4", "0.1.0")).toBe(true);
+    expect(olderVersion("0.1.0", "0.0.4")).toBe(false);
+    expect(olderVersion("0.0.9", "0.0.10")).toBe(true);
+    expect(olderVersion("0.0.10", "0.0.9")).toBe(false);
+    expect(olderVersion("1.0.0", "0.9.9")).toBe(false);
+    expect(olderVersion("0.1.0-rc.1", "0.1.0")).toBe(true);
+    expect(olderVersion("0.1.0", "0.1.0-rc.1")).toBe(false);
+    expect(olderVersion("0.1.0", "0.1.0")).toBe(false);
+    expect(olderVersion("0.1.0-rc.1", "0.1.0-rc.2")).toBe(false);
+    expect(olderVersion("0.1.0-rc.2", "0.1.0-rc.1")).toBe(false);
+    expect(olderVersion("main", "0.1.0")).toBe(false);
+    expect(olderVersion("0.1.0", "main")).toBe(false);
+    expect(olderVersion("0.1", "0.1.0")).toBe(false);
+    expect(olderVersion("0.0.4", "0.1")).toBe(false);
   });
 
   it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it", () => {
