@@ -353,7 +353,8 @@ function rewrite(below: string, text: string): string | null {
  * workflow for `version` where it holds none.
  *
  * The plan is blocked by the first of these that holds: the commit holds no
- * root in the earlier form; it holds something other than a file below that
+ * root in the earlier form and no record of that form below IADD's root; it
+ * holds something other than a file below that
  * root; it holds a whole root in the earlier form and something at `iadd/`;
  * it holds something at a path a file moves to; it holds something other
  * than a file at Owlery's workflow; the earlier grammar refuses a line of a
