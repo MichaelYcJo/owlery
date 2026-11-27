@@ -38,3 +38,34 @@ Not verified, carried with the answerers `gaps.md` *Not verified* names: whether
 target: 19751f44 against 06222134
 Verdict: withheld reason: the changelog (`changelog.md:7`) and `frame/design.md` *Scope* item 4 say every file whose cases share one app and open a dialog or a menu registers `atRestAfterFailure`, and at HEAD `apps/desktop/test/records-dialog.test.ts` does not: its two cases (`:51`, `:101`, the second brought by the merge `c96548f3` from #312) share the app its `beforeAll` starts (`:32`) and each opens a dialog
 ```
+
+## The audit at `39f64e08`
+
+This run audits what came after the block above, whose `target:` is `19751f44`. The base is still `origin/release/v0.1.0` at `06222134`. The newest `run:` of `trail/gate.md` is `d0ee2123 against 06222134`. `d0ee2123` is an ancestor of HEAD, and the one commit after it, `39f64e08`, changes `trail/gate.md` alone (executed: `git log --no-merges --name-only d0ee2123..HEAD ^06222134`). `seal pr-body <item> --body <the body file> --check` exited 0 and printed `matches`. Since `19751f44`, one code file changed, `apps/desktop/test/records-dialog.test.ts` (`7b2600e3`). The other commits touch only the work item's records (executed: `git diff --stat 19751f44..HEAD`). So the claims re-run below are the ones those commits touch. The claims of the block above stand on code that did not change since then.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| Seen red with the named guard alone removed: without the hook in `records-dialog.test.ts`, a first case that fails with the records dialog open makes the second case's press of `#new-work-item` land on that dialog. With the hook, the second case passes. | `trail/phases/phase-4.md` *The probe, seen red without the hook and green with it*; `frame/plan.md` phase 4 | In the clone at `39f64e08` (`<scratchpad>/1795739977-244-207-runner-cases-wait-on-what-they-read/sealer/clone/`), two copies of the file, written by a script that asserted each edit matched. Each copy has a throw before the first case's `await app.click("#records-cancel")` at `:99`, and one copy also drops the `afterEach` line at `:45`. Run with `cd apps/desktop && OWLERY_BACKGROUND=1 sh <scratchpad>/heavy.sh node scripts/test-in-electron.mjs test/test_tmp_records_without_hook.test.ts test/test_tmp_records_with_hook.test.ts test/records-dialog.test.ts` | Holds, executed. Without the hook, the second case failed with `the window never showed the dialog work-item-dialog; the last click aimed at #new-work-item and its press landed on dialog#records-dialog saying "Records and check: project Owlery commit"`. The phase record quotes this message up to `dialog#records-dialog`. With the hook, only the first case failed, on the probe's throw, and the second passed. |
+| `records-dialog.test.ts` passes at HEAD | `trail/phases/phase-4.md` *The phase boundary* | The same command, the third file | Holds, executed: 2 cases passed. |
+| Every file of the `app` project that is not named in `trail/phases/phase-4.md` *The census, at HEAD `7b2600e3`* registers the hook | `trail/phases/phase-4.md`; `changelog.md:7`; `frame/design.md` *Scope* item 4 | At HEAD, over the files `apps/desktop/vitest.config.ts`'s regex lists (`grep -l -E 'import \{[^}]*\bbuildApp\b[^}]*\} from "\./built-app"' test/*.test.ts`): `grep -q atRestAfterFailure` on each | Holds, executed and read. Nine files register the hook. The eleven files without it are the census's files, and `memory.test.ts` and `launch.test.ts` are among them. The merge changed `records-dialog.test.ts`, `screenshots.test.ts` and `role-bundle.test.ts`. The block above read the last two against the census's reasons, and each reason still holds at HEAD. |
+| Round 2's three fixes, which `7354b3c8` made after round 2's target `8199f124`, write the text each finding asked for, and each holds at HEAD | `trail/rounds/round-2.md`, findings 1 to 3 | Read: `git diff 8199f124..HEAD -- seal/threads/<item>/`, `apps/desktop/test/role-session.test.ts:160` and `:175`, and `gaps.md`, `trail/phases/phase-4.md` at HEAD | Holds, read. `gaps.md:16`'s last sentence, the `role-session.test.ts` row of `phase-4.md` and `gaps.md:9` each hold the finding's text word for word. `role-session.test.ts:160` and `:175` are its two `it.skipIf` cases. Each finding's `location:` is under `seal/threads/<item>/`. The fix touched no other path, and no finding asked for one. |
+| The six quotes of `pr.md` stand in `frame/design.md`, and `pr.md` has not changed since the block above | `pr.md` | `git diff --stat 19751f44..HEAD`, which names no `pr.md`, and the earlier `grep -c -F` | Holds, executed. |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | *Scope* item 4: each file of the `app` project whose cases share one app and open a dialog or a menu registers the hook, and a file whose cases end the app is left out. | The tree at HEAD, as the census row above shows. | None. |
+| the build | Phase 4 registers the hook in `records-dialog.test.ts` at `7b2600e3`, shows its red with the hook alone removed, and lists each file left out at HEAD. `frame/plan.md` row 4 names `7b2600e3`. | The re-run above. `routing.md` `Implementation` reads `crafter`, and each of the four phases has its `trail/phases/phase-N.md`. | None. `phase-3.md:76` still says "One case each" of `records-dialog.test.ts`, as at its date `a1ad6511`. `phase-4.md` corrects it, and `gaps.md` *Not done* sends the reader to both records. |
+| the last round | Round 2 at `8199f124`: confirms round 1's two fixes on the merged tree, confirms item 4 and `changelog.md:7` for every built-app file, confirms item 3 for the places the merge added, and finds three faults in the records, all `fixed 7354b3c8`. | The fixes, read at HEAD (the fourth row above), and the census this audit ran. | None. |
+| the changelog | The same text as in the block above, `changelog.md:7` among it. | The tree at HEAD: the files whose cases share one app and open a dialog or a menu register the hook, and `daemon-restart.test.ts` does not. | None. |
+| the orchestrator's part of the pull request body | `pr.md`: closes #244 and #207, and quotes *Scope* items 1 to 6. | `frame/design.md`, and the tree for item 4, which the block above found unmet and which HEAD meets. The body above `## From the records` is `pr.md` (executed: `seal pr-body --check`). | None. |
+
+Not verified, carried with the answerers `gaps.md` *Not verified* names: whether first attempts of `check` on the hosted runner stop failing the cases this work made wait (`frame/questions.md` Q1, a measurement of later pull requests), and whether a press on a disabled control raises a `pointerdown` in the page. The block above lists the mutants that survived, and this audit did not re-run them.
+
+```seal
+target: 39f64e08 against 06222134
+Verdict: sealed
+```
