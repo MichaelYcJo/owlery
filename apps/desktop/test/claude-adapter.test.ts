@@ -54,7 +54,7 @@ describe("the Claude adapter's launch", () => {
   });
 
   it("gives a role launch the role's tools as one value, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
-    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [], denyWrite: ["/work/tree", "/app/dist/bundle"] }, scratch: null };
+    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [], denyWrite: ["/work/tree", "/app/dist/bundle"], denyRead: ["/run"], allowRead: [] }, scratch: null };
     expect(claudeArgs("/work/tree", role)).toEqual([
       "-p",
       "--input-format",
@@ -65,7 +65,7 @@ describe("the Claude adapter's launch", () => {
       "--setting-sources",
       "",
       "--settings",
-      '{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":false,"filesystem":{"allowWrite":[],"denyWrite":["/work/tree","/app/dist/bundle"]},"network":{"strictAllowlist":true,"allowedDomains":[],"allowLocalBinding":true}}}',
+      '{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":false,"filesystem":{"allowWrite":[],"denyWrite":["/work/tree","/app/dist/bundle"],"denyRead":["/run"],"allowRead":[]},"network":{"strictAllowlist":true,"allowedDomains":[],"allowLocalBinding":true}}}',
       "--strict-mcp-config",
       "--permission-mode",
       "default",
@@ -86,7 +86,7 @@ describe("the Claude adapter's launch", () => {
   });
 
   it("turns no permission check off, for a refresh and for each role: the mode is default, and no other mode and no option that skips a check is named", () => {
-    const launches = [claudeArgs("/work/tree", "refresh"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair), sandbox: { allowWrite: [], denyWrite: ["/bundle"] }, scratch: null }))];
+    const launches = [claudeArgs("/work/tree", "refresh"), ...ROLE_STAGES.map((pair) => claudeArgs("/work/tree", { bundleDir: "/bundle", agent: agentOf(pair), rulesFile: "/rules.md", tools: toolsOf(pair), sandbox: { allowWrite: [], denyWrite: ["/bundle"], denyRead: [], allowRead: [] }, scratch: null }))];
     expect(launches).toHaveLength(5);
     for (const args of launches) {
       expect(args.filter((arg) => arg === "--permission-mode")).toHaveLength(1);
@@ -820,11 +820,11 @@ describe("the Claude adapter's role launch", () => {
     return { folder, env: { SHELL: shell, HOME: folder, USER: "person" }, bundleDir, rulesDir };
   }
 
-  /** The places a case's role launch is given for its commands, where they are not what it tests: the folder alone, and nothing refused. */
-  const placesIn = (cwd: string) => ({ write: [cwd], refuse: [] });
+  /** The places a case's role launch is given for its commands, where they are not what it tests: the folder alone, and nothing refused or unread. */
+  const placesIn = (cwd: string) => ({ write: [cwd], refuse: [], unread: [] });
 
   /** Starts one run, of a role or a refresh, and gives its events once it has exited, and how long that took. A role's run is given `commands`, or the places of `placesIn`, and `scratch` where it is given one. */
-  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, launch: RoleStage | "refresh", bound: { commands?: { write: string[]; refuse: string[] }; scratch?: string } = {}): Promise<{ events: RoleEvent[]; ms: number }> {
+  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, launch: RoleStage | "refresh", bound: { commands?: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string } = {}): Promise<{ events: RoleEvent[]; ms: number }> {
     const events: RoleEvent[] = [];
     const at = Date.now();
     await new Promise<void>((resolve, reject) => {
@@ -847,7 +847,7 @@ describe("the Claude adapter's role launch", () => {
       { type: "exit", exitCode: 0, errorOutput: "" },
     ]);
     const rulesFile = join(rulesDir, "proofer-round.md");
-    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [folder], denyWrite: [bundleDir] }, scratch: null }));
+    expect(readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(folder, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [folder], denyWrite: [bundleDir], denyRead: [], allowRead: [] }, scratch: null }));
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, PROOFER));
     expect(statSync(rulesFile).mode & 0o777).toBe(0o600);
     expect(statSync(rulesDir).mode & 0o777).toBe(0o700);
@@ -879,17 +879,17 @@ describe("the Claude adapter's role launch", () => {
     ]);
   });
 
-  it("bounds each role's commands to the places it was given: they write where `write` names, are refused what `refuse` names and the bundle's folder, and a scratch folder is added after the bundle's (scenarios 1 to 3 of #127)", async () => {
+  it("bounds each role's commands to the places it was given: they write where `write` names, are refused what `refuse` names and the bundle's folder, read nothing of what `unread` names but of the scratch folder, and a scratch folder is added after the bundle's (scenarios 1 to 3 of #127)", async () => {
     const given = {
-      crafter: { commands: { write: ["/w/tree", "/repo/.git"], refuse: ["/repo/.git/hooks", "/repo/.git/config"] } },
-      proofer: { commands: { write: ["/run/scratch/1"], refuse: ["/w/tree"] }, scratch: "/run/scratch/1" },
-      sealer: { commands: { write: ["/run/scratch/2"], refuse: ["/w/tree"] }, scratch: "/run/scratch/2" },
-      orchestrator: { commands: { write: [], refuse: ["/w/tree"] } },
+      crafter: { commands: { write: ["/w/tree", "/repo/.git"], refuse: ["/repo/.git/hooks", "/repo/.git/config"], unread: ["/run"] } },
+      proofer: { commands: { write: ["/run/scratch/1"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/1" },
+      sealer: { commands: { write: ["/run/scratch/2"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/2" },
+      orchestrator: { commands: { write: [], refuse: ["/w/tree"], unread: ["/run"] } },
     };
     for (const pair of ROLE_STAGES) {
       const init = JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", agents: [agentOf(pair)] });
       const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
-      const bound: { commands: { write: string[]; refuse: string[] }; scratch?: string } = given[pair.role];
+      const bound: { commands: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string } = given[pair.role];
       await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, pair, bound);
       const args = readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1);
       const settings = JSON.parse(args[args.indexOf("--settings") + 1]!) as { sandbox: unknown };
@@ -898,7 +898,7 @@ describe("the Claude adapter's role launch", () => {
         failIfUnavailable: true,
         allowUnsandboxedCommands: false,
         autoAllowBashIfSandboxed: false,
-        filesystem: { allowWrite: bound.commands.write, denyWrite: [...bound.commands.refuse, bundleDir] },
+        filesystem: { allowWrite: bound.commands.write, denyWrite: [...bound.commands.refuse, bundleDir], denyRead: bound.commands.unread, allowRead: bound.scratch === undefined ? [] : [bound.scratch] },
         network: { strictAllowlist: true, allowedDomains: [], allowLocalBinding: true },
       });
       expect(args.slice(args.indexOf("--add-dir")), pair.role).toEqual(["--add-dir", folder, bundleDir, ...(bound.scratch === undefined ? [] : [bound.scratch])]);
@@ -1266,7 +1266,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
     const events: RoleEvent[] = [];
     await new Promise<void>((resolve, reject) => {
       claudeAdapter({ SHELL: shell, HOME: folder }, { bundleDir: scratchBundle(folder), rulesDir: join(folder, "roles") })
-        .start({ prompt: "Q", cwd: folder, role: { role: "proofer", stage: "round" }, commands: { write: [folder], refuse: [] } }, (event) => {
+        .start({ prompt: "Q", cwd: folder, role: { role: "proofer", stage: "round" }, commands: { write: [folder], refuse: [], unread: [] } }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })

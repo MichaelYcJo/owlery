@@ -78,8 +78,10 @@ function firstOf(text: string): string {
  * own sandbox on in the settings it passes, which on macOS runs each command
  * under `sandbox-exec`: its commands write in `sandbox.allowWrite` and
  * where that sandbox lets a command write by default, never in
- * `sandbox.denyWrite`, which wins over both, and they reach no host but the
- * loopback. The runs of `pnpm run role:refusal` against Claude Code 2.1.332
+ * `sandbox.denyWrite`, which wins over both; they read no file of
+ * `sandbox.denyRead` but in `sandbox.allowRead`, so not the port and the
+ * token of the daemon that listens on the loopback; and they reach no host
+ * but the loopback. The runs of `pnpm run role:refusal` against Claude Code 2.1.332
  * showed the default to hold its own temporary folder `/tmp/claude-<uid>`,
  * the session's folder, and the git folder of the repository whose linked
  * worktree the session ran in. No command can ask to run outside it, a
@@ -117,13 +119,13 @@ export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[
   ];
 }
 
-/** What a role launch adds to the arguments: the bundle, the role's agent, its rules file and its tools, the folders its commands write in and are refused, and its scratch folder or none. */
+/** What a role launch adds to the arguments: the bundle, the role's agent, its rules file and its tools, the folders its commands write in and are refused, the folders they read nothing of and the folders inside those they read again, and its scratch folder or none. */
 export interface RoleLaunch {
   bundleDir: string;
   agent: string;
   rulesFile: string;
   tools: readonly string[];
-  sandbox: { allowWrite: readonly string[]; denyWrite: readonly string[] };
+  sandbox: { allowWrite: readonly string[]; denyWrite: readonly string[]; denyRead: readonly string[]; allowRead: readonly string[] };
   scratch: string | null;
 }
 
@@ -135,7 +137,9 @@ function sandboxOf(places: RoleLaunch["sandbox"]): unknown {
     allowUnsandboxedCommands: false,
     // A sandboxed command still reaches the adapter as a request, so the daemon's grant answers it.
     autoAllowBashIfSandboxed: false,
-    filesystem: { allowWrite: places.allowWrite, denyWrite: places.denyWrite },
+    // A command reads no file of `denyRead`, which holds the daemon's run folder, whose `daemon.json` names the port and the token a client
+    // reaches the daemon with on the loopback and has it act outside the sandbox; `allowRead` gives the session's scratch folder back inside it.
+    filesystem: { allowWrite: places.allowWrite, denyWrite: places.denyWrite, denyRead: places.denyRead, allowRead: places.allowRead },
     // No domain is allowed, and a host is refused with no request; a local server a test starts is reached on the loopback.
     network: { strictAllowlist: true, allowedDomains: [], allowLocalBinding: true },
   };
@@ -505,7 +509,8 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
    * and again at each launch, so it holds the bundle as it stands. The folder
    * and the file are the user's alone, as the daemon's other files are. The
    * session's commands write where `commands` lets them, and are refused the
-   * bundle's folder beside what `commands` refuses.
+   * bundle's folder beside what `commands` refuses. They read no file of the
+   * folders `commands` names unread, but of the scratch folder.
    */
   const launchOf = (role: RoleStage, commands: RoleStart["commands"], scratch: string | undefined): RoleLaunch => {
     if (!commands) throw new Error("the Claude adapter launches a role only with the places its commands may write, and was given none");
@@ -516,7 +521,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
     const rulesFile = join(rulesDir, rulesFileName(role));
     writeWholeFile(rulesFile, text);
-    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role), sandbox: { allowWrite: commands.write, denyWrite: [...commands.refuse, bundleDir] }, scratch: scratch ?? null };
+    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role), sandbox: { allowWrite: commands.write, denyWrite: [...commands.refuse, bundleDir], denyRead: commands.unread, allowRead: scratch === undefined ? [] : [scratch] }, scratch: scratch ?? null };
   };
 
   // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.

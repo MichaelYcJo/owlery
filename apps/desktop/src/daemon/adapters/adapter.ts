@@ -46,7 +46,7 @@ export interface RoleStart {
   role?: RoleStage;
   accountDir?: string;
   refresh?: true;
-  commands?: { write: readonly string[]; refuse: readonly string[] };
+  commands?: { write: readonly string[]; refuse: readonly string[]; unread: readonly string[] };
   scratch?: string;
 }
 
@@ -67,12 +67,13 @@ export interface RoleAdapter {
    * transcript, and is started only for the `limit` events its stream hands
    * over. `commands`, which the daemon gives with every role and never with
    * a refresh, are the absolute folders the session's commands may write in
-   * (`write`) and are refused (`refuse`): an adapter that launches a role
-   * runs its commands in the operating system's sandbox, which lets them
-   * write in the `write` folders and never in the `refuse` ones, and
-   * refuses them the adapter's own folders as well; one that cannot, or
-   * that is given a role with no `commands`, starts no session. `scratch`,
-   * which the daemon gives where
+   * (`write`) and are refused (`refuse`), and the folders they read no file
+   * of (`unread`): an adapter that launches a role runs its commands in the
+   * operating system's sandbox, which lets them write in the `write`
+   * folders and never in the `refuse` ones, refuses them the adapter's own
+   * folders as well, and refuses them every read in the `unread` folders
+   * but in `scratch`; one that cannot, or that is given a role with no
+   * `commands`, starts no session. `scratch`, which the daemon gives where
    * the role's commands write in a scratch folder of the session's own, is
    * that folder, which the session's file tools reach as well. The promise
    * rejects, with a message a person can read, where no session started.

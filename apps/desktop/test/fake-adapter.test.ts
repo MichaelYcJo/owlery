@@ -165,7 +165,7 @@ describe("the fake adapter", () => {
 
   it("records what each start was given, in order, the places of a role's commands and its scratch folder among them, and a start it was told to refuse too (#127)", async () => {
     const adapter = fakeAdapter();
-    const commands = { write: ["/run/scratch/1"], refuse: ["/nowhere"] };
+    const commands = { write: ["/run/scratch/1"], refuse: ["/nowhere"], unread: ["/run"] };
     await adapter.start({ prompt: "Q", cwd: "/nowhere", role: { role: "proofer", stage: "round" }, commands, scratch: "/run/scratch/1" }, () => {});
     await adapter.start({ prompt: "R", cwd: "/nowhere", refresh: true }, () => {});
     expect(adapter.starts).toEqual([
@@ -173,8 +173,8 @@ describe("the fake adapter", () => {
       { prompt: "R", cwd: "/nowhere", refresh: true },
     ]);
     const refusing = fakeAdapter({ fail: "start" });
-    await expect(refusing.start({ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"] } }, () => {})).rejects.toThrow("the fake adapter was told not to start");
-    expect(refusing.starts).toEqual([{ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"] } }]);
+    await expect(refusing.start({ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"], unread: ["/run"] } }, () => {})).rejects.toThrow("the fake adapter was told not to start");
+    expect(refusing.starts).toEqual([{ prompt: "S", cwd: "/nowhere", role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: ["/nowhere"], unread: ["/run"] } }]);
   });
 
   it("reports nothing more once its run is stopped, and its stop settles at once, the same promise at each call", async () => {

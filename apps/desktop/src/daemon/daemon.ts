@@ -2459,11 +2459,16 @@ export class Daemon {
    * default in a session of a linked worktree, and through which a command
    * would move the branch under judgment. Each refused folder is
    * named, so the bound holds whatever the sandbox lets a command write by
-   * default. It rejects, with a sentence a person reads, where git names no
-   * repository's folder for the worktree.
+   * default. Every role's commands read no file of the run folder, where
+   * the daemon has one, but of the session's scratch folder inside it: the
+   * folder's `daemon.json` names the port and the token with which a client
+   * on the loopback, which the sandbox lets a command reach, has the daemon
+   * act outside the sandbox as a window would. It rejects, with a sentence a
+   * person reads, where git names no repository's folder for the worktree.
    */
-  private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[] }; scratch: string | null }> {
+  private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[]; unread: string[] }; scratch: string | null }> {
     const worktree = realpathSync.native(cwd);
+    const unread = this.options.runDir === undefined ? [] : [realpathSync.native(this.options.runDir)];
     const { commands } = grantOf(session.role);
     let gitFolder: string;
     try {
@@ -2472,10 +2477,10 @@ export class Daemon {
       const bound = commands === "worktree" ? "have no place to write" : "cannot be refused the repository's git folder";
       throw new Error(`git named no repository's folder for the worktree, so the ${session.role.role}'s commands ${bound}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    if (commands === "worktree") return { commands: { write: [worktree, gitFolder], refuse: [join(gitFolder, "hooks"), join(gitFolder, "config")] }, scratch: null };
-    if (commands === "nowhere") return { commands: { write: [], refuse: [worktree, gitFolder] }, scratch: null };
+    if (commands === "worktree") return { commands: { write: [worktree, gitFolder], refuse: [join(gitFolder, "hooks"), join(gitFolder, "config")], unread }, scratch: null };
+    if (commands === "nowhere") return { commands: { write: [], refuse: [worktree, gitFolder], unread }, scratch: null };
     session.scratch = this.makeScratch(session.info.id);
-    return { commands: { write: [session.scratch], refuse: [worktree, gitFolder] }, scratch: session.scratch };
+    return { commands: { write: [session.scratch], refuse: [worktree, gitFolder], unread }, scratch: session.scratch };
   }
 
   /**

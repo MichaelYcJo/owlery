@@ -20,20 +20,26 @@
 // loopback (`model-stand-in.ts`), with a key that is no key and a home of its
 // own, and the daemon takes a config folder of the case's as System
 // default's, so the CLI costs nothing and reads no file of the person's
-// Claude Code folder. The stand-in answers the session's first turn with one
-// shell command, so the call is made whatever a model would choose. The
-// daemon allows it by the role's grant, and the command runs in Claude
-// Code's sandbox with the places the daemon gave the launch: a proofer's and
-// a sealer's command clones the worktree into the session's scratch folder,
+// Claude Code folder. The daemon is given a run folder of the case's, which
+// holds that config folder as it holds an added account's, and the case
+// writes the daemon's port and token into its `daemon.json` as the daemon's
+// start does. The stand-in answers the session's first turn with one shell
+// command, so the call is made whatever a model would choose. The daemon
+// allows it by the role's grant, and the command runs in Claude Code's
+// sandbox with the places the daemon gave the launch: a proofer's and a
+// sealer's command clones the worktree into the session's scratch folder,
 // appends to the clone's file, makes a branch in the repository's git folder
-// and appends to the worktree's file, and a crafter's
-// appends to the worktree's file, commits it, and then appends to a file of
-// the case's folder outside the worktree. The system refuses each write
-// after the first two of a proofer and a sealer, and the last of a crafter.
-// The case reads the stream for the session's tools and the
-// request, the case's config folder for the session's conversation, what
-// the stand-in was told the command printed, and the files and the
-// worktree's commits for what was written.
+// and appends to the worktree's file; a crafter's appends to the worktree's
+// file, commits it, appends to a file of the case's folder outside the
+// worktree, and then writes the worktree's `.git` file and the `commondir`
+// of the worktree's own git folder to name the case's folder; and every
+// role's command then reads the run folder's `daemon.json`. The system
+// refuses each write after the first two of a proofer and a sealer, each
+// after the first two of a crafter, and the read of every role. The case
+// reads the stream for the session's tools and the request, the case's
+// config folder for the session's conversation, what the stand-in was told
+// the command printed, and the files and the worktree's commits for what
+// was written.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -43,6 +49,7 @@ import WebSocket from "ws";
 import { claudeAdapter, lookupCommand, parseLookup } from "../src/daemon/adapters/claude";
 import { toolsOf } from "../src/daemon/adapters/claude-roles";
 import { Daemon } from "../src/daemon/daemon";
+import { writeDiscovery } from "../src/daemon/discovery";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { terminalEnv } from "../src/daemon/pty";
 import type { HeadlessInfo, RoleStage, ServerMessage } from "../src/shared/protocol";
@@ -69,6 +76,12 @@ const PROMPT = [
   "3. Read the file `templates/records/sdd-round.md` of the role bundle, and quote its first line exactly.",
 ].join("\n");
 
+/** The daemon's token, which the case writes into the run folder's `daemon.json` and no command may read. */
+const TOKEN = "r".repeat(64);
+
+/** The run folder the case gives the daemon, in the case's own folder `kept`. */
+const runFolderIn = (kept: string): string => join(kept, "run");
+
 /**
  * The command of the stand-in model's call in the second session, for the
  * pair, its work item's worktree and the case's own folder `kept`. None of
@@ -77,19 +90,24 @@ const PROMPT = [
  * `--add-dir` and the case's script kept in `args`, appends a byte to the
  * clone's `README.md` and prints it, then makes the branch `probe` in the
  * repository's git folder, and then, whatever that did, appends a byte to
- * the worktree's `README.md`. A
- * crafter's appends a byte to the worktree's `README.md`, commits it as
- * `probe`, then appends one to `outside.txt` of `kept`, which no place of
- * the launch names. The paths of the case hold no quote.
+ * the worktree's `README.md`. A crafter's appends a byte to the worktree's
+ * `README.md`, commits it as `probe`, then appends one to `outside.txt` of
+ * `kept`, which no place of the launch names, and then, whatever each step
+ * did, points git at `kept` twice: through the worktree's `.git` file, and
+ * through `commondir` of the worktree's own git folder, both inside the
+ * places a crafter writes. Every role's then, whatever the steps before
+ * did, prints the run folder's `daemon.json`. The paths of the case hold no
+ * quote.
  */
 function standInCommand(pair: RoleStage, worktree: string, kept: string): string {
-  if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'`;
+  const discovery = `cat '${join(runFolderIn(kept), "daemon.json")}'`;
+  if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'; printf 'gitdir: %s\\n' '${kept}' > '${worktree}/.git'; printf '%s\\n' '${kept}' > "$(git -C '${worktree}' rev-parse --path-format=absolute --git-dir)/commondir"; ${discovery}`;
   const scratch = readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? "";
-  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }`;
+  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }; ${discovery}`;
 }
 
-/** A shell's sentence that the system refused a write to `file`, in the words of either shell: zsh's "operation not permitted: <file>" and bash's "<file>: Operation not permitted". */
-function refusedWrite(file: string): RegExp {
+/** A sentence that the system refused a write to or a read of `file`, in the words of either shell and of `cat`: zsh's "operation not permitted: <file>", and bash's and `cat`'s "<file>: Operation not permitted". */
+function refused(file: string): RegExp {
   const name = file.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(`operation not permitted: ${name}|${name}: operation not permitted`, "i");
 }
@@ -138,7 +156,11 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
       chmodSync(file, 0o755);
       return file;
     };
-    const config = model === undefined ? null : join(kept, "config");
+    // The daemon's run folder, readable by the person alone as the daemon's start makes it.
+    const run = runFolderIn(kept);
+    mkdirSync(run, { mode: 0o700 });
+    // In the run folder, as the folder the daemon makes for an added account is, so the session's commands run where their config folder is one they read nothing of.
+    const config = model === undefined ? null : join(run, "config");
     // Set in the script, because the daemon passes a session none of its own variables, and before the read of the
     // version, so that run takes them too. The config folder is the daemon's to give, below.
     let pointed = "";
@@ -156,15 +178,18 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     const shell = script("shell", config === null ? `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${copying}' '${path}'` : `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${copying}' '${path}' '${config}'`);
 
     const bundleDir = join(__dirname, "..", "dist", "bundle");
-    const token = "r".repeat(64);
+    const token = TOKEN;
     daemon = new Daemon({
       token,
+      runDir: run,
       paneKinds: PANE_KINDS,
-      roleAdapter: claudeAdapter({ ...process.env, SHELL: shell }, { bundleDir, rulesDir: join(kept, "roles") }),
+      roleAdapter: claudeAdapter({ ...process.env, SHELL: shell }, { bundleDir, rulesDir: join(run, "roles") }),
       commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }),
       worktreesRoot: repository.root,
     });
     const port = await daemon.listen(0);
+    // What a client on the loopback reaches the daemon with, where the daemon's start writes it (`main.ts`).
+    writeDiscovery(run, { port, token, pid: process.pid });
     const client = new WebSocket(`ws://127.0.0.1:${port}`);
     socket = client;
     const messages: ServerMessage[] = [];
@@ -269,20 +294,27 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     expect(told.map(({ content }) => content).join("\n")).not.toContain("Owlery gives the");
     if (pair.role === "crafter") {
       // The worktree's file took the byte and the commit holds it; the system refused the write to the case's folder, which no place of the launch names.
-      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refusedWrite(join(kept, "outside.txt"))) });
+      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(kept, "outside.txt"))) });
       expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\nx");
       expect(git(worktree, "log", "-1", "--format=%s")).toBe("probe\n");
       expect(git(worktree, "show", "--format=", "--name-only", "HEAD")).toBe("README.md\n");
       expect(existsSync(join(kept, "outside.txt"))).toBe(false);
+      // The system refused both writes that would point git at a folder of the command's, and git still names the repository's folder: `temporaryRepository` names the case's repository `project` under `base`.
+      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(worktree, ".git"))) });
+      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(/commondir.*operation not permitted|operation not permitted.*commondir/is) });
+      expect(git(worktree, "rev-parse", "--path-format=absolute", "--git-common-dir").trim()).toBe(realpathSync(join(base, "project", ".git")));
     } else {
       // The clone in the scratch folder took the byte, which the command printed; the system refused the branch in the repository's git folder and the write to the worktree, and the worktree holds no change.
       expect(told).toContainEqual({ isError: true, content: expect.stringContaining("a repository\nx") });
       expect(told).toContainEqual({ isError: true, content: expect.stringMatching(/refs\/heads\/probe\.lock.*operation not permitted/is) });
       expect(git(worktree, "branch", "--list", "probe")).toBe("");
-      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refusedWrite(join(worktree, "README.md"))) });
+      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(worktree, "README.md"))) });
       expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
       expect(git(worktree, "status", "--porcelain")).toBe("");
     }
+    // Every role's command was refused the read of the run folder's `daemon.json`, so it was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
+    expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
+    expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, pair]);
   }, 300_000);
 });
