@@ -541,9 +541,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
       // The account's folder, and under System default the folder the login shell names, as a pane of the work item would run under it.
       const folder = accountDir ?? configDir;
       // Claude Code starts each command by sourcing its snapshot of the person's shell setup, kept in `shell-snapshots` of the config
-      // folder, and drops the source's error. An added account's folder stands in the run folder, which `denyRead` names, so `allowRead`
-      // names that one folder of the config folder, by its real path as `denyRead` names the run folder; the rest of the config folder,
-      // its login among it, stays refused. For a config folder outside the run folder the entry gives back nothing a command was refused.
+      // folder, and drops the source's error. The folder the daemon makes for an added account stands in the run folder, which `denyRead`
+      // names, so `allowRead` names that one folder of the config folder, by its real path as `denyRead` names the run folder; the rest
+      // of the config folder, its login among it, stays refused. In such a folder `shell-snapshots` is a link into the person's own config
+      // folder where the person's holds one (`claude-accounts.ts#LINKED_NAMES`), and the entry names the link's own path, through which
+      // Claude Code 2.1.329 and 2.1.332 each ran a command from the snapshot. For a config folder outside the run folder the entry gives
+      // back nothing a command was refused.
       let real = folder;
       try {
         if (folder) real = realpathSync.native(folder);

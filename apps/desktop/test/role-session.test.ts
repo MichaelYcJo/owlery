@@ -21,9 +21,13 @@
 // own, and the daemon takes a config folder of the case's as System
 // default's, so the CLI costs nothing and reads no file of the person's
 // Claude Code folder. The daemon is given a run folder of the case's, which
-// holds that config folder as it holds an added account's, and the case
-// writes the daemon's port and token into its `daemon.json` as the daemon's
-// start does. The stand-in answers the session's first turn with one shell
+// holds that config folder as it holds the folder the daemon makes for an
+// added account. The case's config folder holds `shell-snapshots` as a
+// folder Claude Code makes there; in an account's folder that Owlery made
+// it is a link into the person's own config folder where the person's holds
+// one (`claude-accounts.ts#LINKED_NAMES`), which the case does not try. The
+// case writes the daemon's port and token into its `daemon.json` as the
+// daemon's start does. The stand-in answers the session's first turn with one shell
 // command, so the call is made whatever a model would choose. The daemon
 // allows it by the role's grant, and the command runs in Claude Code's
 // sandbox with the places the daemon gave the launch: a proofer's and a
@@ -350,7 +354,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     expect([...refusedCalls].sort()).toEqual(fileReads(pair, worktree, kept).map((_call, index) => `toolu_stand_in_${String(index + 2)}`));
     // Every role's command was refused the read of the run folder's `daemon.json`, and no file tool's read of it was let through, so the session was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
     expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
-    // The command started from Claude Code's snapshot of the home's shell setup, though the snapshot stands in the config folder inside the run folder, as an added account's does: the launch gives back the read of the config folder's `shell-snapshots` alone.
+    // The command started from Claude Code's snapshot of the home's shell setup, though the config folder's `shell-snapshots` stands inside the run folder, as it does in the folder the daemon makes for an added account, here as a folder of its own and not a link: the launch gives back the read of that folder alone.
     expect(told.map(({ content }) => content).join("\n")).toContain(SETUP_RAN);
     expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
     if (pair.role === "crafter") {
