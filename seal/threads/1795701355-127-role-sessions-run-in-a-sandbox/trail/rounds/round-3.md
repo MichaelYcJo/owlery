@@ -100,6 +100,11 @@ frame/plan.md:89: "where that folder stands in the run folder as an added accoun
 where that folder stands in the run folder, as the one Owlery makes for an added account does.
 ```
 
+```seal
+verdict: fixed 0780cfcd
+answer: The framer's fold `0780cfcd` writes the round's texts into `frame/design.md` *Scope* items 4 and 9, *Out* and both adds of *Rule changes*, and `frame/plan.md` lines 14, 52, 53, 54 and 89, so the frame names the folder Owlery makes for an added account as the one in the run folder and keeps a folder the person hands over where it stood. The dated row at `frame/plan.md:110` stays, and a new *Judgments of the run* row corrects it. The fix touched `frame/` alone.
+```
+
 ## Confirmations
 
 ```seal
