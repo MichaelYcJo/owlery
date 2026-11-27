@@ -1061,6 +1061,8 @@ export interface SidebarRepository {
   entries: (Entry & { marks: [number, number][] })[];
   /** Its groups, in the order they were made, each with the work items that stand in it. */
   groups: { id: number; name: string; entries: SidebarRepository["entries"] }[];
+  /** The version of Owlery whose pull request check the repository's workflow fetches, where the daemon read it older than its own, or null. The row then holds the button `checkButton` names. */
+  olderCheck: string | null;
 }
 
 /**
@@ -1075,7 +1077,9 @@ export interface SidebarRepository {
  * state is chosen, a repository none of whose work items is left is not,
  * and neither is a group none of whose work items is left. The window makes
  * up no repository: a work item whose repository the daemon did not send is
- * under none.
+ * under none. Each carries the version of its older check as the daemon
+ * sent it, and null where the daemon sent none: the window compares no
+ * versions itself.
  */
 export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
@@ -1087,7 +1091,7 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
       const listed = (entries: typeof own) => pinnedFirst(entries).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
       const groups = repository.groups.map(({ id, name }) => ({ id, name, entries: listed(own.filter((entry) => entry.workItem.groupId === id)) })).filter((group) => !narrowing || group.entries.length > 0);
       const entries = listed(own.filter((entry) => !repository.groups.some((group) => group.id === entry.workItem.groupId)));
-      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups };
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups, olderCheck: recordsOf(repository)?.olderCheck ?? null };
     })
     .filter((repository) => !narrowing || repository.count > 0);
 }
@@ -2780,12 +2784,16 @@ export interface RecordsWords {
   head: string;
   /** What Owlery does in the repository and what is out of scope, said whatever the plan holds. */
   scope: string;
-  /** The branch and the subject of the commit a setup makes, or empty where it makes none. */
+  /** Of a plan that moves the check: the version the workflow fetches the check at and the version the commit moves it to. Empty otherwise. */
+  move: string;
+  /** The branch and the subject of the commit a setup or a move makes, or empty where it makes none. */
   commit: string;
   /** Why the setup cannot run, or the daemon's refusal of the plan, or empty. */
   blocked: string;
-  /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. */
+  /** Each file of a plan that writes one: a file the setup writes with its whole text, and a file that stands with the sentence that it is kept. A move shows the workflow alone, with its whole text and the sentence that it is written over the committed file. */
   files: { path: string; text: string | null; says: string }[];
+  /** Of a plan that moves the check: each work item whose records the daemon's readers refuse at its branch's head or did not read, by its title with its entry's sentence, under a head where any is named, and what those readers read, which leaves out the ones named as not read. Null for a plan that moves nothing. */
+  unread: { head: string; items: { name: string; why: string }[]; says: string } | null;
   /** For a repository that holds every part: its root, its workflow and its broad gate command. */
   holds: string[];
   /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
@@ -2820,14 +2828,20 @@ function requiredCheck(workflow: string | null): string {
  * or its checkout does not hold a file of the place as its commit does.
  * Whichever the plan, the dialog says of the workflow it names, written or
  * kept, how an administrator makes the seal check required on GitHub, or
- * that AgenticSeal's `hygiene.yml` posts no such check.
+ * that AgenticSeal's `hygiene.yml` posts no such check. A plan that moves
+ * the check says the version the workflow fetches the check at and the one
+ * the commit moves it to, shows the workflow alone with the text written
+ * over the committed file, names each work item whose records the daemon's
+ * readers refuse or did not read and what those readers read, hides the
+ * field, and offers
+ * "Move and commit", on where the plan is not blocked.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
   const scope = "Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.";
   const label = "Broad gate command";
   const off = { shown: true, enabled: false, label: "Set up and commit" };
-  const unplanned = { head, scope, commit: "", files: [], holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, required: "", cancel: "Not now" };
+  const unplanned = { head, scope, move: "", commit: "", files: [], unread: null, holds: [], gate: { shown: false, enabled: false, label, value: "", says: "" }, required: "", cancel: "Not now" };
   if (plan === null) return { ...unplanned, blocked: "", submit: off };
   if ("error" in plan) return { ...unplanned, blocked: plan.error, submit: off };
   const held = recordsOf(repository);
@@ -2847,14 +2861,40 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
       cancel: "Close",
     };
   }
+  const commit = plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "";
+  const move = plan.move ?? null;
+  if (move !== null) {
+    // The one file a move writes is the workflow, over the committed one; the files it keeps are not shown.
+    const moved = plan.files.filter((file) => file.text !== null);
+    const named = (plan.unread ?? []).map(({ title, why }) => ({ name: title, why }));
+    const readers = "with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const read = `Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, ${readers}`;
+    // An entry can be a work item that was not read, so where any is named the sentence leaves those out by their own words.
+    const readBut = `Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
+    return {
+      ...unplanned,
+      move: `\`${moved[0]?.path ?? ""}\` fetches the pull request check of Owlery ${move.from}, older than this app. The commit moves it to Owlery ${move.to}.`,
+      commit,
+      blocked: plan.blocked ?? "",
+      files: moved.map((file) => ({ ...file, says: `The commit writes this text over the committed \`${file.path}\`, whole.` })),
+      unread:
+        named.length > 0
+          ? { head: "Work items whose records Owlery's readers refuse or did not read", items: named, says: `${readBut} Once the check moves, it may refuse the pull requests of the work items named.` }
+          : { head: "", items: [], says: `${read} They refuse no work item's records, and the moved check may still refuse a pull request through another arm.` },
+      required,
+      submit: { shown: true, enabled: plan.blocked === null && plannedFor === command, label: "Move and commit" },
+    };
+  }
   const writesConfig = config !== undefined && config.text !== null;
   const proposed = writesConfig && plan.proposedBroadGate !== null && command === plan.proposedBroadGate;
   return {
     head,
     scope,
-    commit: plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "",
+    move: "",
+    commit,
     blocked: plan.blocked ?? "",
     files: plan.files.map((file) => ({ ...file, says: file.text === null ? `\`${file.path}\` stands and is kept.` : "" })),
+    unread: null,
     holds: [],
     gate: {
       shown: config !== undefined,
@@ -2880,6 +2920,11 @@ export function rowButtons(repositoryName: string): Record<"add" | "menu", { nam
     add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new worktree.` },
     menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
   };
+}
+
+/** The button a repository's row holds before its "+" where its pull request check is of an older Owlery than the app: its words, and what it says to a pointer and to a screen reader. A press opens the dialog of the records place, which shows the commit that moves the check. */
+export function checkButton(repositoryName: string, version: string): { label: string; says: string } {
+  return { label: `Check ${version}`, says: `The pull request check of ${repositoryName} is Owlery ${version}'s, older than this app. Open to read the commit that moves it.` };
 }
 
 /** What the daemon answered a rename's plan with: what a `renamePlan` carries, or the error it refused the plan with. */

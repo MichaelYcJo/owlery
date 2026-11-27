@@ -97,7 +97,7 @@ import { repositoryFileText } from "./repository-file";
 import { verdictOn } from "./role-grants";
 import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
-import { workItemSeal } from "./seal-state";
+import { refusedAt, workItemSeal } from "./seal-state";
 import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
@@ -1313,7 +1313,8 @@ export class Daemon {
             const repository = this.store.repository(message.id);
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             if (typeof message.broadGate !== "string") throw new Error("a plan of the records place names the broad gate command, which may be empty");
-            this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: await planRecords(repository.folder, message.broadGate, this.version()) });
+            const made = await planRecords(repository.folder, message.broadGate, this.version());
+            this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { ...made, unread: made.move ? await this.unreadRecords(repository.id) : [] } });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -2957,7 +2958,7 @@ export class Daemon {
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
   private repositoryOf({ id, folder, name, icon, defaultBase, hidden, paneChain, groups, accountId }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
   }
 
   /**
@@ -2966,20 +2967,55 @@ export class Daemon {
    * whether the checkout is on the owl chain, and whether Claude Code enables
    * the AgenticSeal plugin for it under the config folder of the account a
    * new pane of the repository takes where neither the pane nor its work
-   * item names one. It answers whether any of it is another than was last
-   * read.
+   * item names one. The older check is read against the daemon's own
+   * version. It answers whether any of it is another than was last read.
    */
   private readRecords(repository: StoredRepository): boolean {
     const { id, folder } = repository;
-    const read = readRecordsPlace(folder);
-    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null };
+    const read = readRecordsPlace(folder, this.options.version);
+    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null };
     this.records.set(id, read);
     // Read under the account a new pane of the repository takes where neither the pane nor its work item names one.
     const { configDir } = this.foldersOf(accountFor(null, { accountId: null }, repository, this.accounts.defaultId()));
     const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder, configDir) ?? false };
     const chained = this.paneChains.get(id) ?? { owl: false, plugin: false };
     this.paneChains.set(id, chain);
-    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
+  }
+
+  /**
+   * The work items of the repository whose records the daemon's readers
+   * refuse, for the plan that moves its check: each one that is not
+   * archived and has a branch, read at the head of its branch the daemon
+   * last read (`seal-state.ts#refusedAt`), with the reader's sentence cut at
+   * `STATE_TEXT_CHARS`. A work item whose head the daemon holds no reading
+   * of is named with the sentence that its records were not read yet. One
+   * whose worktree's folder is gone, and one whose reading throws anything
+   * other than a refusal, is named with the sentence that says why its
+   * records could not be read, and the log says the second. A work item
+   * whose worktree stands and holds no directory for its branch is read as
+   * one with no records, though the branch's head may hold one.
+   */
+  private async unreadRecords(repositoryId: number): Promise<{ id: number; title: string; why: string }[]> {
+    const items = this.store.workItems().flatMap(({ repository, item }) => (repository.id === repositoryId && item.archivedAt === null && item.branch !== null ? [item] : []));
+    const read = await Promise.all(
+      items.map(async (item) => {
+        const head = this.branches.get(item.id)?.head;
+        if (head === undefined) return { id: item.id, title: item.title, why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." };
+        // A person can remove a worktree's folder by hand (`whyNoRun`). The branch's head still holds its records, and `refusedAt` would find no directory there and answer as for a work item with none. `existsSync` follows a link, so a link to a folder that stands is read as before.
+        if (!existsSync(item.worktree)) return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item ${String(item.id)} is gone: ${item.worktree}`) };
+        try {
+          const why = await refusedAt(item, head);
+          return why === null ? null : { id: item.id, title: item.title, why: cutText(why) };
+        } catch (error) {
+          const said = error instanceof Error ? error.message : String(error);
+          console.error(`the records of work item ${String(item.id)} were not read for the move of the check: ${said}`);
+          // Named, not dropped: the dialog's sentence that the readers refuse no work item's records holds only where each one was read.
+          return { id: item.id, title: item.title, why: cutText(`Owlery could not read these records, so whether the moved check refuses them is not known: ${said}`) };
+        }
+      }),
+    );
+    return read.filter((entry) => entry !== null);
   }
 
   /** The version the workflow of a setup fetches the check at. A daemon given none refuses the plan and the setup. */

@@ -78,6 +78,8 @@ export interface RecordsPlace {
   check: string | null;
   /** The value of the `Broad gate` key of the root's `config.json`, or null where there is no root, no file, or no such key. */
   broadGate: string | null;
+  /** The version of Owlery whose pull request check the workflow fetches, where it is older than the daemon's own, and null otherwise: for no Owlery workflow, a workflow whose version line the daemon does not read, a version as new as the daemon's or newer, and a daemon given no version. A daemon of an earlier build sends none, and a client reads its absence as null. */
+  olderCheck?: string | null;
 }
 
 /** The chain a person chose for the Claude Code panes of a repository: the owl chain, which is Owlery's, or the AgenticSeal plugin's. */
@@ -93,18 +95,22 @@ export interface RepositoryChain {
   chosen: ChainChoice | null;
 }
 
-/** What a setup of the records place would do. */
+/** What a setup of the records place would do, or the move of its check to the daemon's version. */
 export interface RecordsPlan {
   /** The branch the commit lands on, or null where the checkout stands on none. */
   branch: string | null;
   /** The commit's subject. */
   subject: string;
-  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
+  /** Each file of the place in the order README, config, workflow: `text` is what the setup writes, or null for a file the commit holds, which is kept; a plan with a `move` gives the committed workflow the text it is written over with. Where both names of the root are taken, the plan is `blocked` and lists the workflow alone. */
   files: { path: string; text: string | null }[];
   /** Why the setup cannot run, as a sentence the window shows as it is, or null. */
   blocked: string | null;
   /** A command the daemon read from the repository as its likely broad gate, for the window to put in the field before the person types, or null where it read none. It is no part of the stamp. */
   proposedBroadGate: string | null;
+  /** The move of the workflow's pin that the plan's one written file makes, from the version the commit's workflow names to the daemon's, or null where the plan moves nothing. A daemon of an earlier build sends none. */
+  move?: { from: string; to: string } | null;
+  /** Where the plan moves the pin: each work item of the repository whose records at its branch's head the daemon's readers refuse, with the reader's sentence; each one whose branch's head the daemon holds no reading of, with the sentence that its records were not read yet; and each one whose worktree's folder is gone or whose records could not be read there for another reason, with the sentence that says why. Empty where each one was read and none is refused, and where the plan moves nothing. It is no part of the stamp. */
+  unread?: { id: number; title: string; why: string }[];
   /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
   stamp: string;
 }

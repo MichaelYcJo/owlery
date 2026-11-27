@@ -5,7 +5,7 @@
 import type { WorkItem } from "../shared/protocol";
 import { REFRESH_SAYS, REFRESHING_SAYS } from "./refresh";
 import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, bellSays, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
+import { ageOf, bellSays, checkButton, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -17,6 +17,8 @@ export interface SidebarActions {
   openForm(folder?: string): void;
   /** Opens a repository's menu under the button of its row that was pressed. */
   openRepositoryMenu(repositoryId: number, from: HTMLElement): void;
+  /** Opens the dialog of the records place for a repository, from the button of its older check. */
+  openRecords(repositoryId: number): void;
   /** Opens the dialog that lists the hidden repositories. */
   openHidden(): void;
   /** Takes what the search field holds, as it is typed. */
@@ -116,6 +118,18 @@ function rowButton(className: string, { name, says }: { name: string; says: stri
   return button;
 }
 
+/** The button of a repository's row that names its older check by the version, and opens the dialog of the records place, which shows the commit that moves the check. */
+function olderCheckButton(repositoryId: number, repositoryName: string, version: string): HTMLButtonElement {
+  const { label, says } = checkButton(repositoryName, version);
+  const button = document.createElement("button");
+  button.className = "icon-button repository-check";
+  button.textContent = label;
+  button.title = says;
+  button.setAttribute("aria-label", says);
+  button.addEventListener("click", () => actions.openRecords(repositoryId));
+  return button;
+}
+
 function workItemElement(workItem: WorkItem, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
   const workItemId = workItem.id;
   const button = document.createElement("button");
@@ -139,15 +153,18 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
  * ungrouped ones, and then each of its groups under a heading of the
  * group's name with how many work items stand in it, the pinned ones first
  * in each list. A repository's row holds the button that folds it,
- * with the repository's icon before its name where it has one, a "+" button
- * that opens the "New work item" form on its folder, and a "…" button that
- * opens its menu. Where a search or a filter leaves no repository, a
- * sentence says so in their place, with a button that shows every work item
- * again (./view, `emptySidebar`). Under the repositories a button says how
- * many are hidden, where any is, and opens their list. The filter's control
- * is on while a search or a filter narrows the sidebar (./view,
- * `filterMark`). The search field is the person's: a draw leaves it as it
- * is, and the press of the button that shows every work item empties it.
+ * with the repository's icon before its name where it has one, a button
+ * with the word "Check" and the version where its pull request check is of
+ * an older Owlery than the app, which opens the dialog of the records
+ * place, a "+" button that opens the "New work item" form on its folder,
+ * and a "…" button that opens its menu. Where a search or a filter leaves
+ * no repository, a sentence says so in their place, with a button that
+ * shows every work item again (./view, `emptySidebar`). Under the
+ * repositories a button says how many are hidden, where any is, and opens
+ * their list. The filter's control is on while a search or a filter
+ * narrows the sidebar (./view, `filterMark`). The search field is the
+ * person's: a draw leaves it as it is, and the press of the button that
+ * shows every work item empties it.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
@@ -197,7 +214,7 @@ export function showSidebar(inFront: Front = front): void {
       menu.addEventListener("click", () => actions.openRepositoryMenu(repository.id, menu));
       const row = document.createElement("div");
       row.className = "repository-row";
-      row.append(head, add, menu);
+      row.append(head, ...(repository.olderCheck === null ? [] : [olderCheckButton(repository.id, repository.name, repository.olderCheck)]), add, menu);
       const listOf = (entries: typeof repository.entries): HTMLUListElement => {
         const list = document.createElement("ul");
         list.hidden = isFolded;

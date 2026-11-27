@@ -51,7 +51,7 @@ const NO_RECORD = { decisions: [], questions: [], unread: [] };
 const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
-const NO_RECORDS = { root: null, check: null, broadGate: null };
+const NO_RECORDS = { root: null, check: null, broadGate: null, olderCheck: null };
 /** Which chain a repository's Claude Code panes run where its checkout holds no workflow of Owlery's and no person answered. */
 const NO_CHAIN = { owl: false, plugin: false, chosen: null };
 const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS, chain: NO_CHAIN, accountId: null };
@@ -603,7 +603,7 @@ describe("work items", () => {
     const ready = await (await client(url)).message("ready");
     expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "chain", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
-    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
+    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "olderCheck", "root"]);
     expect(Object.keys(ready.repositories[0]!.chain).sort()).toEqual(["chosen", "owl", "plugin"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["accounts", "continues", "kind", "label", "reportsState"]);
@@ -2069,7 +2069,7 @@ describe("the records place of a repository", () => {
     const { plan } = await c.message("recordsPlan");
     c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
     const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
-    expect(inbox.repositories[0]?.records).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test" });
+    expect(inbox.repositories[0]?.records).toEqual({ root: "seal", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null });
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
     expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
     expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
@@ -2102,11 +2102,11 @@ describe("the records place of a repository", () => {
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder: made.repo });
     // Not committed: the place is read from the working tree.
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: null, olderCheck: null });
     writeFileSync(join(made.repo, "seal", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
-    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check", olderCheck: null });
     // A client that connects later is told the same in its `ready`.
-    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check" });
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "seal", check: null, broadGate: "make check", olderCheck: null });
     c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
     expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
   });
@@ -2119,7 +2119,110 @@ describe("the records place of a repository", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentic-seal", check: null, broadGate: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentic-seal", check: null, broadGate: null, olderCheck: null });
+  });
+
+  it("tells the window that a repository's check is older than the daemon: the version Owlery's workflow in the main checkout pins, read again in the pass that reads the branches, and none once it pins the daemon's version or where AgenticSeal's hygiene.yml runs the check", async () => {
+    const made = repository();
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3", commitPollMs: 30 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: made.repo });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: "1.2.2" });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.3"));
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.olderCheck === null)).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: null });
+    rmSync(join(made.repo, WORKFLOW));
+    const hygiene = join(made.repo, ".github", "workflows", "hygiene.yml");
+    writeFileSync(hygiene, 'jobs:\n  hygiene:\n    steps:\n      - run: |\n          git clone --branch v1.2.2 \\\n          || git clone --branch release/v1.2.2 \\\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n');
+    const read = await c.message("inbox", (m) => m.repositories[0]?.records.check === ".github/workflows/hygiene.yml");
+    expect(read.repositories[0]?.records.olderCheck).toBeNull();
+  });
+
+  it("names, in a plan that moves the check, each work item of the repository whose records at its branch's head the daemon's readers refuse, by its id and title with the reader's sentence, and not one whose head holds no records; a plan that moves nothing names none", { timeout: 60_000 }, async () => {
+    const NAME = "1795696248-refused-records";
+    const { made, c, workItems } = await standing(cleanups, ["Refused work", "Plain work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    const record = `seal/threads/${NAME}/trail/rounds/round-2.md`;
+    writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x"));
+    git(a.worktree, "add", record);
+    git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
+    const refused = git(a.worktree, "rev-parse", "HEAD").trim();
+    // The lists name a commit by its short hash.
+    await c.until(() => (refused.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // The repository holds no workflow yet, so the plan sets the place up and moves nothing.
+    const setup = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    expect(setup).toMatchObject({ type: "recordsPlan", plan: { move: null, unread: [] } });
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 3, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Refused work", why: expect.stringMatching(new RegExp(`^the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: `, "u")) }]);
+  });
+
+  it("names, in a plan that moves the check, a work item whose records git could not read at its branch's head, with git's words, so the dialog does not say that the readers refuse none", { timeout: 60_000 }, async () => {
+    const NAME = "1795696248-unreadable-records";
+    const { made, c, workItems } = await standing(cleanups, ["Unreadable work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    const head = git(a.worktree, "rev-parse", "HEAD").trim();
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // The worktree's link to its repository breaks after the daemon read the branch's head, so git cannot list the records at that head, though their directory stands on disk.
+    writeFileSync(join(a.worktree, ".git"), "gitdir: /nonexistent/owlery-gitdir\n");
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
+    // Git's words for the broken link differ between git's versions, so the case reads them from the same git, by the command the daemon's reading of the records runs first (`filesAt`).
+    const said = spawnSync("git", ["ls-tree", "-z", "--name-only", head, "--", `seal/threads/${NAME}/trail/rounds/`], { cwd: a.worktree, encoding: "utf8" }).stderr.trim();
+    expect(said).toMatch(/^fatal: /u);
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: `Owlery could not read these records, so whether the moved check refuses them is not known: ${said}` }]);
+  });
+
+  it("names, in a plan that moves the check, a work item whose worktree's folder is gone after the daemon read its branch's head, with the sentence that the folder is gone, though the branch still holds its records", { timeout: 60_000 }, async () => {
+    const NAME = "1795696248-records-of-a-gone-folder";
+    const { made, c, workItems } = await standing(cleanups, ["Gone work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    commitSeal(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    const head = git(a.worktree, "rev-parse", "HEAD").trim();
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // A person removes the worktree's folder by hand. The daemon reads the branch's head from the repository, so it still holds that head.
+    rmSync(a.worktree, { recursive: true, force: true });
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect(moving.plan.move).toEqual({ from: "1.2.2", to: "1.2.3" });
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Gone work", why: `Owlery could not read these records, so whether the moved check refuses them is not known: the folder of work item ${String(a.id)} is gone: ${a.worktree}` }]);
+  });
+
+  it("names, in a plan that moves the check, a work item with a branch whose head the daemon holds no reading of, with the sentence that its records were not read, so the dialog does not say that the readers refuse none", { timeout: 60_000 }, async () => {
+    const { made, c, workItems } = await standing(cleanups, ["Unread work"], { version: "1.2.3", commitPollMs: 50 });
+    const [a] = workItems as [(typeof workItems)[number]];
+    const branch = branchOf(a);
+    const head = commitFile(a.worktree, "work.ts");
+    await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
+    // The branch's ref goes, so the daemon drops what it read of the branch and holds no head of it, as before its first reading.
+    git(made.repo, "update-ref", "-d", `refs/heads/${branch}`);
+    await c.until(() => (c.workItem(a.id)?.commits === null ? true : undefined));
+    mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.2"));
+    git(made.repo, "add", WORKFLOW);
+    git(made.repo, "commit", "--quiet", "-m", "ci: the check of 1.2.2");
+    const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
+    expect(moving.plan.move).toEqual({ from: "1.2.2", to: "1.2.3" });
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unread work", why: "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known." }]);
   });
 });
 
