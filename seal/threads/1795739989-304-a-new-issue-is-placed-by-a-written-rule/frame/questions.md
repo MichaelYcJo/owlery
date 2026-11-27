@@ -1,0 +1,14 @@
+# Questions for the planner: a new issue is placed by a written rule (#304)
+
+The judgments the ticket left open that the tree answered:
+
+- The owner's test stands third, above the two tests on findings, and not last as the issue lists it: `frame/design.md` *Grounding*, the rows on *Why this order*, on `owner: by hand` and on milestones 3 to 5, and `frame/plan.md` *Alternatives considered*, the rows on the order.
+- An issue with no milestone is not yet sorted only where no line on it says why: `frame/design.md` *Grounding*, the row on the open issues with no milestone, and `frame/plan.md` *Alternatives considered*, the three rows on what no milestone means.
+- The test on a row of *Milestones* names a milestone for rows 3 to 5 alone, since rows 1 and 2 shipped: `frame/design.md` *Grounding*, the row on the milestone table.
+- The goal of `hardening: boundaries and edge cases` loses its limit to milestones 1 and 2: `frame/design.md` *Grounding*, the row on that milestone, and `frame/plan.md` *Alternatives considered*, the two rows on it.
+- The rule stands as a numbered list after the milestone table, and the pull request edits the roadmap directly: `frame/plan.md` *Alternatives considered*, the first four rows and the last.
+- The rule moves no issue that holds a milestone: `frame/design.md` *Out of scope*. Another answer would change the tracker and not the text.
+
+| # | Question | Who can answer | Options & what each implies | Default until answered | Status |
+|---|---|---|---|---|---|
+| Q1 | Can a person with no role on this repository, which is public and owned by a user account, set a milestone on an issue they open? GitHub's roles page grants "Apply milestones" from Triage up and not to Read, and states nothing of a repository a user account owns. No probe runs here, because every account this environment holds is the owner's. | a measurement | A second account with no role opens an issue and looks for the milestone control. If it can set one, the sentence "A person outside the repository cannot set a milestone" of *Scope* item 2 goes, and an outside issue may arrive already placed. If it cannot, the text stands. | The text stands as *Scope* item 2 writes it, which is the issue's claim. | open |
