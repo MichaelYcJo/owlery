@@ -2465,8 +2465,8 @@ export class Daemon {
    * (`RoleAdapter.start`): the folder's `daemon.json` names the port and the
    * token with which a client on the loopback, which the sandbox lets a
    * command reach, has the daemon act outside the sandbox as a window
-   * would. It rejects, with a sentence a
-   * person reads, where git names no repository's folder for the worktree.
+   * would. It rejects, with a sentence a person reads, where git names no
+   * repository's folder for the worktree.
    */
   private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[]; unread: string[] }; scratch: string | null }> {
     const worktree = realpathSync.native(cwd);

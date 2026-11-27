@@ -40,17 +40,16 @@
 // each after the first two of a crafter, and the read of every role, and the
 // function runs, since Claude Code starts each command from its snapshot of
 // that setup, which stands in the config folder and which the launch gives
-// back the read of. The
-// stand-in then makes the file tools' reads of the run folder, one a turn
-// (`fileReads`): a `Read` of `daemon.json` by its path and one through the
-// link, a `Grep` and a `Glob`. A file tool reads in Claude Code's own
-// process, which no sandbox holds, so what keeps the token from it is that
-// Claude Code asks the daemon before each of those reads, the run folder
-// standing outside the session's folders, and the daemon refuses each by
-// the role's rule. The case reads the stream for the
-// session's tools and the requests, the case's config folder for the
-// session's conversation, what the stand-in was told each call gave, and
-// the files and the worktree's commits for what was written.
+// back the read of. The stand-in then makes the file tools' reads of the run
+// folder, one a turn (`fileReads`): a `Read` of `daemon.json` by its path and
+// one through the link, a `Grep` and a `Glob`. A file tool reads in Claude
+// Code's own process, which no sandbox holds, so what keeps the token from
+// it is that Claude Code asks the daemon before each of those reads, the run
+// folder standing outside the session's folders, and the daemon refuses each
+// by the role's rule. The case reads the stream for the session's tools and
+// the requests, the case's config folder for the session's conversation,
+// what the stand-in was told each call gave, and the files and the
+// worktree's commits for what was written.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -341,7 +340,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     // Claude Code asked the daemon before each file tool's read of the run folder, the `Read` through the link among them though the link stands in a folder the session was given, and the daemon refused each by the role's rule.
     const reads = requests.filter((request) => request.subtype === "can_use_tool" && request.tool_name !== "Bash").map((request) => ({ name: request.tool_name, input: request.input }));
     expect(reads).toMatchObject(fileReads(pair, worktree, kept));
-    // Each request repeats the tool results of the turns before it, so a refusal is counted once, by the call it answers: the stand-in names its calls after the first `toolu_stand_in_2` onwards.
+    // Each request repeats the tool results of the turns before it, so a refusal is counted once, by the call it answers: the stand-in names the calls after its first from `toolu_stand_in_2` on.
     const refusedCalls = new Set(
       model.received
         .flatMap((request) => toolResults(request.body))

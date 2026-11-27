@@ -75,9 +75,9 @@ export interface RoleAdapter {
    * but in `scratch` and in what its agent itself has each command read
    * first, such as Claude Code's snapshot of the person's shell setup in
    * the session's config folder; one that cannot, or that is given a role
-   * with no `commands`, starts no session. `scratch`, which the daemon gives where
-   * the role's commands write in a scratch folder of the session's own, is
-   * that folder, which the session's file tools reach as well. The promise
+   * with no `commands`, starts no session. `scratch`, which the daemon gives
+   * where the role's commands write in a scratch folder of the session's
+   * own, is that folder, which the session's file tools reach as well. The promise
    * rejects, with a message a person can read, where no session started.
    */
   start(options: RoleStart, listener: (event: RoleEvent) => void): Promise<RoleRun>;
