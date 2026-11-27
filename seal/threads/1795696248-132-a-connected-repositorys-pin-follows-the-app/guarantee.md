@@ -42,3 +42,23 @@ Not re-run: scenario J's built-app case, the screenshot run in every theme, and 
 target: 3d4f7271 against 450c6e09
 Verdict: withheld reason: the orchestrator's closing memo gaps.md, copied into the pull request body, states two facts HEAD contradicts. gaps.md:11 says trail/gate.md records a broad gate run against f683c693 before the merge, and trail/gate.md records 42b7f4d2 against 450c6e09. gaps.md:29 says the commits after ec72ff39 change only this work item's directory, and the merges 0a51bbcc (#308) and 42b7f4d2 (#311) bring changes to 10 paths outside it
 ```
+
+## Re-audit at `0ac71364`
+
+`0ac71364` is the one commit after `3d4f7271`. It touches `gaps.md` and this file alone. `git diff --quiet 3d4f7271 HEAD -- apps docs patches package.json pnpm-lock.yaml .github` exits 0, so no coordinate of a claim re-run above changed, and none was run again. The parties above were read again with the change.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git log --no-merges --name-only 42b7f4d2..HEAD ^450c6e09` | Holds (executed): `3d4f7271` and `0ac71364` follow it, and they touch only `trail/gate.md`, `gaps.md` and this file. |
+| The broad gate that `trail/gate.md` records ran at `42b7f4d2` against `450c6e09`, and passed | `gaps.md:11` | `cat trail/gate.md` | Holds: the record names `42b7f4d2 against 450c6e09` (executed). That it passed is read from the record standing, which the gate writes on a pass (read). |
+| The commits after `ec72ff39` up to `2218e562` change only this directory, and the later merges `0a51bbcc` and `42b7f4d2` bring the release's own changes and resolve no hunk of this work | `gaps.md:29` | `git diff --quiet ec72ff39 2218e562 -- apps docs patches package.json pnpm-lock.yaml pr-check`; the earlier `--remerge-diff` and changed-line comparison above | Holds (executed): exit 0. Neither merge prints a resolution hunk, and this work's changed lines are unchanged. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0. The body carries the corrected rows. |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| No other statement of the old facts stands in a record that states the present | `gaps.md` | `git grep -n -e "f683c693" -e "change only this directory"` over this directory, the round records and this file left out | Holds (executed): it prints `gaps.md:29`, the corrected sentence, and the phase records' lines 5, which are dated to their phases. This is a sample: a statement in other words escapes it. |
+
+The closing memo now agrees with HEAD and with the other parties. `gaps.md:12` stays open, naming the orchestrator's broad gate from a checkout that holds its own Electron binary (`unverified`, the orchestrator answers it). That row states what is not verified, and HEAD does not contradict it.
+
+```seal
+target: 0ac71364 against 450c6e09
+Verdict: sealed
+```
