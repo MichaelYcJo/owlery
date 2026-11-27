@@ -57,7 +57,7 @@ function backFinding(finding: Finding): BackFinding {
 /**
  * The inspection's record, from the newest verdict block of the inspection
  * the head holds where that block clears, or null where it clears nothing, where no
- * guarantee stands, and where the reader refuses a line of it. The count of
+ * inspection stands, and where the reader refuses a line of it. The count of
  * rounds is of the round records the cleared commit holds, and of those the
  * head holds where the repository holds no commit of the name the block
  * gives.

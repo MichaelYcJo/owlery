@@ -2868,9 +2868,9 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
     const moved = plan.files.filter((file) => file.text !== null);
     const named = (plan.unread ?? []).map(({ title, why }) => ({ name: title, why }));
     const readers = "with the readers that cases hold to the check's answers. It read none of the check's other arms.";
-    const read = `Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, ${readers}`;
+    const read = `Owlery read the round records, the broad gate's run and the inspection of each work item of this repository at its branch's head, ${readers}`;
     // An entry can be a work item that was not read, so where any is named the sentence leaves those out by their own words.
-    const readBut = `Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
+    const readBut = `Owlery read the round records, the broad gate's run and the inspection at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
     return {
       ...unplanned,
       move: `\`${moved[0]?.path ?? ""}\` fetches the pull request check of Owlery ${move.from}, older than this app. The commit moves it to Owlery ${move.to}.`,

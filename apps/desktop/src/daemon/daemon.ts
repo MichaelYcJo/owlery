@@ -4054,7 +4054,8 @@ export class Daemon {
    * The sessions that built the work are `the session` where the
    * `Implementation` row of the `routing.md` the head holds reads so, then
    * the id of each fix pass's session, read from the trailer
-   * `IADD-Built-By:` of the commits on the gate's commit's own line that
+   * `IADD-Built-By:`, and from `Seal-Built-By:` of a commit written before
+   * the rename, of the commits on the gate's commit's own line that
    * neither the work item's base commit nor the base the branch left holds,
    * so of none of the base's commits, whether a merge,
    * a fast-forward or a rebase put it on the branch.

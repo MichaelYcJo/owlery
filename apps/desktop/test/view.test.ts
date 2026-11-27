@@ -5467,9 +5467,9 @@ describe("the dialog of the records place", () => {
       unread: [{ id: 3, title: "Refused work", why: REFUSED }],
       stamp: "m",
     };
-    const READ = "Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const READ = "Owlery read the round records, the broad gate's run and the inspection of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
     /** What was read, where an entry named may be a work item that was not read. */
-    const READ_BUT = "Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const READ_BUT = "Owlery read the round records, the broad gate's run and the inspection at its branch's head of each work item of this repository but those named here as not read, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
 
     it("says both versions, shows the commit's branch and subject and the workflow alone and whole with the sentence that it replaces the committed file, names each work item whose records the readers refuse or did not read with its sentence and what was read, hides the field, and offers Move and commit", () => {
       const words = recordsDialog(HOLDING, MOVE, "", "");
