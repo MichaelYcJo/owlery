@@ -311,7 +311,7 @@ export class BuiltApp {
           // The element the selector finds when the press arrives is the one aimed at too, where the page drew it anew in between.
           if (element.contains(on) || document.querySelector(selector)?.contains(on)) return;
           const named = on instanceof Element ? on.tagName.toLowerCase() + (on.id ? "#" + on.id : "") + (typeof on.className === "string" && on.className.trim() !== "" ? "." + on.className.trim().split(/\\s+/).join(".") : "") : String(on);
-          const words = (on.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 40);
+          const words = (on.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 40).trim();
           press.missed = words === "" ? named : named + ' saying "' + words + '"';
         }
         window.addEventListener("pointerdown", arrived, true);
