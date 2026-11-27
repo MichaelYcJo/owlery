@@ -104,6 +104,7 @@ describe("the Owl Chain's workflow", () => {
       [(json) => ({ ...json, stage: { ...(json.stage as object), role: "proofer" } }), (b) => `The inspector module ${file(b)} is refused at \`stage.role\`: it names "proofer", and the skeleton ${SKELETON} runs the stage inspection as the inspector.`],
       [(json) => ({ ...json, stage: { ...(json.stage as object), model: null, extra: true } }), (b) => `The inspector module ${file(b)} is refused at \`stage.extra\`: it is no key of a stage.`],
       [(json) => ({ ...json, record: "templates/records/sdd-guarantee.md" }), (b) => `The inspector module ${file(b)} is refused at \`record\`: the bundle holds no file templates/records/sdd-guarantee.md.`],
+      [(json) => ({ ...json, record: 3 }), (b) => `The inspector module ${file(b)} is refused at \`record\`: it names no path of the bundle.`],
       [(json) => ({ ...json, inspectors: "owl-chain" }), (b) => `The inspector module ${file(b)} is refused at \`inspectors\`: it is no key of an inspector module.`],
     ];
     for (const [change, says] of cases) {
