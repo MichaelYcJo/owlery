@@ -27,5 +27,5 @@ An owlery is an abode of owls, or an enclosure where owls are kept ([Wiktionary 
   - English and Korean speakers read it one way at first sight, and it sounds the same in its source language and in English.
   - It runs to about three syllables, and its ending does not sound like a person's name. Endings such as -os, -a and -ia sound like a name, and endings such as -ic, -al, -on and -um sound like a concept.
   - Its domains are looked up under .com, .dev, .app, .ai, .sh, .io and .co, and each look-up states its date.
-  - The same and similar names are searched on GitHub, npm and the web. A product of the same field with the same or a near spelling rules the name out, and so does a software trademark (class 42) with a near spelling.
+  - The same and similar names are searched on GitHub, npm and the web. A product of the same field with the same or a near spelling rules the name out, and so does a software trademark (class 9 or 42) with a near spelling.
   - Before the name is taken, its trademarks are searched as the bullet *Trademarks have not been checked* above says, and the names of its GitHub organization and its social accounts are checked.
