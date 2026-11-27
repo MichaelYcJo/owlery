@@ -29,6 +29,11 @@ Where the owner's words that approve 0.2.0 exist, quote them in `routing.md:29`,
 
 Where they do not exist, the number goes to the owner as the one approval `docs/architecture.md:334` sends to a person, before the pull request merges. The bullet then says that the number is proposed and that the approval is owed. If the owner names another number, `apps/desktop/package.json:3` and `changelog.md:9` change with it, and a round reads that commit.
 
+```seal
+verdict: fixed 54df4bc8
+answer: routing.md's bullet Base and version now quotes the exchange in which the owner approved the number: the orchestrator's question whether it may set the release's number too, and the owner's answer "머지도 너가정해". package.json and changelog.md keep 0.2.0, since the number stands.
+```
+
 ### 2. At 0.2.0 the app offers this repository the move of its check to Owlery 0.2.0, the pin raise that the routing defers to #322, and no record names the offer
 
 ```seal
@@ -53,6 +58,11 @@ This repository's own pull requests are still checked by Owlery's check at 0.1.0
 ```
 
 The note in #322's body is the orchestrator's act, outside the branch. The fix pass names it in its answer, and no round reads it.
+
+```seal
+verdict: fixed 54df4bc8
+answer: routing.md and changelog.md:9 now carry the round's paste-ready text: the app's offer to move this repository's owlery-seal.yml to 0.2.0 is not taken before #322 When it lands step 4. The orchestrator added the same to #322's body, outside the branch.
+```
 
 ## Confirmations
 
