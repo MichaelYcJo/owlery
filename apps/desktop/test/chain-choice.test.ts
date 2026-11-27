@@ -61,6 +61,58 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     await app.click('[role="menu"] [role="menuitem"][data-pressed-here]');
     await dialogOpen("settings-dialog");
   }
+  // TEMPORARY DIAGNOSTIC (#328): notes, from the app's start, every frame the window sends and receives with its time, each step of the cases, the page's errors, the socket's close and a load of the page again.
+  const PROBE_INSTALL = `(() => {
+    if (window.__probe) return;
+    window.__probe = [];
+    window.__probeOrigin = performance.timeOrigin;
+    const started = performance.now();
+    const at = () => Math.round(performance.now() - started);
+    const push = (...entry) => { if (window.__probe.length < 600) window.__probe.push([at(), ...entry]); };
+    window.__probeMark = (label) => push("step", label);
+    const note = (dir, text) => { try { const m = JSON.parse(text); const loud = dir === "out" || ["workItemPlan", "error", "baseFetched", "workItemCreated", "done", "ready", "welcome"].includes(m.type); push(dir, loud ? text.slice(0, 700) : m.type + (m.requestId === undefined ? "" : " #" + m.requestId)); } catch (error) { push(dir, "unparsed " + String(error)); } };
+    const send = WebSocket.prototype.send;
+    const watched = new WeakSet();
+    WebSocket.prototype.send = function (data) {
+      if (!watched.has(this)) {
+        watched.add(this);
+        window.__probeSocket = this;
+        this.addEventListener("message", (event) => note("in", String(event.data)));
+        this.addEventListener("close", (event) => push("socket closed", event.code, event.reason));
+        this.addEventListener("error", () => push("socket error"));
+      }
+      note("out", String(data));
+      return send.call(this, data);
+    };
+    window.addEventListener("error", (event) => push("page error", String(event.message), String(event.error?.stack ?? "").slice(0, 1500)));
+    window.addEventListener("unhandledrejection", (event) => push("page rejection", String(event.reason?.stack ?? event.reason).slice(0, 1500)));
+    window.addEventListener("pagehide", () => push("pagehide"));
+    document.addEventListener("input", (event) => push("input", event.target.id, event.target.value), true);
+    document.addEventListener("pointerdown", (event) => push("pointerdown", event.target.id || String(event.target.className) || event.target.tagName), true);
+  })()`;
+  const mark = (label: string): Promise<unknown> => value(`window.__probeMark?.(${JSON.stringify(label)})`);
+  const probe = async (): Promise<string> =>
+    JSON.stringify(
+      await value<unknown>(`({
+        installed: window.__probe !== undefined,
+        sameLoad: window.__probeOrigin === performance.timeOrigin,
+        probe: window.__probe,
+        socketState: window.__probeSocket?.readyState,
+        hidden: document.hidden,
+        hasFocus: document.hasFocus(),
+        title: document.getElementById("work-item-title").value,
+        titleDisabled: document.getElementById("work-item-title").disabled,
+        repo: document.getElementById("work-item-repo").value,
+        active: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
+        plan: document.getElementById("work-item-plan").textContent,
+        worktree: document.getElementById("work-item-worktree").textContent,
+        error: document.getElementById("work-item-error").textContent,
+        status: document.getElementById("status")?.textContent,
+        registerOnly: document.getElementById("work-item-register-only").checked,
+        dialogs: [...document.querySelectorAll("dialog[open]")].map((d) => d.id),
+        repositories: [...document.querySelectorAll("#sidebar section[data-repository]")].map((section) => section.getAttribute("data-repository")),
+      })`),
+    );
   const carrying = (settings: string): string => `exec claude --settings '${settings}' --plugin-dir '${join(DIST, "bundle")}' --append-system-prompt-file '${join(runDir(), "pane-head.md")}'`;
 
   beforeAll(async () => {
@@ -89,16 +141,20 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     chmodSync(shell, 0o755);
     app = await BuiltApp.start({ SHELL: shell, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config });
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
+    await value(PROBE_INSTALL);
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
     // The repository is registered first, with no work item, so the window holds what the daemon read of it.
+    await mark("beforeAll: new work item");
     await app.click("#new-work-item");
     await dialogOpen("work-item-dialog");
     await app.click("#work-item-repo");
     await app.cdp("Input.insertText", { text: made.repo });
     await app.click("#work-item-register-only");
+    await mark("beforeAll: register");
     await app.click("#work-item-create");
     await dialogClosed("work-item-dialog");
     await app.until(`document.querySelector("#sidebar section[data-repository]")`, "the repository in the sidebar");
+    await mark("beforeAll: done");
   }, 120_000);
 
   afterAll(async () => {
@@ -110,46 +166,17 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
   afterEach(atRestAfterFailure(() => app));
 
   it("asks which chain runs over the form before a new work item's Claude Code pane opens, with the owl chain chosen, opens no pane where the dialog is cancelled, and at the answer launches the pane with the bundle and a settings file of its own that turns the plugin off", async () => {
-    // TEMPORARY DIAGNOSTIC (#328): notes every frame the window sends and the answers of plans and errors it receives.
-    await value(`(() => {
-      window.__probe = [];
-      const t0 = performance.now();
-      window.__probeTypes = {};
-      const note = (dir, text) => { try { const m = JSON.parse(text); if (dir === "in") window.__probeTypes[m.type] = [(window.__probeTypes[m.type]?.[0] ?? 0) + 1, Math.round(performance.now() - t0)]; if (dir === "out" || ["workItemPlan", "error", "baseFetched"].includes(m.type)) window.__probe.push([Math.round(performance.now() - t0), dir, text.slice(0, 1500)]); } catch {} };
-      const send = WebSocket.prototype.send;
-      const watched = new WeakSet();
-      WebSocket.prototype.send = function (data) { if (!watched.has(this)) { watched.add(this); window.__probeSocket = this; this.addEventListener("message", (event) => note("in", String(event.data))); } note("out", String(data)); return send.call(this, data); };
-      document.addEventListener("input", (event) => window.__probe.push([Math.round(performance.now() - t0), "input", event.target.id, event.target.value]), true);
-    })()`);
-    const probe = async (): Promise<string> =>
-      JSON.stringify(
-        await value<unknown>(`({
-          probe: window.__probe,
-          types: window.__probeTypes,
-          socketState: window.__probeSocket?.readyState,
-          hidden: document.hidden,
-          title: document.getElementById("work-item-title").value,
-          titleDisabled: document.getElementById("work-item-title").disabled,
-          repo: document.getElementById("work-item-repo").value,
-          active: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
-          plan: document.getElementById("work-item-plan").textContent,
-          branch: document.getElementById("work-item-branch").textContent,
-          worktree: document.getElementById("work-item-worktree").textContent,
-          error: document.getElementById("work-item-error").textContent,
-          status: document.getElementById("status")?.textContent,
-          registerOnly: document.getElementById("work-item-register-only").checked,
-          dialogs: [...document.querySelectorAll("dialog[open]")].map((d) => d.id),
-        })`),
-        null,
-        1,
-      );
+    await mark("case 1: repository-add");
     await app.click("#sidebar section[data-repository] .repository-add");
     await dialogOpen("work-item-dialog");
     // The form opens to create a work item, whatever it was last used for.
     expect(await value<boolean>(`document.getElementById("work-item-register-only").checked`)).toBe(false);
+    await mark("case 1: title click");
     await app.click("#work-item-title");
+    await mark("case 1: insertText");
     await app.cdp("Input.insertText", { text: "Chosen" });
     await value(`document.getElementById("work-item-kind").value = "claude"`);
+    await mark("case 1: wait for the plan");
     // Create is pressed once the plan of the name typed stands (`built-app.ts#formPlanOf`).
     try {
       await app.until(formPlanOf("Chosen"), "the plan of the folder for Chosen");
