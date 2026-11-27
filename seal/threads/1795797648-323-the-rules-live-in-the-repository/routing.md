@@ -22,9 +22,9 @@ Issue #323: the rules for how work runs in this repository stand in two machines
   - The time `pr.md` is written stays the plugin's rule, so nothing is written here.
   - The brand criteria move into `docs/name.md`.
   - Rules about using the plugin itself stay out of this repository.
-  - `handoff.md` is one sentence of practice, not a record form.
+  - `handoff.md` is the plugin's practice (`skills/implement/orchestration.md` of AgenticSeal), so nothing is written here.
 - **Narrowed by the owner during phase 1, 2026-11-28:** no model rule is written, since #129 owns the product's model defaults and how this repository picks models stays in memory; and no rule is written that an open issue already owns (#129, #279 and #322 among them), since that issue writes it when it lands.
-- **Title prefix, `docs`:** the change writes rules into `CLAUDE.md` and the policy documents and changes no code; `chore` came closest, since the rules describe how work runs.
+- **Title prefix, `docs`:** the change writes rules into `CLAUDE.md` and the policy documents, and changes no code beyond the release's version move in `apps/desktop/package.json`; `chore` came closest, since the rules describe how work runs.
 - **Not closed by this pull request:** #323's last *Done when* item, each machine's memory pruned to what the decision left there, is done outside the repository after the merge, so the pull request says *Part of #323*.
 - **Base and version, decided by the orchestrator on 2026-11-28 under the owner's delegation ("머지도 너가정해"):** the next release is 0.2.0, a minor move by `docs/roadmap.md` *Releases and the tracker*: the milestone's work brings a workflow a person composes and the rename to IADD, which a person feels. The branch `release/v0.2.0` was cut from `main` at `aec3e8ac`, and this pull request merges into it by squash. It is the release's first pull request, so it moves the version: `apps/desktop/package.json` to 0.2.0. This repository's `.github/workflows/owlery-seal.yml` keeps its pin at `v0.1.0`, because this repository keeps the AgenticSeal plugin's forms until the plugin takes IADD's names (#322 *When it lands*, step 4).
 - **Branch:** cut from `main` at `aec3e8ac` on 2026-11-28.
