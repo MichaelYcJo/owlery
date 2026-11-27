@@ -1113,11 +1113,13 @@ describe("the records place", () => {
     expect(olderVersion("0.0.4", "0.1")).toBe(false);
   });
 
-  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it, and to the one for 0.1.0 while this repository's records stand in the AgenticSeal plugin's root", () => {
+  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it, and its pin to 0.1.0 while this repository's records stand in the AgenticSeal plugin's root", () => {
     const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
     const root = join(PR_CHECK, "..", "seal", "README.md");
     const onThePlugin = existsSync(root) && readFileSync(root, "utf8").startsWith(`${PLUGIN_ROOT_MARKER}\n`);
-    expect(readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8")).toBe(workflowText(onThePlugin ? PIN_HELD_FOR_THE_PLUGIN : version));
+    const workflow = readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8");
+    if (onThePlugin) expect(pinnedVersion(workflow)).toBe(PIN_HELD_FOR_THE_PLUGIN);
+    else expect(workflow).toBe(workflowText(version));
   });
 
   it("proposes a broad gate command from the package.json of the repository: its check script before its test script, run by the package manager whose lock file stands, and none where it reads neither", () => {
