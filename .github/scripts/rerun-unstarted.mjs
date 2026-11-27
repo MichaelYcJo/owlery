@@ -115,12 +115,15 @@ function main() {
     return;
   }
 
+  // A fork's pull request runs its own workflow files at other events than pull_request too, so the head repository is
+  // compared whatever the event. A push or workflow_dispatch run's head repository is this one.
+  const from = input("HEAD_REPOSITORY");
+  if (from !== repository) {
+    say(`Run ${run} is of a pull request from ${from}, not from ${repository}, so nothing is rerun.`);
+    return;
+  }
+
   if (event === "pull_request") {
-    const from = input("HEAD_REPOSITORY");
-    if (from !== repository) {
-      say(`Run ${run} is of a pull request from ${from}, not from ${repository}, so nothing is rerun.`);
-      return;
-    }
     const branch = input("HEAD_BRANCH");
     const sha = input("HEAD_SHA");
     const head = branchHead(repository, branch);

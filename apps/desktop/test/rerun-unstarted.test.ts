@@ -238,8 +238,10 @@ describe("a never-started job that is not rerun", () => {
     expect(gone.stdout).toBe(`The branch ${NEVER_STARTED.HEAD_BRANCH} no longer exists, and run 45855610271 ran at ${NEVER_STARTED.HEAD_SHA}, so nothing is rerun.\n`);
   });
 
-  it("of a pull request from another repository, without a read of its branch", () => {
-    const ran = command({ ...NEVER_STARTED, HEAD_REPOSITORY: "someone/owlery" }, neverStarted());
+  // A fork's pull request runs the workflow files of its own merge commit at `pull_request_review` as well as at
+  // `pull_request`, so a fork can name a workflow `check` that runs at another event than `pull_request`.
+  it.each(["pull_request", "pull_request_review"])("of a pull request from another repository, at a %s run, without a read of its branch", (event) => {
+    const ran = command({ ...NEVER_STARTED, RUN_EVENT: event, HEAD_REPOSITORY: "someone/owlery" }, neverStarted());
     expect(ran.status).toBe(0);
     expect(reruns(ran)).toEqual([]);
     expect(ran.calls.filter((call) => call.includes("git/ref"))).toEqual([]);
