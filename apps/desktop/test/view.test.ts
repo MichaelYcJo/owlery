@@ -47,12 +47,18 @@ import {
   CHAIN_CHOICES,
   choiceNote,
   closeAsks,
+  closeSays,
   codeParts,
   commandKey,
   commitLines,
   daemonEnding,
   daemonLists,
   daemonNotice,
+  ANSWER_WAIT_MS,
+  answerWaits,
+  NOT_ANSWERED_SAYS,
+  refusalSays,
+  UNKNOWN_REQUEST_SAYS,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -62,10 +68,12 @@ import {
   DECISIONS_HEAD,
   droppedText,
   emptyList,
+  emptySidebar,
   fileLines,
   fileOpener,
   type FileOpener,
   filterChoices,
+  filterMark,
   FIND_LIMIT,
   findCount,
   findQuery,
@@ -176,6 +184,8 @@ import {
   summarySentence,
   tabAccount,
   tabLabel,
+  tabMenu,
+  tabSays,
   tellsSize,
   viewFacts,
   webTarget,
@@ -188,13 +198,14 @@ import {
   type HeldAccounts,
   type InboxLine,
   type MenuEntry,
+  type MenuRowItem,
   type SealSince,
   unanswered,
   unreadLines,
   wordOwedMark,
   wordOwedSays,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
 import { composeBack } from "../src/shared/seal-back";
 
 const LOGIN: WorkItem = {
@@ -274,6 +285,22 @@ describe("tabLabel", () => {
     const tabs = [session(3, { kind: "shell" }), session(4), session(5, { kind: "shell" })];
     expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, 3))).toEqual(["Setup", "Claude Code", "Shell"]);
     expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS, null))).toEqual(["Shell 1", "Claude Code", "Shell 2"]);
+  });
+
+  it("labels a pane with the name a person gave its tab, before Setup and before its kind, and numbers the other panes of its kind as though it had none", () => {
+    const tabs = [session(3, { kind: "shell", name: null }), session(4, { kind: "shell", name: "build" }), session(5, { kind: "shell" })];
+    expect(tabs.map((tab) => tabLabel(tab, tabs, KINDS))).toEqual(["Shell 1", "build", "Shell 3"]);
+    const setup = [session(3, { kind: "shell", name: "deps" }), session(5, { kind: "shell" })];
+    expect(setup.map((tab) => tabLabel(tab, setup, KINDS, 3))).toEqual(["deps", "Shell"]);
+  });
+});
+
+describe("tabSays", () => {
+  it("names a tab with its colour's word after its label, as its tooltip and a screen reader say it, and by its label alone where it has no colour", () => {
+    expect(tabSays("Shell 2", "blue")).toBe("Shell 2, Blue");
+    expect(tabSays("build", "green")).toBe("build, Green");
+    expect(tabSays("Claude Code", "pink")).toBe("Claude Code, Pink");
+    expect(tabSays("Shell 2", null)).toBe("Shell 2");
   });
 });
 
@@ -537,8 +564,9 @@ const GROUPS = [
   { id: 7, name: "Later" },
   { id: 8, name: "Drafts" },
 ];
-/** A menu's entries without their descriptions, which a case of their own holds: an entry that opens a submenu with its items, read the same way. */
-const plain = (entries: readonly MenuEntry[]): { label: string; [field: string]: unknown }[] => entries.map(({ description: _says, ...entry }) => ("opens" in entry ? { ...entry, opens: plain(entry.opens) } : entry));
+/** A menu's entries without their descriptions, which a case of their own holds: an entry that opens a submenu with its items, and a row with its items, read the same way. */
+const plain = (entries: readonly (MenuEntry | MenuRowItem)[]): { label: string; [field: string]: unknown }[] =>
+  entries.map(({ description: _says, ...entry }) => ("opens" in entry ? { ...entry, opens: plain(entry.opens) } : "row" in entry ? { ...entry, row: plain(entry.row) } : entry));
 /** The "Open in" entry of a menu, as `plain` reads it, for a folder and the apps of `APPS`. */
 const openIn = (folder: string) => ({
   label: "Open in",
@@ -669,11 +697,73 @@ describe("repositoryMenu", () => {
   });
 });
 
+/** Three Shell panes of the work item 1, in the tabs' order. */
+const SHELL_TABS = [session(4, { kind: "shell" }), session(5, { kind: "shell" }), session(6, { kind: "shell" })];
+/** The same panes as a daemon that keeps a pane's name and colour sends them, none named and none coloured. */
+const MARKED_TABS = SHELL_TABS.map((tab) => ({ ...tab, name: null, colour: null }));
+
+describe("tabMenu", () => {
+  it('holds "Rename…" and the row of colours before the close items, with a rule above "Close Pane", where the daemon keeps a pane\'s name and colour, and the row checks the tab\'s colour, or No colour where it has none', () => {
+    const row = (checked: TabColour | null) => [
+      { label: "Green", action: { do: "colourPane", id: 5, colour: "green" }, colour: "green", checked: checked === "green" },
+      { label: "Blue", action: { do: "colourPane", id: 5, colour: "blue" }, colour: "blue", checked: checked === "blue" },
+      { label: "Pink", action: { do: "colourPane", id: 5, colour: "pink" }, colour: "pink", checked: checked === "pink" },
+      { label: "No colour", action: { do: "colourPane", id: 5, colour: null }, colour: null, checked: checked === null },
+    ];
+    expect(plain(tabMenu(MARKED_TABS[1]!, MARKED_TABS))).toEqual([
+      { label: "Rename…", action: { do: "renamePane", id: 5 }, divides: false },
+      { label: "Colour", row: row(null), divides: false },
+      { label: "Close Pane", action: { do: "closePanes", ids: [5] }, divides: true },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 6] }, divides: false },
+      { label: "Close Panes to the Right", action: { do: "closePanes", ids: [6] }, divides: false },
+    ]);
+    const blue = { ...MARKED_TABS[1]!, name: "build", colour: "blue" as const };
+    expect(plain(tabMenu(blue, [MARKED_TABS[0]!, blue, MARKED_TABS[2]!]))[1]).toEqual({ label: "Colour", row: row("blue"), divides: false });
+  });
+
+  it('holds no "Rename…" and no row of colours, and no rule, for a session with no name field, which a daemon of an earlier build sends', () => {
+    expect(plain(tabMenu(SHELL_TABS[1]!, SHELL_TABS)).map(({ label, divides }) => [label, divides])).toEqual([
+      ["Close Pane", false],
+      ["Close Other Panes", false],
+      ["Close Panes to the Right", false],
+    ]);
+    // A field that is there and null is a daemon that keeps the marks, and a field that is absent is not.
+    expect(tabMenu({ ...SHELL_TABS[1]!, name: null }, SHELL_TABS).map(({ label }) => label)).toEqual(["Rename…", "Colour", "Close Pane", "Close Other Panes", "Close Panes to the Right"]);
+  });
+
+  it('holds, on a tab with tabs on both sides, "Close Pane", "Close Other Panes" and "Close Panes to the Right", each closing its panes in the tabs\' order', () => {
+    expect(plain(tabMenu(SHELL_TABS[1]!, SHELL_TABS))).toEqual([
+      { label: "Close Pane", action: { do: "closePanes", ids: [5] }, divides: false },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 6] }, divides: false },
+      { label: "Close Panes to the Right", action: { do: "closePanes", ids: [6] }, divides: false },
+    ]);
+    expect(plain(tabMenu(SHELL_TABS[0]!, SHELL_TABS)).map(({ action }) => action)).toEqual([
+      { do: "closePanes", ids: [4] },
+      { do: "closePanes", ids: [5, 6] },
+      { do: "closePanes", ids: [5, 6] },
+    ]);
+  });
+
+  it('leaves out "Close Panes to the Right" on the last tab, where no tab stands after it', () => {
+    expect(plain(tabMenu(SHELL_TABS[2]!, SHELL_TABS))).toEqual([
+      { label: "Close Pane", action: { do: "closePanes", ids: [6] }, divides: false },
+      { label: "Close Other Panes", action: { do: "closePanes", ids: [4, 5] }, divides: false },
+    ]);
+  });
+
+  it('holds "Close Pane" alone on the one tab of a work item, and counts an exited pane among the others', () => {
+    expect(plain(tabMenu(SHELL_TABS[0]!, [SHELL_TABS[0]!]))).toEqual([{ label: "Close Pane", action: { do: "closePanes", ids: [4] }, divides: false }]);
+    const exited = session(7, { kind: "shell", alive: false });
+    expect(tabMenu(exited, [SHELL_TABS[0]!, exited]).map(({ label }) => label)).toEqual(["Close Pane", "Close Other Panes"]);
+    expect(plain(tabMenu(SHELL_TABS[0]!, [SHELL_TABS[0]!, exited]))[1]).toEqual({ label: "Close Other Panes", action: { do: "closePanes", ids: [7] }, divides: false });
+  });
+});
+
 describe("a description on hover", () => {
-  it("gives every entry of a work item's menu and of a repository's menu, and every item of a submenu, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
-    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS)];
-    // Each submenu is read as a menu of its own, after the menus.
-    const submenus = menus.flatMap((menu) => menu.flatMap((entry) => ("opens" in entry ? [entry.opens] : [])));
+  it("gives every entry of a work item's menu, of a repository's menu and of a pane's tab's menu, and every item of a submenu and of a row, a description that is not empty and is not its label, and no two entries of one menu or of one submenu the same one", () => {
+    const menus = [workItemMenu(LOGIN, APPS, []), workItemMenu({ ...LOGIN, pinned: true, muted: true }, APPS, []), repositoryMenu(PROJECT, APPS), workItemMenu({ ...LOGIN, archivedAt: 50 }, APPS, []), workItemMenu({ ...LOGIN, groupId: 7 }, APPS, GROUPS), workItemMenu(LOGIN, APPS, GROUPS), tabMenu(SHELL_TABS[1]!, SHELL_TABS), tabMenu(MARKED_TABS[1]!, MARKED_TABS)];
+    // Each submenu, and each row, is read as a menu of its own, after the menus.
+    const submenus = menus.flatMap((menu) => menu.flatMap((entry): (readonly { label: string; description: string }[])[] => ("opens" in entry ? [entry.opens] : "row" in entry ? [entry.row] : [])));
     for (const menu of [...menus, ...submenus]) {
       for (const { label, description } of menu) {
         expect(description.trim(), label).not.toBe("");
@@ -684,8 +774,8 @@ describe("a description on hover", () => {
       }
       expect(new Set(menu.map(({ description }) => description)).size).toBe(menu.length);
     }
-    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10]);
-    expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3]);
+    expect(menus.map((menu) => menu.length)).toEqual([8, 8, 9, 5, 10, 10, 3, 5]);
+    expect(submenus.map((submenu) => submenu.length)).toEqual([3, 3, 3, 3, 3, 3, 4]);
   });
 });
 
@@ -1551,7 +1641,7 @@ describe("the approval line", () => {
     expect(under({ ...RECORDED, questions: [{ ...ASKS, answer: "No" }] })).toEqual([]);
   });
 
-  it("is composed from the work item alone, so no pane's state and no headless session changes it", () => {
+  it("is composed from the work item alone, so no pane's agent state and no headless session changes it", () => {
     expect(approvalPlaces.length).toBe(1);
     const quiet = workItemEntries([RECORDED], [session(2, { state: "finished" })], KINDS);
     const busy = workItemEntries([RECORDED], [session(3, { state: "waiting", stateSince: NOW - MINUTE, stateText: "Allow the edit?" })], KINDS);
@@ -1658,6 +1748,55 @@ describe("the approval line", () => {
     expect(under(again)).toEqual([]);
     // A failed gate marks no other role's place, and a failed round after it leaves the sealer's place to the records.
     expect(read(chained("stopped", failedGate, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE })))?.[3]).toEqual(read(RECORDED)?.[3]);
+  });
+
+  /** The work item of the records with the stage a pane's session runs: round 1, told 4 minutes ago, but for the fields given. */
+  const inPane = (workItem: WorkItem, fields: Partial<PaneStage> = {}): WorkItem => ({ ...workItem, paneStage: { kind: "round", round: 1, since: NOW - 4 * MINUTE, ...fields } });
+
+  it("marks the place of the role whose stage a pane's session runs working, the proofer's at its round, the crafter's at its fix pass and the sealer's at its seal and at its broad gate, each with the stage's age in the mark's words, and leaves every place to the records where the work item carries no such stage", () => {
+    const round = inPane(RECORDED);
+    expect(read(round)?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"]);
+    expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
+    expect(under(round)).toEqual([]);
+    const fix = inPane(RECORDED, { kind: "fix-pass", round: 2 });
+    expect(read(fix)?.[1]).toEqual(["crafter", "working", "Fix pass", "Crafter: Fix pass on round 2, 4 min"]);
+    expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
+    const seal = inPane(RECORDED, { kind: "seal", round: 2 });
+    expect(read(seal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
+    expect(read(seal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    const gate = inPane(RECORDED, { kind: "gate", round: 2 });
+    expect(read(gate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(gate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    // A work item whose records hold nothing yet: the pane's round stands where the place said "Not started".
+    expect(read(inPane(EMPTY))).toEqual([NONE_STARTED[0], NONE_STARTED[1], ["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"], NONE_STARTED[3]]);
+    // No stage, and a daemon of an earlier build, which sends no such field: the records say every place.
+    expect(read({ ...RECORDED, paneStage: null })).toEqual(read(RECORDED));
+    const { paneStage: _paneStage, ...earlier } = round;
+    expect(read(earlier as WorkItem)).toEqual(read(RECORDED));
+  });
+
+  it("puts an open question of the role over a pane's stage, the stage the daemon's chain runs over a pane's stage of any role, the broad gate the daemon's chain runs over the pane's broad gate its own ask gives, and a pane's stage over a failed stage of the daemon's chain", () => {
+    const told = { since: NOW - 9 * MINUTE };
+    expect(read({ ...inPane(RECORDED, told), questions: [ASKS] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you, 12 min"]);
+    expect(under({ ...inPane(RECORDED, told), questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
+    // The daemon's chain runs round 2, from 4 minutes ago: it says the proofer's place, and a pane's stage of another role marks nothing while it runs.
+    expect(read(inPane(RUNS_ROUND, told))).toEqual(read(RUNS_ROUND));
+    expect(read(inPane(RUNS_ROUND, { ...told, kind: "seal" }))).toEqual(read(RUNS_ROUND));
+    // The daemon's own broad gate asks the keeper with the place of a gate, so the work item carries a pane's gate from that ask: the place keeps the daemon's stage and its age.
+    const runsGate = chained("running", ROUND_ONE, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
+    expect(read(inPane(runsGate, { kind: "gate", round: 1, since: NOW - MINUTE }))?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    // A chain a restarted daemon reads as stopped runs no stage, though its newest says it works: the pane's stage says the place.
+    expect(read(inPane(chained("stopped", ROUND_ONE, stage({})), told))?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"]);
+    // The daemon chain's round failed and the pane's session runs it again: the place works, and the failure leaves the line.
+    const failed = chained("stopped", ROUND_ONE, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE }));
+    expect(read(inPane(failed, { ...told, round: 2 }))?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 9 min"]);
+    expect(under(inPane(failed, { ...told, round: 2 }))).toEqual([]);
+    // A failed broad gate of the daemon's chain keeps the sealer's place while the pane's session runs a round.
+    const failedGate = chained("stopped", ROUND_ONE, stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } }));
+    expect(read(inPane(failedGate, told))?.slice(2)).toEqual([
+      ["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"],
+      ["sealer", "waiting", "Gate failed", "Sealer: Gate failed"],
+    ]);
   });
 
   it("says a failed stage's failure under the places as a sentence: a capital on a first word of letters alone and a full stop where the text ends with none, and no other change", () => {
@@ -3521,6 +3660,83 @@ describe("daemonNotice", () => {
   });
 });
 
+describe("refusalSays", () => {
+  it("names the menu's entry that replaces the daemon where the daemon does not know the request, whatever its own sentence says", () => {
+    expect(refusalSays({ message: `This daemon does not know the request "readLists".`, unknown: true })).toBe(`Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`);
+    expect(refusalSays({ message: "", unknown: true })).toBe(UNKNOWN_REQUEST_SAYS);
+  });
+
+  it("gives the daemon's own sentence for every other refusal", () => {
+    expect(refusalSays({ message: "no work item 3" })).toBe("no work item 3");
+  });
+});
+
+describe("answerWaits", () => {
+  /** The unit against a stand-in for the window: each wait it was asked for, which runs only when the case runs it, and each refusal it made. */
+  function waitsLike() {
+    const waits: { ms: number; run: () => void; stopped: boolean }[] = [];
+    const refused: unknown[] = [];
+    const unit = answerWaits({
+      after(ms, run) {
+        const wait = { ms, run, stopped: false };
+        waits.push(wait);
+        return () => {
+          wait.stopped = true;
+        };
+      },
+      refuse: (error) => refused.push(error),
+    });
+    return { unit, waits, refused };
+  }
+
+  it("ends a request a daemon without `answersUnknown` has not answered after 10 seconds, once, as a refusal that names the menu's entry, and takes a late answer as nothing of its own", () => {
+    const { unit, waits, refused } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "readLists", requestId: 4 });
+    expect(ANSWER_WAIT_MS).toBe(10_000);
+    expect(waits.map(({ ms }) => ms)).toEqual([10_000]);
+    for (const { run } of waits) run();
+    expect(refused).toEqual([{ type: "error", requestId: 4, message: `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.` }]);
+    expect(NOT_ANSWERED_SAYS).toBe((refused[0] as { message: string }).message);
+    // The answer that comes after the wait, and the wait run again, make no second refusal.
+    unit.answered({ type: "done", requestId: 4 });
+    for (const { run } of waits) run();
+    expect(refused).toHaveLength(1);
+  });
+
+  it("stops the wait of a request at an answer that names it before the wait is over, arms none for a message that is no request, and keeps the wait of another request", () => {
+    const { unit, waits, refused } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "readLists", requestId: 4 });
+    unit.sent({ type: "readMachine" });
+    unit.sent({ type: "stopHeadless", requestId: 5, id: 3 });
+    // A message that names no request, and one of another request, end nothing.
+    unit.answered({ type: "inbox", sessions: [], workItems: [], repositories: [], archived: [] });
+    unit.answered({ type: "error", requestId: 9, message: "no work item 9" });
+    expect(waits.map(({ stopped }) => stopped)).toEqual([false, false]);
+    unit.answered({ type: "error", requestId: 4, message: "The work items were not read again: no git." });
+    expect(waits.map(({ stopped }) => stopped)).toEqual([true, false]);
+    for (const { run } of waits) run();
+    expect(refused).toEqual([{ type: "error", requestId: 5, message: NOT_ANSWERED_SAYS }]);
+  });
+
+  it("arms no wait against a daemon whose `ready` holds `answersUnknown`, and none before the daemon's `ready`", () => {
+    const { unit, waits } = waitsLike();
+    unit.sent({ type: "readLists", requestId: 1 });
+    unit.ready({ answersUnknown: true });
+    unit.sent({ type: "readLists", requestId: 2 });
+    expect(waits).toEqual([]);
+  });
+
+  it("arms no wait for a creation, which every daemon from 0.0.2 on answers by its id after work that can outlast the wait", () => {
+    const { unit, waits } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "createWorkItem", requestId: 3, repo: "/r", title: "T", kind: "shell", cols: 80, rows: 24 });
+    unit.sent({ type: "readLists", requestId: 4 });
+    expect(waits.map(({ ms }) => ms)).toEqual([10_000]);
+  });
+});
+
 describe("statusNotice", () => {
   const OWN = "The theme could not be saved.";
   const DAEMON = daemonNotice(true);
@@ -3685,6 +3901,18 @@ describe("filterChoices", () => {
   });
 });
 
+describe("filterMark", () => {
+  it("is off at All with nothing typed, and says so to a pointer", () => {
+    expect(filterMark("", "all")).toEqual({ on: false, says: "Showing: All" });
+  });
+
+  it("is on while a state is chosen, a search is typed, or both, and says the state's label and what is typed", () => {
+    expect(filterMark("", "none")).toEqual({ on: true, says: "Showing: Asleep" });
+    expect(filterMark("logs", "all")).toEqual({ on: true, says: 'Showing: All, matching "logs"' });
+    expect(filterMark("logs", "waiting")).toEqual({ on: true, says: 'Showing: Needs you, matching "logs"' });
+  });
+});
+
 describe("emptyList", () => {
   it("says nothing where the list has a line", () => {
     expect(emptyList("inbox", 3, 1)).toBe("");
@@ -3702,6 +3930,28 @@ describe("emptyList", () => {
     expect(emptyList("archived", 0, 0)).toBe("No work item of this repository is archived.");
     expect(emptyList("archived", 2, 0)).toBe("No work item matches.");
     expect(emptyList("archived", 2, 1)).toBe("");
+  });
+});
+
+describe("emptySidebar", () => {
+  const docs: Repository = { ...PROJECT, id: 2, folder: "/r/docs", name: "docs" };
+  const hidden: Repository = { ...PROJECT, id: 3, folder: "/r/hidden", name: "hidden", hidden: true };
+
+  it("names the state chosen, the search typed, or both, and how many repositories the daemon keeps that the sidebar does not list, the hidden left out", () => {
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "", "waiting")).toBe('No work item stands under "Needs you", so the sidebar lists none of its 2 repositories.');
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "logs", "all")).toBe('No work item matches "logs", so the sidebar lists none of its 2 repositories.');
+    expect(emptySidebar([PROJECT, docs, hidden], 0, "logs", "none")).toBe('No work item under "Asleep" matches "logs", so the sidebar lists none of its 2 repositories.');
+  });
+
+  it("says of one repository that the sidebar does not list it", () => {
+    expect(emptySidebar([PROJECT, hidden], 0, "", "decided")).toBe('No work item stands under "Decided without asking", so the sidebar does not list its repository.');
+  });
+
+  it("says nothing where the sidebar lists a repository, where nothing narrows it, and where every repository is hidden", () => {
+    expect(emptySidebar([PROJECT, docs], 1, "logs", "waiting")).toBe("");
+    expect(emptySidebar([PROJECT, docs], 0, "", "all")).toBe("");
+    expect(emptySidebar([hidden], 0, "logs", "waiting")).toBe("");
+    expect(emptySidebar([], 0, "logs", "waiting")).toBe("");
   });
 });
 
@@ -4121,6 +4371,21 @@ describe("closeAsks", () => {
     ["was working when its process ended", session(1, { state: "working", alive: false })],
   ])("asks nothing where the session %s", (_name, closing) => {
     expect(closeAsks(closing)).toBe(false);
+  });
+});
+
+describe("closeSays", () => {
+  it('says of one working pane what the dialog said before a close took several panes, with "Close pane"', () => {
+    expect(closeSays(["Claude Code"], 1)).toEqual({ says: "Claude Code is working. Closing the pane ends its session.", confirm: "Close pane" });
+  });
+
+  it("names the one working pane among idle ones, and counts every pane the close ends", () => {
+    expect(closeSays(["Claude Code"], 3)).toEqual({ says: "Claude Code is working. Closing 3 panes ends its session.", confirm: "Close 3 panes" });
+  });
+
+  it("names each working pane in the order given, and says that their sessions end", () => {
+    expect(closeSays(["Claude Code 1", "Claude Code 2"], 2)).toEqual({ says: "Claude Code 1 and Claude Code 2 are working. Closing 2 panes ends their sessions.", confirm: "Close 2 panes" });
+    expect(closeSays(["Claude Code 1", "Claude Code 2", "Claude Code 3"], 4)).toEqual({ says: "Claude Code 1, Claude Code 2 and Claude Code 3 are working. Closing 4 panes ends their sessions.", confirm: "Close 4 panes" });
   });
 });
 

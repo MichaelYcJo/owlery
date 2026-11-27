@@ -3291,6 +3291,28 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   const sectionOf = (block: string): string => ["<!-- owlery:seal -->", "## Seal", "", `The newest verdict of \`${GUARANTEE}\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:seal -->"].join("\n");
   /** The stage of a pull request after the round given, listed as no session. */
   const pullRequestStage = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null, ...more });
+  /**
+   * A sealed chain whose pull request stage failed as `make` arranges: the
+   * chain stopped with the sentence `says` matches, the stage is its last,
+   * failed, nothing was committed after the verdict, and the work item holds
+   * no pull request. Each such chain runs a round, a gate and a seal before
+   * the stage, so a case runs a few of them and not every failure at once.
+   */
+  const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
+    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
+    make(stood);
+    const a = stood.workItems[0]!;
+    expect(await stood.c.startChain(a.id)).toBe("done");
+    const chain = await stood.c.chain(a.id, "stopped");
+    expect(chain.says).toMatch(says);
+    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"]]);
+    expect(chain.stages.at(-1)).toMatchObject({ kind: "pull-request", round: 1, headlessId: null, refusals: 0, gate: null });
+    expect(chain.stages.at(-1)?.failure).toBe(chain.says.replace(/^The pull request stage failed: /u, "").replace(/\.$/u, ""));
+    expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the sealer's verdict");
+    expect(status(a.worktree)).toEqual([]);
+    expect(stood.c.workItem(a.id)?.pullRequest).toBeNull();
+    return stood;
+  };
 
   it("pushes the head the stage checked, by its id, and not a commit that lands on the branch between the check and the push", async () => {
     // A git first on the stage's PATH that commits in the worktree just before it pushes, as a person's terminal could.
@@ -3497,27 +3519,26 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was, and runs the stage alone at the next start: no gh on the path, gh that fails at the list and at the create, a push the remote refuses, a clone whose remotes name none to push to, two open pull requests of the branch, a listed body with two seal sections and one with two sections of the back, answers of gh that do not read, and gh that never ends", async () => {
-    /** A sealed chain whose stage failed as `make` arranges, with the chain, the head and the calls gh had before the stage. */
-    const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
-      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
-      make(stood);
-      const a = stood.workItems[0]!;
-      expect(await stood.c.startChain(a.id)).toBe("done");
-      const chain = await stood.c.chain(a.id, "stopped");
-      expect(chain.says).toMatch(says);
-      expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"]]);
-      expect(chain.stages.at(-1)).toMatchObject({ kind: "pull-request", round: 1, headlessId: null, refusals: 0, gate: null });
-      expect(chain.stages.at(-1)?.failure).toBe(chain.says.replace(/^The pull request stage failed: /u, "").replace(/\.$/u, ""));
-      expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the sealer's verdict");
-      expect(status(a.worktree)).toEqual([]);
-      expect(stood.c.workItem(a.id)?.pullRequest).toBeNull();
-      return stood;
-    };
+  // The failures of the stage are split by kind into the cases below: each runs a sealed chain before its stage, and all of them in one case came near the case's limit on a slow runner (issue #295).
+  it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing and keeps the pull request as it was: no gh on the path", async () => {
     const noGh = await failing({ gh: undefined, gateEnv: { PATH: "/usr/bin:/bin" } }, () => undefined, /^The pull request stage failed: no gh stands on the PATH of the login shell, so Owlery cannot open the pull request; GitHub's CLI is at https:\/\/cli\.github\.com\.$/u);
     expect(branchesOf(noGh.remote)).toEqual([]);
+  });
+
+  it("stops the chain where gh fails at the list and at the create, with a sentence that names the stage and gives what gh said, commits nothing and keeps the pull request as it was, and runs the stage alone at the next start once gh answers", async () => {
     await failing({}, ({ gh }) => gh.answer("list", { err: "To get started with GitHub CLI, please run:  gh auth login\nmore\n", exit: 4 }), /^The pull request stage failed: gh pr list exited with code 4: To get started with GitHub CLI, please run: {2}gh auth login\.$/u);
     const create = await failing({}, ({ gh }) => gh.answer("create", { err: "\npull request create failed: GraphQL: Head sha can't be blank\n", exit: 1 }), /^The pull request stage failed: gh pr create exited with code 1: pull request create failed: GraphQL: Head sha can't be blank\.$/u);
+    // Once gh answers, a start runs the stage again, and no round, no gate and no seal.
+    create.gh.answer("create", {});
+    const a = create.workItems[0]!;
+    const chain = await again(create.c, a.id, "rested");
+    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"], ["pull-request", "finished"]]);
+    expect(chain.says).toBe("Pull request #1 is open.");
+    expect(create.c.workItem(a.id)?.pullRequest).toMatchObject({ number: 1, state: "open", pushed: head(a.worktree) });
+    expect(create.gh.calls().map((call) => call[1])).toEqual(["list", "create", "list", "create", "view"]);
+  });
+
+  it("stops the chain where the push fails, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was and calls no gh: a push the remote refuses, a branch of the remote another clone moved, and a clone whose remotes name none to push to", async () => {
     const refused = await failing({}, ({ remote }) => writeFileSync(join(remote, "hooks", "pre-receive"), "#!/bin/sh\necho 'the branch is refused here'\nexit 1\n", { mode: 0o755 }), /^The pull request stage failed: git push to origin failed: remote: the branch is refused here\.$/u);
     expect(branchesOf(refused.remote)).toEqual([]);
     expect(refused.gh.calls()).toEqual([]);
@@ -3542,15 +3563,24 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
       /^The pull request stage failed: the clone has the remotes fork and upstream, none of them named origin, and the work item's base branch main is on none of them, so Owlery cannot tell which to push to\.$/u,
     );
     expect(remotes.gh.calls()).toEqual([]);
+  });
+
+  it("stops the chain where gh lists what the stage does not take, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was and calls gh no more after the list: two open pull requests of the branch, and a listed body with two seal sections and one with two sections of the back", async () => {
     const several = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([3, 5].map((number) => ({ number, url: `https://github.com/owner/project/pull/${String(number)}`, headRefOid: "a".repeat(40), body: "" }))) }), /^The pull request stage failed: the branch has the open pull requests #3, #5, and Owlery opens or updates one\.$/u);
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- owlery:seal -->\n<!-- /owlery:seal -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:seal -->` lines, and Owlery replaces one seal section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- /owlery:seal -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
     expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);
+  });
+
+  it("stops the chain where an answer of gh does not read, with a sentence that names the stage and the call, commits nothing and keeps the pull request as it was: at the list, at the create and at the view", async () => {
     await failing({}, ({ gh }) => gh.answer("list", { out: "Showing 0 of 0 pull requests\n" }), /^The pull request stage failed: gh pr list printed no list Owlery reads\.$/u);
     await failing({}, ({ gh }) => gh.answer("create", { out: "Creating pull request\n" }), /^The pull request stage failed: gh pr create printed no address of a pull request\.$/u);
     await failing({}, ({ gh }) => gh.answer("view", { out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "QUEUED", headRefOid: "a".repeat(40) }) }), /^The pull request stage failed: gh pr view printed no pull request Owlery reads\.$/u);
+  });
+
+  it("stops the chain where gh never ends, with a sentence that names the stage and the bound, commits nothing and keeps the pull request as it was: gh that ends at the signal, and gh that ignores it", async () => {
     // The stand-in sleeps 30 seconds, so a stage that ends sooner ended it: by the signal, and by the kill 2 seconds after it where the signal is ignored. The limit leaves a busy machine the time to start the stand-in's shell.
     for (const answer of [{ hangs: true }, { stubborn: true }]) {
       const began = Date.now();
@@ -3558,15 +3588,6 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
       expect(Date.now() - began, JSON.stringify(answer)).toBeLessThan(25_000);
       expect(hangs.gh.calls().map((call) => call[1])).toEqual(["list"]);
     }
-
-    // Once gh answers, a start runs the stage again, and no round, no gate and no seal.
-    create.gh.answer("create", {});
-    const a = create.workItems[0]!;
-    const chain = await again(create.c, a.id, "rested");
-    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"], ["pull-request", "finished"]]);
-    expect(chain.says).toBe("Pull request #1 is open.");
-    expect(create.c.workItem(a.id)?.pullRequest).toMatchObject({ number: 1, state: "open", pushed: head(a.worktree) });
-    expect(create.gh.calls().map((call) => call[1])).toEqual(["list", "create", "list", "create", "view"]);
   });
 
   it("stops the stage, pushes nothing and calls no gh where the worktree's head moved after the records were read", async () => {

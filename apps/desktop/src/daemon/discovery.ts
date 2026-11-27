@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import WebSocket from "ws";
 import { writeWholeFile } from "./whole-file";
 
 /** Where a client finds the running daemon: its port, the token it asks for, its process, and the build of the script it runs. */
@@ -31,6 +32,39 @@ export function readDiscovery(dir: string): Discovery | undefined {
     // No daemon has written here, or the file is not ours.
   }
   return undefined;
+}
+
+/**
+ * Says hello at the file's address with the file's token, and gives the
+ * `ready` the daemon there answered with, or nothing where none came within
+ * `timeoutMs`. The message is typed as no more than an object: a daemon of
+ * any build may answer, and its fields are its build's. The app asks it of
+ * the daemon a load finds and of the one a stop is about to signal, and a
+ * daemon that starts asks it of the daemon its run folder's `daemon.json`
+ * still names.
+ */
+export function readyOf(discovery: Discovery, timeoutMs = 1000): Promise<Readonly<Record<string, unknown>> | undefined> {
+  return new Promise((resolve) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${discovery.port}`);
+    const done = (ready: Readonly<Record<string, unknown>> | undefined) => {
+      clearTimeout(timer);
+      socket.terminate();
+      resolve(ready);
+    };
+    const timer = setTimeout(() => done(undefined), timeoutMs);
+    socket.on("open", () => socket.send(JSON.stringify({ type: "hello", token: discovery.token })));
+    socket.on("message", (raw) => {
+      let message: unknown;
+      try {
+        message = JSON.parse(String(raw));
+      } catch {
+        // Not a message of a daemon's.
+      }
+      done(typeof message === "object" && message !== null && (message as { type?: unknown }).type === "ready" ? (message as Record<string, unknown>) : undefined);
+    });
+    socket.on("error", () => done(undefined));
+    socket.on("close", () => done(undefined));
+  });
 }
 
 /**

@@ -27,8 +27,9 @@ import { initMachine, openMachine, showMachine, showMachineEntry } from "./machi
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
 import { holdDraws } from "./press";
-import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
+import { refresher } from "./refresh";
+import { byId, connected, connectedBy, held, request, send, waits, whenUnanswered } from "./shared";
+import { focusSearch, initSidebar, showRefresh, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
@@ -49,6 +50,7 @@ import {
   daemonEnding,
   daemonLists,
   daemonNotice,
+  refusalSays,
   decisionLines,
   deleteChoice,
   deleteSays,
@@ -108,7 +110,7 @@ import {
   type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -124,6 +126,23 @@ if (window.owlery.background) window.__notifications = notifier.kept;
 
 // While the mouse's main button is held down in the window, what a daemon message changed in the lists waits to be drawn until the release (./press), so a click whose press and release fall on one line still reaches that line.
 const draws = holdDraws(window);
+
+// The sidebar's refresh button has the daemon read the work items again and send the lists back (./refresh). The answer's `inbox` is drawn through the hold, as every `inbox` is (`takeLists`), so the screen in front, the view's pane in front and the filter stay.
+const refreshing = refresher({
+  ready: () => held.ready,
+  request,
+  send,
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  show: showRefresh,
+  tell,
+  daemonNotice: () => held.daemonNotice,
+});
+
+// A request a daemon of an earlier build has not answered within its wait ends as the daemon's own refusal would end it, in the place where that request's refusal is shown (./view, `answerWaits`).
+whenUnanswered(onMessage);
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -1790,7 +1809,7 @@ function showBase(): void {
     baseAnswers.set(baseKey(repoField.value, base), asked);
     basesAsked.add(asked.requestId);
     send({ type: "fetchBase", requestId: asked.requestId, repo: repoField.value.trim(), base });
-    // A daemon of an earlier build ignores the message, so the form stops saying that it fetches. An answer that comes later is shown.
+    // Where no answer came by the daemon's own limit for a fetch and two seconds more, the form stops saying that it fetches. An answer that comes later is shown. A daemon of a build before the fetch ignores the message, and the window's wait (./view, `answerWaits`) ends that request first, with a refusal shown under the menu.
     const timer = setTimeout(() => {
       baseTimers.delete(timer);
       asked.answer = unanswered(asked.answer);
@@ -1892,10 +1911,14 @@ function registerRepository(): void {
 }
 
 function onMessage(message: ServerMessage): void {
+  // An answer that names a request ends that request's wait (./view, `answerWaits`).
+  waits.answered(message);
   switch (message.type) {
     case "ready": {
       // The states as the window finds them, so no notification. Nothing is attached and nothing started.
       held.ready = true;
+      // A daemon of a build before `answersUnknown` leaves a request it does not know unanswered, so each request sent to it from now on but a creation has a wait (./view, `answerWaits`).
+      waits.ready(message);
       held.paneKinds = message.paneKinds;
       held.sessions = message.sessions;
       held.workItems = message.workItems;
@@ -2021,6 +2044,8 @@ function onMessage(message: ServerMessage): void {
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      // A refresh's `done` follows the `inbox` that answers it, which the window has drawn by now.
+      if (refreshing.answered(message.requestId)) return;
       if (trashing?.requestId === message.requestId) {
         // The daemon no longer keeps the repository, so its folder goes to the Trash now, as the person chose. A failure is said in the status line.
         const { folder } = trashing;
@@ -2039,7 +2064,7 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       if (takeAccountsAnswer(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
-      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null)) return;
+      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null) || takePaneName(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
@@ -2064,48 +2089,52 @@ function onMessage(message: ServerMessage): void {
       // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
       dropHeadless(message.id);
       return;
-    case "error":
-      // Nothing was created or started.
+    case "error": {
+      // Nothing was created or started. Where the daemon does not know the request, each place below shows the window's sentence, which names "Restart Daemon…", in place of the daemon's (./view, `refusalSays`).
+      const said = refusalSays(message);
       requestRefused(message.requestId);
+      // A refresh's refusal is said in the status line, and the lists stand as they were.
+      if (refreshing.refused(message.requestId, said)) return;
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
-      if (takePlan(message.requestId, { error: message.message })) return;
+      if (takePlan(message.requestId, { error: said })) return;
       // The refusal of a base's fetch is the form's to show, under the menu.
-      if (takeBase(message.requestId, { error: message.message })) return;
+      if (takeBase(message.requestId, { error: said })) return;
       // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
-      if (takeRenamePlan(message.requestId, { error: message.message })) return;
+      if (takeRenamePlan(message.requestId, { error: said })) return;
       // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
-      if (takeSettingsPlan(message.requestId, { error: message.message })) return;
+      if (takeSettingsPlan(message.requestId, { error: said })) return;
       // A read of a loss that was refused is its dialog's to show.
-      if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
-      // The refusal of the answers to a parked work item's questions is its view's section's to show.
-      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message)) return;
+      if (takeDeleteLoss(message.requestId, { error: said }) || takeRemoveLoss(message.requestId, { error: said })) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show, and the refusal of a pane's new name the rename dialog's.
+      if (takeAnswers(message.requestId, said) || takeAccountChange(message.requestId, said) || takePaneName(message.requestId, said)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
-      if (takeBackRefusal(message.requestId, message.message)) return;
+      if (takeBackRefusal(message.requestId, said)) return;
       // A refused plan of the records place is its dialog's to show.
-      if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      if (takeRecordsPlan(message.requestId, { error: said })) return;
       // A refused request of the Accounts dialog is said in it.
-      if (takeAccountsAnswer(message.requestId, message.message)) return;
+      if (takeAccountsAnswer(message.requestId, said)) return;
       if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
-      if (answered(message.requestId, message.message)) {
+      if (answered(message.requestId, said)) {
         readAgain();
         return;
       }
       if (message.requestId === renameRequest && renameDialog.open) {
         renameRequest = undefined;
-        renameError.textContent = message.message;
+        renameError.textContent = said;
         renameButton.disabled = false;
         return;
       }
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
-        formError.textContent = message.message;
+        formError.textContent = said;
         createButton.disabled = false;
       } else {
-        tell(message.message);
+        tell(said);
       }
       return;
+    }
     case "replay":
     case "output":
       write(message.id, message.type, message.data);
@@ -2165,11 +2194,18 @@ initSidebar(
       showNarrowed();
     },
     filter,
+    refresh: () => refreshing.press(),
     leaveSearch() {
       const list = listInFront();
       if (list) list.focusLine(list.selected());
       // Where no list is in front the keyboard leaves the field for the page.
       if (document.activeElement === byId("search-field")) byId("search-field").blur();
+    },
+    // The person's own press, so the sidebar and the list in front draw at once.
+    showEvery() {
+      held.query = "";
+      held.filter = "all";
+      showNarrowed();
     },
   },
   MAC,
