@@ -54,7 +54,7 @@ The spawn names #215, #216 and #133 (one pull request, worktree `/Users/yc/Docum
 
 - No migration, no new environment variable and no new dependency.
 - **The protocol gains optional fields**: `RecordsPlace.olderCheck`, `RecordsPlan.move` and `RecordsPlan.unread`. A window reads each one's absence, from a daemon of an earlier build, as nothing to show.
-- **A repository connected by a build of 0.0.5 fails its check once `release/v0.0.5` is deleted**, since no tag `v0.0.5` will exist (`frame/design.md` *Grounding*). Owlery's own repository is not among them: the pull request that moves the version to 0.1.0 (#58) rewrites its workflow. Any other repository the owner connected with a 0.0.5 build shows "Check 0.0.5" in the app of 0.1.0 and moves from there.
+- **A repository connected by a build of 0.0.5 keeps fetching its check after `release/v0.0.5` is deleted**, since the tag `v0.0.5` stands at `e7737b7e` (`git ls-remote --tags origin`, 2026-11-27). Such a repository shows "Check 0.0.5" in an app of a later version and moves from there.
 - This pull request moves no version.
 
 ## Judgments of the run

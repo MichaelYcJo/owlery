@@ -15,7 +15,7 @@ The tree as read at `c467d965`, the work item's routing commit on `c35c8271`, wh
 | `docs/design.md` *Principles*, item 8 | A form the document does not state is added to *Components and their states* first, and the pull request that draws it writes its row in both editions and leaves none to the settle. So the row for the check's mark on a repository's row is written in place by the build (*Scope* item 9), and is not a `## Rule changes` operation. |
 | `docs/design.md` *Principles*, items 1 and 3 | The mark is not the wax's red and not the signal: an older check does not need the person now, and the person opens the move when they choose. |
 | `docs/design.md` *A pull request that changes the window carries its screenshots* | The pull request carries screenshots of the changed views from `pnpm run screenshots`. The pull request that adds a view to the run adds it to the list of views in both editions, in place (*Scope* item 10). |
-| `docs/roadmap.md` *Releases and the tracker*, "The branch `release/v<version>` is cut from `main` … that merge is tagged `v<version>`" | A pin names a tag, or a release branch before the tag exists. Origin holds the tags `v0.0.1` to `v0.0.4` and `v0.0.5-package.1`, and the one release branch `release/v0.0.5` (`executed`, `git ls-remote --heads origin 'release/*'` and `git ls-remote --tags origin`). So the branches of releases that merged are gone. The version moves from 0.0.5 to 0.1.0 at this release's close (#58), so a workflow that pins `0.0.5` will find neither a tag nor a branch once `release/v0.0.5` is deleted. |
+| `docs/roadmap.md` *Releases and the tracker*, "The branch `release/v<version>` is cut from `main` … that merge is tagged `v<version>`" | A pin names a tag, or a release branch before the tag exists. Origin holds the tags `v0.0.1` to `v0.0.4` and `v0.0.5-package.1`, and the one release branch `release/v0.0.5` (`executed`, `git ls-remote --heads origin 'release/*'` and `git ls-remote --tags origin`). So the branches of releases that merged are gone. Release 0.0.5 was tagged `v0.0.5` at `e7737b7e` as it merged into `main` on 2026-11-27 (`executed`, `git ls-remote --tags origin`), so a workflow that pins `0.0.5` keeps fetching its check from that tag once `release/v0.0.5` is deleted. |
 
 What the tree holds of the pin, `read` unless labelled:
 
@@ -46,7 +46,7 @@ Out, each with the issue the orchestrator files:
 
 - **Running the new version's check itself against each open pull request before the move.** It is the exact answer to "the new check would refuse", and it needs the app to ship `pr-check/` and to find Python 3.12 on the person's Mac. *Scope* item 6 names what the app's own readers refuse instead. An issue to file.
 - **Branches with records that the daemon keeps no work item for**, such as a collaborator's pull request. The daemon reads only the work items it keeps, as its seal reading does. The issue above covers them, since only the check reads a pull request the app did not build.
-- **The workflow's failure where neither the tag nor the release branch exists.** A repository pinned to `0.0.5` meets it once `release/v0.0.5` is deleted (*Grounding*). The clone then fails with git's words, and the check posts nothing. The move set out here repairs such a repository from the app of 0.1.0. A sentence in the workflow that says why the clone failed is an issue to file.
+- **The workflow's failure where neither the tag nor the release branch exists.** A repository meets it where its pin names a release whose branch was deleted before its tag was made. No release up to 0.0.5 is such a release: each one's tag stands (`git ls-remote --tags origin`, 2026-11-27). The clone then fails with git's words, and the check posts nothing. The move set out here repairs such a repository from an app of a later version. A sentence in the workflow that says why the clone failed is an issue to file.
 - **Moving the pin of a repository whose workflow a person edited** so that `pinnedVersion` reads no version, and of a repository on AgenticSeal's `hygiene.yml`. Neither shows a mark (`frame/questions.md` Q2).
 - **Moving a pin to an older version**, where the app is older than the release that wrote the workflow. Nothing is shown.
 - **Replacing a daemon of an earlier build after the update.** It is #133's. Until the daemon of the updated app runs, no `olderCheck` is sent, and the row shows nothing.
@@ -113,6 +113,16 @@ The row of *Scope* item 9 stands in *Components and their states* of `docs/desig
   section: 기록은 저장소에 커밋합니다
   to: **워크플로가 앱보다 오래된 Owlery의 검사를 받는 저장소는 자기 줄에 그것을 알리고, 사람이 먼저 읽은 커밋 하나가 그 검사를 옮깁니다.** 데몬은 저장소의 기록 자리를 읽을 때마다, 메인 체크아웃의 작업 트리에 있는 Owlery 워크플로의 클론 단계에서 버전을 읽습니다. 그 버전이 데몬 자신의 버전보다 오래되었으면 사이드바의 저장소 줄이 그 버전을 보여 줍니다. 그러면 기록 자리의 대화 상자가 앱이 쓰는 워크플로 전체와 커밋 제목, 커밋이 올라갈 브랜치를 보여 주고, 앱은 사람이 확인하기 전에는 아무것도 쓰지 않습니다. 커밋은 워크플로를 통째로 바꾸고 그 파일만 담으며, 저장소의 훅을 그대로 돌리고, 푸시하지 않습니다. 체크아웃이 워크플로를 그 커밋과 같게 갖고 있지 않은 동안에는 옮기지 않습니다. 커밋하기 전에 대화 상자는, 브랜치 끝의 기록을 앱의 읽기 도구가 거절하는 저장소의 작업을 하나하나 그 도구의 문장과 함께 알리고, 작업 트리 폴더가 없어진 작업을 포함해 앱이 그 기록을 읽지 못한 작업도 그 까닭을 말하는 문장과 함께 알리며, 앱이 아직 브랜치 끝을 읽지 않은 작업도 그 기록을 아직 읽지 않았다는 문장과 함께 알립니다. 작업 트리는 있는데 기록 폴더가 없고 브랜치 끝에는 기록이 있는 작업은 기록이 없는 작업으로 읽혀, 대화 상자가 알리지 않습니다. 그 도구는 회차 기록, 전체 검사의 실행, 보증서를 읽는 것이고, 케이스가 그 답을 검사의 답에 묶어 둡니다. 검사의 다른 갈래는 거기서 읽지 않습니다. 앱이 버전을 읽지 못하는 워크플로, 앱의 버전과 같거나 더 새로운 버전, AgenticSeal의 `hygiene.yml`에는 옮기기를 내놓지 않습니다. 이전 빌드의 데몬은 버전을 읽지 않으므로, 저장소 줄은 업데이트한 앱의 데몬이 돌 때부터 오래된 검사를 알립니다.
     check: apps/desktop/test/records-place.test.ts apps/desktop/test/daemon.test.ts apps/desktop/test/view.test.ts apps/desktop/test/records-dialog.test.ts
+- change
+  file: docs/architecture.md
+  section: Records are committed to the repository
+  from: Past the limit Owlery ends the group and leaves each file written and not staged, unless the commit was made before the end.
+  to: Past the limit Owlery ends the group, and a commit made before the end stands. Otherwise a stage's commit and a commit of a person's word leave each file written and not staged. The setup of the records place instead takes its files out of the index, removes each file it created, and writes a moved workflow back as it stood.
+- change
+  file: docs/architecture.ko.md
+  section: 기록은 저장소에 커밋합니다
+  from: 5분이 지나면 Owlery는 그 그룹을 끝내고, 파일은 적힌 채로, 스테이징되지 않은 채로 둡니다.
+  to: 5분이 지나면 Owlery는 그 그룹을 끝냅니다. 단계의 커밋과 사람의 말을 담는 커밋은 파일을 적힌 채로, 스테이징되지 않은 채로 둡니다. 기록 자리를 만드는 커밋은 그 파일들을 스테이징에서 빼고, 자기가 만든 파일을 지우며, 옮기던 워크플로는 원래대로 다시 씁니다.
 
 ## Removes
 

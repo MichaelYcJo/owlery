@@ -19,4 +19,4 @@ The milestone `release: 0.1.0`, the minimum for Owlery to be published, on Sunda
 - **Implementation, crafter:** the daemon, the window and the workflow template change together.
 - **Review, through the review chain:** a pin moved without the person reading the commit, or moved past records the new check refuses, breaks the person's own pull requests.
 - **Automation, yes:** the questions foreseen (where the line shows, the commit's words) have defaults the tree gives.
-- **Branch:** cut from `release/v0.0.5` at `c35c8271`; the pull request merges into `release/v0.0.5` by squash.
+- **Branch:** cut from `release/v0.0.5` at `c35c8271`. The branch took that release in by a merge (`ec72ff39`), and release 0.0.5 then merged into `main` (pull request #303). `release/v0.1.0` was cut from that merge, so the pull request merges into `release/v0.1.0` by squash.
