@@ -410,7 +410,7 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
   if (odd.length > 0) blocked = `The commit this checkout stands at holds something other than a file at ${named(odd)}, and the move moves files alone. Rename or remove it in a commit, and open this again.`;
   else if (whole !== null && holds(ROOT)) blocked = `${ROOT}/ holds something of this repository's own, so Owlery has no folder to move the work records to. Rename that folder in a commit, and open this again.`;
   else if (taken.length > 0) blocked = `The commit this checkout stands at holds ${named(taken)} already, where the move puts a file of ${from}/. Rename or remove it in a commit, and open this again.`;
-  else if (inCommit.has(WORKFLOW) && !holdsFile(WORKFLOW)) blocked = `The commit this checkout stands at holds something other than a file at ${WORKFLOW}, where the check's workflow stands. Rename it in a commit, and open this again.`;
+  else if (holds(WORKFLOW) && !holdsFile(WORKFLOW)) blocked = `The commit this checkout stands at holds something other than a file at ${WORKFLOW}, where the check's workflow stands. Rename it in a commit, and open this again.`;
   else if (refused.length > 0) blocked = `The earlier form's reader refuses ${refused.length === 1 ? "a line" : `${String(refused.length)} lines`} of these records, so Owlery cannot move them as they mean: ${refused.join("; ")}. Fix each line named in a commit, and open this again.`;
   if (blocked !== null) return plan(from, moves, removes, writes, blocked);
 

@@ -271,6 +271,16 @@ describe("the move of the records from the earlier form", () => {
     commitAll(linked, "chore: a link below the root");
     expect((await planMigration(linked, VERSION)).blocked).toBe("The commit this checkout stands at holds something other than a file at seal/threads/1-x/link.md, and the move moves files alone. Rename or remove it in a commit, and open this again.");
 
+    const ignoring = earlier();
+    write(ignoring, ".gitignore", "iadd/threads/\n");
+    commitAll(ignoring, "chore: ignore a folder");
+    expect((await planMigration(ignoring, VERSION)).blocked).toMatch(/^Git ignores iadd\/threads\/1-x\/decisions\.md, .+ and iadd\/threads\/1-x\/trail\/rounds\/round-1\.md in this repository, so the move cannot commit them\. A repository that cannot keep work records in its tree is out of scope for Owlery\.$/u);
+
+    const folded = earlier();
+    write(folded, `${WORKFLOW}/notes.md`, "# A folder at the workflow's path\n");
+    commitAll(folded, "chore: a folder at the workflow's path");
+    expect((await planMigration(folded, VERSION)).blocked).toBe(`The commit this checkout stands at holds something other than a file at ${WORKFLOW}, where the check's workflow stands. Rename it in a commit, and open this again.`);
+
     const detached = earlier();
     git(detached, "checkout", "--quiet", "--detach");
     const unbranched = await planMigration(detached, VERSION);
