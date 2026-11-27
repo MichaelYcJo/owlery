@@ -32,6 +32,11 @@ or:
 
 Under the first form, the same fix pass changes `"version"` at `apps/desktop/package.json:3`, and a verifying round reads that commit.
 
+```seal
+verdict: fixed d3f3c26b
+answer: The first form holds. The orchestrator's commit 6b0b5aa0 wrote the records half into `routing.md` *Why this way* (base `release/v0.2.0`, cut from `main` at `aec3e8ac`, by squash; the release's first pull request; the `owlery-seal.yml` pin stays at `v0.1.0`). This pass's d3f3c26b moves `apps/desktop/package.json` `"version"` to `0.2.0`, and adds a bullet to `changelog.md` that states the version and the pin that stays. `.github/workflows/owlery-seal.yml` is untouched. The search `git grep -n -F "0.1.0" -- ':!*.md' ':!pnpm-lock.yaml'` found no other pin of the app's own version: the hits in `package.test.ts`, `records-place.test.ts`, `view.test.ts`, `rerun-unstarted.test.ts` and its fixture are synthetic inputs, and `package.ts:50` and `package.yml:20` are examples in a comment and a description. The build writes `package.json`'s version into the daemon and the chain command as `OWLERY_VERSION` (`apps/desktop/build.mjs:27`, `:37`), and no case reads the real file's version. `package.ts#packageApp` reads it to check a tag, and `test/package.test.ts` holds that check with a `package.json` of its own. Executed: `pnpm --filter @owlery/desktop run test test/package.test.ts`, which exited 0 with 27 of 27 passed. Re-run of this finding's evidence: `git show HEAD:apps/desktop/package.json | grep '"version"'` prints `"version": "0.2.0",`.
+```
+
 ### 2. The roadmap's new counting rule says a release's content is counted from its GitHub milestone, which the same paragraph and the milestone table's rule contradict
 
 ```seal
@@ -53,6 +58,11 @@ For `docs/roadmap.ko.md:47`, the same place:
 ```
 
 For `changelog.md:6`, the clause "What a release holds is counted from its GitHub milestone" becomes "What a release holds is read from what merged into its branch, and what a milestone holds from GitHub".
+
+```seal
+verdict: fixed a343c1da
+answer: The finding holds: no open milestone is a release's, so the sentence counted a goal milestone as a release. The paste-ready text went into `docs/roadmap.md:47` and `docs/roadmap.ko.md:47` as written, and the changelog clause as written. In e0564e2d, that changelog bullet was split into sentences, because the new first clause holds a comma of its own and the list that followed it no longer read as one. Re-run of the evidence's searches after the last fix commit: `git grep -n -F "GitHub milestone" -- docs CLAUDE.md seal/threads/1795797648-323-the-rules-live-in-the-repository` prints `docs/roadmap.md:47`, whose matching words are the paragraph's own earlier sentence "A GitHub milestone is named by its goal", which stands, and this round record's own lines, which are the proofer's. `git grep -n -F "GitHub 마일스톤" -- docs` prints `docs/roadmap.ko.md:47`, whose match is the same earlier sentence in Korean. Neither prints the corrected rule.
+```
 
 ### 3. The `handoff.md` bullet restates a rule the AgenticSeal plugin already holds, against the file's own opening, and the part it adds breaks a sealed work item's seal
 
@@ -81,6 +91,11 @@ Where the orchestrator keeps a repository sentence for the push alone, this is t
 - **A `handoff.md` the AgenticSeal plugin's orchestration writes is committed and pushed with the step it follows, except in a work item whose branch carries a seal, whose state its `guarantee.md` and its pull request hold.**
 ```
 
+```seal
+verdict: fixed a01acf71
+answer: The finding holds. The plugin's `skills/implement/orchestration.md:187-191` (0.39.3) states the rule, and `test_a_handoff_file_is_written_only_to_move_the_work` pins it (read). a01acf71 deletes the bullet from `CLAUDE.md`, and applies the `gaps.md:5`, `gaps.md:24`, `changelog.md:5` and `changelog.md:14` edits as written. The deletion joined the push bullet and the routing bullet onto one line, and e0564e2d puts each back on its own line. The alternative bullet for the push alone was not taken, since the plugin's sentence already covers the file and the hand-over. Not edited here, because they are the orchestrator's to commit: `pr.md:3` and `routing.md:25`; the hand-back gives their lines. `trail/phases/phase-1.md:19` still names rule 10 among what phase 1 wrote. That is the phase's record, which a fix pass keeps as it was, and `gaps.md` now carries the outcome. Re-run of the evidence's search after the last fix commit, `git grep -n -F "handoff" -- CLAUDE.md seal/threads/1795797648-323-the-rules-live-in-the-repository`, prints no line in `CLAUDE.md`. It prints `gaps.md:24` (the new entry), `routing.md:25` (the orchestrator's), `phase-1.md:15` (the word as a search term), `phase-1.md:19` (the phase's record), and this round record's own lines.
+```
+
 ### 4. The push bullet pushes under every routing and says a push starts no workflow, which the plugin's `stop before the pull request` and the workflows' `pull_request` triggers contradict
 
 ```seal
@@ -93,6 +108,12 @@ Why it matters: `CLAUDE.md:16` has the orchestrator push "after every step", wit
 
 ```markdown
 - **Where `Destination` reads `open the pull request`, the orchestrator pushes a work item's branch to `origin` after every step**: a frame, a phase, a round, a fold, a fix pass, the gate record and the seal. It does not wait for the pull request, so another session or machine can take the work item over from the step it reached. A push to a branch that has no pull request starts none of `check.yml`, `owlery-seal.yml`, `package.yml` and `rerun-unstarted.yml`. The first two start from a pull request's events, and a push to an open pull request's branch is one of them. `package.yml` starts from a tag or a person's dispatch, and `rerun-unstarted.yml` from the run of another workflow.
+```
+
+```seal
+verdict: fixed 865cf59c
+location: `seal/threads/1795797648-323-the-rules-live-in-the-repository/changelog.md:5`
+answer: The finding holds. The plugin's `skills/code-review/orchestration.md:293-298` (0.39.3) pushes nothing under `stop before the pull request`, and `check.yml` and `owlery-seal.yml` start on `pull_request` (read). The paste-ready bullet replaces the push bullet of `CLAUDE.md` as written. The same commit brings `changelog.md:5` along, a path the finding does not name, so that it says the branch is pushed after each step of a work item that opens a pull request. 24f2b4e9 brings the fragment's process row to the same condition. Re-run of the evidence: the `on:` blocks are as the finding reads them, and the bullet now names the pull request's events.
 ```
 
 ### 5. "The orchestrator" in `CLAUDE.md` also names Owlery's orchestrator agent, a role session that reads this file and whose definition runs no command
@@ -109,6 +130,11 @@ Append to `CLAUDE.md:3`:
 
 ```markdown
 The orchestrator these rules name is the session that runs a work item, through the AgenticSeal plugin or in a pane that carries the owl chain. A role session that Owlery's daemon starts reads this file too ([docs/architecture.md *Role sessions run detached from the user's environment*](docs/architecture.md#role-sessions-run-detached-from-the-users-environment)), and none of them takes these steps, the orchestrator agent of `apps/desktop/role-bundle/agents/orchestrator.md` among them.
+```
+
+```seal
+verdict: fixed 363984a9
+answer: The finding holds. `apps/desktop/role-bundle/agents/orchestrator.md` names an orchestrator agent that runs no command, and the daemon's role sessions read the repository's `CLAUDE.md` (read). The text appended to `CLAUDE.md:3` is the paste-ready text in this pass's own words. Its second sentence also names the agents the session starts, since the plugin's crafter, proofer and sealer read the file as well and push nothing. It reads "The agents that session starts and the role sessions Owlery's daemon starts read this file too", and keeps the link and the orchestrator agent's path. The anchor `#role-sessions-run-detached-from-the-users-environment` is the one GitHub makes from the heading at `docs/architecture.md:173` (read). Re-run of the evidence, `git grep -n -i -E "orchestrator" -- CLAUDE.md`: every hit, `CLAUDE.md:3`, `:8`, `:15`, `:16`, `:17` and `:21`, now reads against the definition at `:3`.
 ```
 
 ### 6. The brand criteria rule a name out on a near trademark in class 42 alone, though the bullet they cite searches classes 9 and 42 and the app is downloadable software
@@ -131,6 +157,11 @@ For `docs/name.ko.md:30`:
   - 같은 이름과 비슷한 이름을 GitHub, npm, 웹에서 찾습니다. 같은 분야의 제품이 같거나 비슷한 철자를 쓰면 그 이름은 쓰지 않고, 소프트웨어 분야(9류, 42류)에 철자가 비슷한 상표가 있을 때도 쓰지 않습니다.
 ```
 
+```seal
+verdict: fixed 1cdadddb
+answer: The finding holds. `docs/name.md:23` searches classes 9 and 42, and the app is downloadable software. Both paste-ready lines went in as written. Re-run of the evidence's searches after the last fix commit: `git grep -n -F "class 42" -- docs` prints nothing. `git grep -n -F "42류" -- docs` prints `docs/name.ko.md:23` and `:30`, and both read "9류, 42류".
+```
+
 ### 7. `routing.md` names #333 among the open issues that own a rule, and phase 1 says #333 owns none of the 44
 
 ```seal
@@ -146,6 +177,12 @@ Why it matters: `routing.md:26` says "no rule is written that an open issue alre
 ```
 
 Where the owner's words named #333, the orchestrator keeps it and adds that it owns none of the 44 rules.
+
+```seal
+verdict: fixed 6b0b5aa0
+location: `seal/threads/1795797648-323-the-rules-live-in-the-repository/routing.md`
+answer: The orchestrator's commit 6b0b5aa0 rewrote the bullet of `routing.md` *Why this way* as the paste-ready text, naming #129, #279 and #322 among the issues that own a rule, and #333 no longer. Re-run of the evidence, `git grep -n -F "#333" -- seal/threads/1795797648-323-the-rules-live-in-the-repository`: it prints `trail/phases/phase-1.md:15`, which says #333 owns none of the 44 rules and agrees, and this round record's own lines. It prints no line of `routing.md`.
+```
 
 ## Confirmations
 
