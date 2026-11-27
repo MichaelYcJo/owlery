@@ -176,6 +176,11 @@ Why it matters: this round holds the work item's records against the tree as mer
 | #323, the rules of this repository, merged into the release branch by pull request #341 and brought onto this branch by `505892e7` | The rules #323 wrote name the check `seal`, the commands of the plugin and this repository's own `seal/` root, in `CLAUDE.md`, `docs/roadmap.md`, `docs/architecture.md` and `docs/name.md`, which *Scope* item 12 rewrites. #323's `gaps.md` *Not done* hands this work rules 31 and 32 of its merged list (composable workflows and the method the chain follows, homed in `docs/product.md`), rule 33, the 2026-11-28 part of rule 34 and the missing part of rule 39. | #323 | Phase 5 writes each rule #323 handed here into the documents of *Scope* items 1 and 12, read from issue #323's merged list, since this design's `## Rule changes` reads `nothing`. It keeps each sentence that states this repository's own process in the plugin's names. |
 ```
 
+```seal
+verdict: fixed ba25c33e
+answer: frame/plan.md's Overlap row for #323 now carries the round's paste-ready text, naming the rules 31 to 34 and 39 #323 handed this work and phase 5 as where they are written. The orchestrator made the repair, since the plan is a frame file.
+```
+
 ## Confirmations
 
 What matched: this repository's own records and workflow do not move. `git diff --stat a75f4581 f12a45ab -- seal/README.md seal/config.json .github CLAUDE.md` printed nothing. Under `seal/threads/` the diff adds this work item's directory alone. `.github/workflows/owlery-seal.yml` still clones `pr-check/` at `--branch v0.1.0` (line 36), executed. Every commit of the range carries the plugin's `Seal-Routing:` trailer, executed with `git log --format='%h %s%n%(trailers)'`.
