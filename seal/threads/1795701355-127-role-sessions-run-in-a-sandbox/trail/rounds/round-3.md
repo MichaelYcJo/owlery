@@ -58,6 +58,11 @@ frame/plan.md:89: "such as an added account's login" becomes "such as an added a
 frame/plan.md:110: "the entry leaves the login refused" becomes "the entry leaves the rest of the folder refused".
 ```
 
+```seal
+verdict: fixed 769cb20e
+answer: The comment of `claude.ts#claudeAdapter`'s `start` now reads "the rest of the config folder stays refused, its `.claude.json` among it and a `.credentials.json` where the CLI keeps one. On macOS the CLI keeps the login in the Keychain, which no read of a folder holds." Comments only, so `tsc --noEmit` ran (exit 0) and no suite. `git grep -n -i` on "login" with "its login", "keeps refused" and "refused" near it over `apps/desktop/src` and `apps/desktop/test`, and the same over `changelog.md` and `gaps.md` for "login", "sign-in" and "credential", printed no other place that says the refused read keeps a login; the other hits are the accounts code on a login standing in a folder. A sample of spellings. Not written, since a crafter writes no line of the frame: `frame/design.md` lines 86, 103, 168 and 173 and `frame/plan.md` lines 53, 89 and 110, which the framer folds as the paste-ready text gives them. The issue #285 gaining the Keychain is the orchestrator's to file.
+```
+
 ### 2. The frame states that an added account's config folder stands in the run folder, while the policy keeps a folder the person hands over where it stood
 
 ```seal
