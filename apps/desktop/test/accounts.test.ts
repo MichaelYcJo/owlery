@@ -701,12 +701,12 @@ describe("the daemon's accounts", () => {
     expect((await c.message("ledger", (m) => m.workItemId === workItemId)).entries.map((entry) => entry.account)).toEqual([{ id: 1, name: "Work" }]);
   });
 
-  it("launches a pane under the session's own account, then the work item's, then the repository's, then the default, names that account on the pane, gives the pane's command that account's folder, and under System default no folder of an account and the default login's folder as the one Claude Code reads, and refuses a start that names an account it keeps none of, starting nothing (the pane's half of scenarios 2 and 4)", async () => {
-    const asked: { kind: string; accountDir: string | null; configDir: string | null }[] = [];
+  it("launches a pane under the session's own account, then the work item's, then the repository's, then the default, names that account on the pane, gives the pane's command that account's folder, and under System default no folder of an account, and refuses a start that names an account it keeps none of, starting nothing (the pane's half of scenarios 2 and 4)", async () => {
+    const asked: { kind: string; accountDir: string | null }[] = [];
     const { c } = await daemon({
       roleAdapter: fakeAdapter({ defaultLoginFolder: "/Users/person/.claude" }),
       commandFor: (kind, _id, start) => {
-        asked.push({ kind, accountDir: start.accountDir, configDir: start.configDir });
+        asked.push({ kind, accountDir: start.accountDir });
         return { command: "/bin/sh", args: ["-c", "sleep 30"], env: {} };
       },
     });
@@ -728,11 +728,11 @@ describe("the daemon's accounts", () => {
     expect((await started("claude", 1)).accountId).toBe(1);
     expect(asked).toEqual([
       // The pane the work item was created with, under the default.
-      { kind: "shell", accountDir: null, configDir: "/Users/person/.claude" },
-      { kind: "claude", accountDir: work, configDir: work },
-      { kind: "shell", accountDir: home, configDir: home },
-      { kind: "claude", accountDir: null, configDir: "/Users/person/.claude" },
-      { kind: "claude", accountDir: work, configDir: work },
+      { kind: "shell", accountDir: null },
+      { kind: "claude", accountDir: work },
+      { kind: "shell", accountDir: home },
+      { kind: "claude", accountDir: null },
+      { kind: "claude", accountDir: work },
     ]);
     c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 900, workItemId, accountId: 9 });
     expect(await c.message("error", (m) => m.requestId === 900)).toMatchObject({ message: "No account 9 is kept." });
@@ -1096,19 +1096,16 @@ describe("the accounts Owlery makes", () => {
     expect(await plain.c.request({ type: "readSignIn", id: 1 })).toMatchObject({ type: "error", message: "This agent signs no account in here." });
   });
 
-  it("removes an account Owlery made that settings name: signs its folder out through the CLI, removes the folder with its links, clears each repository's and work item's setting that named it and a default that named it, reads those repositories' chain again under the account they then take, and changes nothing of the person's folder (scenario 13)", async () => {
+  it("removes an account Owlery made that settings name: signs its folder out through the CLI, removes the folder with its links, clears each repository's and work item's setting that named it and a default that named it, and changes nothing of the person's folder (scenario 13)", async () => {
     const own = ownFolder();
     const before = contents(own);
     const { cli, calls } = authStandIn();
-    // The plugin is enabled in the accounts' folders alone, so a repository's chain says whether it was read in one. No reading of commits reads it again meanwhile.
-    const enabledIn = new Set<string>();
-    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => own) }), pluginEnabled: (_folder, _checkout, configDir) => configDir !== null && enabledIn.has(configDir), commitPollMs: 3_600_000 });
+    const { c, runDir } = await daemon({ roleAdapter: fakeAdapter({ logins: loginsOf(cli, () => own) }), commitPollMs: 3_600_000 });
     await added(c);
     await added(c);
     const work = join(runDir, "accounts", "1");
     const home = join(runDir, "accounts", "2");
     const loggedOut = (): string[] => calls().filter((call) => call.startsWith("auth logout"));
-    enabledIn.add(work).add(home);
     expect(Object.keys(linksIn(work))).toHaveLength(5);
     const one = await workItemIn(c);
     const two = await workItemIn(c);
@@ -1116,9 +1113,7 @@ describe("the accounts Owlery makes", () => {
     await c.request({ type: "setRepository", id: one.repositoryId, accountId: 1 });
     await c.request({ type: "setWorkItem", id: one.workItemId, accountId: 1 });
     await c.request({ type: "setWorkItem", id: two.workItemId, accountId: 2 });
-    const chainOf = (lists: Extract<ServerMessage, { type: "inbox" }>, id: number) => lists.repositories.find((repository) => repository.id === id)?.chain?.plugin;
-    // Before the removal both read the account's folder: the one by its setting, the other by the default.
-    await c.message("inbox", (m) => m.repositories[0]?.accountId === 1 && chainOf(m, one.repositoryId) === true && chainOf(m, two.repositoryId) === true);
+    await c.message("inbox", (m) => m.repositories.find((repository) => repository.id === one.repositoryId)?.accountId === 1);
     const from = c.messages.length;
     expect(await c.request({ type: "removeAccount", id: 1 })).toMatchObject({ type: "done" });
     expect(loggedOut()).toEqual([`auth logout|${work}`]);
@@ -1126,25 +1121,22 @@ describe("the accounts Owlery makes", () => {
     const accounts = await c.message("accounts", (m) => !m.accounts.some((account) => account.id === 1));
     expect([accounts.accounts.map((account) => account.id), accounts.defaultAccountId]).toEqual([[0, 2], SYSTEM_DEFAULT_ID]);
     const inbox = await c.until(() => c.messages.slice(from).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
-    expect(inbox.repositories.map((repository) => [repository.id, repository.accountId, repository.chain?.plugin])).toEqual([
-      [one.repositoryId, null, false],
-      [two.repositoryId, null, false],
+    expect(inbox.repositories.map((repository) => [repository.id, repository.accountId])).toEqual([
+      [one.repositoryId, null],
+      [two.repositoryId, null],
     ]);
     expect(inbox.workItems.map((item) => [item.id, item.accountId])).toEqual([
       [one.workItemId, null],
       [two.workItemId, 2],
     ]);
     expect(JSON.parse(readFileSync(join(runDir, "accounts.json"), "utf8"))).toMatchObject({ defaultId: 0, accounts: [{ id: 2 }] });
-    // A repository set to an account that is not the default is read again where its own setting is cleared.
+    // A repository set to the account is cleared where it is removed.
     await c.request({ type: "setRepository", id: two.repositoryId, accountId: 2 });
-    await c.message("inbox", (m) => m.repositories[1]?.accountId === 2 && chainOf(m, two.repositoryId) === true);
+    await c.message("inbox", (m) => m.repositories[1]?.accountId === 2);
     const later = c.messages.length;
     expect(await c.request({ type: "removeAccount", id: 2 })).toMatchObject({ type: "done" });
     const after = await c.until(() => c.messages.slice(later).find((m): m is Extract<ServerMessage, { type: "inbox" }> => m.type === "inbox"));
-    expect(after.repositories.map((repository) => [repository.accountId, repository.chain?.plugin])).toEqual([
-      [null, false],
-      [null, false],
-    ]);
+    expect(after.repositories.map((repository) => repository.accountId)).toEqual([null, null]);
     expect(after.workItems.map((item) => item.accountId)).toEqual([null, null]);
     expect(loggedOut()).toEqual([`auth logout|${work}`, `auth logout|${home}`]);
     expect(contents(own)).toEqual(before);

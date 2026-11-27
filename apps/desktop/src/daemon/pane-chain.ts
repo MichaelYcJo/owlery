@@ -7,16 +7,12 @@
 // reaches a pane on `claude`'s command line or in the pane's environment
 // (`hooks.ts#paneCommands`), so no file of the person's Claude Code folder
 // is written here. Which pane
-// carries the chain is read at each launch: from the folder it opens in,
-// and, where the pane's Claude Code enables the AgenticSeal plugin there
-// under the config folder of the pane's account
-// (`claude-plugins.ts#readPlugins`), from the answer the person gave for the
-// repository.
+// carries the chain is read at each launch, from the folder it opens in,
+// and no setting of the person's is read for it.
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { type PluginsRead, readPlugins } from "./claude-plugins";
 import type { PaneStart } from "./daemon";
-import { type Carried, type PaneChain, shellQuote } from "./hooks";
+import { type PaneChain, shellQuote } from "./hooks";
 import { onOwlChain } from "./records-place";
 import { writeWholeFile } from "./whole-file";
 
@@ -99,30 +95,10 @@ export function writePaneChain(dir: string, built: { node: string; script: strin
  * What a Claude Code pane of a start carries: the chain where the folder it
  * opens in is on the owl chain (`records-place.ts#onOwlChain`), and nothing
  * in every other folder, or where the daemon was given no chain to hand out.
- *
- * One chain seals a repository, so a pane never runs two. Where the pane's
- * Claude Code enables the AgenticSeal plugin for the folder, the pane
- * carries the owl chain only under the person's answer "the owl chain" for
- * the repository, and its launch then names `enabledPlugins` as the pane's
- * files state it with each key of that plugin set to `false`, which keeps
- * the plugin out of the session. Under the answer "the AgenticSeal plugin",
- * and while no answer is kept, the pane carries nothing. Where the plugin is
- * not enabled the answer is not read: the owl chain is the default.
- *
- * The folder and the settings are read at each call, so a branch that gains
- * or loses Owlery's workflow, and a person who turns the plugin on or off,
- * are launched by what stands then. `plugins` is the reader of the pane's
- * Claude Code settings, which takes the folder, the main checkout and the
- * config folder the start names: the folder of the pane's account, or the
- * person's own under System default, and null while the login shell has
- * given no answer of it.
+ * The folder is read at each call, so a branch that gains or loses Owlery's
+ * workflow is launched by what stands then. Nothing of the person's Claude
+ * Code settings is read: a plugin they enable loads beside the bundle.
  */
-export function carriedIn(chain: PaneChain | undefined, plugins: (folder: string, checkout: string, configDir: string | null) => PluginsRead = readPlugins): (start: PaneStart) => Carried | null {
-  return ({ folder, checkout, chosen, configDir }) => {
-    if (chain === undefined || !onOwlChain(folder)) return null;
-    const read = plugins(folder, checkout, configDir);
-    if (read.agenticSeal.length === 0) return { chain, enabledPlugins: null };
-    if (chosen !== "owlery") return null;
-    return { chain, enabledPlugins: { ...read.enabled, ...Object.fromEntries(read.agenticSeal.map((key) => [key, false])) } };
-  };
+export function carriedIn(chain: PaneChain | undefined): (start: PaneStart) => PaneChain | null {
+  return ({ folder }) => (chain !== undefined && onOwlChain(folder) ? chain : null);
 }

@@ -19,7 +19,7 @@
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
-import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
+import type { AgentState, ClientMessage, HeadlessInfo, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
 import { initSettings, readEditorState } from "./app-settings";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
@@ -36,9 +36,7 @@ import { initTheme } from "./theme";
 import {
   agentKind,
   archivalOf,
-  asksChain,
   asksFetch,
-  CHAIN_CHOICES,
   BASE_ANSWER_MS,
   baseKey,
   baseMenu,
@@ -84,7 +82,6 @@ import {
   sameValues,
   sessionSections,
   settingsBases,
-  settingsChain,
   settingsFields,
   accountChoices,
   accountRemoval,
@@ -217,8 +214,6 @@ const registerOnly = byId<HTMLInputElement>("work-item-register-only");
 const settingsDialog = byId<HTMLDialogElement>("settings-dialog");
 const settingsName = byId<HTMLInputElement>("settings-name");
 const settingsBase = byId<HTMLSelectElement>("settings-base");
-const settingsChainField = byId("settings-chain-field");
-const settingsChainMenu = byId<HTMLSelectElement>("settings-chain");
 const settingsAccountField = byId("settings-account-field");
 const settingsAccountMenu = byId<HTMLSelectElement>("settings-account");
 const accountDialog = byId<HTMLDialogElement>("account-dialog");
@@ -226,7 +221,6 @@ const accountMenu = byId<HTMLSelectElement>("account-menu");
 const accountsDialog = byId<HTMLDialogElement>("accounts-dialog");
 const accountsError = byId("accounts-error");
 const accountsButton = byId<HTMLButtonElement>("accounts-button");
-const chainDialog = byId<HTMLDialogElement>("chain-dialog");
 const iconDialog = byId<HTMLDialogElement>("icon-dialog");
 const iconField = byId<HTMLInputElement>("icon-field");
 const groupDialog = byId<HTMLDialogElement>("group-dialog");
@@ -253,7 +247,6 @@ interface Asking {
 }
 const FORM: Asking = { dialog: workItemDialog, error: formError, button: createButton };
 const SETTINGS: Asking = { dialog: settingsDialog, error: byId("settings-error"), button: byId<HTMLButtonElement>("settings-submit") };
-const CHAIN: Asking = { dialog: chainDialog, error: byId("chain-error"), button: byId<HTMLButtonElement>("chain-submit") };
 const ICON: Asking = { dialog: iconDialog, error: byId("icon-error"), button: byId<HTMLButtonElement>("icon-submit") };
 const GROUP: Asking = { dialog: groupDialog, error: byId("group-error"), button: byId<HTMLButtonElement>("group-submit") };
 const REVERSE: Asking = { dialog: reverseDialog, error: byId("reverse-error"), button: byId<HTMLButtonElement>("reverse-submit") };
@@ -467,8 +460,6 @@ function answered(requestId: number, refusal: string | null): boolean {
   if (!of.dialog.open) return false;
   if (refusal === null) {
     of.dialog.close();
-    // The daemon keeps the answer now, so the pane the person asked for opens under it.
-    if (of === CHAIN) chainAsked?.open();
   } else {
     of.error.textContent = refusal;
     of.button.disabled = false;
@@ -776,47 +767,6 @@ function rename(): void {
   send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked });
 }
 
-/**
- * What the chain dialog last asked: the repository it asks for, and what
- * opens the pane the person asked for. It is read at the daemon's answer to
- * what the dialog sent, and at nothing else, so a dialog closed with no
- * answer opens no pane. Nothing clears it at the dialog's `close` event: the
- * page delivers that event late, after a dialog opened again, and a clear
- * there would drop what the open dialog waits on.
- */
-let chainAsked: { repositoryId: number; open: () => void } | undefined;
-
-/**
- * Opens a pane of `kind` in a repository through `open`, after the person
- * said which chain runs in the repository's Claude Code panes where the
- * window asks it (./view, `asksChain`). The dialog opens over the "New work
- * item" form where the pane is a new work item's first, so the form keeps
- * what was typed. A dialog that is closed with no answer opens no pane and
- * keeps no answer.
- */
-function beforePane(repository: Repository | undefined, kind: PaneKind, open: () => void): void {
-  if (repository === undefined || !asksChain(repository, kind)) {
-    open();
-    return;
-  }
-  if (chainDialog.open) return;
-  forget(chainDialog);
-  CHAIN.error.textContent = "";
-  CHAIN.button.disabled = false;
-  // The owl chain is the default, and the person confirms it or chooses the plugin.
-  byId<HTMLInputElement>("chain-owlery").checked = true;
-  chainAsked = { repositoryId: repository.id, open };
-  chainDialog.showModal();
-}
-
-/** Sends the answer the chain dialog holds, to be kept on the repository. */
-function answerChain(): void {
-  const asked = chainAsked;
-  if (asked === undefined) return;
-  const paneChain = byId<HTMLInputElement>("chain-plugin").checked ? "plugin" : "owlery";
-  ask(CHAIN, (requestId) => ({ type: "setRepository", requestId, id: asked.repositoryId, paneChain }));
-}
-
 /** The last part of a folder's path, which names a repository a person gave no name. */
 function lastPart(folder: string): string {
   return folder.split("/").filter(Boolean).at(-1) ?? folder;
@@ -847,10 +797,6 @@ function openSettings(repositoryId: number): void {
   settingsName.placeholder = lastPart(repository.folder);
   settingsPlan = null;
   showSettingsBases(repository.defaultBase ?? "");
-  const chain = settingsChain(repository);
-  settingsChainField.hidden = !chain.shown;
-  settingsChainMenu.replaceChildren(...CHAIN_CHOICES.map(({ value, label }) => new Option(label, value)));
-  settingsChainMenu.value = chain.value;
   // The account's menu is shown only where there is an account to choose, and its first choice leaves the repository to the default.
   settingsAccountField.hidden = !offersAccounts(held.accounts);
   settingsAccountMenu.replaceChildren(...(held.accounts ? accountChoices(held.accounts, "The default", held.accounts.defaultId) : []).map(({ value, label }) => new Option(label, value)));
@@ -878,7 +824,7 @@ function saveSettings(): void {
   const repository = repositoryOf(settingsOf);
   if (!repository) return;
   // A hidden menu of accounts changes no account.
-  const fields = settingsFields(repository, settingsName.value, settingsBase.value, settingsChainMenu.value, ...(settingsAccountField.hidden ? [] : [settingsAccountMenu.value]));
+  const fields = settingsFields(repository, settingsName.value, settingsBase.value, ...(settingsAccountField.hidden ? [] : [settingsAccountMenu.value]));
   if (Object.keys(fields).length === 0) settingsDialog.close();
   else ask(SETTINGS, (requestId) => ({ type: "setRepository", requestId, id: repository.id, ...fields }));
 }
@@ -1891,12 +1837,6 @@ function createWorkItem(): void {
   send({ type: "createWorkItem", requestId, ...fields, kind: kind.kind, ...startSize(), setupCommand: shown.setupCommand });
 }
 
-/** Creates the work item the form holds, after the person said which chain runs where the window asks it of the form's repository. A folder that is no repository the window holds is asked nothing. */
-function createAfterChain(): void {
-  const kind = held.paneKinds.find((offered) => offered.kind === kindField.value);
-  beforePane(held.repositories.find((repository) => repository.folder === repoField.value), kind?.kind ?? "shell", createWorkItem);
-}
-
 /** Registers the repository of the form's folder, with no work item: the daemon's answer closes the form, and its refusal is shown in it, as a creation's is. */
 function registerRepository(): void {
   const fields = registerFields(repoField.value);
@@ -2213,7 +2153,7 @@ initSidebar(
   MAC,
 );
 initSummary({ openInbox: () => openList("inbox"), openView });
-initView(() => openList("inbox"), MAC, openView, openReverse, (workItemId, kind, open) => beforePane(repositoryOf(held.workItems.find((workItem) => workItem.id === workItemId)?.repoId), kind, open));
+initView(() => openList("inbox"), MAC, openView, openReverse);
 initKeepAwake();
 const THEME_NOT_SAVED = "The theme could not be saved.";
 initTheme(window.owlery.appearance, {
@@ -2290,7 +2230,7 @@ byId<HTMLFormElement>("rename-form").addEventListener("submit", (event) => {
 workItemForm.addEventListener("submit", (event) => {
   event.preventDefault();
   if (registerOnly.checked) registerRepository();
-  else createAfterChain();
+  else createWorkItem();
 });
 registerOnly.closest("label")?.setAttribute("title", REGISTER_ONLY_SAYS);
 registerOnly.addEventListener("change", showFormMode);
@@ -2298,11 +2238,6 @@ byId("settings-cancel").addEventListener("click", () => settingsDialog.close());
 byId<HTMLFormElement>("settings-form").addEventListener("submit", (event) => {
   event.preventDefault();
   saveSettings();
-});
-byId("chain-cancel").addEventListener("click", () => chainDialog.close());
-byId<HTMLFormElement>("chain-form").addEventListener("submit", (event) => {
-  event.preventDefault();
-  answerChain();
 });
 byId("icon-cancel").addEventListener("click", () => iconDialog.close());
 byId<HTMLFormElement>("icon-form").addEventListener("submit", (event) => {

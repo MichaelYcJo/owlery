@@ -17,7 +17,6 @@ import {
   archivedIn,
   answersFor,
   approvalPlaces,
-  asksChain,
   askedSection,
   asksFetch,
   backKey,
@@ -44,7 +43,6 @@ import {
   changedSetAfter,
   changesOf,
   changesSince,
-  CHAIN_CHOICES,
   choiceNote,
   closeAsks,
   closeSays,
@@ -162,7 +160,6 @@ import {
   selectedLine,
   sessionSections,
   settingsBases,
-  settingsChain,
   settingsFields,
   setupMark,
   setupSection,
@@ -237,7 +234,7 @@ const LOGIN: WorkItem = {
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false, plugin: false, chosen: null } };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -1141,76 +1138,14 @@ describe("settingsFields", () => {
     expect(settingsFields(PROJECT, "  ", "")).toEqual({});
   });
 
-  it("sends the chain of the Claude Code panes where the menu's value is another than the answer kept, null for no answer, and nothing where it is the answer kept or the dialog gives no value", () => {
-    const BOTH: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: null } };
-    const ANSWERED: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: "owlery" } };
-    expect(settingsFields(BOTH, "", "", "owlery")).toEqual({ paneChain: "owlery" });
-    expect(settingsFields(BOTH, "", "", "plugin")).toEqual({ paneChain: "plugin" });
-    expect(settingsFields(BOTH, "", "", "")).toEqual({});
-    expect(settingsFields(ANSWERED, "", "", "owlery")).toEqual({});
-    expect(settingsFields(ANSWERED, "", "", "plugin")).toEqual({ paneChain: "plugin" });
-    expect(settingsFields(ANSWERED, "", "", "")).toEqual({ paneChain: null });
-    // A caller that gives no value changes no answer.
-    expect(settingsFields(ANSWERED, "Named", "")).toEqual({ name: "Named" });
-    // A repository of a daemon of an earlier build has no chain, and a menu left on its first choice sends nothing for it.
-    const { chain: _, ...earlier } = ANSWERED;
-    expect(settingsFields(earlier as Repository, "", "", "")).toEqual({});
-  });
-
   it("sends the account where the menu's value is another than the one set on the repository, null for the first choice, which leaves it to the default, and nothing where it is the one set or the dialog gives no value", () => {
     const SET: Repository = { ...PROJECT, accountId: 2 };
-    expect(settingsFields(PROJECT, "", "", "", "2")).toEqual({ accountId: 2 });
-    expect(settingsFields(PROJECT, "", "", "", "0")).toEqual({ accountId: 0 });
-    expect(settingsFields(PROJECT, "", "", "", "")).toEqual({});
-    expect(settingsFields(SET, "", "", "", "2")).toEqual({});
-    expect(settingsFields(SET, "", "", "", "")).toEqual({ accountId: null });
+    expect(settingsFields(PROJECT, "", "", "2")).toEqual({ accountId: 2 });
+    expect(settingsFields(PROJECT, "", "", "0")).toEqual({ accountId: 0 });
+    expect(settingsFields(PROJECT, "", "", "")).toEqual({});
+    expect(settingsFields(SET, "", "", "2")).toEqual({});
+    expect(settingsFields(SET, "", "", "")).toEqual({ accountId: null });
     expect(settingsFields(SET, "Named", "")).toEqual({ name: "Named" });
-  });
-});
-
-describe("asksChain", () => {
-  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
-
-  it("asks before a Claude Code pane of a repository on the owl chain whose Claude Code enables the AgenticSeal plugin, while no answer is kept, and never before a shell", () => {
-    expect(asksChain(of(true, true, null), "claude")).toBe(true);
-    expect(asksChain(of(true, true, null), "shell")).toBe(false);
-  });
-
-  it("asks nothing once an answer is kept, where the repository is on no chain of Owlery's, where the plugin is not enabled, for a repository of a daemon of an earlier build, and for a folder the window holds no repository of", () => {
-    expect(asksChain(of(true, true, "owlery"), "claude")).toBe(false);
-    expect(asksChain(of(true, true, "plugin"), "claude")).toBe(false);
-    expect(asksChain(of(false, true, null), "claude")).toBe(false);
-    expect(asksChain(of(true, false, null), "claude")).toBe(false);
-    const { chain: _, ...earlier } = of(true, true, null);
-    expect(asksChain(earlier as Repository, "claude")).toBe(false);
-    expect(asksChain(undefined, "claude")).toBe(false);
-  });
-});
-
-describe("settingsChain", () => {
-  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
-
-  it("shows the chain's field where the choice is read, with the answer kept as the menu's value and the first choice where none is", () => {
-    expect(settingsChain(of(true, true, null))).toEqual({ shown: true, value: "" });
-    expect(settingsChain(of(true, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
-    expect(settingsChain(of(true, true, "plugin"))).toEqual({ shown: true, value: "plugin" });
-  });
-
-  it("shows the field where an answer is kept though the choice is not read now, and hides it where neither holds and for a repository of a daemon of an earlier build", () => {
-    expect(settingsChain(of(true, false, "plugin"))).toEqual({ shown: true, value: "plugin" });
-    expect(settingsChain(of(false, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
-    expect(settingsChain(of(true, false, null))).toEqual({ shown: false, value: "" });
-    expect(settingsChain(of(false, true, null))).toEqual({ shown: false, value: "" });
-    const { chain: _, ...earlier } = of(true, true, null);
-    expect(settingsChain(earlier as Repository)).toEqual({ shown: false, value: "" });
-  });
-
-  it("offers the two chains by the values the daemon keeps, after the choice that takes the answer away", () => {
-    expect(CHAIN_CHOICES.map(({ value, label }) => [value, label])).toEqual([
-      ["", "Ask at the next Claude Code pane"],
-      ["owlery", "The owl chain"],
-      ["plugin", "The AgenticSeal plugin"],
-    ]);
   });
 });
 
@@ -5409,13 +5344,13 @@ describe("the dialog of the records place", () => {
   });
 
   it("shows, for a repository that holds every part, the root, the workflow and the command with the file that holds it, and offers no commit", () => {
-    const plan = { ...kept(PLAN, "agentic-seal/README.md", "agentic-seal/config.json", ".github/workflows/hygiene.yml"), files: [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }] };
-    const whole = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, plan, "", "");
+    const plan = kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml");
+    const whole = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, plan, "", "");
     expect(whole.scope).toBe(OUT_OF_SCOPE);
-    expect(whole.holds).toEqual(["Records: `agentic-seal/`", "Check: `.github/workflows/hygiene.yml`", "Broad gate: `make check`, kept in `agentic-seal/config.json` under `Broad gate`"]);
+    expect(whole.holds).toEqual(["Records: `iadd/`", "Check: `.github/workflows/owlery-inspection.yml`", "Broad gate: `make check`, kept in `iadd/config.json` under `Broad gate`"]);
     expect([whole.commit, whole.files, whole.gate.shown, whole.submit.shown, whole.cancel]).toEqual(["", [], false, false, "Close"]);
-    const keyless = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: null } }, plan, "", "");
-    expect(keyless.holds[2]).toBe("No `Broad gate` key in `agentic-seal/config.json`.");
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: null } }, plan, "", "");
+    expect(keyless.holds[2]).toBe("No `Broad gate` key in `iadd/config.json`.");
     expect(keyless.submit.shown).toBe(false);
   });
 
@@ -5428,17 +5363,11 @@ describe("the dialog of the records place", () => {
     expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
   });
 
-  it("tells an administrator how to make the inspection check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
+  it("tells an administrator how to make the inspection check required, in a plan and in a repository that holds every part", () => {
     const REQUIRED = "The workflow posts its verdict as the check `inspection` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires `inspection` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `inspection` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
-    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `inspection` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
     expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
     const owlery = recordsDialog({ ...PROJECT, records: { root: "inspection", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml"), "", "");
     expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
-    const files = [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }];
-    const hygiene = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, { ...PLAN, files }, "", "");
-    expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
-    // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
-    expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "iadd/README.md", text: "# x\n" }, { path: "iadd/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
     // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
     expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
   });
@@ -5512,7 +5441,7 @@ describe("the dialog of the records place", () => {
 describe("lacksRecords", () => {
   it("is true of a repository with no root or no workflow, false of one that holds both, and false of a repository of a daemon that sends no records, for which no setup is offered", () => {
     const holding = (root: string | null, check: string | null): Repository => ({ ...PROJECT, records: { root, check, broadGate: null } });
-    expect([lacksRecords(holding(null, null)), lacksRecords(holding("inspection", null)), lacksRecords(holding(null, ".github/workflows/hygiene.yml")), lacksRecords(holding("inspection", ".github/workflows/owlery-inspection.yml"))]).toEqual([true, true, true, false]);
+    expect([lacksRecords(holding(null, null)), lacksRecords(holding("inspection", null)), lacksRecords(holding(null, ".github/workflows/owlery-inspection.yml")), lacksRecords(holding("inspection", ".github/workflows/owlery-inspection.yml"))]).toEqual([true, true, true, false]);
     const { records: _, ...earlier } = PROJECT;
     expect([recordsOf(earlier as Repository), lacksRecords(earlier as Repository)]).toEqual([null, false]);
     expect(recordsOf(PROJECT)).toEqual({ root: null, check: null, broadGate: null });

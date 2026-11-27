@@ -145,8 +145,6 @@ let mac = false;
 let openWorkItem: (workItemId: number) => void = () => {};
 // What a press of "Reverse" on a decision of the view's work item does: it opens the dialog that takes the message.
 let reverseDecision: (workItemId: number, decisionId: number) => void = () => {};
-// What stands before a pane of a work item opens: it calls `open` at once, or after the person answered what the window asks first, which is the chain of the repository's Claude Code panes.
-let beforePane: (workItemId: number, kind: PaneKind, open: () => void) => void = (_workItemId, _kind, open) => open();
 // The target of the link the pointer is on, for the card that shows once the pointer has rested there.
 let cardFor: LinkTarget | undefined;
 // Where the pointer is in the window, as its last move said. The card shows at it.
@@ -925,11 +923,11 @@ function showSize(): void {
   stripSize.textContent = screen ? `${screen.term.cols} \u00d7 ${screen.term.rows}` : "";
 }
 
-/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, under `accountId` where one is given and otherwise under the work item's, once `beforePane` lets it open. */
+/** Starts a pane of `kind` in the work item whose view is on screen, on the latest conversation of its worktree where `continueLatest`, under `accountId` where one is given and otherwise under the work item's. */
 function start(kind: PaneKind, continueLatest: boolean, accountId: number | null = null): void {
   const workItemId = held.viewing;
   if (workItemId === undefined) return;
-  beforePane(workItemId, kind, () => send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...(accountId === null ? {} : { accountId }) }));
+  send({ type: "start", kind, ...startSize(), requestId: request(), workItemId, ...(continueLatest ? { continueLatest: true } : {}), ...(accountId === null ? {} : { accountId }) });
 }
 
 /**
@@ -1680,9 +1678,8 @@ export function write(id: number, kind: "replay" | "output", data: string): void
   screen.turns.write(data, answered);
 }
 
-export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void, before: (workItemId: number, kind: PaneKind, open: () => void) => void): void {
+export function initView(onLeave: () => void, isMac: boolean, openView: (workItemId: number) => void, reverse: (workItemId: number, decisionId: number) => void): void {
   leave = onLeave;
-  beforePane = before;
   mac = isMac;
   openWorkItem = openView;
   reverseDecision = reverse;

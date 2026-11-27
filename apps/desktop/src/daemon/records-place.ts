@@ -26,11 +26,8 @@ export function moveSubject(version: string): string {
 }
 /** The one name a records root takes. A repository that keeps an `iadd/` of its own has no place for the records. */
 export const ROOT = "iadd";
-/** The workflow a setup writes, and the one of AgenticSeal's that is kept in its place where it stands. */
+/** The workflow a setup writes, which is the check. */
 export const WORKFLOW = ".github/workflows/owlery-inspection.yml";
-const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
-/** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
-export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
 /**
@@ -185,20 +182,14 @@ function opensWithMarker(text: string | null): boolean {
   return text?.split("\n", 1)[0]?.replace(/\r+$/, "") === MARKER;
 }
 
-/** Whether a `hygiene.yml` of that text is AgenticSeal's: it is told by the script it runs, since a project's own workflow may bear its name. Null is a file that does not stand. */
-function runsPluginCheck(text: string | null): boolean {
-  return text?.includes(PLUGIN_CHECK) === true;
-}
-
 /** The root that stands in a working tree: `iadd` where its `README.md` is a root's, and null where it is not. */
 export function rootOf(folder: string): string | null {
   return opensWithMarker(textOf(join(folder, ROOT, "README.md"))) ? ROOT : null;
 }
 
-/** The workflow that stands in a working tree: Owlery's, or AgenticSeal's where Owlery's does not. Null where neither does. */
+/** The workflow that stands in a working tree: Owlery's, or null where it does not. */
 function checkOf(folder: string): string | null {
-  if (stands(folder, WORKFLOW)) return WORKFLOW;
-  return runsPluginCheck(textOf(join(folder, PLUGIN_WORKFLOW))) ? PLUGIN_WORKFLOW : null;
+  return stands(folder, WORKFLOW) ? WORKFLOW : null;
 }
 
 /**
@@ -206,9 +197,8 @@ function checkOf(folder: string): string | null {
  * committed or not. A Claude Code pane that opens in such a folder carries
  * the chain, but where the person's Claude Code enables the AgenticSeal
  * plugin there and they did not choose the owl chain for the repository
- * (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
- * `hygiene.yml` alone, with no check, or that does not stand is on none of
- * Owlery's. The folder is read as it stands at the call, and nothing of it
+ * (`pane-chain.ts#carriedIn`). A folder with no such workflow, or that does
+ * not stand, is on none of Owlery's. The folder is read as it stands at the call, and nothing of it
  * is kept.
  */
 export function onOwlChain(folder: string): boolean {
@@ -221,8 +211,7 @@ export function onOwlChain(folder: string): boolean {
  * holds none of it, or does not stand, gives null four times. The older
  * check is the version `pinnedVersion` reads in Owlery's workflow where it
  * is older than `version`, the daemon's own, and null where no version is
- * given, for AgenticSeal's `hygiene.yml` and for a workflow whose version
- * is not read.
+ * given and for a workflow whose version is not read.
  */
 export function readRecordsPlace(folder: string, version?: string): RecordsPlace {
   const root = rootOf(folder);
@@ -372,10 +361,9 @@ function shows(folder: string, path: string): boolean {
  * repository with no commit is planned as one that holds nothing. The root
  * is kept where the commit holds its `README.md` as a file that opens with
  * the marker, with its `config.json` where the commit holds one. A new root
- * is planned where the commit holds nothing at or below its name. The workflow that is kept is Owlery's where
- * the commit holds it as a file and the plan does not move its check, or
- * AgenticSeal's `hygiene.yml` where the commit's text of it runs the
- * check, and Owlery's is planned where the commit holds neither.
+ * is planned where the commit holds nothing at or below its name. The workflow is kept where
+ * the commit holds it as a file and the plan does not move its check, and
+ * planned where the commit holds none.
  *
  * Where the plan writes no other file, the commit holds Owlery's workflow
  * as a file, and the version `pinnedVersion` reads in the commit's text of
@@ -394,11 +382,11 @@ function shows(folder: string, path: string): boolean {
  * checkout, and where its text there, hashed as git would store it, is not
  * the commit's: status reports no change of a path it is told not to look
  * at, by the skip-worktree or the assume-unchanged flag of its index
- * entry. The root's `README.md` where the plan neither keeps nor writes it,
- * and a `hygiene.yml` the plan does not keep, are the project's own, and the daemon reads one
- * thing of each, whether it opens with the marker and whether it runs the
- * check: such a file differs where the checkout's text or the index's
- * answers that otherwise than the commit's, and no other edit of it does.
+ * entry. The root's `README.md` where the plan neither keeps nor writes it
+ * is the project's own, and the daemon reads one thing of it, whether it
+ * opens with the marker: it differs where the checkout's text or the
+ * index's answers that otherwise than the commit's, and no other edit of it
+ * does.
  *
  * The plan is `blocked` by the first of these that holds: the commit holds
  * something of the project's own at the root's name; git ignores a
@@ -440,7 +428,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const readmes = [`${ROOT}/README.md`];
   const kept = opensWithMarker(await committed(`${ROOT}/README.md`)) ? ROOT : null;
   const root = kept ?? (holds(ROOT) ? null : ROOT);
-  const check = holdsFile(WORKFLOW) ? WORKFLOW : runsPluginCheck(await committed(PLUGIN_WORKFLOW)) ? PLUGIN_WORKFLOW : null;
+  const check = holdsFile(WORKFLOW) ? WORKFLOW : null;
   const files: RecordsPlan["files"] = [];
   if (root !== null) {
     files.push({ path: `${root}/README.md`, text: kept === null ? readmeText() : null });
@@ -476,14 +464,13 @@ export async function planRecords(folder: string, broadGate: string, version: st
       if (inCheckout[at] !== atCommit[at]) apart.add(path);
     });
   }
-  // What the daemon reads of the root's `README.md` and of `hygiene.yml`: whether it is a root's, and whether it runs the check. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
-  const reads = (path: string): ((text: string | null) => boolean) => (path === PLUGIN_WORKFLOW ? runsPluginCheck : opensWithMarker);
-  for (const path of [...readmes, PLUGIN_WORKFLOW]) {
-    const atCommit = reads(path)(await committed(path));
+  // What the daemon reads of the root's `README.md`: whether it is a root's. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
+  for (const path of readmes) {
+    const atCommit = opensWithMarker(await committed(path));
     const staged = FILE_MODES.includes(inIndex.get(path) ?? "") ? (await git(folder, ["cat-file", "blob", `:${path}`])).stdout : null;
-    if (reads(path)(textOf(join(folder, path))) !== atCommit || reads(path)(staged) !== atCommit) apart.add(path);
+    if (opensWithMarker(textOf(join(folder, path))) !== atCommit || opensWithMarker(staged) !== atCommit) apart.add(path);
   }
-  const differing = [...[...new Set([...planned, ...readmes, WORKFLOW, PLUGIN_WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
+  const differing = [...[...new Set([...planned, ...readmes, WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
 
   // The folders above the created paths at which the checkout, the index or the commit holds a file, a link or a submodule.
   const above = new Set<string>();

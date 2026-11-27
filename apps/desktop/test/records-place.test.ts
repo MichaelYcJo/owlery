@@ -124,49 +124,30 @@ describe("the records place", () => {
     expect(status(repo)).toBe("");
   });
 
-  it("keeps an AgenticSeal root, its config.json and its hygiene.yml: every file of the plan is kept, and a setup changes no file and makes no commit", async () => {
+  it("keeps a root and its config.json, and takes no hygiene.yml for the check, AgenticSeal's among them: the setup writes Owlery's workflow beside it and leaves it as it stands", async () => {
     const repo = repository();
     // The marker's line may end as a file of Windows ends its lines.
-    write(repo, "iadd/README.md", `${MARKER}\r\n\r\nAgenticSeal's own.\r\n`);
+    write(repo, "iadd/README.md", `${MARKER}\r\n\r\nThe records.\r\n`);
     write(repo, "iadd/config.json", '{ "Mode": "shared", "Broad gate": "make check" }\n');
     write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
-    commitAll(repo, "chore: the plugin's root");
-    const before = [head(repo), tree(repo)];
-    expect(readRecordsPlace(repo)).toEqual({ root: "iadd", check: ".github/workflows/hygiene.yml", broadGate: "make check", olderCheck: null });
+    commitAll(repo, "chore: a root beside AgenticSeal's workflow");
+    expect(readRecordsPlace(repo)).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null });
     const plan = await planRecords(repo, "pnpm test", VERSION);
     expect(plan.blocked).toBeNull();
     expect(plan.files).toEqual([
       { path: "iadd/README.md", text: null },
       { path: "iadd/config.json", text: null },
-      { path: ".github/workflows/hygiene.yml", text: null },
+      { path: WORKFLOW, text: workflowText(VERSION) },
     ]);
     await setUpRecords(repo, "pnpm test", VERSION, plan.stamp);
-    expect([head(repo), tree(repo)]).toEqual(before);
+    expect(git(repo, "show", "--name-only", "--format=", "HEAD").trim()).toBe(WORKFLOW);
+    expect(readRecordsPlace(repo).check).toBe(WORKFLOW);
     expect(status(repo)).toBe("");
+    expect(readFileSync(join(repo, ".github/workflows/hygiene.yml"), "utf8")).toBe(`name: hygiene\n${PLUGIN_CHECK}`);
     expect(readFileSync(join(repo, "iadd/config.json"), "utf8")).toBe('{ "Mode": "shared", "Broad gate": "make check" }\n');
   });
 
-  it("takes a hygiene.yml for the check only where it runs AgenticSeal's script: beside a project's own workflow of that name the setup writes Owlery's, and the repository is read as holding no check", async () => {
-    const repo = repository();
-    write(repo, ".github/workflows/hygiene.yml", "name: hygiene\non: pull_request\njobs:\n  lint:\n    runs-on: ubuntu-latest\n    steps:\n      - run: npm run lint\n");
-    commitAll(repo, "ci: the project's own lint");
-    expect(readRecordsPlace(repo).check).toBeNull();
-    const plan = await planRecords(repo, "pnpm test", VERSION);
-    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
-      ["iadd/README.md", false],
-      ["iadd/config.json", false],
-      [WORKFLOW, false],
-    ]);
-    await setUpRecords(repo, "pnpm test", VERSION, plan.stamp);
-    expect(readRecordsPlace(repo).check).toBe(WORKFLOW);
-    expect(readFileSync(join(repo, ".github/workflows/hygiene.yml"), "utf8")).toContain("npm run lint");
-    // The same name with the step of AgenticSeal's workflow is the check.
-    const plugin = repository();
-    write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
-    expect(readRecordsPlace(plugin).check).toBe(".github/workflows/hygiene.yml");
-  });
-
-  it("reads an older check from Owlery's workflow in the working tree, committed or not: the version it pins where that is older than the one given, and none for the same version, a newer one, no version given, a workflow whose version line is not read, and AgenticSeal's hygiene.yml", () => {
+  it("reads an older check from Owlery's workflow in the working tree, committed or not: the version it pins where that is older than the one given, and none for the same version, a newer one, no version given and a workflow whose version line is not read", () => {
     const repo = repository();
     expect(readRecordsPlace(repo, VERSION).olderCheck).toBeNull();
     write(repo, WORKFLOW, workflowText("1.2.2"));
@@ -176,9 +157,6 @@ describe("the records place", () => {
     expect(readRecordsPlace(repo).olderCheck).toBeNull();
     write(repo, WORKFLOW, workflowText("1.2.2").replace("--branch v1.2.2 \\", "--branch main \\"));
     expect(readRecordsPlace(repo, VERSION).olderCheck).toBeNull();
-    const plugin = repository();
-    write(plugin, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}# --branch v1.2.2 \\\n# --branch release/v1.2.2 \\\n`);
-    expect(readRecordsPlace(plugin, VERSION)).toEqual({ root: null, check: ".github/workflows/hygiene.yml", broadGate: null, olderCheck: null });
   });
 
   it("reads a folder as on the owl chain where Owlery's workflow stands in it, committed or not, and as on none where AgenticSeal's check stands alone, where a project's own hygiene.yml does, and where no workflow does", () => {
@@ -555,24 +533,6 @@ describe("the records place", () => {
     await expect(setUpRecords(marked, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(OWN);
     expect([head(marked), tree(marked), status(marked)]).toEqual(before);
 
-    // The commit's `hygiene.yml` is the project's own lint, and the checkout's copy holds the step of AgenticSeal's check.
-    const stepped = repository();
-    write(stepped, "iadd/README.md", `${MARKER}\n`);
-    write(stepped, "iadd/config.json", '{ "Broad gate": "make check" }\n');
-    write(stepped, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint\n");
-    commitAll(stepped, "chore: a root and the project's lint");
-    write(stepped, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
-    before = [head(stepped), tree(stepped), status(stepped)];
-    plan = await planRecords(stepped, "pnpm test", VERSION);
-    expect(plan.files.map((file) => [file.path, file.text === null])).toEqual([
-      ["iadd/README.md", true],
-      ["iadd/config.json", true],
-      [WORKFLOW, false],
-    ]);
-    expect(plan.blocked).toBe(differs(".github/workflows/hygiene.yml"));
-    await expect(setUpRecords(stepped, "pnpm test", VERSION, plan.stamp)).rejects.toThrow(differs(".github/workflows/hygiene.yml"));
-    expect([head(stepped), tree(stepped), status(stepped)]).toEqual(before);
-
     // Every part is committed, and the checkout's `config.json` holds another command than the commit's: nothing is left to write, and the plan is blocked all the same.
     const edited = repository();
     write(edited, "iadd/README.md", `${MARKER}\n`);
@@ -613,11 +573,11 @@ describe("the records place", () => {
     }
   });
 
-  it("reads a file the plan neither keeps nor writes for what the daemon reads of it alone: an edit of the project's own hygiene.yml that makes it no check blocks nothing, and the project's own iadd/README.md, edited or with a marker staged alone, blocks the plan", async () => {
+  it("commits its own files alone, so a staged edit of a file of the project's stays staged, and reads the project's own iadd/README.md for whether it opens with the marker alone: edited, or with a marker staged alone, it blocks the plan", async () => {
     const repo = repository();
     write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint\n");
     commitAll(repo, "chore: the project's own lint");
-    // It is edited in the checkout and staged, and the edit is no step of the check.
+    // It is edited in the checkout and staged.
     write(repo, ".github/workflows/hygiene.yml", "name: hygiene\njobs:\n  lint:\n    steps:\n      - run: npm run lint -- --fix\n");
     git(repo, "add", ".github/workflows/hygiene.yml");
     const plan = await planRecords(repo, "pnpm test", VERSION);
@@ -675,19 +635,19 @@ describe("the records place", () => {
   });
 
   it("keeps a root the commit holds and the checkout does not show, and blocks the plan in place of a second root: one removed and not staged, and one a sparse checkout leaves out", async () => {
-    /** A repository whose commit holds an AgenticSeal root at `iadd/` and AgenticSeal's workflow. */
+    /** A repository whose commit holds a root at `iadd/` and Owlery's workflow of this version. */
     const rooted = (): string => {
       const repo = repository();
       write(repo, "iadd/README.md", `${MARKER}\n`);
       write(repo, "iadd/config.json", '{ "Broad gate": "make check" }\n');
-      write(repo, ".github/workflows/hygiene.yml", `name: hygiene\n${PLUGIN_CHECK}`);
-      commitAll(repo, "chore: the plugin's root");
+      write(repo, WORKFLOW, workflowText(VERSION));
+      commitAll(repo, "chore: the root and the workflow");
       return repo;
     };
     const kept = [
       { path: "iadd/README.md", text: null },
       { path: "iadd/config.json", text: null },
-      { path: ".github/workflows/hygiene.yml", text: null },
+      { path: WORKFLOW, text: null },
     ];
     const says = differs("iadd/README.md and iadd/config.json");
 

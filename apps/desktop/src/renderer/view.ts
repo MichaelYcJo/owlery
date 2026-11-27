@@ -4,7 +4,7 @@
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Inspection, type BackRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type Running, type Inspection, type BackRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/inspection-sheet";
 
 /**
@@ -2798,16 +2798,15 @@ export interface RecordsWords {
   holds: string[];
   /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
   gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
-  /** Of the workflow the plan names: how an administrator makes the inspection check required, where it is Owlery's, or that AgenticSeal's posts no such check. Empty until a plan names one. */
+  /** Of the workflow the plan names: how an administrator makes the inspection check required. Empty until a plan names one. */
   required: string;
   submit: { shown: boolean; enabled: boolean; label: string };
   cancel: string;
 }
 
-/** What the dialog of the records place says of the inspection check a workflow posts, by the workflow's path: Owlery's posts `inspection`, which an administrator makes required on GitHub, and AgenticSeal's `hygiene.yml` posts none. Nothing for no workflow. */
+/** What the dialog of the records place says of the inspection check a workflow posts, by the workflow's path: it posts `inspection`, which an administrator makes required on GitHub. Nothing for no workflow. */
 function requiredCheck(workflow: string | null): string {
   const unchanged = "Owlery changes no setting of the repository on GitHub.";
-  if (workflow?.endsWith("/hygiene.yml")) return `AgenticSeal's \`hygiene.yml\` posts no \`inspection\` check, so GitHub offers none to require. ${unchanged}`;
   if (workflow === null) return "";
   return `The workflow posts its verdict as the check \`inspection\` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires \`inspection\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`inspection\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
 }
@@ -2827,8 +2826,7 @@ function requiredCheck(workflow: string | null): string {
  * records go below its root, something other than a folder stands there,
  * or its checkout does not hold a file of the place as its commit does.
  * Whichever the plan, the dialog says of the workflow it names, written or
- * kept, how an administrator makes the inspection check required on GitHub, or
- * that AgenticSeal's `hygiene.yml` posts no such check. A plan that moves
+ * kept, how an administrator makes the inspection check required on GitHub. A plan that moves
  * the check says the version the workflow fetches the check at and the one
  * the commit moves it to, shows the workflow alone with the text written
  * over the committed file, names each work item whose records the daemon's
@@ -3537,22 +3535,18 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice, the chain of its Claude Code panes where the menu's
- * value is another than the answer kept, null for no answer, and the
- * account where the menu's value, an account's id, is another than the one
+ * first choice, and the account where the menu's value, an account's id, is another than the one
  * set on the repository, null for the first choice, which leaves it to the
  * default. A field that did not change is left out, and an object with
  * none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? "", account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null; accountId?: number | null } {
+export function settingsFields(repository: Repository, name: string, base: string, account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; accountId?: number | null } {
   const named = name.trim() || null;
   const chosen = base || null;
-  const runs = chain === "owlery" || chain === "plugin" ? chain : null;
   const set = account === "" ? null : Number(account);
   return {
     ...(named === repository.customName ? {} : { name: named }),
     ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }),
-    ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }),
     ...(set === (repository.accountId ?? null) ? {} : { accountId: set }),
   };
 }
@@ -3779,43 +3773,6 @@ export function paneAccountChange(session: SessionInfo, label: string, paneKinds
     says: "Owlery ends the pane's process and resumes its conversation under the account you choose. A turn under way is cut.",
     choices: choices.map((account) => ({ value: String(account.id), label: account.name })),
   };
-}
-
-/** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */
-export function paneChainOf(repository: Repository | undefined): RepositoryChain | null {
-  return (repository as { chain?: RepositoryChain } | undefined)?.chain ?? null;
-}
-
-/**
- * Whether the window asks which chain runs before it opens a pane of `kind`
- * in a repository: for a Claude Code pane of a repository on the owl chain
- * whose Claude Code enables the AgenticSeal plugin, while the person gave no
- * answer. One chain inspections a repository, and the daemon launches such a pane
- * with nothing of the owl chain until an answer is kept. A shell is asked
- * nothing, and neither is a repository the window does not hold.
- */
-export function asksChain(repository: Repository | undefined, kind: PaneKind): boolean {
-  const chain = paneChainOf(repository);
-  return kind === "claude" && chain !== null && chain.owl && chain.plugin && chain.chosen === null;
-}
-
-/** The menu's choices of a chain, by the value the menu holds for each: the empty value is no answer, which has the window ask at the next Claude Code pane. */
-export const CHAIN_CHOICES: readonly { value: "" | ChainChoice; label: string }[] = [
-  { value: "", label: "Ask at the next Claude Code pane" },
-  { value: "owlery", label: "The owl chain" },
-  { value: "plugin", label: "The AgenticSeal plugin" },
-];
-
-/**
- * The chain's field of a repository's settings: whether the dialog shows
- * it, and the value its menu holds. It is shown where the choice is read,
- * which is a repository on the owl chain whose Claude Code enables the
- * AgenticSeal plugin, and where an answer is kept, so an answer a person
- * gave can be seen and changed though the plugin is off now.
- */
-export function settingsChain(repository: Repository): { shown: boolean; value: "" | ChainChoice } {
-  const chain = paneChainOf(repository);
-  return { shown: chain !== null && ((chain.owl && chain.plugin) || chain.chosen !== null), value: chain?.chosen ?? "" };
 }
 
 /**

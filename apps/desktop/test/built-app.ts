@@ -212,7 +212,7 @@ export class BuiltApp {
     }
     const port = await freePort();
     const mainPort = inspectMain ? await freePort() : undefined;
-    // The Claude Code config folder of the app's own, which holds nothing unless the caller names another. The stand-in for the login shell prints it as the folder the shell names, and the daemon reads it for the plugins a pane's Claude Code enables under System default (src/daemon/claude-plugins.ts), so no case reads the person's settings.
+    // The Claude Code config folder of the app's own, which holds nothing unless the caller names another. The stand-in for the login shell prints it as the folder the shell names, so no case reads the person's settings.
     // The daemon reads `SUITE_MACHINE` in place of the machine, unless the caller names another.
     const appEnv: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CONFIG_DIR: join(userData, "claude"), OWLERY_MACHINE: JSON.stringify(SUITE_MACHINE), ...env };
     // Without the variable the suite's binary starts as the app.

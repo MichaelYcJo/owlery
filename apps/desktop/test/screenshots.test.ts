@@ -7,7 +7,7 @@
 // view of the parked work item, the view of the finished work item, the
 // view of the lapsed one, a work item's menu, the view of the work item at
 // review with its tabs marked in each colour and the menu of one tab open,
-// the dialog that renames that tab, the "New work item" form, the dialog of the chain choice, the
+// the dialog that renames that tab, the "New work item" form, the
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
 // the row that login named, the Machine dialog, the app's Settings dialog,
@@ -25,14 +25,8 @@
 // the file away, the login ends, and the view after it shows the row named
 // by the stand-in's invented email, signed in. The run removes that account
 // from its row before the next view, so every appearance draws the same
-// rows. The repository is on the owl chain, and the Claude Code config
-// folder the run gives the app enables a stand-in for the AgenticSeal
-// plugin, so the window holds the choice of a chain. The run stores the
-// answer "the AgenticSeal plugin" before the app starts, so no pane of the
-// scene is asked about and each is launched as in any other repository. The
-// settings' shot sets the answer to the owl chain, and the choice's shot
-// takes the answer away, presses "+ Claude Code" in the view and cancels the
-// dialog, so neither launches a pane. No agent runs: a pane's process is a fixture, a state is what
+// rows. The repository is on the owl chain, so a Claude Code pane of the
+// scene carries the bundle. No agent runs: a pane's process is a fixture, a state is what
 // the daemon's hook socket is fed, and the agent of the work item that needs
 // the person waits on a question with two choices, fed as its question
 // tool's call. The view's work item is stored with a chain that stopped
@@ -283,11 +277,6 @@ const REVERSED_SAYS = "Write the changelog entry in the hotfix: the release scri
 const HOOK_SAYS = "a hotfix branch takes no commit of its record of decisions.";
 const PARKED_MARK = "1 reversed, word not committed";
 const PARKED_OWED = `The record holds a word of yours that was not committed: ${HOOK_SAYS.replace(/\.$/u, "")}. Owlery tries again.`;
-/** The key of the stand-in for the AgenticSeal plugin in the Claude Code config folder the run gives the app. The daemon tells the plugin by the script its install folder holds, and by no name. */
-const PLUGIN_KEY = "agentic@agenticseal";
-/** The answers of the chain choice, as the menu of the repository's settings holds them: none, which asks at the next Claude Code pane, and the owl chain. */
-const NO_ANSWER = "";
-const OWL_CHAIN = "owlery";
 /** The subjects of the commits the run makes on the branch of `QUEUED`, the work item whose stage waits for the machine, before the look is taken, oldest first, none of which another branch holds, so its delete dialog lists more commits than the list shows at once. Some are longer than a row of the dialog, which cuts them. They are invented examples. */
 const QUEUED_COMMITS = [
   "Read the settings from settings.json beside the old settings.ini",
@@ -371,7 +360,6 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-tabs.png",
       "night-watch-dark-rename.png",
       "night-watch-dark-dialog.png",
-      "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
       "night-watch-dark-accounts.png",
       "night-watch-dark-accounts-adding.png",
@@ -392,7 +380,6 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-tabs.png",
       "night-watch-light-rename.png",
       "night-watch-light-dialog.png",
-      "night-watch-light-chain.png",
       "night-watch-light-settings.png",
       "night-watch-light-accounts.png",
       "night-watch-light-accounts-adding.png",
@@ -404,9 +391,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-check-move.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(126);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(126);
-    expect(all[125]).toEqual({ theme: "desk", appearance: "light", view: "check-move", file: "desk-light-check-move.png" });
+    expect(all).toHaveLength(120);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(120);
+    expect(all[119]).toEqual({ theme: "desk", appearance: "light", view: "check-move", file: "desk-light-check-move.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -509,30 +496,6 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Settings"); })()`);
     await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
     await dialogOpen("settings-dialog");
-  };
-
-  /**
-   * Leaves the repository's settings open with the chain's field shown and
-   * `answer` in it. Where the field holds another answer the run saves
-   * `answer` there, as a person does, and opens the settings again until the
-   * window holds what the daemon kept.
-   */
-  const settingsWith = async (answer: string): Promise<void> => {
-    const field = `[document.getElementById("settings-chain-field").hidden, document.getElementById("settings-chain").value]`;
-    for (const deadline = Date.now() + 20_000; ; await new Promise((resolve) => setTimeout(resolve, 300))) {
-      await openSettings();
-      const [hidden, value] = await app.evaluate<[boolean, string]>(field);
-      if (!hidden && value === answer) return;
-      if (Date.now() >= deadline) throw new Error(`the repository's settings never showed the chain's field with ${JSON.stringify(answer)}: ${JSON.stringify({ hidden, value })}`);
-      if (hidden) {
-        // The daemon has not sent what it read of the repository's check and of the plugin yet.
-        await app.click("#settings-cancel");
-      } else {
-        await app.evaluate(`document.getElementById("settings-chain").value = ${JSON.stringify(answer)}`);
-        await app.click("#settings-submit");
-      }
-      await dialogClosed("settings-dialog");
-    }
   };
 
   /** The work items, the sessions and the machine the daemon lists, read as a second client of it, which then hands the daemon `told` where it is given. */
@@ -679,19 +642,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await openForm("Show the inspection on a line");
     },
-    chain: async () => {
-      // The window asks while no answer is kept, so the answer is taken away first. The dialog then opens over the view at the press of "+ Claude Code", before any pane starts.
-      await settingsWith(NO_ANSWER);
-      await app.click("#settings-cancel");
-      await dialogClosed("settings-dialog");
-      await show.view();
-      await app.evaluate(`(() => { for (const button of document.querySelectorAll("#pane-buttons button")) button.toggleAttribute("data-pressed-here", button.textContent === "+ Claude Code"); })()`);
-      await app.click("#pane-buttons button[data-pressed-here]");
-      await app.until(`document.getElementById("chain-dialog").open && document.getElementById("chain-owlery").checked`, "the dialog of the chain choice, on the owl chain");
-    },
     settings: async () => {
       await show.inbox();
-      await settingsWith(OWL_CHAIN);
+      await openSettings();
     },
     accounts: async () => {
       await show.inbox();
@@ -781,11 +734,6 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.click("#work-item-cancel");
       await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
     },
-    chain: async () => {
-      // A cancel opens no pane and keeps no answer.
-      await app.click("#chain-cancel");
-      await dialogClosed("chain-dialog");
-    },
     settings: async () => {
       await app.click("#settings-cancel");
       await dialogClosed("settings-dialog");
@@ -863,15 +811,11 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
       writeFileSync(join(made.repo, path), text);
     }
-    // The Claude Code config folder the app's daemon reads, which is the run's own: it enables one plugin, installed where the script of AgenticSeal's check stands, so the daemon reads the plugin as enabled in a repository on the owl chain. Nothing of it is run.
+    // The Claude Code config folder the app's daemon and its panes are given, which is the run's own. Nothing of it is run.
     const config = join(made.base, "claude-config");
+    mkdirSync(config, { recursive: true });
     handedFolder = join(made.base, "claude-work");
     mkdirSync(handedFolder, { recursive: true });
-    const installed = join(config, "plugins", "cache", "agenticseal", "agentic", "1.0.0");
-    mkdirSync(join(installed, "skills", "code-review", "scripts"), { recursive: true });
-    writeFileSync(join(installed, "skills", "code-review", "scripts", "chain_check.py"), "# the check\n");
-    writeFileSync(join(config, "settings.json"), `${JSON.stringify({ enabledPlugins: { [PLUGIN_KEY]: true } }, null, 2)}\n`);
-    writeFileSync(join(config, "plugins", "installed_plugins.json"), `${JSON.stringify({ version: 2, plugins: { [PLUGIN_KEY]: [{ scope: "user", installPath: installed, version: "1.0.0" }] } })}\n`);
     // The four work items the run stores before the app starts, each in a worktree made from `main`, on the branch Owlery makes at a first commit (`branchedWorktree`). The parked one holds one commit, then the records of a round that left no finding and of the broad gate's run, committed with git as a chain commits them, and no inspection, and its record of questions holds two of the inspector's and a decision the person reversed. The finished one holds one commit, and the commits of a chain that cleared it after one fix are made here and taken off its branch again: the branch takes them once the look is taken, and the stored pull request names the commit they end at. The queued one holds its routing and one open question, and its chain is parked on it. The shown one had its setup copy the ignored files and run its command, which succeeded, and its chain stopped where its broad gate failed after round 1; the run commits its records once the app has started.
     const stored = Date.now();
     const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
@@ -901,8 +845,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const shownSetup: WorktreeSetup = { copied: copy.copied, copiedCount: copy.copiedCount, failedCopies: [], command: SETUP_FILES[".worktreesetup"], paneId: null, state: "succeeded", exitCode: SETUP_ENDS_WITH, failure: null, startedAt: stored - 110 * 60_000, endedAt: stored - 109 * 60_000 };
     const failedGate: ChainStage = { ...ran("gate", 1, 1), state: "failed", failure: GATE_FAILURE, gate: { command: GATE, exitCode: 1, output: true } };
     const shownChain: Chain = { state: "stopped", says: stoppedSays("gate", 1, GATE_FAILURE), since: failedGate.endedAt ?? stored, stages: [ran("round", 1, 0), failedGate] };
-    // The repository is stored with the answer "the AgenticSeal plugin", so no pane of the scene is asked about and none carries the bundle. The parked work item is set to the account the run hands over, which its repository does not give, so its line names it.
-    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: "plugin", addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain, accountId: HANDED_ID }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }, queued.stored, { ...item(SHOWN_ID, SHOWN, shownAt), setup: shownSetup, chain: shownChain }] };
+    // The parked work item is set to the account the run hands over, which its repository does not give, so its line names it.
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: stored - 3 * 60 * 60_000, groups: [], workItems: [{ ...item(1, PARKED, parkedAt), chain: parkedChain, accountId: HANDED_ID }, { ...item(2, FINISHED, finishedAt), chain: finishedChain, pullRequest }, queued.stored, { ...item(SHOWN_ID, SHOWN, shownAt), setup: shownSetup, chain: shownChain }] };
     app = await BuiltApp.start(
       { SHELL: SAMPLE_PANE, OWLERY_WORKTREES: made.root, CLAUDE_CONFIG_DIR: config },
       {

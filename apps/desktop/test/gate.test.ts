@@ -141,8 +141,8 @@ describe("a broad gate's environment", { timeout: 30_000 }, () => {
   it("holds none of the pane variables that the command of a shell, of a Claude Code pane on the owl chain or off it, or of a worktree setup pane sets for that pane, the runner of heavy commands among them", () => {
     // Every key these pane commands set, read off what they return. Their starts name no account folder, so no command here sets `CLAUDE_CONFIG_DIR`, which the frame keeps out of the cut. The set is pinned below, so a variable a later change adds to a pane's command fails this case there, and that change decides whether the variable is a pane variable.
     const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
-    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? { chain, enabledPlugins: null } : null), "/run/owl-run");
-    const start = { continueLatest: false, base: "release/v0.0.4", checkout: "/r/project", chosen: null, accountDir: null, configDir: null };
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? chain : null), "/run/owl-run");
+    const start = { continueLatest: false, base: "release/v0.0.4", accountDir: null };
     const panes = [commandFor("shell", 1, { ...start, folder: "/w/other" }), commandFor("claude", 2, { ...start, folder: "/w/other" }), commandFor("claude", 3, { ...start, folder: "/w/owl" }), setupPaneCommand({ SHELL: "/bin/zsh" }, "pnpm install", 4, "/run/owl-run")];
     const set = panes.flatMap((pane) => Object.keys(pane.env));
     expect(new Set(set)).toEqual(new Set(["OWLERY_PANE_ID", "OWLERY_HOOK_SOCKET", "OWLERY_RUN", "OWLERY_CHAIN", "OWLERY_BASE"]));
