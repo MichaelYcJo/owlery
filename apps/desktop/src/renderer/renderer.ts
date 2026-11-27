@@ -2260,8 +2260,9 @@ branchField.addEventListener("change", () => {
   branchChoice = { repo: repoField.value.trim(), branch: branchField.value };
   showPlan();
 });
-// A closed form asks for no plan, and waits for no answer to say that it fetches.
+// A closed form asks for no plan, and waits for no answer to say that it fetches. The event of a close can arrive after the form opened again and a name was typed in it, and that opening's plan and fetches are not this close's to end.
 workItemDialog.addEventListener("close", () => {
+  if (workItemDialog.open) return;
   clearTimeout(planTimer);
   for (const timer of baseTimers) clearTimeout(timer);
   baseTimers.clear();
