@@ -39,3 +39,28 @@ The fix the verdict asks for is one sentence of `changelog.md:3`. It should stat
 target: acd914f4 against fb58c022
 Verdict: withheld reason: the changelog, written by the crafter, says at seal/threads/1795701355-127-role-sessions-run-in-a-sandbox/changelog.md:3 that before this work a proofer and a sealer ran no command at all because the daemon refused every one of them, while at fb58c022 a proofer's ls ran with no request to the daemon (the probe of Claims re-run) and the base's apps/desktop/test/role-session.test.ts:59 names commands Claude Code runs unasked
 ```
+
+## Re-audit at `0dd5af1f`
+
+The re-audit read the branch at `0dd5af1f` against the same base, `fb58c022` (executed: `git rev-parse --verify --quiet origin/release/v0.1.0`). `git log --no-merges --name-only bdd666c0..HEAD ^fb58c022` prints `acd914f4`, which touches `trail/gate.md` alone, and `0dd5af1f`, which touches `changelog.md` and `guarantee.md` alone (executed). Every path that follows the gate's run is under the work item's records. `seal pr-body 1795701355-127-role-sessions-run-in-a-sandbox --body <the body file> --check` exited 0 at `0dd5af1f` (executed). The commit since the earlier block's target changes one claim's coordinate, `changelog.md:3`, and that claim alone is re-read below. The code, the cases and the other records are unchanged since `acd914f4` (executed, `git diff --stat acd914f4 0dd5af1f`), so the earlier rows hold as they were run.
+
+### Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| Before this work the daemon refused each command of a proofer and a sealer that asked for permission, so a round could not clone or run a test, and a command Claude Code runs without asking, such as an `ls`, ran for them | `changelog.md:3` at `0dd5af1f` | the earlier block's probe at `fb58c022`, not run again: a proofer's `ls` raised no `can_use_tool` request, and the stand-in was told `README.md`. The base's stand-in case also covers it: its `printf x >> README.md` reached the daemon and was refused with "no command that asks for permission" | holds for the proofer (executed, the earlier run). For the sealer it holds by reading: at the base the sealer has the proofer's four tools, its mode and `runs: false` (read, `git show fb58c022:apps/desktop/src/daemon/role-grants.ts` and the base's `role-session.test.ts:201`), and no sealer's `ls` was run |
+| No other sentence states that a proofer and a sealer ran no command before this work | the earlier block's class search | `git grep -n -i -E 'ran no command\|no command at all\|refused every one'` over the work item's records, `apps/desktop` and `docs` at `0dd5af1f` | holds: it prints only lines of this file, which quote the earlier audit (executed; a sample of spellings) |
+
+### The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the changelog | Its opening paragraph now states the earlier bound as the daemon's refusal of each command that asked, and names the commands Claude Code runs without asking | the probe at `fb58c022`; the base's `role-session.test.ts:59`; the frame's *Grounding* row on #39's Q4; the bullets below it, which are unchanged | none |
+| the orchestrator's part of the pull request body | unchanged since `acd914f4` | the body check at `0dd5af1f` | none |
+
+The design, the build, the last round and the routing are unchanged since the earlier block, and its rows for them hold. The two sentences the earlier block named on a sandboxed command reaching the daemon stand as they were, and they were not part of its reason.
+
+```seal
+target: 0dd5af1f against fb58c022
+Verdict: sealed
+```
