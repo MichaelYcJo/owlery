@@ -24,7 +24,7 @@
 | `approval-line.test.ts`, `seal-back-view.test.ts` | Left out. Their cases share one app, but no case opens a dialog or a menu: `git grep -n -E 'dialog|Dialog|menu'` over them prints nothing, and they press the sidebar's lines, the inbox's button and the view's tabs. |
 | `korean-input.test.ts` | Left out. Its cases share one app, and the form opens in `beforeAll` alone. The same search prints nothing for it. |
 | `pane-session.test.ts` | Left out. The one match is a comment on Claude Code's own trust dialog, which is in the pane and not the window. |
-| `role-session.test.ts` | Left out. It holds no case, and the same search prints nothing for it. |
+| `role-session.test.ts` | Left out. Its two cases (`:160`, `:175`) run only where the environment asks for a real role session or for the refusal's stand-in model, each drives a daemon the file starts with no window, and the same search prints nothing for it. |
 | `daemon-restart.test.ts` | Left out for the reason `phase-3.md` gives and `gaps.md` *Not done* names: its first describe's last case quits the app. Its cases at `:116` and `:169` share the app, and the second reloads the page before it reads the window. |
 | `role-bundle.test.ts`, `keep-awake.test.ts`, `screenshots.test.ts`, `launch.test.ts`, `memory.test.ts` | Left out. In each, a case starts and stops an app of its own, or the one case that shares an app is the only case in its describe (`screenshots.test.ts:1094`), or the app starts only under a measuring variable. |
 | `built-app.ts`, `korean-pane.ts`, `launch.ts`, `memory.ts`, `test/fixtures/rerun-unstarted/github.json` | Not test files with cases of their own: the helper's home, three helpers and a fixture. |
