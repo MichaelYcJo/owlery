@@ -3005,6 +3005,8 @@ describe("what a person sets on a work item", () => {
     const { daemon: d, c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     const headless = await d.startRoleSession(workItem.id, "Which file?", PROOFER);
+    // The run starts once git has named the repository's folder the proofer's commands are refused, and a delete waits only for the end of a run that has started.
+    await c.until(() => (inner.starts.length === 1 ? true : undefined));
     const loss = await lossOf(c, workItem.id);
     c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [], headless: [headless.id] } });
     expect(await c.message("error", (m) => m.requestId === 2)).toEqual({ type: "error", requestId: 2, message: CHANGED });
@@ -3019,6 +3021,8 @@ describe("what a person sets on a work item", () => {
     const { daemon: d, c, url, workItem } = await withWorkItem(made, { roleAdapter, endWaitMs: 300, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     const headless = await d.startRoleSession(workItem.id, "Which file?", PROOFER);
+    // The run starts once git has named the repository's folder the proofer's commands are refused, and a delete waits only for the end of a run that has started.
+    await c.until(() => (inner.starts.length === 1 ? true : undefined));
     const loss = await lossOf(c, workItem.id);
     c.send({ type: "deleteWorkItem", requestId: 2, id: workItem.id, stamp: loss.stamp, force: false, running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 2);
@@ -6436,9 +6440,10 @@ describe("headless sessions", () => {
         };
       },
     };
-    const { daemon: d, workItem } = await withWorkItem({ roleAdapter });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter });
     await d.startRoleSession(workItem.id, "Q", PROOFER);
-    await pause(20);
+    // The run starts once git has named the repository's folder the proofer's commands are refused, and the close waits only for a run that has started.
+    await c.until(() => (inner.starts.length === 1 ? true : undefined));
     await d.close();
     expect(ended).toBe(1);
   });
@@ -6466,8 +6471,8 @@ describe("headless sessions", () => {
     await d.startRoleSession(workItem.id, "Q", PROOFER);
     await d.close();
     expect(stopped).toBe(0);
-    await pause(300);
-    expect(stopped).toBe(1);
+    // The run starts once git has named the repository's folder the proofer's commands are refused and the adapter's own wait has passed.
+    await vi.waitFor(() => expect(stopped).toBe(1), { timeout: 5000, interval: 50 });
   });
 
   /** An adapter that answers the prompt "Quick?" at once and any other after a minute, and counts the runs it stopped. */
@@ -6572,7 +6577,7 @@ describe("headless sessions", () => {
 
   it("keeps the sessions that ended last, as many as it is told, and every one still working: the one that ended first leaves the list, and every client is told", async () => {
     const quick = fakeAdapter();
-    let finishSlow = (): void => {};
+    let finishSlow: (() => void) | undefined;
     // The prompt "Slow?" ends when the case says so, and any other at once.
     const roleAdapter: RoleAdapter = {
       name: "fake",
@@ -6599,8 +6604,8 @@ describe("headless sessions", () => {
     const fourth = await start("C");
     await finishedOne(fourth);
     for (const c of [one, two]) await c.until(() => (dropped(c).length === 1 ? true : undefined));
-    // The session that started first ends last, so the second session ended first and leaves first, and the first is kept.
-    finishSlow();
+    // The session that started first ends last, so the second session ended first and leaves first, and the first is kept. Its run starts once git has named the repository's folder the proofer's commands are refused, which the sessions started after it do not wait for.
+    (await one.until(() => finishSlow))();
     for (const c of [one, two]) await c.until(() => (dropped(c).length === 2 ? true : undefined));
     expect([dropped(one), dropped(two)]).toEqual([[2, 3], [2, 3]]);
     expect((await (await client(url)).message("ready")).headless.map((h) => h.id)).toEqual([slow, fourth]);
@@ -6674,8 +6679,11 @@ describe("headless sessions", () => {
     const listed = async () => (await (await client(url)).message("ready")).headless.map((h) => [h.id, h.error, h.stopped]);
     // What the daemon told of headless sessions after the client's `before`th message. The work item's pane prints meanwhile.
     const toldSince = (before: number) => c.messages.slice(before).filter((m) => m.type === "headless" || m.type === "headlessDropped");
+    // The adapter is called once git has named the repository's folder the proofer's commands are refused, after the session is listed, so the case waits for each call before its stop: the stop then falls while the adapter's start is under way.
+    const called = (count: number) => c.until(() => (rejects.length === count ? true : undefined));
     // A session stopped while its adapter starts, and still listed.
     const first = await start("Slow?");
+    await called(1);
     await stop(2, first);
     let before = c.messages.length;
     rejects[0]!();
@@ -6684,6 +6692,7 @@ describe("headless sessions", () => {
     expect(await listed()).toEqual([[first, "the session was stopped at a request before it finished", "request"]]);
     // A session stopped while its adapter starts, then dropped by the bound once a later session ended.
     const second = await start("Slow?");
+    await called(2);
     await stop(4, second);
     const third = await start("Quick?");
     await c.message("headless", (m) => m.headless.id === third && m.headless.state === "finished");
@@ -6807,9 +6816,10 @@ describe("headless sessions", () => {
         },
       };
       let clock = 1000;
-      const { daemon: first, workItem } = await withWorkItem({ runDir, roleAdapter, now: () => clock });
+      const { daemon: first, c, workItem } = await withWorkItem({ runDir, roleAdapter, now: () => clock });
       await first.startRoleSession(workItem.id, "Q", PROOFER);
-      await pause(20);
+      // The run starts once git has named the repository's folder the proofer's commands are refused, and the close stops only a run that has started.
+      await c.until(() => (inner.starts.length === 1 ? true : undefined));
       clock = 4000;
       await first.close();
       const later = await client((await daemon({ runDir })).url);
@@ -7210,11 +7220,10 @@ describe("idle exit", () => {
     await c.message("exit");
     await d.startRoleSession(workItem.id, "Q", PROOFER);
     c.socket.close();
-    // The text arrives 300 ms after the start and the result 300 ms after that.
+    // The text arrives 300 ms after the adapter's start and the result 300 ms after that, and the adapter starts only once git has named the repository's folder the proofer's commands are refused.
     await new Promise((r) => setTimeout(r, 450));
     expect(idle).toBe(0);
-    await new Promise((r) => setTimeout(r, 600));
-    expect(idle).toBe(1);
+    await vi.waitFor(() => expect(idle).toBe(1), { timeout: 5000, interval: 50 });
   });
 
   // The judgment of a load (src/main/daemon-client.ts, `runsNothing`) mirrors this exit over the lists a `ready` carries, so its cases read the lists the daemon really sends.
@@ -7311,9 +7320,13 @@ describe("the daemon's log of how a daemon ended", () => {
 
   it("counts the panes that are alive, and the agents that work: a pane whose state is `working` and a headless session that works", async () => {
     // The first pane exits at once, and every other stays. The role session started on "Held" works to the case's end, its work in the worktree never ending, and every other finishes.
+    // A proofer's adapter is given its prompt with the paragraph that names its scratch folder after it, so "Held" is matched with that paragraph. Matched alone, it never equals what the adapter is given, and the count then read a session that had finished or not by how long the daemon took to start it.
+    const adapter: ReturnType<typeof fakeAdapter> = fakeAdapter({
+      work: (_cwd, prompt) => (prompt === withScratch("Held", adapter.starts.at(-1)?.scratch ?? "") ? new Promise<void>(() => undefined) : undefined),
+    });
     const { daemon: d, url } = await daemonWithWorkItem({
       commandFor: (_kind, id) => ({ command: "/bin/sh", args: ["-c", id === 1 ? "exit 0" : "sleep 30"], env: {} }),
-      roleAdapter: fakeAdapter({ work: (_cwd, prompt) => (prompt === "Held" ? new Promise<void>(() => undefined) : undefined) }),
+      roleAdapter: adapter,
     });
     const c = await client(url);
     await c.message("ready");
