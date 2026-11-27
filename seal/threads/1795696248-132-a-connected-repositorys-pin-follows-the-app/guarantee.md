@@ -102,3 +102,20 @@ The records now agree with HEAD. The body file does not carry them, so step 2 wi
 target: dc29cd0c against b5444f57
 Verdict: withheld reason: refused: 132-body.md:358: reads `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at `42b7f4d2`, the merge of `release/v0.1.0` with #308 and #311, against `450c6e09`, and passed | answered by the orchestrator's broad gate at `42b7f4d2` |`; the records give `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at a merge of `release/v0.1.0`, and passed | answered by the broad gate `trail/gate.md` records |` at `gaps.md:11`
 ```
+
+## Re-audit at `2ae492cc`
+
+`2ae492cc` is the one commit after `dc29cd0c`, and it touches this file alone (`git diff --name-only dc29cd0c HEAD`, executed). The records, the code and the gate's run are as the audit at `dc29cd0c` read them, so no claim was run again.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git log --no-merges --name-only 1c3b3da4..HEAD ^b5444f57` | Holds (executed): `b867082d`, `dc29cd0c` and `2ae492cc` follow it, touching only `trail/gate.md`, `gaps.md` and this file. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0, "matches". |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+
+Every party agrees with the issue and the tree, as the audits at `3d4f7271`, `0ac71364`, `b867082d` and `dc29cd0c` found them, and the closing memo and the body now agree with HEAD. `gaps.md:12` stays open for the orchestrator (`unverified`), and Q3 for a measurement on GitHub.
+
+```seal
+target: 2ae492cc against b5444f57
+Verdict: sealed
+```
