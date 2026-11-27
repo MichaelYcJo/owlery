@@ -2157,7 +2157,10 @@ describe("the records place of a repository", () => {
     const moving = await c.asked({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
     if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
     expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
-    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: expect.stringMatching(/^Owlery could not read these records, so whether the moved check refuses them is not known: .*not a git repository/su) }]);
+    // Git's words for the broken link differ between git's versions, so the case reads them from the same git, by the command the daemon's reading of the records runs first (`filesAt`).
+    const said = spawnSync("git", ["ls-tree", "-z", "--name-only", head, "--", `seal/threads/${NAME}/trail/rounds/`], { cwd: a.worktree, encoding: "utf8" }).stderr.trim();
+    expect(said).toMatch(/^fatal: /u);
+    expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: `Owlery could not read these records, so whether the moved check refuses them is not known: ${said}` }]);
   });
 
   it("names, in a plan that moves the check, a work item whose worktree's folder is gone after the daemon read its branch's head, with the sentence that the folder is gone, though the branch still holds its records", { timeout: 60_000 }, async () => {
