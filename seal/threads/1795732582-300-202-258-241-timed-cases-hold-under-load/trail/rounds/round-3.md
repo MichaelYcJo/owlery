@@ -30,6 +30,11 @@ The search on the sentence's words printed `frame/plan.md:58` alone. That search
 - No migration, no environment variable, no new dependency. As the first pull request into `release/v0.1.0`, it moves the version to 0.1.0 (`routing.md` *Why this way*, *Branch*).
 ```
 
+```seal
+verdict: fixed 695a79ba
+answer: The orchestrator replaced `frame/plan.md:58` with the round's paste-ready bullet, word for word. Records alone.
+```
+
 ### 2. The title judgment takes `test:` for a pull request that changes the shipped app's terminal library, against the convention it names
 
 ```seal
@@ -58,6 +63,11 @@ The search on the prefix's words printed `frame/plan.md:67` and `pr.md:10`. That
 
 ```markdown
 - "The pull request's title takes the prefix `fix:`, and it closes #300, #202, #258 and #241." (`frame/plan.md` *Judgments of the run*)
+```
+
+```seal
+verdict: fixed 695a79ba
+answer: The orchestrator took `fix:`: it replaced the row at `frame/plan.md:67` and the line at `pr.md:10` with the round's paste-ready text, word for word, and retitles #300 `fix:` when it titles the pull request. Records alone.
 ```
 
 ## Confirmations
