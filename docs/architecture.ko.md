@@ -304,7 +304,7 @@ check: apps/desktop/test/records-place.test.ts apps/desktop/test/daemon.test.ts 
 
 ### AgenticSeal과의 호환
 
-AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 출발했고, Owlery의 것입니다. 이슈 #146의 PR부터 이 저장소의 PR은 Owlery 자신의 워크플로가 검사하고, 플러그인의 검사는 그중 어느 것도 읽지 않습니다. 플러그인의 검사는 owl 체인이 판정 블록에 쓰는 `built-by:`나 `rules:` 같은 줄을 거절하므로, 두 검사를 나란히 돌리지 않습니다. 이 저장소의 워크플로는 Owlery가 앱의 버전에 맞춰 쓰는 것이고, 버전을 올리는 PR이 그 파일을 다시 씁니다. 호환은 Owlery에 쓸모가 있는 곳에서 지킵니다. Owlery의 검사는 플러그인의 프로세스가 쓰는 형식의 작업 기록도 여전히 읽고, 이 저장소의 작업은 그 프로세스가 만드는 동안 그 형식의 기록을 갖습니다. 플러그인이 짠 PR 본문은 읽지 않습니다.
+AgenticSeal 플러그인 사용자는 지금처럼 Claude Code에서 그대로 씁니다. Owlery의 기록 형식은 AgenticSeal의 형식에서 출발했고, Owlery의 것입니다. 이슈 #146의 PR부터 이 저장소의 PR은 Owlery 자신의 워크플로가 검사하고, 플러그인의 검사는 그중 어느 것도 읽지 않습니다. 플러그인의 검사는 owl 체인이 판정 블록에 쓰는 `built-by:`나 `rules:` 같은 줄을 거절하므로, 두 검사를 나란히 돌리지 않습니다. 이 저장소의 워크플로는 Owlery가 앱의 버전에 맞춰 쓰는 것이고, 버전을 올리는 PR이 그 파일을 다시 씁니다. 이 저장소의 기록이 AgenticSeal 플러그인의 뿌리 `seal/`에 있는 동안에는 워크플로를 0.1.0에 맞춰 쓴 그대로 둡니다. 더 뒤 릴리스의 검사는 #322가 이름을 바꾸고 나면 IADD의 형식을 읽기 때문이고, #322의 *When it lands* 4단계가 뿌리와 고정 버전을 한 커밋에서 함께 옮깁니다. 호환은 Owlery에 쓸모가 있는 곳에서 지킵니다. Owlery의 검사는 플러그인의 프로세스가 쓰는 형식의 작업 기록도 여전히 읽고, 이 저장소의 작업은 그 프로세스가 만드는 동안 그 형식의 기록을 갖습니다. 플러그인이 짠 PR 본문은 읽지 않습니다.
 check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
 
 ## 순서는 코드가, 판단은 orchestrator가

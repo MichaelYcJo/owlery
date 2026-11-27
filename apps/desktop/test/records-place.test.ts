@@ -14,6 +14,20 @@ import { commitFile, git, runs, temporaryClone, temporaryRepository } from "./re
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const WORKFLOW = ".github/workflows/owlery-seal.yml";
 const VERSION = "1.2.3";
+/**
+ * The first line of the AgenticSeal plugin's records root. This repository is
+ * built with the plugin and keeps its root, `seal/`, until the plugin takes
+ * IADD's names (#322, *When it lands*, step 4), so the line is written out
+ * here rather than read from `MARKER`, which follows Owlery's own root.
+ */
+const PLUGIN_ROOT_MARKER = "# What AgenticSeal maintains in seal/";
+/**
+ * The version this repository's own workflow stays pinned at while its
+ * records stand in the plugin's root, since the check of a later release
+ * reads IADD's forms once #322 renames them. Step 4 of #322 moves the root and
+ * the pin in one commit, and from then on the pin follows the app's version.
+ */
+const PIN_HELD_FOR_THE_PLUGIN = "0.1.0";
 /** The step of AgenticSeal's `hygiene.yml` that runs the check, as its 0.38.4 template writes it. */
 const PLUGIN_CHECK = 'jobs:\n  hygiene:\n    steps:\n      - run: |\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py" \\\n            --baseline "origin/${{ github.base_ref }}"\n';
 /** The refusal of a plan where the checkout does not hold a path of the place as the commit does. */
@@ -1099,9 +1113,11 @@ describe("the records place", () => {
     expect(olderVersion("0.0.4", "0.1")).toBe(false);
   });
 
-  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it", () => {
+  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it, and to the one for 0.1.0 while this repository's records stand in the AgenticSeal plugin's root", () => {
     const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
-    expect(readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8")).toBe(workflowText(version));
+    const root = join(PR_CHECK, "..", "seal", "README.md");
+    const onThePlugin = existsSync(root) && readFileSync(root, "utf8").startsWith(`${PLUGIN_ROOT_MARKER}\n`);
+    expect(readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8")).toBe(workflowText(onThePlugin ? PIN_HELD_FOR_THE_PLUGIN : version));
   });
 
   it("proposes a broad gate command from the package.json of the repository: its check script before its test script, run by the package manager whose lock file stands, and none where it reads neither", () => {
