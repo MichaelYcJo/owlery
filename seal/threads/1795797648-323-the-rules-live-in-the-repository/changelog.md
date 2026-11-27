@@ -6,7 +6,7 @@ Issue #323. Many rules for how work runs in this repository stood only in one ma
 - **The roadmap states four more tracker rules.** What a release holds is read from what merged into its branch, and what a milestone holds from GitHub. An issue labelled `owner runs` is the owner's alone. A decision that shapes an open issue goes into that issue's body. The release note is built from the fragments as they stood before the settle removed them.
 - **A choice only a study can raise is asked once the study's result stands**, not in the batch at the start (`docs/architecture.md`).
 - **An icon candidate is judged at the Dock's size, and a brand name is searched against written criteria** (`docs/name.md`).
-- **The desktop app's version is 0.2.0.** This is the first pull request of release 0.2.0, so it moves `apps/desktop/package.json`. This repository's own pull requests are still checked by Owlery's check at 0.1.0, which `.github/workflows/owlery-seal.yml` pins, until the AgenticSeal plugin takes IADD's names (#322).
+- **The desktop app's version is 0.2.0.** This is the first pull request of release 0.2.0, so it moves `apps/desktop/package.json`. This repository's own pull requests are still checked by Owlery's check at 0.1.0, which `.github/workflows/owlery-seal.yml` pins, until the AgenticSeal plugin takes IADD's names (#322), and the app's offer to move that pin is not taken here before then.
 
 ### Process changes
 
