@@ -117,12 +117,12 @@ The row of *Scope* item 9 stands in *Components and their states* of `docs/desig
   file: docs/architecture.md
   section: Records are committed to the repository
   from: Past the limit Owlery ends the group and leaves each file written and not staged, unless the commit was made before the end.
-  to: Past the limit Owlery ends the group, and a commit made before the end stands. Otherwise a stage's commit and a commit of a person's word leave each file written and not staged. The setup of the records place instead takes its files out of the index, removes each file it created, and writes a moved workflow back as it stood.
+  to: Past the limit Owlery ends the group, and a commit made before the end stands. Otherwise each file stands written and not staged, except in the setup of the records place, which takes its files out of the index, removes each file it created, and writes a moved workflow back as it stood.
 - change
   file: docs/architecture.ko.md
   section: 기록은 저장소에 커밋합니다
   from: 5분이 지나면 Owlery는 그 그룹을 끝내고, 파일은 적힌 채로, 스테이징되지 않은 채로 둡니다.
-  to: 5분이 지나면 Owlery는 그 그룹을 끝냅니다. 단계의 커밋과 사람의 말을 담는 커밋은 파일을 적힌 채로, 스테이징되지 않은 채로 둡니다. 기록 자리를 만드는 커밋은 그 파일들을 스테이징에서 빼고, 자기가 만든 파일을 지우며, 옮기던 워크플로는 원래대로 다시 씁니다.
+  to: 5분이 지나면 Owlery는 그 그룹을 끝냅니다. 기록 자리를 만드는 커밋이 아니면 파일은 적힌 채로, 스테이징되지 않은 채로 둡니다. 기록 자리를 만드는 커밋은 그 파일들을 스테이징에서 빼고, 자기가 만든 파일을 지우며, 옮기던 워크플로는 원래대로 다시 씁니다.
 
 ## Removes
 
