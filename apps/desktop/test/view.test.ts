@@ -1306,7 +1306,7 @@ describe("the decisions made without asking", () => {
     expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
       { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
-      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: iadd/config.json names no other.", by: "", age: "less than a minute", reversed: null },
       { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
       { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },

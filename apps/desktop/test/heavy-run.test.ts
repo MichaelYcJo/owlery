@@ -235,11 +235,11 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
       return end.err;
     };
     expect(RUN_REFUSED).toBe(64);
-    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of seal/config.json. It names `test` and `install`.\n');
+    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of iadd/config.json. It names `test` and `install`.\n');
     expect(await refused([])).toBe(`\`run\` takes the name of a heavy command the repository names.\n${USAGE}`);
     expect(await refused(["test", "a.test.ts"])).toBe(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
     naming(on.repo, "pnpm test");
-    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of seal/config.json. It names none.\n');
+    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of iadd/config.json. It names none.\n');
     expect(existsSync(join(on.folder, "ran"))).toBe(false);
   });
 });

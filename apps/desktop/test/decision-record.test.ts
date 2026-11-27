@@ -29,13 +29,13 @@ import { git, temporaryRepository } from "./repositories";
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
 const F = "```";
-/** A `seal` block of those lines, with the blank line that follows a block. */
+/** An `iadd` block of those lines, with the blank line that follows a block. */
 const block = (...lines: string[]): string => [`${F}iadd`, ...lines, F, "", ""].join("\n");
 
 const HEAD = [
   "# Decisions and questions: 1-x",
   "",
-  "Each `seal` block below is one decision made for this work item without asking the person, or one question it was parked with. A line outside a block is prose.",
+  "Each `iadd` block below is one decision made for this work item without asking the person, or one question it was parked with. A line outside a block is prose.",
   "",
   "",
 ].join("\n");
@@ -51,7 +51,7 @@ const PUSH = block(
   "question: 2",
   "asks: May the run push the branch to `origin`?",
   "grounds: No document of the repository grants it, and a session cannot grant itself a push.",
-  "by: sealer",
+  "by: inspector",
   "option: `yes` The branch is pushed and the pull request opens.",
   "option: `no` The work item stays on this machine.",
   "default: `yes`",

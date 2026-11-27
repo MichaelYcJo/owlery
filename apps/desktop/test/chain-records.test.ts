@@ -32,18 +32,18 @@ describe("what a work item's records say of its chain", () => {
 
   it("takes the last run block of a gate record, and of a guarantee the last verdict block with its word, the commit it names and its reason or question", () => {
     expect(lastRun(`# Gate\n\n${run(A)}\nThe second run.\n\n${run(B)}`)).toBe(B);
-    expect(lastVerdict(`# Guarantee\n\n${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "sealed")}`)).toEqual({ is: "cleared", commit: B, says: null });
+    expect(lastVerdict(`# Guarantee\n\n${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`)).toEqual({ is: "cleared", commit: B, says: null });
     expect(lastVerdict(verdict("abc1234", "withheld reason: The suite failed at `view.test.ts`."))).toEqual({ is: "withheld", commit: "abc1234", says: "The suite failed at `view.test.ts`." });
-    expect(lastVerdict(`${verdict(A, "sealed")}\n${verdict(B, "undecided question: May the release wait?")}`)).toEqual({ is: "undecided", commit: B, says: "May the release wait?" });
+    expect(lastVerdict(`${verdict(A, "cleared")}\n${verdict(B, "undecided question: May the release wait?")}`)).toEqual({ is: "undecided", commit: B, says: "May the release wait?" });
   });
 
   it("gives no run and no verdict for a text that holds no block of its kind, and for one whose reader refuses a block, wherever the refused block stands", () => {
-    expect([lastRun(""), lastRun("# Gate\n\nNo run yet.\n"), lastRun(verdict(A, "sealed"))]).toEqual([null, null, null]);
+    expect([lastRun(""), lastRun("# Gate\n\nNo run yet.\n"), lastRun(verdict(A, "cleared"))]).toEqual([null, null, null]);
     expect([lastVerdict(""), lastVerdict(run(A))]).toEqual([null, null]);
     // A verdict the grammar does not hold, and a run whose base is no commit.
     const refusedVerdict = verdict(B, "sealed, mostly");
     const refusedRun = `${FENCE}iadd\nrun: ${B} against main\n${FENCE}\n`;
-    expect([lastVerdict(refusedVerdict), lastVerdict(`${verdict(A, "sealed")}\n${refusedVerdict}`), lastVerdict(`${refusedVerdict}\n${verdict(A, "sealed")}`)]).toEqual([null, null, null]);
+    expect([lastVerdict(refusedVerdict), lastVerdict(`${verdict(A, "cleared")}\n${refusedVerdict}`), lastVerdict(`${refusedVerdict}\n${verdict(A, "cleared")}`)]).toEqual([null, null, null]);
     expect([lastRun(refusedRun), lastRun(`${run(A)}\n${refusedRun}`), lastRun(`${refusedRun}\n${run(A)}`)]).toEqual([null, null, null]);
     // A fence named as not read decides nothing: the block after it is read.
     expect(lastRun(`${FENCE}iadd x\nrun: ${B} against ${C}\n${FENCE}\n\n${run(A)}`)).toBe(A);
@@ -55,7 +55,7 @@ describe("what a work item's records say of its chain", () => {
     put(directory, "frame/design.md", "# Design\n");
     for (const n of [1, 2, 10]) put(directory, `trail/rounds/round-${n}.md`, `# Round ${n}\n`);
     put(directory, "trail/gate.md", `${run(A)}\n${run(B)}`);
-    put(directory, "inspection.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "sealed")}`);
+    put(directory, "inspection.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`);
     expect(readChainRecords(directory)).toEqual({ framed: true, rounds: 3, gate: B, verdict: { is: "cleared", commit: B, says: null } });
     expect(NOTHING_RECORDED).toEqual({ framed: false, rounds: 0, gate: null, verdict: null });
     expect(readChainRecords(null)).toEqual(NOTHING_RECORDED);
@@ -65,7 +65,7 @@ describe("what a work item's records say of its chain", () => {
     const outside = folder();
     put(outside, "design.md", "# Design\n");
     put(outside, "gate.md", run(A));
-    put(outside, "inspection.md", verdict(A, "sealed"));
+    put(outside, "inspection.md", verdict(A, "cleared"));
     put(outside, "rounds/round-1.md", "# Round 1\n");
     const linked = folder();
     mkdirSync(join(linked, "frame"));

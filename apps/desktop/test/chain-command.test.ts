@@ -100,7 +100,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
 
     expect(commitsAfterMain(on.repo).map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the work item's routing", "chore: record review round 1", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     expect(commitsAfterMain(on.repo).slice(1).map(({ body }) => body)).toEqual(Array.from({ length: 4 }, () => "IADD-Routing: 1795388700-greet"));
-    expect(read(join(on.repo, DIRECTORY, "inspection.md"))).toContain(["Verdict: cleared", "built-by: the session", "inspected-by: agent-inspector", "model: owl-large", `rules: owlery ${VERSION}`, "```"].join("\n"));
+    expect(read(join(on.repo, DIRECTORY, "inspection.md"))).toContain(["Verdict: cleared", "built-by: the session", "inspected-by: agent-inspector", "model: owl-large", `rules: owlery ${VERSION}`, "workflow: owl-chain", "inspector: owl-chain", "```"].join("\n"));
     expect(await on.said(["owed"])).toEqual({ step: "cleared", round: 1, commit: gate.head });
     expect(await workItemInspection({ worktree: on.repo, branch: BRANCH, baseBranch: "main", baseCommit: on.main }, head(on.repo))).toEqual({ state: "sealed", commit: gate.head, why: null });
     expect(status(on.repo)).toEqual([]);
@@ -237,7 +237,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     await refused(["round", on.answer("headed.md", roundRecord("# Review round 2: 1795388700-greet", given.target))], "Review round 1 failed: its record is headed `# Review round 2: 1795388700-greet`, and the round was given `# Review round 1: 1795388700-greet`.");
     await refused(["round", on.answer("none.md", "I found nothing.\n")], "Review round 1 failed: its answer holds no round record: no line of it reads `# Review round 1: 1795388700-greet`.");
     await refused(["gate"], "The records owe review round 1, and `gate` records the broad gate. Ask `owed` for the step.");
-    await refused(["inspect", on.answer("early.md", runSection({ heading: "## Run 1", target: given.target })), "--inspected-by", "agent-inspector", "--model", "owl-large"], "The records owe review round 1, and `seal` records the seal. Ask `owed` for the step.");
+    await refused(["inspect", on.answer("early.md", runSection({ heading: "## Run 1", target: given.target })), "--inspected-by", "agent-inspector", "--model", "owl-large"], "The records owe review round 1, and `inspect` records the inspection. Ask `owed` for the step.");
     await refused(["fix-pass", "--by", "the session"], "The records owe review round 1, and `fix-pass` records a fix pass. Ask `owed` for the step.");
 
     // A file no commit holds, outside the work item's directory.
@@ -462,7 +462,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
 
   it("refuses a start the daemon's chain refuses, each with the daemon's sentence and with no directory made: a records root that names no broad gate, a change no commit holds, a branch with no commit after its base, and a worktree whose HEAD names no branch yet, with what makes one", async () => {
     const gateless = commandOn(cleanups, { gate: " " });
-    expect(await gateless.run(["start"])).toEqual({ code: 1, out: "", err: 'iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository\'s check there, and commit it.\n' });
+    expect(await gateless.run(["start"])).toEqual({ code: 1, out: "", err: 'iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.\n' });
     const on = commandOn(cleanups);
     writeFileSync(join(on.repo, "loose.txt"), "loose\n");
     expect(await on.run(["start"])).toEqual({ code: 1, out: "", err: "The worktree holds a change no commit holds, at loose.txt. A round reads a committed tree: commit the change or remove it first.\n" });

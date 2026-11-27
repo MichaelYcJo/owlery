@@ -588,9 +588,9 @@ describe("work items", () => {
     c.send({ type: "reverseDecision", requestId: 2, workItemId: created.workItem.id, decisionId: 1, message: "Frame it first." });
     await c.message("done", (m) => m.requestId === 2);
     d.park(created.workItem.id, { by: "inspector", questions: [{ asks: "Which base?", grounds: "No document names it.", options: [{ label: "main", implies: "The default." }], default: "main" }] });
-    writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`seal\n\`\`\`\n`);
+    writeFileSync(join(directory, RECORD_FILE), `${readFileSync(join(directory, RECORD_FILE), "utf8")}\n\`\`\`iadd\n\`\`\`\n`);
     // A verdict, so that what the records say of the chain carries one.
-    writeFileSync(join(directory, "inspection.md"), `\`\`\`seal\ntarget: ${"a".repeat(40)} against main\nVerdict: withheld reason: The suite failed.\n\`\`\`\n`);
+    writeFileSync(join(directory, "inspection.md"), `\`\`\`iadd\ntarget: ${"a".repeat(40)} against main\nVerdict: withheld reason: The suite failed.\n\`\`\`\n`);
     expect(Object.keys(created).sort()).toEqual(["requestId", "session", "type", "workItem"]);
     expect(Object.keys(created.workItem).sort()).toEqual(WORK_ITEM_FIELDS);
     expect(Object.keys(created.session).sort()).toEqual(SESSION_FIELDS);
@@ -4464,7 +4464,7 @@ describe("the decisions made without asking", () => {
     // A block with a blank line inside is refused at that line. The blocks around it are still read, and the next block takes an id above the refused one's.
     const before = readFileSync(file, "utf8");
     const fence = "```";
-    const broken = `${fence}seal\ndecision: 5 default\n\ndecided: x\ngrounds: y\nstate: decided\n${fence}\n`;
+    const broken = `${fence}iadd\ndecision: 5 default\n\ndecided: x\ngrounds: y\nstate: decided\n${fence}\n`;
     // The text ends with a line end, so its count of lines is one under the split's, and the broken block opens after one blank line.
     const opener = before.split("\n").length + 1;
     writeFileSync(file, withDecision(`${before}\n${broken}`, { kind: "answered", decided: "The tree answers it.", grounds: "docs/product.md." }));
@@ -4484,7 +4484,7 @@ describe("the decisions made without asking", () => {
     const a = workItems[0]!;
     const directory = withDirectory(a);
     const fence = "```";
-    writeFileSync(join(directory, RECORD_FILE), `${fence}seal x\ndecision: 1 default\n${fence}\n\n${fence}seal\n${fence}\n`);
+    writeFileSync(join(directory, RECORD_FILE), `${fence}iadd x\ndecision: 1 default\n${fence}\n\n${fence}iadd\n${fence}\n`);
     const inbox = await c.message("inbox", (m) => (itemOf(m, a.id)?.unread.length ?? 0) > 0);
     expect(itemOf(inbox, a.id)?.unread.map(({ line, why }) => [line, why.slice(0, 22)])).toEqual([[1, "not read: ````iadd x` "], [5, "an empty `iadd` block:"]]);
     expect(itemOf(inbox, a.id)?.decisions).toEqual([]);
@@ -4974,7 +4974,7 @@ describe("what a work item's records say of its chain", () => {
     put(directory, "frame/design.md", "# Design\n");
     for (const n of [1, 2, 3]) put(directory, `trail/rounds/round-${n}.md`, `# Round ${n}\n`);
     put(directory, "trail/gate.md", `${run(A)}\n${run(B)}`);
-    put(directory, "inspection.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "sealed")}`);
+    put(directory, "inspection.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`);
     expect(git(a.worktree, "status", "--porcelain", "--", "iadd")).toContain("?? iadd/");
     const said = { framed: true, rounds: 3, gate: B, verdict: { is: "cleared", commit: B, says: null } };
     for (const told of [c, other]) {
@@ -5288,7 +5288,7 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     // A round recorded after the break, whose finding's symptom and severity are long.
     const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
     const fence = "```";
-    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}seal`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}seal`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
+    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}iadd`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}iadd`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
     git(a.worktree, "add", record);
     git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
     const answer = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
@@ -8601,11 +8601,11 @@ describe("the watch of an open pull request", () => {
     w.answer([run("inspection", "IN_PROGRESS")]);
     const c = await client(w.url);
     const pending = await c.until(() => (pullRequestIn(c)?.checks === "pending" ? pullRequestIn(c) : undefined));
-    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "inspection", state: "pending", link: "https://github.com/owner/project/runs/seal" }], listCount: 1, readAt: 7 });
+    expect(pending).toEqual({ ...w.stored, checks: "pending", list: [{ name: "inspection", state: "pending", link: "https://github.com/owner/project/runs/inspection" }], listCount: 1, readAt: 7 });
     expect(w.gh.calls()[0]).toEqual(VIEW);
     w.answer([run("inspection", "COMPLETED", "SUCCESS")]);
     const passed = await c.until(() => (pullRequestIn(c)?.checks === "passed" ? pullRequestIn(c) : undefined));
-    expect(passed?.list).toEqual([{ name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/seal" }]);
+    expect(passed?.list).toEqual([{ name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/inspection" }]);
     // Each read is the one call, and none started a session or held the Mac.
     for (const call of w.gh.calls()) expect(call).toEqual(VIEW);
     expect(c.messages.some((m) => m.type === "headless")).toBe(false);
@@ -8636,7 +8636,7 @@ describe("the watch of an open pull request", () => {
     const failed = await c.until(() => (pullRequestIn(c)?.checks === "failed" ? pullRequestIn(c) : undefined));
     expect(failed?.list).toEqual([
       { name: "build", state: "failed", link: "https://github.com/owner/project/runs/build" },
-      { name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/seal" },
+      { name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/inspection" },
     ]);
   });
 

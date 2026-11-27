@@ -344,17 +344,17 @@ describe("the record a fix pass left", () => {
     const first = closing(committed, 1, `fixed ${B}`);
     expect(fixPassRecord(first, closing(first, 2, "deferred #7")).closes.map(({ finding }) => finding)).toEqual([2]);
     // A close block's own location stands beside its finding's.
-    const elsewhere = committed.replace("finding 2 leaves a sentence with no end.\n", `finding 2 leaves a sentence with no end.\n\n\`\`\`seal\nverdict: fixed ${B}\nlocation: \`docs/greeting.md\`, \`src/greet.ts:4\`\nanswer: The greeting's document said otherwise.\n\`\`\`\n`);
+    const elsewhere = committed.replace("finding 2 leaves a sentence with no end.\n", `finding 2 leaves a sentence with no end.\n\n\`\`\`iadd\nverdict: fixed ${B}\nlocation: \`docs/greeting.md\`, \`src/greet.ts:4\`\nanswer: The greeting's document said otherwise.\n\`\`\`\n`);
     expect(fixPassRecord(committed, elsewhere).closes.map(({ finding, located, close }) => [finding, located, close.located])).toEqual([[2, ["feature.txt"], ["docs/greeting.md", "src/greet.ts"]]]);
   });
 
   it("holds whatever blank lines stand around an appended block, and with a block appended at the end of a record that ends with no line end", () => {
-    const tight = committed.replace("finding 1 leaves a sentence with no end.\n\n", `finding 1 leaves a sentence with no end.\n\`\`\`seal\nverdict: fixed ${B}\n\`\`\`\n\n`);
+    const tight = committed.replace("finding 1 leaves a sentence with no end.\n\n", `finding 1 leaves a sentence with no end.\n\`\`\`iadd\nverdict: fixed ${B}\n\`\`\`\n\n`);
     expect(refused(committed, tight)).toBe("held");
-    const wide = committed.replace("finding 1 leaves a sentence with no end.\n", `finding 1 leaves a sentence with no end.\n\n\n\`\`\`seal\nverdict: fixed ${B}\n\`\`\`\n\n`);
+    const wide = committed.replace("finding 1 leaves a sentence with no end.\n", `finding 1 leaves a sentence with no end.\n\n\n\`\`\`iadd\nverdict: fixed ${B}\n\`\`\`\n\n`);
     expect(refused(committed, wide)).toBe("held");
     const bare = committed.trimEnd();
-    expect(refused(bare, `${bare}\n\n\`\`\`seal\nverdict: rejected\nanswer: It holds.\n\`\`\`\n`)).toBe("held");
+    expect(refused(bare, `${bare}\n\n\`\`\`iadd\nverdict: rejected\nanswer: It holds.\n\`\`\`\n`)).toBe("held");
   });
 
   it("is refused where the pass changed a line of the proofer's, removed one or added one outside a close block", () => {
@@ -595,7 +595,7 @@ describe("a judgment's prompt", () => {
       `- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      "Round 2 left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one `seal` block, written so:",
+      "Round 2 left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one `iadd` block, written so:",
       "",
       "```iadd",
       "converging: <yes or no>",
@@ -633,7 +633,7 @@ describe("a judgment's prompt", () => {
       "2. May the pass change the protocol?",
       "   - Why the crafter cannot answer it: The frame names no such change.",
       "",
-      "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `seal` block for each question, written so:",
+      "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `iadd` block for each question, written so:",
       "",
       "```iadd",
       "rules: <the question's number> <default, scope, answered or park>",
@@ -672,7 +672,7 @@ describe("the seal's prompt", () => {
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
+      `Your answer is your run's section of the inspection, whole, from its heading to its end, in the form of the inspection's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who inspected it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
       "",
       "The branch changed these paths since it left its base:",
       "- `feature.txt`",
@@ -705,14 +705,14 @@ describe("the seal's prompt", () => {
       `- The phase records: \`${DIRECTORY}/trail/phases/\``,
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
-      `- The seal this run follows: run 2 of \`${DIRECTORY}/inspection.md\` sealed \`${B}\`, and a commit after it broke that seal`,
+      `- The inspection this run follows: run 2 of \`${DIRECTORY}/inspection.md\` cleared \`${B}\`, and a commit after it lapsed that inspection`,
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
+      `Your answer is your run's section of the inspection, whole, from its heading to its end, in the form of the inspection's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who inspected it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
     ]);
-    expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 sealed:", "- `later.txt`", ""]);
+    expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 cleared:", "- `later.txt`", ""]);
     expect(after.diff).toBe("Their diff:\n\ndiff --git a/later.txt b/later.txt\n");
-    expect(inspectionPrompt({ ...given, earlier: { run: 1, commit: B }, paths: [], diff: "" }).shown).toContain("\nThe branch changed no path since the commit run 1 sealed.\n");
-    expect(inspectionPrompt(given).shown).not.toContain("The seal this run follows");
+    expect(inspectionPrompt({ ...given, earlier: { run: 1, commit: B }, paths: [], diff: "" }).shown).toContain("\nThe branch changed no path since the commit run 1 cleared.\n");
+    expect(inspectionPrompt(given).shown).not.toContain("The inspection this run follows");
   });
 
   it("gives the ruling on a sealer's question who asks and in which stage, and the question with the run it stands in and no option", () => {
@@ -764,12 +764,12 @@ describe("the routing a first start writes", () => {
       "",
       "## Why this way",
       "",
-      "The branch was built in the person's own session, and its chain was started for a seal on it.",
+      "The branch was built in the person's own session, and its chain was started for an inspection of it.",
       "",
     ]);
     for (const answer of ["yes", "no"] as const) {
       const answered = routingText(NAME, "owlery/sealed-work", "2026-11-23", answer);
-      expect(answered.split("\n")).toEqual(text.replace("| Branch |", `| Automation | ${answer} |\n| Branch |`).replace("a seal on it.", "a seal on it. The session that started the chain gave the answer on `Automation`.").split("\n"));
+      expect(answered.split("\n")).toEqual(text.replace("| Branch |", `| Automation | ${answer} |\n| Branch |`).replace("an inspection of it.", "an inspection of it. The session that started the chain gave the answer on `Automation`.").split("\n"));
       expect([declaredBranch(answered), routingAnswer(answered, "Automation")]).toEqual(["owlery/sealed-work", answer]);
     }
     expect(routingText(NAME, "owlery/sealed-work", "2026-11-23", null)).toBe(text);
@@ -848,7 +848,7 @@ describe("a chain as the store reads it", () => {
   it("names the broad gate in a chain's sentences, whatever round it follows", () => {
     expect(runningSays("gate", 2)).toBe("The broad gate is running.");
     expect(stoppedSays("gate", 2, "the command exited with code 3")).toBe("The broad gate failed: the command exited with code 3.");
-    expect(refusalsText(null, NAME, { kind: "gate", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| gate 2 | sealer | Bash | runs a command | no-command |");
+    expect(refusalsText(null, NAME, { kind: "gate", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| gate 2 | inspector | Bash | runs a command | no-command |");
   });
 
   it("names the inspector's session in a chain's sentences, whatever round it follows, and says a seal and a withheld verdict", () => {
@@ -857,7 +857,7 @@ describe("a chain as the store reads it", () => {
     expect(clearedSays(2, HEAD)).toBe("The inspector cleared ccccccc, after round 2.");
     expect(withheldSays("The changelog names `gone.ts`, which the tree does not hold.")).toBe("The inspector withheld its verdict: The changelog names `gone.ts`, which the tree does not hold.");
     expect(withheldSays("no reason is given")).toBe("The inspector withheld its verdict: no reason is given.");
-    expect(refusalsText(null, NAME, { kind: "inspection", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| seal 2 | sealer | Bash | runs a command | no-command |");
+    expect(refusalsText(null, NAME, { kind: "inspection", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| inspection 2 | inspector | Bash | runs a command | no-command |");
     const seal = stage({ kind: "inspection", round: 2, state: "working", endedAt: null, headlessId: 3 });
     expect(chainRead(chain({ state: "running", says: "The inspector's session is running.", stages: [seal] }), 9)).toMatchObject({ state: "stopped", says: "The daemon ended while the inspector's session ran.", stages: [{ ...seal, state: "failed", failure: "the daemon ended while the stage ran", headlessId: null }] });
   });
@@ -1087,7 +1087,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const later = await client(url, cleanups);
     const ready = await later.message("ready");
     expect(ready.workItems[0]?.chain).toMatchObject({ state: "rested", says: "Pull request #1 is open." });
-    expect(ready.workItems[0]?.chain?.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+    expect(ready.workItems[0]?.chain?.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
   });
 
   it("ends each stage's process before the next stage starts: every stage's run is stopped and has exited before the next one's start, the broad gate's command has exited before the sealer's start, and the sealer's run has exited before the chain rests", async () => {
@@ -1150,7 +1150,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(started[2]?.prompt).toContain("- Earlier round records: `iadd/threads/1795388700-listed/trail/rounds/round-1.md`\n");
     expect(started[1]?.prompt).toBe(sessions[1]?.prompt);
     // The proofer's write was refused by its grant in each round, and nothing was written.
-    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 0], ["round", 1], ["gate", 0], ["inspect", 0], ["pull-request", 0]]);
+    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 0], ["round", 1], ["gate", 0], ["inspection", 0], ["pull-request", 0]]);
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     // The sealer is given the commit the gate passed on, the records to read, and the diff of what the branch changed since it left its base, as round 1 was: nothing the base gained since.
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
@@ -1392,7 +1392,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
       const again = await c.chain(a.id, "rested");
       // The stages of the first start stay, and the chain went on from the records: round 1 again.
-      expect(again.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "failed"], ["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(again.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "failed"], ["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
     });
 
     it("stops its one chain where a client stops a round's session: the chain names the round and what stopped it, no record is written, and the other work item's chain runs to its end", async () => {
@@ -1534,7 +1534,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       rmSync(join(a.worktree, "notes.txt"));
       // With no directory of the work item yet, a file under the records root is outside it too.
       write(a.worktree, "iadd/threads/9-other/notes.md", "notes\n");
-      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at seal\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
+      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at iadd\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
       rmSync(join(a.worktree, "iadd/threads/9-other"), { recursive: true });
       // Inside the work item's directory a file no commit holds refuses nothing.
       write(a.worktree, "iadd/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
@@ -1630,7 +1630,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(c.workItem(a.id)?.chain).toBeNull();
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
       expect(started[0]?.role).toEqual({ role: "crafter", stage: "fix-pass" });
       expect(givenFix(started[0]?.prompt ?? "")).toEqual({ record, open: [1] });
     });
@@ -1641,7 +1641,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const at = head(a.worktree);
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, round }) => [kind, round])).toEqual([["round", 2], ["gate", 2], ["inspect", 2], ["pull-request", 2]]);
+      expect(chain.stages.map(({ kind, round }) => [kind, round])).toEqual([["round", 2], ["gate", 2], ["inspection", 2], ["pull-request", 2]]);
       expect(givenRound(started[0]?.prompt ?? "")).toEqual({ round: 2, heading: HEADING(2), target: `${at}, fixes ${target}..${at}` });
       expect(readRoundRecord(readFileSync(recordAt(a.worktree, 2), "utf8")).target?.said).toBe(`${at}, fixes ${target}..${at}`);
     });
@@ -1654,7 +1654,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const chain = await c.chain(a.id, "rested");
       // Read from the worktree, the finding would stand rejected and a verifying round would be first.
       expect(started.map(({ role }) => role?.role)).toEqual(["crafter", "proofer", "inspector"]);
-      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
       expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-4)).toEqual(["chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     });
 
@@ -1902,7 +1902,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "orchestrator", stage: "judgment" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "inspector", stage: "inspection" }]);
       expect(started[3]?.cwd).toBe(a.worktree);
       expect(started[3]?.prompt.split("\n")[0]).toBe(`The judgment after review round 2 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
@@ -1952,7 +1952,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
       expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "orchestrator", "crafter", "proofer", "inspector"]);
-      expect(stagesOf(chain).slice(4)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(4)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
     });
 
     it("asks the orchestrator again before each later fix pass, and again where its answer to the one before was no judgment: that stage fails with what its answer lacks, and nothing is recorded", async () => {
@@ -1969,7 +1969,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       // The person's start is no answer to a judgment that gave none, so the orchestrator is asked again, and after round 3 once more.
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"], ["gate", 4, "finished"], ["inspect", 4, "finished"], ["pull-request", 4, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"], ["gate", 4, "finished"], ["inspection", 4, "finished"], ["pull-request", 4, "finished"]]);
       expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "orchestrator", "crafter", "proofer", "inspector"]);
       // The judgment after round 3 is given the record of decisions, which the judgment after round 2 wrote, and the first judgment met none.
       expect(started[7]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
@@ -2041,7 +2041,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "It may not." }] });
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
       expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "orchestrator", "crafter", "proofer", "inspector"]);
       expect(started[3]?.prompt).toContain(`- The round record: \`${DIRECTORY}/trail/rounds/round-1.md\`\n- Its open findings: 1\n- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
       // The person's answer was committed before the chain went on, so the pass read it in a committed record.
@@ -2058,7 +2058,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started[3]?.prompt).toContain("- Who asks: the proofer, in review round 2\n\nIts question:\n\n1. Is the greeting's language in scope?\n");
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
       expect(recorded(a.worktree).decisions.map(({ kind, decided, by }) => [kind, decided, by])).toEqual([
@@ -2101,7 +2101,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(recorded(a.worktree).questions).toMatchObject([{ id: 1, by: "proofer", state: { is: "open" } }]);
       c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(4)).toEqual([["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(4)).toEqual([["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "inspector"]);
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
     });
@@ -2136,7 +2136,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       clock = NOW + 100 * 60_000;
       expect(await stood.c.startChain(a.id)).toBe("done");
       const sealed = await stood.c.chain(a.id, "rested");
-      expect(stagesOf(sealed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(stagesOf(sealed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
       expect(sealed.since).toBe(NOW + 110 * 60_000);
       // While it ran, each start's chain was running since that start: the first, and the person's after the stop.
       const ran = stood.c.messages.flatMap((message) => (message.type === "inbox" ? message.workItems : [])).flatMap((item) => (item.id === a.id && item.chain?.state === "running" ? [item.chain.since] : []));
@@ -2161,7 +2161,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const chain = await c.chain(a.id, "rested");
       expect(started.map(({ role }) => role?.role).slice(4)).toEqual(["orchestrator", "crafter", "proofer", "inspector"]);
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
-      expect(stagesOf(chain).slice(3)).toEqual([["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
     });
 
     it("takes in a decision the person reversed: a start on a sealed chain runs a fix pass whose prompt holds the decision and the message, the decision reads applied with the head the pass left in the commit after the pass, and a verifying round, the broad gate and a second run of the sealer follow", async () => {
@@ -2179,7 +2179,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         const found = stood.c.workItem(a.id)?.chain;
         return found?.state === "rested" && found.stages.length === 11 ? found : undefined;
       });
-      expect(stagesOf(chain).slice(3)).toEqual([["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspect", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started[4]?.prompt).toContain('- Its open findings: none\n- The decisions the person reversed, each to take in:\n  - decision 1, "Start from main.": the person says "Start from the release branch."\n');
       const commits = commitsAfterMain(a.worktree);
       expect(commits.slice(-6)).toEqual([
@@ -2215,7 +2215,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 2], ["round", 0], ["gate", 0], ["inspect", 0], ["pull-request", 0]]);
+      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 2], ["round", 0], ["gate", 0], ["inspection", 0], ["pull-request", 0]]);
       const refusals = `${DIRECTORY}/trail/refusals.md`;
       const head = [`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
       const rows = ["| round 1 | proofer | Write | writes a file | no-write |", "| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| fix pass 1 | crafter | WebFetch | something else | other |"];
@@ -2275,7 +2275,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const after = await c.chain(a.id, "rested");
     expect(after.stages.length).toBe(CHAIN_STAGES_KEPT);
     // The verifying round, the broad gate after it, the seal and the pull request stage each took the place of the oldest stage kept.
-    expect(after.stages.map(({ kind, round }) => (round < 1000 ? `${kind} ${String(round)}` : round))).toEqual([...Array.from({ length: CHAIN_STAGES_KEPT - 4 }, (_, index) => 1004 + index), "round 3", "gate 3", "seal 3", "pull-request 3"]);
+    expect(after.stages.map(({ kind, round }) => (round < 1000 ? `${kind} ${String(round)}` : round))).toEqual([...Array.from({ length: CHAIN_STAGES_KEPT - 4 }, (_, index) => 1004 + index), "round 3", "gate 3", "inspection 3", "pull-request 3"]);
   });
 });
 
@@ -2377,7 +2377,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     write(a.worktree, "feature.txt", "Another greeting\n");
     commitAll(a.worktree, "feat: greet again");
     const third = await again(c, a.id, "rested");
-    expect(third.stages.slice(8).map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 2, "finished"], ["gate", 2, "finished"], ["inspect", 2, "finished"], ["pull-request", 2, "finished"]]);
+    expect(third.stages.slice(8).map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
     const second = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [[read, base], [noted, base], [second, base]]));
     expect(commitsAfterMain(a.worktree).slice(-3)).toEqual([{ subject: "chore: record review round 2", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-2.md`] }, GATE_COMMIT, SEAL_COMMIT]);
@@ -2515,7 +2515,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       held?.end();
       expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
       const record = readFileSync(join(item.worktree, GATE_PATH), "utf8");
-      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`seal\nrun: `);
+      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`iadd\nrun: `);
       expect(await gateEntries(c, item.id, 11)).toMatchObject([{ state: "failed" }, { state: "finished" }]);
       // Each run has its line in the runs' file: the first over the load it started at, with the memory read while it waited for `go`, and the second alone, which ends too soon for a reading to be sure.
       expect(readHeavyRuns(stood.runDir).filter((run) => run.name === BROAD_GATE_NAME)).toMatchObject([
@@ -2648,7 +2648,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       const { adapter, started } = noted(roles());
       const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, roleAdapter: adapter });
       const a = workItems[0]!;
-      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository\'s check there, and commit it.');
+      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.');
       expect(started).toEqual([]);
       expect(c.workItem(a.id)?.chain).toBeNull();
       expect(subjects(a.worktree)).toEqual(["feat: greet"]);
@@ -2877,7 +2877,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
 
     judge = "s-2";
     await again(c, a.id, "rested");
-    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, s-1\ninspected-by: s-2\nmodel: owl-large\nrules: owlery 0.0.2\n```\n");
+    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, s-1\ninspected-by: s-2\nmodel: owl-large\nrules: owlery 0.0.2\nworkflow: owl-chain\ninspector: owl-chain\n```\n");
   });
 
   it("writes no verdict of an answer it cannot take, and says which: a target other than the prompt's, two verdict blocks, a line Owlery writes, a line the reader refuses, no section, and a section of another run", async () => {
@@ -2889,9 +2889,9 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const refused: [(given: Given) => string, string][] = [
       [(given) => runSection({ ...given, target: `${A} against main` }), `its verdict's target line reads \`${A} against main\`, and the run was given \``],
       [(given) => `${runSection(given)}\n${block(given.target)}`, "its section holds 2 verdict blocks, and a run's section holds one"],
-      [(given) => `${given.heading}\n\n${block(given.target, "inspected-by: s-9")}`, "its verdict block holds a `inspected-by:` line, which Owlery writes and a sealer does not"],
+      [(given) => `${given.heading}\n\n${block(given.target, "inspected-by: s-9")}`, "its verdict block holds a `inspected-by:` line, which Owlery writes and an inspector does not"],
       [(given) => `${given.heading}\n\n${block(given.target, "gate: passed")}`, "its section holds a line Owlery cannot read, line 6: "],
-      [() => "I read the branch, and it holds.", "its answer holds no section of the guarantee: no line of it reads `## Run 1`"],
+      [() => "I read the branch, and it holds.", "its answer holds no section of the inspection: no line of it reads `## Run 1`"],
       [(given) => runSection({ ...given, heading: "## Run 2" }), "its section is headed `## Run 2`, and the run was given `## Run 1`"],
     ];
     for (const [says, why] of refused) {
@@ -2915,9 +2915,9 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const inner = roles({ proofer: clean }, { session: (_prompt, role) => ({ id: `${role?.role ?? "none"}-1`, model: role?.role === "inspector" ? null : "owl-large" }) });
     const unnamed: RoleAdapter = { ...inner, start: (options, listener) => inner.start(options, (event) => (event.type === "session" && options.role?.role === "inspector" ? undefined : listener(event))) };
     const cases: [Partial<NonNullable<Parameters<typeof standing>[2]>>, string, ((worktree: string, branch: string) => void)?][] = [
-      [{ roleAdapter: unnamed }, "its session named no id of its own, and a verdict names the session that judged"],
-      [{ roleAdapter: inner }, "its session named no model, and a verdict names the model that judged"],
-      [{ roleAdapter: roles({ proofer: clean }), version: undefined }, "this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under"],
+      [{ roleAdapter: unnamed }, "its session named no id of its own, and a verdict names the session that inspected"],
+      [{ roleAdapter: inner }, "its session named no model, and a verdict names the model that inspected"],
+      [{ roleAdapter: roles({ proofer: clean }), version: undefined }, "this daemon was given no version of Owlery, and a verdict names the version of the rules it was inspected under"],
       [
         { roleAdapter: roles({ proofer: clean }) },
         "no session is named as having built the work, and a verdict names one or more",
@@ -2959,9 +2959,9 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["inspect", 1], ["pull-request", 0]]);
+    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["inspection", 1], ["pull-request", 0]]);
     const refusals = `${DIRECTORY}/trail/refusals.md`;
-    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""]);
+    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| inspection 1 | inspector | Write | writes a file | no-write |", ""]);
     expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [GUARANTEE, refusals] });
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     expect(status(a.worktree)).toEqual([]);
@@ -2981,7 +2981,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["gate", 1, "finished"], ["inspect", 1, "finished"], ["ruling", 1, "finished"], ["gate", 1, "finished"], ["inspect", 1, "finished"], ["pull-request", 1, "finished"]]);
+    expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["gate", 1, "finished"], ["inspection", 1, "finished"], ["ruling", 1, "finished"], ["gate", 1, "finished"], ["inspection", 1, "finished"], ["pull-request", 1, "finished"]]);
     expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "inspector", stage: "inspection" }, { role: "orchestrator", stage: "judgment" }, { role: "inspector", stage: "inspection" }]);
     expect(started[2]?.prompt.split("\n")[0]).toBe(`The judgment after review round 1 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
     expect(started[2]?.prompt).toContain(`- Who asks: the inspector, in the inspector's session\n\nIts question:\n\n1. ${QUESTION}\n   - Why the inspector cannot answer it: The inspector asked it in place of a verdict, in run 1 of inspection.md.\n`);
@@ -3046,7 +3046,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [DECISIONS, GUARANTEE] });
     expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8"))).toMatchObject({
       decisions: [{ id: 1, kind: "answered", by: "orchestrator" }],
-      questions: [{ id: 2, asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The guarantee already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector", state: { is: "open" } }],
+      questions: [{ id: 2, asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The inspection already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector", state: { is: "open" } }],
     });
     expect(status(a.worktree)).toEqual([]);
   });
@@ -3078,7 +3078,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "parked");
     expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "orchestrator", "inspector", "orchestrator", "inspector"]);
-    expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8")).questions).toMatchObject([{ asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The guarantee already holds 2 verdicts that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector" }]);
+    expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8")).questions).toMatchObject([{ asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The inspection already holds 2 verdicts that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector" }]);
   });
 
   it("names no session a verdict block cannot name, and gives the sealer the frame, the phase records and the changelog where the directory holds them: a fix pass whose session named an id of two words is recorded with the routing's trailer alone, a trailer written by hand with such a value is passed over, and one with an id is taken", async () => {
@@ -3250,8 +3250,10 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
     const prompt = started[3]?.prompt ?? "";
     expect(givenInspection(prompt)).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against ${base}` });
-    expect(prompt).toContain(`\n- The seal this run follows: run 1 of \`${DIRECTORY}/inspection.md\` sealed \`${sealed}\`, and a commit after it broke that seal\n`);
-    expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 sealed:\n- \`later.txt\`\n- \`${DIRECTORY}/inspection.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n\nTheir diff:\n\ndiff --git a/later.txt b/later.txt\n`);
+    expect(prompt).toContain(`\n- The inspection this run follows: run 1 of \`${DIRECTORY}/inspection.md\` cleared \`${sealed}\`, and a commit after it lapsed that inspection\n`);
+    // Git lists the paths in their order, and `iadd/` comes before `later.txt`.
+    expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 cleared:\n- \`${DIRECTORY}/inspection.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n- \`later.txt\`\n\nTheir diff:\n\ndiff --git a/${DIRECTORY}/inspection.md b/${DIRECTORY}/inspection.md\n`);
+    expect(prompt).toContain("\ndiff --git a/later.txt b/later.txt\n");
     // The branch changed `feature.txt` before the seal, and nothing of it since.
     expect(prompt).not.toContain("- `feature.txt`");
     expect(prompt).not.toContain("diff --git a/feature.txt");
@@ -3281,7 +3283,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "proofer", "inspector"]);
     const prompt = started[3]?.prompt ?? "";
     expect(givenInspection(prompt).run).toBe(2);
-    expect(prompt).not.toContain("The seal this run follows");
+    expect(prompt).not.toContain("The inspection this run follows");
     expect(prompt).toContain("\nThe branch changed these paths since it left its base:\n- `feature.txt`\n");
     expect(prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
     expect(prompt).not.toContain("on-main.txt");
@@ -3308,7 +3310,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     return blocks.at(-1) ?? "";
   };
   /** The seal section the stage writes over a verdict block. */
-  const sectionOf = (block: string): string => ["<!-- owlery:inspection -->", "## Seal", "", `The newest verdict of \`${GUARANTEE}\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:inspection -->"].join("\n");
+  const sectionOf = (block: string): string => ["<!-- owlery:inspection -->", "## Inspection", "", `The newest verdict of \`${GUARANTEE}\`. An inspection binds the commit it names, and the check \`inspection\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:inspection -->"].join("\n");
   /** The stage of a pull request after the round given, listed as no session. */
   const pullRequestStage = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null, ...more });
   /**
@@ -3394,7 +3396,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(existsSync(file)).toBe(false);
     const body = gh.bodies()[1] ?? "";
     expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n`)).toBe(true);
-    expect(newestBlock(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session\ninspected-by: fake-2\nmodel: fake\nrules: owlery 0.0.2\n```");
+    expect(newestBlock(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session\ninspected-by: fake-2\nmodel: fake\nrules: owlery 0.0.2\nworkflow: owl-chain\ninspector: owl-chain\n```");
     expect(c.workItem(a.id)?.pullRequest).toEqual({ number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: NOW, failure: null });
     expect(chain).toEqual({ state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [chain.stages[0]!, chain.stages[1]!, chain.stages[2]!, pullRequestStage(1)] });
     expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
@@ -3522,7 +3524,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   it("pushes nothing more and calls gh no more where a branch sealed once, whose pull request is open, rests at a later head with no seal: a failed broad gate, a sealer that withholds, and a parked chain", async () => {
     for (const ends of ["gate", "withheld", "parked"] as const) {
       let later = false;
-      const sealer = (given: { run: number; heading: string; target: string }): string => runSection(given, !later ? "sealed" : ends === "withheld" ? "withheld reason: the changelog is missing" : "undecided question: May the release wait?");
+      const sealer = (given: { run: number; heading: string; target: string }): string => runSection(given, !later ? "cleared" : ends === "withheld" ? "withheld reason: the changelog is missing" : "undecided question: May the release wait?");
       const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, inspector: sealer }), gate: "if [ -e fails ]; then exit 1; fi", undecidedCeiling: 0 });
       const a = stood.workItems[0]!;
       expect(await stood.c.startChain(a.id)).toBe("done");
@@ -3588,7 +3590,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   it("stops the chain where gh lists what the stage does not take, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was and calls gh no more after the list: two open pull requests of the branch, and a listed body with two seal sections and one with two sections of the back", async () => {
     const several = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([3, 5].map((number) => ({ number, url: `https://github.com/owner/project/pull/${String(number)}`, headRefOid: "a".repeat(40), body: "" }))) }), /^The pull request stage failed: the branch has the open pull requests #3, #5, and Owlery opens or updates one\.$/u);
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
-    const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- owlery:inspection -->\n<!-- /owlery:inspection -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:inspection -->` lines, and Owlery replaces one seal section\.$/u);
+    const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- owlery:inspection -->\n<!-- /owlery:inspection -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:inspection -->` lines, and Owlery replaces one inspection section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- /owlery:inspection -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
     expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);

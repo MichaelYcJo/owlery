@@ -448,7 +448,7 @@ export function runSection(given: { heading: string; target: string }, verdict =
 /** A run's section with the daemon's lines in its verdict block, before the closing fence: who built the work, who judged it, the judging model and the rules. */
 export function withOwleryLines(section: string, builtBy: string, inspectedBy: string, model = "fake"): string {
   const closer = section.lastIndexOf("```\n");
-  return `${section.slice(0, closer)}built-by: ${builtBy}\ninspected-by: ${inspectedBy}\nmodel: ${model}\nrules: owlery ${VERSION}\n${section.slice(closer)}`;
+  return `${section.slice(0, closer)}built-by: ${builtBy}\ninspected-by: ${inspectedBy}\nmodel: ${model}\nrules: owlery ${VERSION}\nworkflow: owl-chain\ninspector: owl-chain\n${section.slice(closer)}`;
 }
 
 /** A guarantee as the daemon writes one: the heading, then each section given, each below one blank line. */

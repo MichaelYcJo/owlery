@@ -153,7 +153,7 @@ const BASE = "c".repeat(40);
 const BLOCK = [`target: ${GATE} against main`, "Verdict: cleared", "built-by: the session, s-1", "inspected-by: s-2", "model: fake", "rules: owlery 0.0.2"];
 
 /** The seal section the composer writes for `BLOCK`. */
-const SECTION = [SECTION_OPEN, "## Seal", "", `The newest verdict of \`${DIRECTORY}/inspection.md\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", "```iadd", ...BLOCK, "```", SECTION_CLOSE].join("\n");
+const SECTION = [SECTION_OPEN, "## Inspection", "", `The newest verdict of \`${DIRECTORY}/inspection.md\`. An inspection binds the commit it names, and the check \`inspection\` says whether it holds at this pull request's head commit:`, "", "```iadd", ...BLOCK, "```", SECTION_CLOSE].join("\n");
 
 /** A round record with one finding closed by the verdict given, or with none. */
 function round(number: number, closed: string | null): string {
@@ -497,11 +497,11 @@ describe("the seal section and the back's section of a body a person may have ed
         return error instanceof Error ? error.message : String(error);
       }
     };
-    expect(refused([...OLD, ...OLD].join("\n"))).toBe(`the body holds 2 \`${SECTION_OPEN}\` lines, and Owlery replaces one seal section`);
-    expect(refused([SECTION_OPEN, "x", SECTION_CLOSE, SECTION_CLOSE].join("\n"))).toBe(`the body holds 2 \`${SECTION_CLOSE}\` lines, and Owlery replaces one seal section`);
-    expect(refused([SECTION_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
-    expect(refused([SECTION_CLOSE, "x", SECTION_OPEN].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
-    expect(refused(["x", SECTION_CLOSE].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
+    expect(refused([...OLD, ...OLD].join("\n"))).toBe(`the body holds 2 \`${SECTION_OPEN}\` lines, and Owlery replaces one inspection section`);
+    expect(refused([SECTION_OPEN, "x", SECTION_CLOSE, SECTION_CLOSE].join("\n"))).toBe(`the body holds 2 \`${SECTION_CLOSE}\` lines, and Owlery replaces one inspection section`);
+    expect(refused([SECTION_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
+    expect(refused([SECTION_CLOSE, "x", SECTION_OPEN].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
+    expect(refused(["x", SECTION_CLOSE].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
   });
 });
 

@@ -143,7 +143,7 @@ describe("the role bundle", () => {
       ["agents/crafter.md", "commit no change to the round record: Owlery commits it after the pass"],
       ["skills/implement/fix-pass.md", "Owlery commits the round record as the pass left it"],
       ["docs/forms/the-round-record.md", "Owlery writes that answer unchanged to `iadd/threads/<id>/trail/rounds/round-N.md`"],
-      ["docs/forms/the-inspection.md", "Owlery writes four lines more into the block"],
+      ["docs/forms/the-inspection.md", "Owlery writes six lines more into the block"],
       ["agents/orchestrator.md", "In a pane that carries the Owl Chain, Owlery spawns no agent for these judgments: the pane's session makes them itself"],
       ["README.md", "A Claude Code pane of a repository on the Owl Chain loads the same folder"],
     ] as const) expect(flat(file), `${file}: ${named}`).toContain(named);
@@ -230,7 +230,7 @@ describe("the role bundle", () => {
       "Where the last round has no open finding located outside the records, the third signal does not hold.",
       "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
       "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
-      "The owl chain's ceiling of rounds bounds such findings as well, where the daemon runs the chain and in a pane.",
+      "The Owl Chain's ceiling of rounds bounds such findings as well, where the daemon runs the chain and in a pane.",
       "A stop is the most expensive step of the chain, as `skills/core/SKILL.md` *Asking a person is the most expensive step* says: it costs the person's attention, and while nobody watches it costs the hours until somebody does.",
       "So a `no` argues for its stop by what it buys: the person's decision at the stop, which no fix pass makes, such as a reframe, a split of the work, dropping the work or a fix by hand, and the rounds that a chain which does not converge would spend before anything else stops it.",
       "The `grounds:` line of a `no` names the signal that holds and the findings that hold it.",
@@ -299,7 +299,7 @@ describe("the role bundle", () => {
     const form = read("docs/forms/the-inspection.md").replace(/\s+/gu, " ");
     for (const named of [
       "`### Claims checked by reading` or `### The parties`",
-      "Owlery writes four lines more into the block, before its closing fence: `built-by:`",
+      "Owlery writes six lines more into the block, before its closing fence: `built-by:`",
       "A `withheld` verdict stops it with the reason. What the reason names is fixed, and the chain is started again on the fixed head, in the pane's session or by Owlery's daemon.",
       "the closing records follow",
       "The closing records are `trail/gate.md`, `inspection.md` and `trail/refusals.md`",

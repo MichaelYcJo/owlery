@@ -43,7 +43,7 @@ describe("the writer of a work item's records", () => {
     const made = worktree();
     writeRecordFile(made.worktree, join(made.worktree, ROUND), TEXT);
     expect(readFileSync(join(made.worktree, ROUND), "utf8")).toBe(TEXT);
-    expect(below(join(made.worktree, "seal"))).toEqual(["threads", "threads/1-x", "threads/1-x/trail", "threads/1-x/trail/rounds", "threads/1-x/trail/rounds/round-1.md"]);
+    expect(below(join(made.worktree, "iadd"))).toEqual(["threads", "threads/1-x", "threads/1-x/trail", "threads/1-x/trail/rounds", "threads/1-x/trail/rounds/round-1.md"]);
     writeRecordFile(made.worktree, join(made.worktree, ROUND), `${TEXT}\nA second write.\n`);
     expect(readFileSync(join(made.worktree, ROUND), "utf8")).toBe(`${TEXT}\nA second write.\n`);
     expect(readdirSync(join(made.worktree, ITEM, "trail", "rounds"))).toEqual(["round-1.md"]);
@@ -109,7 +109,7 @@ describe("the writer of a work item's records", () => {
     expect(statSync(join(folder.worktree, ROUND)).isDirectory()).toBe(true);
 
     expect(() => writeRecordFile(folder.worktree, join(folder.outside, "round-1.md"), TEXT)).toThrow("Owlery writes no record at ../outside/round-1.md: the path is not inside the worktree.");
-    expect(() => writeRecordFile(folder.worktree, join(folder.worktree, "seal", "..", "..", "outside", "round-1.md"), TEXT)).toThrow("the path is not inside the worktree");
+    expect(() => writeRecordFile(folder.worktree, join(folder.worktree, "iadd", "..", "..", "outside", "round-1.md"), TEXT)).toThrow("the path is not inside the worktree");
     expect(() => writeRecordFile(folder.worktree, folder.worktree, TEXT)).toThrow("the path is not inside the worktree");
     expect(below(folder.outside)).toEqual(["kept.md"]);
   });

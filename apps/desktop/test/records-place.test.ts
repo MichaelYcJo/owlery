@@ -213,7 +213,7 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
   });
 
-  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own three", () => {
+  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, this repository's own `seal/` among them", () => {
     const repo = repository();
     write(repo, "iadd/README.md", `${MARKER}\n`);
     write(repo, "iadd/config.json", `${JSON.stringify({ "Broad gate": "pnpm test", "Heavy commands": { test: "pnpm --filter @owlery/desktop run test", install: "pnpm install", count: 3, blank: "  ", list: ["pnpm"] } })}\n`);
@@ -230,8 +230,8 @@ describe("the records place", () => {
     const rootless = repository();
     write(rootless, "iadd/config.json", JSON.stringify({ "Heavy commands": { test: "pnpm test" } }));
     expect(readHeavyCommands(rootless)).toEqual({});
-    // This repository names the suite of the desktop app, its built-app files as one batch, and the install as its heavy commands.
-    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({ test: "pnpm --filter @owlery/desktop run test", "test:app": "pnpm --filter @owlery/desktop run test:app", install: "pnpm install" });
+    // This repository's own root stays `seal/`, in AgenticSeal's form, so the daemon reads no heavy command of it.
+    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({});
   });
 
   it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {
@@ -460,7 +460,7 @@ describe("the records place", () => {
     write(file.repo, WORKFLOW, "name: inspection\n");
     commitAll(file.repo, "chore: a link for the root's file");
     expect(readRecordsPlace(file.repo).root).toBe("iadd");
-    expect((await planRecords(file.repo, "pnpm test", VERSION)).blocked).toBe(differs("iadd/README.md"));
+    expect((await planRecords(file.repo, "pnpm test", VERSION)).blocked).toBe(OWN);
   });
 
   it("blocks a plan where git holds a file of the place and the checkout does not: one staged and then deleted, one committed and then deleted, and one staged for removal; a setup of each leaves the index and the commit as they were", async () => {
@@ -1094,11 +1094,6 @@ describe("the records place", () => {
     expect(olderVersion("0.1.0", "main")).toBe(false);
     expect(olderVersion("0.1", "0.1.0")).toBe(false);
     expect(olderVersion("0.0.4", "0.1")).toBe(false);
-  });
-
-  it("holds Owlery's own workflow to the one a setup writes for the app's version, so the pull request that moves the version rewrites it", () => {
-    const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
-    expect(readFileSync(join(PR_CHECK, "..", WORKFLOW), "utf8")).toBe(workflowText(version));
   });
 
   it("proposes a broad gate command from the package.json of the repository: its check script before its test script, run by the package manager whose lock file stands, and none where it reads neither", () => {

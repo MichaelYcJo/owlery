@@ -177,7 +177,7 @@ describe("the directories a settle keeps", () => {
       {
         directory: "iadd/threads/1-a",
         line: 3,
-        why: "not read: `" + F + "seal decision` opens a fence like an `iadd` block and is not one, so its lines are no fields; an `iadd` block opens with three backticks and `iadd` alone on the line",
+        why: "not read: `" + F + "iadd decision` opens a fence like an `iadd` block and is not one, so its lines are no fields; an `iadd` block opens with three backticks and `iadd` alone on the line",
       },
     ]);
     const got = run(repo);
@@ -514,7 +514,7 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
       standIn(REMOVE_ALL, move);
       const got = run(repo, "--apply");
       expect(got.code, move).toBe(2);
-      expect(got.err, move).toMatch(/^settle: not put back seal\/threads\/1-a\/: HEAD moved from [0-9a-f]{40} to .+ while seal settle --apply ran\n$/);
+      expect(got.err, move).toMatch(/^settle: not put back iadd\/threads\/1-a\/: HEAD moved from [0-9a-f]{40} to .+ while seal settle --apply ran\n$/);
       expect(got.out, move).toContain("keeping iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; ");
       expect(existsSync(join(repo, "iadd/threads/1-a")), move).toBe(false);
       expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
@@ -584,7 +584,7 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     write(repo, "iadd/threads/3-c/decisions.md", record(OPEN));
     commit(repo, "chore: a third work item");
     // The settle leaves `threads/` a folder nothing can be written in, so no checkout can make a directory there.
-    standIn(REMOVE_ALL, "chmod 555 seal/threads");
+    standIn(REMOVE_ALL, "chmod 555 iadd/threads");
     try {
       const got = run(repo, "--apply");
       expect(got.code).toBe(2);
@@ -602,7 +602,7 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-stand-in-")));
     cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
     // A `seal` that cannot be run is not found either, and nor is a folder named `seal`.
-    writeFileSync(join(folder, "seal"), "#!/bin/sh\nrm -rf seal/threads\n", { mode: 0o644 });
+    writeFileSync(join(folder, "seal"), "#!/bin/sh\nrm -rf iadd/threads\n", { mode: 0o644 });
     mkdirSync(join(folder, "holder", "seal"), { recursive: true });
     for (const path of [WITHOUT_SEAL, `${folder}${delimiter}${WITHOUT_SEAL}`, `${join(folder, "holder")}${delimiter}${WITHOUT_SEAL}`]) {
       vi.stubEnv("PATH", path);
