@@ -29,6 +29,11 @@ The fix puts the row back as the table's last row, after the row on Q1 at `gaps.
 | closed Scenarios A to D were read, and no second reader applied the list to a live issue | round 1 applied the list to live issues with `gh issue view` on 2026-11-27, `trail/rounds/round-1.md` under its round block |
 ```
 
+```seal
+verdict: fixed 1ae32ff1
+answer: The orchestrator restored the row after `gaps.md:8` as `closed`, with the round's text word for word. Records alone.
+```
+
 ### 2. Two statements that hold #176 in `owner: by hand` stand uncorrected, and no record says why one is left
 
 ```seal
@@ -56,6 +61,11 @@ At `frame/plan.md:55`, the empty row of *Judgments of the run* is replaced by th
 
 ```markdown
 | 2026-11-27 | The 0.0.3 row of the release table, `docs/roadmap.md:53` and `docs/roadmap.ko.md:53`, keeps "are now in the milestone `owner: by hand`" of #176, #184 and #110, which the owner moved into `release: 0.1.0` on 2026-11-27. This work leaves the row, and the settle of release 0.1.0 rewrites it with the release table. | The owner returns the three issues to `owner: by hand` if they do not finish by 2026-11-28 (the comment on #176 of 2026-11-27), so where they stand is known only when the release closes. The release table is the settle's record of what each release shipped (`frame/design.md` *Out of scope*, the row on the row 0.1.0). | `skills/core/SKILL.md` *A judgment stands on a source document, and is written down with both*; `frame/design.md` *Out of scope* |
+```
+
+```seal
+verdict: fixed 1ae32ff1
+answer: The orchestrator replaced `frame/plan.md:21` with the round's row and filled the *Judgments of the run* row at `frame/plan.md:55` with the round's row, word for word. The 0.0.3 row of `docs/roadmap.md:53` and its twin is left to the settle of release 0.1.0, as that judgment records. Records alone.
 ```
 
 ## Confirmations
