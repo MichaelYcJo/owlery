@@ -19,7 +19,7 @@ The ticket left these judgments open, and the tree or a probe answered each. The
 - Whether a committed case tries a file tool's read of the run folder, which round 2's finding 1 asked for: `frame/design.md` *Scope* item 9; `frame/plan.md` *Technical context*, the failure scenario.
 - Whether a session of an added account keeps the person's shell setup under the refused read of the run folder: `frame/plan.md` *Alternatives considered*, the rows on `shell-snapshots` in `allowRead`, on account folders beside the run folder and on leaving the read refused; `frame/design.md` *Grounding*, the rows read at `cff01936`.
 
-Q1 and Q2 are the owner's. Neither blocks the build: under `agentic` the run goes on with each default. Q3 to Q6 are answered by phase 3's runs, and each `Status` cell says what the frame took from the answer. Q7 came from the fold after the fix pass of review round 1 and is answered by the run of `trail/phases/phase-5.md`. Q8 came from the fold after the fix pass of review round 2, and a run of the stand-in case answers it.
+Q1 and Q2 are the owner's. Neither blocks the build: under `agentic` the run goes on with each default. Q3 to Q6 are answered by phase 3's runs, and each `Status` cell says what the frame took from the answer. Q7 came from the fold after the fix pass of review round 1 and is answered by the run of `trail/phases/phase-5.md`. Q8 came from the fold after the fix pass of review round 2 and is answered by the run of `trail/phases/phase-6.md`.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
