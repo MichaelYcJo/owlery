@@ -44,6 +44,11 @@ export function storedKind(value: unknown): ChainStageKind | undefined {
 
 The fix pass shows each new case red against `EARLIER_KINDS[value]` before it commits it.
 
+```seal
+verdict: fixed f15f8503
+answer: `EARLIER_KINDS` is a `ReadonlyMap` read with `.get`, as the paste-ready fix writes it, with the map's type arguments named. `chain.test.ts` gains the case "reads no chain whose stage names a kind no build stored, a member name of Object.prototype among them", over `constructor`, `toString`, `__proto__`, `hasOwnProperty` and `sealed`, and `ledger.test.ts` gains the line `{ ...good, chain: { kind: "constructor", round: 2 } }` among those that read as no entry. Both were run red against `EARLIER_KINDS[value]` before the fix (the chain case failed on `constructor: expected true to be false`, the ledger case on one entry too many), and again by `seal mutate` of `EARLIER_KINDS.get(value)` back to a lookup on the object literal, which went red in both cases and restored the file. The class was listed from the diff `a75f4581..HEAD`: each table the range adds as a `Record<` or an object literal, and each site that indexes one with a value; `EARLIER_KINDS` is the one indexed with a stored value, and `RUNS` of `chain-command.ts` is indexed only after `SUBCOMMANDS.includes`.
+```
+
 ### 2. An app built from this release runs no heavy command in this repository, whose `seal/` root the frame keeps, while the merged `CLAUDE.md` sends sessions to `Heavy commands` in `seal/config.json`
 
 ```seal
@@ -62,6 +67,12 @@ The second block is a bullet of `frame/plan.md` *Operational impact*, after *Thi
 
 ```markdown
 - **This repository's heavy commands.** An app built from phase 1 on reads this repository's `seal/` as no root, so its runner runs no heavy command here until `frame/questions.md` Q12 is answered and built.
+```
+
+```seal
+verdict: fixed fbd4a370
+location: `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:30`, `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/plan.md:70`
+answer: The orchestrator, who owns the frame, wrote Q12 into `frame/questions.md` answered with the default, so phase 3 reads `Heavy commands` from a root in the earlier form too, in `records-migration.ts`, and wrote the bullet *This repository's heavy commands* into `frame/plan.md` *Operational impact*, in `fbd4a370`. The code is phase 3's under that answer, so this pass built none of it; `records-place.ts` and the heavy commands case of `records-place.test.ts` stand as the round read them.
 ```
 
 ### 3. The phase record's list of what the frame leaves out misses a record form that carries the role's name, and says the acceptance search allows every earlier spelling of stored state, which it does not for `ledger.test.ts`
@@ -94,6 +105,11 @@ The third block is a row of `gaps.md` *Not verified*:
 | The acceptance row "The product holds the seal's vocabulary only where this design keeps it" of `frame/design.md` names no `apps/desktop/test/ledger.test.ts`, whose earlier line case holds `sealer` and `seal` as an earlier build stored them, and gives `chain.ts` and `chain.test.ts` the earlier trailer alone as their reason, though both also hold the stored kinds | the orchestrator, before the last phase runs that search |
 ```
 
+```seal
+verdict: fixed 9fdab76b
+answer: The three blocks were applied as written, after each was read against the code: `chain.ts#refusalsText` writes the role in the second cell, `decision-record.ts#withQuestion` writes `by:`, `daemon.ts` parks the inspector's question with `by: INSPECTOR.role`, and `renderer/view.ts#approvalPlaces` places an open question where `by === role`. The first two blocks take the places of the paragraphs of `trail/phases/phase-1.md:10` and `:12`, where the paste-ready fix puts them and as the orchestrator's spawn asked, so the record states each fact once; the third is a row of `gaps.md` *Not verified*. `git grep -n -E '"sealer"|"seal"' -- apps/desktop/src apps/desktop/test`, run again at `9fdab76b`, prints in the sources `chain.ts:1166` and `chain.ts:1176`, the stored kind and pair, and `settle.ts:345`, the program `seal` the settle wrapper runs, which `frame/design.md` `## Removes` gives to phase 3; in the tests it prints the stored state cases of `chain.test.ts:812` and `ledger.test.ts:206`, the plugin's root of `records-place.test.ts:1116` and the stand-in program `seal` of `settle.test.ts`, which stand for those reasons, and fixtures that still hold the earlier words: the question `by: "sealer"` of `last-look.test.ts:31`, `workflowName: "seal"` of the check runs at `chain.test.ts:3475` and `daemon.test.ts:8561`, and the check named `seal` in `fixtures/rerun-unstarted/github.json:121` and `fixtures/sample-gh/gh:15`. This pass left those fixtures as they are; the last phase's acceptance search prints them.
+```
+
 ### 4. Comments of the daemon that phase 1 renamed around still state the fact before the rename: the record `guarantee.md`, a root of several names, and builders read from one trailer
 
 ```seal
@@ -121,6 +137,12 @@ Why it matters: *Scope* item 4 renames the daemon's modules, exports, comments a
    * the rename, of the commits on the gate's commit's own line that
 ```
 
+```seal
+verdict: fixed 7877a846
+location: `apps/desktop/src/daemon/inspection-sheet-records.ts:60`, `apps/desktop/src/renderer/view.ts:2871-2873`, `apps/desktop/test/view.test.ts:5470-5472`
+answer: Both blocks were applied as written. The finding's searches named two more statements of the old fact that phase 2 left at `fbd4a370`, and this commit takes both: the comment of `inspection-sheet-records.ts`, the module that `seal-back-records.ts` became, said "where no guarantee stands" and now says "where no inspection stands", and the records dialog's two sentences of `renderer/view.ts` said "the broad gate's run and the guarantee" and now say "the broad gate's run and the inspection", which `READ` and `READ_BUT` of `view.test.ts` pin; that case was run red against the old sentences before `view.ts` changed. Run again at `9fdab76b`, `git grep -n -i -E 'guarantee|each name of|two names|second name' -- apps/desktop/src pr-check` prints `claude-accounts.ts:70`, `daemon.ts:3158`, `records-place.ts:492`, `worktrees.ts:1277` and `pr-check/lib/optin.py:12`, each of which states another fact (the names of linked files, of folders, of commits, and the root's one name), and `grep -rn -E 'Routing|Built-By' apps/desktop/src` prints the writers of `IADD-Routing:` and `IADD-Built-By:`, the two trailer constants with `EARLIER_BUILT_BY_TRAILER`, and the two docstrings that say a verdict's builders come from both trailers. `docs/architecture.md:302` and its Korean edition still name "the guarantee" among the readers the dialog names, and stand as prose of *Scope* item 12, phase 5's.
+```
+
 ### 5. `gaps.md` says the last phase's acceptance search reaches the case titles that say "guarantee", and that search greps `seal`, so it reaches none of them
 
 ```seal
@@ -133,6 +155,11 @@ Why it matters: `gaps.md:17` reads "The titles of many cases under `apps/desktop
 
 ```markdown
 The titles of many cases under `apps/desktop/test/` still say seal, sealer or guarantee in their words, and so do several helpers' comments and names, such as `GUARANTEE` and `guaranteeAt` of `chain.test.ts` and `guaranteed` of `pr-check.test.ts`. Their assertions are renamed. Their titles are text no reader of the product meets. The acceptance search of the last phase greps `seal`, so it reaches those that say seal or sealer and none that say guarantee alone. `git grep -n -i guarantee -- apps pr-check` lists the latter, and the last phase rewrites each line it prints but the role bundle's rule on a platform's guarantee.
+```
+
+```seal
+verdict: fixed 9fdab76b
+answer: The sentence of `gaps.md` *Not done*, which stood at line 17 at `f12a45ab` and stands at line 19 at `9fdab76b`, now names the helpers `GUARANTEE` and `guaranteeAt` of `chain.test.ts` and `guaranteed` of `pr-check.test.ts`, says the last phase's search greps `seal` and so reaches no line that says guarantee alone, and names `git grep -n -i guarantee -- apps pr-check` as the command that lists them. The pass wrote its last sentence in its own words: the paste-ready fix's "the last phase rewrites each line it prints" sets what phase 5 does, which no frame line sets, and `## Not judged` gives whether the acceptance search reads `guarantee` to the orchestrator, so the sentence says that choice is the orchestrator's in that acceptance row. The pass read the orchestrator's "the GUARANTEE / guaranteeAt helper names" as the sentence naming them, and renamed no helper. Run again at `9fdab76b`, `git grep -n -i 'guarantee' -- apps pr-check | grep -v -i seal | cut -d: -f1 | sort | uniq -c` prints no source file: it prints the role bundle's `skills/agent-contract/SKILL.md`, whose rule on a platform's guarantee stays, and the tests `chain-records.test.ts`, `chain-run.ts`, `chain.test.ts`, `daemon.test.ts`, `decisions-and-questions.test.ts`, `inspection-sheet-records.test.ts`, `inspection-state.test.ts`, `pr-check.test.ts`, `pull-request.test.ts` and `record-blocks.test.ts`, which the sentence leaves to that choice.
 ```
 
 ### 6. The merged-in records of #323 hand rules 31 to 34 and 39 to this work, and to its `## Rule changes`, which reads `nothing`, and no record of this work item takes them
