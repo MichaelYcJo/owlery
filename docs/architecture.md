@@ -358,6 +358,7 @@ These were confirmed from `claude --help` in Claude Code 2.1.326 (2026-11-17).
 | `-p`, `--input-format stream-json`, `--output-format stream-json` | Role sessions. The daemon sends text and receives events |
 | `--plugin-dir <path>` | Loads the Owlery role bundle inside the app into that session only: a role session, and a Claude Code pane of a folder on the owl chain |
 | `--agent <agent>` | Launches a role session with that role's agent definition |
+| `--model <model>` | Launches a role session on the model its stage names in the role bundle's `workflows/owl-chain.json` or `inspectors/owl-chain.json`, where the stage names one. Read from `claude --help` in Claude Code 2.1.332 (2026-11-28) |
 | `--append-system-prompt-file <file>` | Appends the rules for that role and stage to a role session's system prompt, and the pane's head to the system prompt of a pane that carries the owl chain |
 | `--settings <file>`, for a pane | Every Claude Code pane takes Owlery's hook settings, `claude-hooks.json` of the run folder. `claude --help` of 2.1.331 lists `--plugin-dir`, `--settings` and `--append-system-prompt-file`, and each was probed in an interactive session (2026-11-24) |
 | `--setting-sources`, `--settings`, `--strict-mcp-config`, `--permission-mode`, `--add-dir` | Detaches role sessions from the user's environment ([Role sessions run detached from the user's environment](#role-sessions-run-detached-from-the-users-environment)) |

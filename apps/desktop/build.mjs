@@ -1,5 +1,8 @@
 // Bundles the main process, the daemon, the chain command, the preload and the renderer into dist/, and copies the page, what it loads and the role bundle.
 import { copyFile, cp, mkdir, readFile, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { join, resolve } from "node:path";
+import { runInThisContext } from "node:vm";
 import * as esbuild from "esbuild";
 
 await mkdir("dist", { recursive: true });
@@ -66,3 +69,14 @@ await copyFile("assets/icon/app-icon.png", "dist/app-icon.png");
 // The role bundle, the plugin folder a role session loads for itself alone: the daemon and the chain command each find it beside their own script. The folder is replaced whole, so a file the tree no longer holds does not stay in the build.
 await rm("dist/bundle", { recursive: true, force: true });
 await cp("role-bundle", "dist/bundle", { recursive: true });
+// Each stage's model, which the bundle's workflow file and inspector module name and no definition does, written into the built definition of its agent: a
+// pane's session may start the stage's subagent with no model, and the definition's then holds (`writeDefinitionModels` of src/daemon/workflow.ts, which
+// loads the built bundle's workflow first, so a file its loader refuses stops the build). The module is bundled and run from memory, as scripts/settle.mjs
+// runs the settle, and writes nothing else.
+{
+  const entry = resolve("src/daemon/workflow.ts");
+  const built = await esbuild.build({ entryPoints: [entry], bundle: true, platform: "node", format: "cjs", write: false, logLevel: "warning" });
+  const module = { exports: {} };
+  runInThisContext(`(function (require, module, exports) {${built.outputFiles[0].text}\n})`, { filename: `${entry}, bundled` })(createRequire(entry), module, module.exports);
+  module.exports.writeDefinitionModels(join(resolve("dist"), "bundle"));
+}

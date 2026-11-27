@@ -1,0 +1,6 @@
+{
+  "inspector": "owl-chain",
+  "checks": [{ "name": "broad gate", "command": { "config": "Broad gate" } }],
+  "stage": { "role": "inspector", "agent": "agents/inspector.md", "documents": [], "provider": "claude", "model": "opus" },
+  "record": "templates/records/sdd-inspection.md"
+}

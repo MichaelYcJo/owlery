@@ -13,10 +13,11 @@ import { inside } from "../src/daemon/hooks";
 import { type StageLine, TURN_SOCKET, TurnServer, turnGiver } from "../src/daemon/turn-socket";
 import { routingAnswer } from "../src/daemon/decision-record";
 import { rulesText } from "../src/daemon/adapters/claude-roles";
+import { loadWorkflow, stageFor } from "../src/daemon/workflow";
 import { BACK_OPEN, SECTION_OPEN } from "../src/daemon/github";
 import { workItemInspection } from "../src/daemon/inspection-state";
 import { type Cleanups, VERSION, clean, closeFinding, commitAll, commitFix, commitsAfterMain, givenFix, givenRound, givenInspection, head, proofs, roundRecord, runSection, status, until, write } from "./chain-run";
-import { BRANCH, BUNDLE, type Owed, commandOn, inspectThrough } from "./chain-command-run";
+import { BRANCH, BUNDLE, type Owed, bundleCopy, commandOn, inspectThrough } from "./chain-command-run";
 import { git } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -78,13 +79,14 @@ describe("the chain command", { timeout: 60_000 }, () => {
 
     const round = await on.said(["owed"]);
     const routed = head(on.repo);
-    expect(round).toMatchObject({ step: "round", round: 1, target: `${routed} against main`, agent: "owlery:proofer" });
+    // The round's stage names no model, so the subagent runs on the session's default.
+    expect(round).toMatchObject({ step: "round", round: 1, target: `${routed} against main`, agent: "owlery:proofer", model: null });
     expect(round.prompt?.startsWith(join(on.runDir, "chain", "1795388700-greet"))).toBe(true);
     expect(givenRound(read(round.prompt))).toEqual({ round: 1, heading: "# Review round 1: 1795388700-greet", target: `${routed} against main` });
     expect(read(round.prompt)).toContain("- `feature.txt`");
     expect(read(round.rules)).toContain("# Owlery role session: proofer, round");
     // The rules are a pane's subagent's: its head names the person's permission settings, and no answer of the daemon.
-    expect(read(round.rules)).toBe(rulesText(BUNDLE, { role: "proofer", stage: "round" }, "pane"));
+    expect(read(round.rules)).toBe(rulesText(BUNDLE, stageFor(loadWorkflow(BUNDLE), { role: "proofer", stage: "round" }), "pane"));
     expect(read(round.rules)).toContain("The person's own permission settings answer every call that asks for permission.");
     expect(await on.said(["round", on.answer("round-1.md", clean(givenRound(read(round.prompt))))])).toMatchObject({ recorded: "round", round: 1, asks: [] });
 
@@ -94,7 +96,8 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(read(join(on.repo, DIRECTORY, "trail/gate.md"))).toContain(`run: ${gate.head ?? ""} against ${on.main}`);
 
     const seal = await on.said(["owed"]);
-    expect(seal).toMatchObject({ step: "inspection", round: 1, run: 1, commit: gate.head, target: `${gate.head ?? ""} against main`, agent: "owlery:inspector" });
+    // The inspector's stage names its model in the Owl Chain's inspector module, which the session starts the subagent on.
+    expect(seal).toMatchObject({ step: "inspection", round: 1, run: 1, commit: gate.head, target: `${gate.head ?? ""} against main`, agent: "owlery:inspector", model: "opus" });
     expect(givenInspection(read(seal.prompt))).toEqual({ run: 1, heading: "## Run 1", target: `${gate.head ?? ""} against main` });
     expect(await on.said(["inspect", on.answer("seal-1.md", runSection(givenInspection(read(seal.prompt)))), "--inspected-by", "agent-inspector", "--model", "owl-large"])).toEqual({ recorded: "inspection", run: 1, verdict: "cleared", says: null, commit: gate.head });
 
@@ -104,6 +107,25 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.said(["owed"])).toEqual({ step: "cleared", round: 1, commit: gate.head });
     expect(await workItemInspection({ worktree: on.repo, branch: BRANCH, baseBranch: "main", baseCommit: on.main }, head(on.repo))).toEqual({ state: "cleared", commit: gate.head, why: null });
     expect(status(on.repo)).toEqual([]);
+  });
+
+  it("hands each stage as the bundle's workflow names it, and refuses a stage where the loader refuses the workflow, naming the file and the key, with no prompt written", async () => {
+    const bundle = bundleCopy(cleanups);
+    const file = join(bundle, "workflows", "owl-chain.json");
+    const workflow = JSON.parse(read(file)) as { stages: Record<string, Record<string, unknown>> };
+    workflow.stages.round = { ...workflow.stages.round, model: "sonnet", documents: ["docs/forms/the-round-record.md"] };
+    writeFileSync(file, JSON.stringify(workflow));
+    const on = commandOn(cleanups, { bundleDir: bundle });
+    await on.said(["start"]);
+    const round = await on.said(["owed"]);
+    expect(round).toMatchObject({ step: "round", round: 1, agent: "owlery:proofer", model: "sonnet" });
+    expect(read(round.rules)).toContain("- `docs/forms/the-round-record.md`\n");
+    expect(read(round.rules)).not.toContain("===== skills/code-review/SKILL.md =====");
+    writeFileSync(file, read(file).replace('"rounds-then-inspection"', '"rounds-alone"'));
+    const prompt = round.prompt ?? "";
+    writeFileSync(prompt, "stale\n");
+    expect(await on.run(["owed"])).toEqual({ code: 1, out: "", err: `The workflow file ${file} is refused at \`skeleton\`: it names "rounds-alone", and the one skeleton of this version is rounds-then-inspection.\n` });
+    expect(read(prompt)).toBe("stale\n");
   });
 
   it("names in a stage's prompt the worktree it is run in, by the top git gives, whatever folder the pane stands in: run below the top of a linked worktree while `PWD` and `OLDPWD` name the repository's other worktree, the round's prompt opens with the linked worktree's top and names no path of the other", async () => {
@@ -146,7 +168,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const first = await on.said(["owed"]);
     await on.said(["round", on.answer("round-1.md", proofs(givenRound(read(first.prompt))))]);
     const pass = await on.said(["owed"]);
-    expect(pass).toMatchObject({ step: "fix-pass", round: 1, open: [1], agent: "owlery:crafter" });
+    expect(pass).toMatchObject({ step: "fix-pass", round: 1, open: [1], agent: "owlery:crafter", model: null });
     const { record, open } = givenFix(read(pass.prompt));
     const fix = commitFix(on.repo);
     for (const finding of open) closeFinding(on.repo, record, finding, `fixed ${fix}`);
@@ -188,7 +210,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const pass = await on.said(["owed", "--persons-word", "2"]);
     expect(pass).toMatchObject({ step: "fix-pass", round: 2, open: [1], agent: "owlery:crafter", prompt: join(on.runDir, "chain", "1795388700-greet", "fix-pass-2.prompt.md") });
     expect(givenFix(read(pass.prompt))).toEqual({ record: recordOf(2), open: [1] });
-    expect(read(pass.rules)).toBe(rulesText(BUNDLE, { role: "crafter", stage: "fix-pass" }, "pane"));
+    expect(read(pass.rules)).toBe(rulesText(BUNDLE, stageFor(loadWorkflow(BUNDLE), { role: "crafter", stage: "fix-pass" }), "pane"));
     closesFixed(on.repo, 2);
     expect(await on.said(["fix-pass", "--by", "agent-crafter", "--persons-word", "2"])).toMatchObject({ recorded: "fix-pass", round: 2, open: [] });
 

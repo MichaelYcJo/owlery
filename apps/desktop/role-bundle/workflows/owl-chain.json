@@ -1,0 +1,10 @@
+{
+  "workflow": "owl-chain",
+  "skeleton": "rounds-then-inspection",
+  "stages": {
+    "round": { "role": "proofer", "agent": "agents/proofer.md", "documents": ["skills/code-review/SKILL.md"], "provider": "claude", "model": null },
+    "fix-pass": { "role": "crafter", "agent": "agents/crafter.md", "documents": ["skills/implement/SKILL.md", "skills/implement/fix-pass.md"], "provider": "claude", "model": null },
+    "judgment": { "role": "orchestrator", "agent": "agents/orchestrator.md", "documents": ["docs/forms/the-round-record.md"], "provider": "claude", "model": null }
+  },
+  "inspector": "owl-chain"
+}

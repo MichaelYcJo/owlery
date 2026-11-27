@@ -47,6 +47,7 @@ import { earlierRecordsSays, heavyCommandsOf, migrateRecords, planMigration } fr
 import { repositoryFileText } from "./repository-file";
 import { backRecords } from "./inspection-sheet-records";
 import { watchMemory } from "./heavy-runs";
+import { type Stage, loadWorkflow, stageFor } from "./workflow";
 import { type Ran, type RunEnd, type StageLine, TURN_SOCKET, type TurnRequest, takeTurn, tellStage } from "./turn-socket";
 import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, inspectionStage } from "./stage-records";
 import { writeWholeFile } from "./whole-file";
@@ -233,16 +234,30 @@ function stageFolder(context: CommandContext, workItem: string): string {
   return folder;
 }
 
-/** Writes a stage's prompt and its role's rules file, with the head of a pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and gives what the session starts the role with: the bundle agent's name and the two paths. */
-function handed(context: CommandContext, workItem: string, step: "round" | "fix-pass" | "inspection", name: string, prompt: StagePrompt): { agent: string; prompt: string; rules: string } {
+/**
+ * Writes a stage's prompt and its role's rules file, with the head of a
+ * pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and
+ * gives what the session starts the role with: the bundle agent's name, the
+ * model the stage names or null for the session's own, and the two paths.
+ * The stage is read from the bundle's workflow first (`workflow.ts`), and a
+ * workflow the loader refuses is refused with its sentence, which names the
+ * file and the key, before anything is written.
+ */
+function handed(context: CommandContext, workItem: string, step: "round" | "fix-pass" | "inspection", name: string, prompt: StagePrompt): { agent: string; model: string | null; prompt: string; rules: string } {
   if (context.bundleDir === undefined) throw new Refusal("The chain command stands beside no role bundle, so it has no rules to hand the role.");
   const role = ROLE_OF[step];
+  let stage: Stage;
+  try {
+    stage = stageFor(loadWorkflow(context.bundleDir), role);
+  } catch (error) {
+    throw new Refusal(error instanceof Error ? error.message : String(error));
+  }
   const folder = stageFolder(context, workItem);
   const promptFile = join(folder, `${name}.prompt.md`);
   const rulesFile = join(folder, rulesFileName(role));
   writeWholeFile(promptFile, promptText(prompt));
-  writeWholeFile(rulesFile, rulesText(context.bundleDir, role, "pane"));
-  return { agent: agentOf(role), prompt: promptFile, rules: rulesFile };
+  writeWholeFile(rulesFile, rulesText(context.bundleDir, stage, "pane"));
+  return { agent: agentOf(stage), model: stage.model, prompt: promptFile, rules: rulesFile };
 }
 
 /** The order's reading of the work item at the head, as a run of a chain reads it. */
@@ -314,7 +329,8 @@ function tell(context: CommandContext, line: StageLine): Promise<void> {
 /**
  * Prints the step the records owe at the head (`chain.ts#stepOwed`), and for
  * a round, a fix pass and an inspection writes the stage's prompt and its role's
- * rules file into the run folder. Where the step is a fix pass the ceiling of
+ * rules file into the run folder and prints the stage's agent and model as
+ * the bundle's workflow names them (`handed`). Where the step is a fix pass the ceiling of
  * rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
  * the ceiling and the open findings, and writes and commits nothing; the
  * same call with `--persons-word` naming that round hands the pass. Once the

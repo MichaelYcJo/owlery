@@ -42,7 +42,7 @@ work around it.
 | `fix-pass` | The round left open the findings `open` lists. Judge first what *What you judge* asks before a fix pass. Then make the pass yourself, or start the role, as *The fix pass* says, and run `fix-pass --by <id>`. |
 | `ceiling` | Round `round` left open the findings `open` lists, and the chain stops for the person from round `ceiling` on, with no judgment. Tell the person the round, its open findings and what the rounds kept finding, and run nothing more of the chain. Once the person has said in this run, after that stop, to go on, run `owed --persons-word <round>` with the round the step named, and pass the same option to `fix-pass` for that pass. Pass the option on no other ground. |
 | `gate` | Run `gate`. The command runs the repository's broad gate itself and reads its exit code, so a run of yours is no gate. Where the gate fails, the command prints what the gate printed: fix that, commit, and run `owed`. |
-| `inspection` | Start the role. Write its answer, unchanged, to a file outside the worktree, and run `inspect`, as `inspect <file> --inspected-by <id> --model <name>`: the id your subagent tool gave for the inspector, and the model the inspector's definition names. A session that built the work judges none of it, so the command refuses `the session` and the id of a fix pass's subagent. |
+| `inspection` | Start the role. Write its answer, unchanged, to a file outside the worktree, and run `inspect`, as `inspect <file> --inspected-by <id> --model <name>`: the id your subagent tool gave for the inspector, and the model it ran on, which `owed` printed as `model`. A session that built the work judges none of it, so the command refuses `the session` and the id of a fix pass's subagent. |
 | `cleared` | The branch is cleared at the commit `commit` names. Where the work goes to a pull request, run `body` and hand the file its `body` names to `gh pr create --body-file`. |
 | `parked` | The work item's `decisions.md` holds a question that waits for the person. Tell the person, and run nothing more until it is answered. |
 
@@ -65,11 +65,13 @@ follows the base that record names, whatever is passed.
 
 ## A role is a subagent of the bundle
 
-For `round`, `fix-pass` and `inspection`, `owed` prints three more values:
-`agent`, the name of the bundle's agent, `rules`, the path of the role's
+For `round`, `fix-pass` and `inspection`, `owed` prints four more values:
+`agent`, the name of the bundle's agent, `model`, the model the stage runs
+on, or null where the stage names none, `rules`, the path of the role's
 rules file, and `prompt`, the path of the stage's prompt. Start a subagent of
-the type `agent` names. Tell it to read the file at `rules` to its end, and
-then to do what the file at `prompt` says. Give it nothing else: no summary
+the type `agent` names, on the model `model` names where it names one, and
+on your session's own model where it is null. Tell it to read the file at
+`rules` to its end, and then to do what the file at `prompt` says. Give it nothing else: no summary
 of the work, and no finding you expect. What it answers is the role's
 answer, and you hand that answer to the command as it stands.
 

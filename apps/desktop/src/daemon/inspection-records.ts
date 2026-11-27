@@ -12,7 +12,7 @@
 // (`stage-records.ts#recordVerdict`): who built the work, who inspected it,
 // the inspecting model, the version of the rules, and the workflow and the
 // inspector module that produced the inspection, which this version names
-// as the Owl Chain's (`OWL_CHAIN`). No
+// as the Owl Chain's, the one workflow it loads (`workflow.ts#OWL_CHAIN`). No
 // earlier run's section is edited, so the grounds of an earlier verdict stay
 // beside its block (docs/architecture.md, "Records are committed to the
 // repository").
@@ -23,6 +23,7 @@
 // no capital and no full stop, as a `ChainStop`'s is.
 import { join } from "node:path";
 import { BUILDERS_JOIN, RUN_BLOCK, VERDICT_BLOCK, assemble, builders, field, read, type Block, type Notice } from "./record-blocks";
+import { OWL_CHAIN } from "./workflow";
 
 /** The file of a work item's directory that holds the broad gate's passed runs. */
 export const GATE_FILE = join("trail", "gate.md");
@@ -32,9 +33,6 @@ export const INSPECTION_FILE = "inspection.md";
 
 /** The keys of a verdict block that Owlery writes, the daemon in its own chain and the chain command in a pane, in the order they are written. An inspector's block holds none. */
 const DAEMONS_KEYS = ["built-by:", "inspected-by:", "model:", "rules:", "workflow:", "inspector:"] as const;
-
-/** The name of the Owl Chain as a workflow and as an inspector module, which a verdict block's `workflow:` and `inspector:` lines name. The pull request check titles a block of this workflow by it (`pr-check/skills/code-review/scripts/chain_check.py#OWL_CHAIN`). */
-export const OWL_CHAIN = "owl-chain";
 
 /** A line the reader refuses, at its 1-based line. */
 export interface RefusedLine {

@@ -19,6 +19,7 @@ import { endedLine, recordErrors, type StopCause, stopRecord } from "./stop-reco
 import { TURN_SOCKET, TurnServer } from "./turn-socket";
 import { worktreesRoot } from "./worktrees";
 import { PANE_KINDS } from "./pane-kinds";
+import { loadWorkflow } from "./workflow";
 
 /** The version `package.json` holds, which the build writes in place of this name (build.mjs). */
 declare const OWLERY_VERSION: string;
@@ -37,6 +38,10 @@ async function main(): Promise<void> {
     console.error(error instanceof Error ? error.message : String(error));
     process.exit(2);
   }
+  // The role bundle the build put beside this script holds the workflow each role session and a pane's chain read their stages from. It is
+  // loaded once here, before anything is made, so a file the loader refuses stops the start with the file and the key named; each launch
+  // reads it again, as it reads the bundle's documents (./workflow).
+  if (process.argv[1] !== undefined) loadWorkflow(join(dirname(process.argv[1]), "bundle"));
   // Owlery's own directory, readable by the user alone, holds the hook socket, the
   // settings file passed to `claude`, the discovery file, the repositories with their work items, the last look, the choice of when to keep the Mac awake, the caps a person set on the machine, the times each block of a work item's record was first read at, the cost ledger, the rules files of role sessions, the head and the chain command's launcher of a pane that carries the owl chain, the runner of heavy commands that a shell, a Claude Code pane and a worktree setup pane name and the turn socket it asks on, and under `chain/` what the chain command hands a pane's session.
   // ~/.claude is never written.

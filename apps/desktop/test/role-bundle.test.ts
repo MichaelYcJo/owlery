@@ -15,6 +15,7 @@ import { paneHead } from "../src/daemon/pane-chain";
 import { RULING_BLOCK } from "../src/daemon/record-blocks";
 import { MARKER } from "../src/daemon/records-place";
 import { sectionOf } from "../src/daemon/inspection-records";
+import { loadWorkflow, stageFor } from "../src/daemon/workflow";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
 import { parkedOnAQuestion } from "./chain-run";
@@ -54,9 +55,10 @@ describe("the role bundle", () => {
 
   it("holds the definition of each role a session can be launched as, and every document the adapter appends for its stage", () => {
     expect(ROLE_STAGES.map(({ role }) => role)).toEqual(["proofer", "crafter", "inspector", "orchestrator"]);
+    const workflow = loadWorkflow(BUNDLE);
     for (const pair of ROLE_STAGES) {
       expect(frontmatterOf(read(`agents/${pair.role}.md`)), pair.role).toContain(`name: ${pair.role}\n`);
-      const documents = roleDocuments(pair);
+      const documents = roleDocuments(stageFor(workflow, pair));
       expect(documents.length, pair.role).toBeGreaterThanOrEqual(2);
       for (const document of documents) expect(existsSync(join(BUNDLE, document)), `${pair.role}: ${document}`).toBe(true);
     }
@@ -103,6 +105,10 @@ describe("the role bundle", () => {
     expect(frontmatterOf(skill)).toContain("name: inspection\n");
     // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options. `ask` is the hook's, and `run` is reached through the launcher OWLERY_RUN names, which no step of the chain runs.
     for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--inspected-by <id>", "--model <name>", "--persons-word <round>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
+    // A stage's model reaches the subagent through what `owed` prints, since no definition names one.
+    expect(flat("skills/inspection/SKILL.md")).toContain("`owed` prints four more values: `agent`, the name of the bundle's agent, `model`, the model the stage runs on, or null where the stage names none,");
+    expect(flat("skills/inspection/SKILL.md")).toContain("Start a subagent of the type `agent` names, on the model `model` names where it names one, and on your session's own model where it is null.");
+    expect(flat("skills/inspection/SKILL.md")).toContain("the id your subagent tool gave for the inspector, and the model it ran on, which `owed` printed as `model`.");
     expect(flat("skills/inspection/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
     // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
     for (const said of [
@@ -196,6 +202,20 @@ describe("the role bundle", () => {
       ["skills/implement/fix-pass.md", "The search is the `git grep` on the fact's words that `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for, and the `answer:` calls it a sample."],
     ] as const)
       expect(flat(file), `${file}: ${said}`).toContain(said);
+  });
+
+  it("holds the Owl Chain's workflow file and inspector module, which the loader reads: each stage names its own role's definition, and no definition names a model, since a stage's model stands in its file alone", () => {
+    const workflow = loadWorkflow(BUNDLE);
+    for (const pair of ROLE_STAGES) {
+      expect(stageFor(workflow, pair).agent, pair.role).toBe(`agents/${pair.role}.md`);
+      expect(frontmatterOf(read(`agents/${pair.role}.md`)), pair.role).not.toMatch(/^model:/mu);
+    }
+    expect(ROLE_STAGES.map((pair) => [pair.role, stageFor(workflow, pair).model])).toEqual([
+      ["proofer", null],
+      ["crafter", null],
+      ["inspector", "opus"],
+      ["orchestrator", null],
+    ]);
   });
 
   it("leaves the rules to a role's rules file: no definition's frontmatter holds a skills key", () => {
@@ -354,10 +374,10 @@ describe("the role bundle", () => {
     expect(flat("docs/forms/the-inspection.md")).toContain("Where a later commit lapsed an earlier inspection, the inspector's prompt hands it the part that changed since that inspection's commit, it stands on the earlier run's section for the rest, and its verdict still covers the whole branch against its base.");
   });
 
-  it("holds no script, no library and no drawing: every file under the four taken folders is a document, and the files beside them are the manifest, the licence, the notice and the one file of the hook", () => {
+  it("holds no script, no library and no drawing: every file under the four taken folders is a document, and the files beside them are the manifest, the licence, the notice, the one file of the hook and the Owl Chain's two files", () => {
     const taken = filesOf(BUNDLE).filter((file) => /^(agents|skills|docs|templates)\//.test(file));
     expect(taken.filter((file) => !file.endsWith(".md"))).toEqual([]);
-    expect(filesOf(BUNDLE).filter((file) => !taken.includes(file))).toEqual([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json"]);
+    expect(filesOf(BUNDLE).filter((file) => !taken.includes(file))).toEqual([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "inspectors/owl-chain.json", "workflows/owl-chain.json"]);
     expect(filesOf(BUNDLE).filter((file) => /^(lib|bin|scripts)\//.test(file))).toEqual([]);
   });
 });
@@ -370,7 +390,7 @@ describe("the built app's role bundle", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more, a file an earlier build left there among them", () => {
+  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more, a file an earlier build left there among them, but the definition of each stage that names a model, whose frontmatter ends with that model", () => {
     const built = join(APP_DIR, "dist", "bundle");
     // A file the tree's bundle holds no more: a build replaces the folder whole, so a session never loads it.
     mkdirSync(join(built, "hooks"), { recursive: true });
@@ -378,7 +398,19 @@ describe("the built app's role bundle", () => {
     buildApp();
     const files = filesOf(BUNDLE);
     expect(filesOf(built)).toEqual(files);
-    for (const file of files) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
+    // A pane's session may start a stage's subagent with no model, so the built definition names the stage's model.
+    const modelled = new Map(ROLE_STAGES.flatMap((pair) => {
+      const stage = stageFor(loadWorkflow(BUNDLE), pair);
+      return stage.model === null ? [] : [[stage.agent, stage.model] as const];
+    }));
+    expect([...modelled]).toEqual([["agents/inspector.md", "opus"]]);
+    for (const file of files) {
+      const model = modelled.get(file);
+      if (model === undefined) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
+      else expect(readFileSync(join(built, file), "utf8"), file).toBe(readFileSync(join(BUNDLE, file), "utf8").replace(/^(---\n[\s\S]*?)\n---\n/u, `$1\nmodel: ${model}\n---\n`));
+    }
+    // The built bundle is one the loader reads, as the built daemon loads it at its start.
+    expect(stageFor(loadWorkflow(built), { role: "inspector", stage: "inspection" }).model).toBe("opus");
   });
 
   /** A script of the case's own, in the temporary repository's folder. */
@@ -474,9 +506,9 @@ describe("the built app's role bundle", () => {
     const scratch = args.at(-1) ?? "";
     expect(dirname(scratch)).toBe(join(realpathSync(runDir), "scratch"));
     expect(basename(scratch)).toMatch(new RegExp(`^${String(headless.id)}-[A-Za-z0-9]{6}$`, "u"));
-    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir], denyRead: [realpathSync(runDir)], allowRead: [scratch] }, scratch }));
+    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", model: null, rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir], denyRead: [realpathSync(runDir)], allowRead: [scratch] }, scratch }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
-    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
+    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, stageFor(loadWorkflow(bundleDir), role)));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
   }, 30_000);
 

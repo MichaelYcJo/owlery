@@ -24,7 +24,7 @@ import { ROUTING_FILE, declaredBranch } from "./decision-record";
 import { CLOSE_BLOCK, CONFIRMATION_BLOCK, DECISION_BLOCK, FINDING_BLOCK, type Kind, QUESTION_BLOCK, ROUND_BLOCK, ROUND_RECORD, RUN_BLOCK, type Spec, VERDICT_BLOCK, field, gfmLines, read, walk } from "./record-blocks";
 import { MARKER, ROOT, WORKFLOW, git, heavyCommandsIn, rootOf, workflowText } from "./records-place";
 import { repositoryFileText } from "./repository-file";
-import { OWL_CHAIN } from "./inspection-records";
+import { OWL_CHAIN } from "./workflow";
 import { commitRunner } from "./worktrees";
 
 /** The first line of the `README.md` of a records root in the earlier form, which the AgenticSeal plugin wrote. */

@@ -6,7 +6,6 @@ description: |
   passed on the branch's head. It audits every party's account against the
   tree by reading, and answers with its run's section of the work item's
   `inspection.md`, which Owlery reads, writes and commits.
-model: opus
 tools: Read, Glob, Grep, Bash
 ---
 

@@ -1,18 +1,22 @@
 # The Owlery role bundle
 
-This folder is a Claude Code plugin named `owlery`. It holds the roles of the Owl Chain, the chain of review rounds, a broad gate and an inspection that Owlery runs on a branch. The build copies the folder whole to `dist/bundle/`, beside the daemon's script and the chain command's. Two launches load it, each with `--plugin-dir` and each for one session alone. Nothing here is installed into a person's Claude Code.
+This folder is a Claude Code plugin named `owlery`. It holds the roles of the Owl Chain, the chain of review rounds, a broad gate and an inspection that Owlery runs on a branch. The build copies the folder whole to `dist/bundle/`, beside the daemon's script and the chain command's, and writes into the copy of each stage's definition the model the stage names, which *The Owl Chain's two files* below describes. Two launches load it, each with `--plugin-dir` and each for one session alone. Nothing here is installed into a person's Claude Code.
 
 ## The two launches
 
-**A role session of the daemon.** A role session is a headless session launched as one role at one stage: the proofer at a review round, the crafter at a fix pass, the inspector at the inspection, or the orchestrator at a judgment. The daemon picks the role's definition under `agents/` with `--agent owlery:<role>`. It appends the rules of the role and the stage to the session's system prompt as one file. The table of each stage's documents is in `apps/desktop/src/daemon/adapters/claude-roles.ts`. A session reads the bundle's other documents in this folder, where a step asks for one. The daemon answers each call of a role session that asks for permission, and it writes and commits each record.
+**A role session of the daemon.** A role session is a headless session launched as one role at one stage: the proofer at a review round, the crafter at a fix pass, the inspector at the inspection, or the orchestrator at a judgment. The daemon picks the role's definition under `agents/` with `--agent owlery:<role>`. It passes the stage's model with `--model` where the stage names one, and appends the rules of the role and the stage to the session's system prompt as one file. A session reads the bundle's other documents in this folder, where a step asks for one. The daemon answers each call of a role session that asks for permission, and it writes and commits each record.
 
 **A Claude Code pane of a repository on the Owl Chain.** A Claude Code pane of a repository on the Owl Chain loads the same folder, and the person's own plugins and skills stay beside it. The pane's session gets three things from it:
 
 - `skills/inspection/SKILL.md`, which says how the session runs the chain through the chain command its environment names in `OWLERY_CHAIN`. The command says which stage the records owe, and writes and commits each record.
-- The four definitions under `agents/`, as subagents named `owlery:<role>`. The session starts the proofer, the crafter and the inspector with the prompt and the rules file the command hands it. That file holds the documents a role session is launched with, under a head that says what holds in a pane: the person's own permission settings answer a call, and the role holds those of the tools its definition names that the session offers. The session makes the orchestrator's two judgments itself.
+- The four definitions under `agents/`, as subagents named `owlery:<role>`. The session starts the proofer, the crafter and the inspector with the prompt and the rules file the command hands it, on the model the command prints for the stage where it names one. That file holds the documents a role session is launched with, under a head that says what holds in a pane: the person's own permission settings answer a call, and the role holds those of the tools its definition names that the session offers. The session makes the orchestrator's two judgments itself.
 - The hook of `hooks/hooks.json`, which *The hook* below describes.
 
 In both launches a judging role writes no record, and the gate is a run of Owlery's code that reads an exit code.
+
+## The Owl Chain's two files
+
+`workflows/owl-chain.json` is the Owl Chain's workflow: it names its skeleton, `rounds-then-inspection`, the content of the stages `round`, `fix-pass` and `judgment`, and its inspector module. `inspectors/owl-chain.json` is that module: it names the broad gate as the one check before the inspection, the inspector's stage and the template of the record the inspector answers with. A stage names its role, its agent's definition, the documents its launch carries after the core and the agent contract, its provider and its model, where `null` is the CLI's own default. Both launches read each stage from these files, through `apps/desktop/src/daemon/workflow.ts`, which refuses a file that does not hold to the skeleton or to the form and names the file and the key. The order of the stages and each stage's tools stay Owlery's code. No definition under `agents/` names a model: the inspector's, `opus`, stands in the module alone, and the build writes it into the built copy of `agents/inspector.md`.
 
 ## The hook
 
