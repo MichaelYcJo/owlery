@@ -47,6 +47,11 @@ For `docs/architecture.ko.md:307`, the same clause:
 
 The fix pass shows the new case red with each guard alone removed, as `phase-2.md` did: the held version changed, and the marker taken as moved.
 
+```seal
+verdict: fixed 3d921974
+answer: The finding holds. `workflowText` is today's template, so while the plugin's root stood, the case held the untouched `owlery-seal.yml` to a text no release wrote once the template changes. In 3d921974 the case takes the paste-ready form as written: on the plugin's root it asserts `pinnedVersion(workflow)` is `PIN_HELD_FOR_THE_PLUGIN`, and otherwise it keeps `toBe(workflowText(version))` unchanged. The clause at `docs/architecture.md:307` and its Korean twin take the paste-ready text, so the workflow keeps its pin at 0.1.0. Executed: `pnpm --filter @owlery/desktop run test test/records-place.test.ts`, 43 of 43 passed, and the documents leg of `Broad gate` (the comparison loop plus `! git grep -n -e '도장' -- docs README.md README.ko.md`), which exited 0. Seen red, executed with `seal mutate` over the committed tree, tests `pnpm --filter @owlery/desktop run test test/records-place.test.ts -t 'holds Owlery'`. (1) The pin moved: both clone lines of `.github/workflows/owlery-seal.yml` set to `v0.2.0` and `release/v0.2.0` in one mutant gave red, "expected '0.2.0' to be '0.1.0'" at `records-place.test.ts:1121`. (2) The held version changed to `"0.2.0"` gave red at `:1121`. (3) The marker taken as moved (`# What IADD keeps in iadd/`) gave red at `:1122`, the whole-file assertion, where the file pins 0.1.0 and the app is at 0.2.0. (4) The workflow's `name: seal` changed to `name: owlery`, a change of template text with the pin untouched, survived, as the fix intends. Each file was restored, and `git status --short` printed nothing. Not run: the typecheck of the changed case, which the broad gate's `pnpm -r run check` runs. `trail/phases/phase-2.md:7` still describes its own commit's form, "exactly the text written for 0.1.0". That is the phase's record, which a fix pass keeps, and this close block holds the form that replaced it. The finding's search re-run after the fix, `git grep -n -e "written for 0.1.0" -e "the one for 0.1.0" -e "0.1.0에 맞춰" -- .`, prints `phase-2.md:7` and this round record's own lines, and nothing in `docs/` or the case.
+```
+
 ## Confirmations
 
 ```seal
