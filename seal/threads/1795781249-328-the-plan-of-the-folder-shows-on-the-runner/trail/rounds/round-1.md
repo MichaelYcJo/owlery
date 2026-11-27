@@ -37,6 +37,11 @@ The line that asked that the next three cases no longer depend on the state the 
 The cases after the first in `chain-choice.test.ts` still depend on the state the first case leaves. #328's *Done when* asked that they no longer do, and that line moved to issue #331, filed on 2026-11-27 in the milestone `hardening: boundaries and edge cases`; #328's body says so. Making each case reach its own start is a change to the file's design and to the suite's time. So #331 asks less than the line it took: each later case either reaches its own start or fails with a message that names the case it depends on, chosen with the suite's time weighed.
 ```
 
+```seal
+verdict: fixed db9a83ab
+answer: gaps.md:18 now carries the round's paste-ready sentence, which says #331 asks less than the line it took and that #328's body says so. #328's body was edited on GitHub on 2026-11-27 with the round's paste-ready Done when, which records the line's move to #331.
+```
+
 ### 2. `routing.md` states what other pull requests will do after this one lands, and a universal about every pull request into the release
 
 ```seal
@@ -55,6 +60,11 @@ On 2026-11-27 it failed the `check` job of the release's pull requests, #327 amo
 
 ```markdown
 - **Branch:** cut from `release/v0.1.0` at `d323b45a` on 2026-11-27. The orchestrator decided on that day that the pull request merges into the release branch by squash before the release's pull requests that wait on its `check` job, and that each of those merges the release branch in after it lands.
+```
+
+```seal
+verdict: fixed db9a83ab
+answer: routing.md now carries the round's two paste-ready texts: the dated failure of the check job in place of the universal about every pull request, and the Branch bullet naming the orchestrator's dated decision with the pull requests by their role.
 ```
 
 ## Confirmations
