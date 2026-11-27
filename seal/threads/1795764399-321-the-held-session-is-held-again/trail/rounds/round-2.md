@@ -24,6 +24,11 @@ Why it matters: the census is the record's account of how the class was made who
 **Census of the cases that act on a role adapter's start, a sample.** It ran at `81778dd4`. It was built from the producer: the daemon calls a role adapter in two places (`git grep -n -E "(roleAdapter|adapter)\.start\(" -- apps/desktop/src/daemon` prints `daemon.ts:2276`, the account refresh's `adapter.start(` through `const adapter = this.options.roleAdapter`, and `daemon.ts:2578`). Only the second waits on `commandsOf`. The first, the account refresh's, calls the adapter at once, so the refresh cases of `accounts.test.ts` are outside the class. Then the census listed what a case can hold of a start, and where it acts on it:
 ```
 
+```seal
+verdict: fixed 84c1102c
+answer: The census sentence of phase-2.md now carries the round's paste-ready text: the pattern `(roleAdapter|adapter)\.start\(`, which prints both call sites, and the account refresh's call named through `const adapter = this.options.roleAdapter`.
+```
+
 ### 2. The closing memo states issue #326's milestone, a state a later move of the issue makes false with no commit on the branch
 
 ```seal
@@ -36,6 +41,11 @@ Why it matters: `gaps.md` *Not done* is what the sealer and the settle read to f
 
 ```markdown
 The daemon still calls the role adapter for a session that a stop or a close ended while git was naming the repository's folder, and then stops the run at once (`startHeadless` in `apps/desktop/src/daemon/daemon.ts`), so the real adapter launches Claude Code only to stop it. Phase 2 left it as it is, and issue #326, filed on 2026-11-27 in the milestone `hardening: boundaries and edge cases`, holds it.
+```
+
+```seal
+verdict: fixed 84c1102c
+answer: The Not done sentence of gaps.md now carries the round's paste-ready text, which dates the milestone to the filing on 2026-11-27 and leaves the issue's number as the coordinate.
 ```
 
 ## Confirmations
