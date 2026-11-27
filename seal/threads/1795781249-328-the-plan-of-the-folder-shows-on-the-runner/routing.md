@@ -12,9 +12,11 @@ Answered 2026-11-27 by the orchestrator, before the first edit.
 
 ## Why this way
 
-Issue #328: four cases of the built app's `apps/desktop/test/chain-choice.test.ts` fail on the hosted runner, the first waiting 15 s for the plan of the folder for "Chosen" and the next three on what it left, and the file passes in the broad gate on the owner's Mac. The `check` job passed on #319's pull request and has failed on this file in every run since #320 (#127) merged: #320's rerun, and both attempts of #327 (run 45991476001). It blocks every pull request into `release/v0.1.0`, #327 and #318 among them, so it runs before them.
+Issue #328: four cases of the built app's `apps/desktop/test/chain-choice.test.ts` fail on the hosted runner, the first waiting 15 s for the plan of the folder for "Chosen" and the next three on what it left, and the file passes in the broad gate on the owner's Mac. The `check` job failed on this file in #320's rerun and in both attempts of #327 (run 45991476001), and passed it in other runs before and after #127 merged; `trail/phases/phase-1.md` lists every runner attempt read. It blocks every pull request into `release/v0.1.0`, #327 and #318 among them, so it runs before them.
 
 - **Planning, no row:** the cause is not yet read. The crafter's first phase diagnoses it and fixes it; where the fix turns out to change `apps/desktop/src` beyond one call, the orchestrator weighs a frame before the next phase.
+- **Planning after phase 1:** no frame. Phase 1 found the cause in the window's code and fixed it with one guard in the form's `close` listener, so the change of `apps/desktop/src` beyond one call that would have called for a frame did not arise.
+- **Title prefix, `fix`:** the pull request's title takes `fix` and not the branch's `test`, because the change that closes the issue is a guard in `apps/desktop/src/renderer/renderer.ts` against a defect a person can meet, reopening the form before the page delivered its close event; `test` came closest, since the defect was seen through the suite on the runner and the work adds a case.
 - **Implementation, crafter.**
 - **Review, through the review chain.**
 - **Automation, yes.**
