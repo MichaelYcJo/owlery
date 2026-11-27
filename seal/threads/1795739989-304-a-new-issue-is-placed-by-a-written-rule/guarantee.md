@@ -42,3 +42,40 @@ Verdict: undecided question: Issue #304's Done when lists the owner's test fifth
 ```
 
 Answered 2026-11-27 by the owner: the build's three departures stand as `docs/roadmap.md` *Releases and the tracker* writes them: the owner's test third, an issue not yet sorted only where it has no milestone and no line saying why, and the owner asked also on work the roadmap holds outside the first version.
+
+## The audit at `6d3710bf`
+
+This audit read the tree at `6d3710bf` against the same base, `origin/release/v0.1.0` at `7c6cba4a`. The one commit after the audit above, `6d3710bf`, touches `frame/questions.md` (the Q2 row's Status cell) and this file alone (executed: `git log --no-merges --name-only 75c58c3c..HEAD`; `git diff --quiet 75c58c3c HEAD` outside this work item's directory exits 0). So the claims of the audit above stand where no coordinate of theirs was touched. This audit re-ran the gate's chain, the body check, the claim whose coordinate is the Q2 row, and the diff's scope, then read every party again against the owner's answer. `gh issue view 304` shows the body's *Done when* as the audit above read it and no comment (executed). The answer is the `Answered 2026-11-27 by the owner:` line above, which the orchestrator committed. `docs/forms/the-guarantee.md` *The guarantee* puts the answer to an undecided question on that line, and this audit reads it as the owner's. The owner's own words in the session are not in the tree (read).
+
+### Claims re-run at `6d3710bf`
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad run stands at a commit only this work item's records follow | `trail/gate.md` `run:` line | `git merge-base --is-ancestor 9f09a60d HEAD`; `git log --no-merges --name-only 9f09a60d..HEAD ^7c6cba4a` | holds (executed): ancestor exit 0, and the commits after `9f09a60d` touch `trail/gate.md`, `pr.md`, `frame/questions.md` and `guarantee.md` of this work item alone |
+| The body the spawn named is `pr.md` above the line and the records' text below it | the body file the spawn named | `seal pr-body <item> --body <file> --check` | holds (executed): exit 0, "matches" |
+| The diff stays in documents and this work item's records | `routing.md:19` | `git diff --name-only 7c6cba4a...HEAD`, filtered for paths outside `docs/` and this work item's directory | holds (executed): the filter prints nothing (grep exit 1) |
+| The documents are the ones the audit above and the rounds read | `docs/roadmap.md`, `docs/roadmap.ko.md` | `git diff --quiet 75c58c3c HEAD` outside this work item's directory; `shasum` of `docs/roadmap.md` at `75c58c3c` and at HEAD | holds (executed): exit 0, and the two hashes are equal |
+| The tracker holds the placements the Q2 row names | `frame/questions.md:15` ("as #221, #228 and #229 stand") | `gh issue view <n> --json number,milestone,state` for #221, #228, #229, #176 and #57 | holds (executed): #221, #228 and #229 in `owner: by hand`, #176 in `release: 0.1.0`, #57 in `milestone 3: hand over an issue`, each open |
+| The Q2 Status cell and the `Answered` line give one answer, and the tree writes it | `frame/questions.md:15`, the `Answered` line above, `docs/roadmap.md:69-77` | `sed -n 65,80p docs/roadmap.md`, and a reading of the cell and the line | holds (executed for the text, read for the agreement): the cell reads "answered 2026-11-27 by the owner: the build's three departures stand"; the line names the owner's test third, "not yet sorted" only where no milestone and no line stand, and the owner asked on work held outside the first version; `docs/roadmap.md:71-77` writes test 3 as `owner: by hand`, "An issue with no milestone, and with no line on it that says why, is not yet sorted", and the sentence on *Not in the first version* and *After the first version* |
+| No record of this work item still calls Q2 open to the owner | this work item's records | `git grep -n -F 'default taken'` and `git grep -n -F 'for the owner to overturn'` over this work item's directory | holds (executed): the one hit is the audit above's row in this file, which stays as that run wrote it. A sample under contract rule 12, built from the two wordings the default's commit used |
+| A person with no role cannot set a milestone on the issue they open | `docs/roadmap.md:77`, `frame/questions.md` Q1 | none: every account this environment holds is the owner's | unverified. Q1 stands `open`, and a measurement by a second account with no role, which the orchestrator or the owner holds, answers it. The sentence is the issue's own claim, so it does not stand between the build and the issue |
+| The suite and the repository-wide checks | `gaps.md:7`, `trail/gate.md` | none (contract rule 2) | unverified by this audit. The orchestrator's broad run at `9f09a60d` answers it, and nothing after it changes a path outside the records |
+
+The other claims of the audit above, the quote probe of *Scope* items 1 to 3, Scenarios E to H, the anchors and the `## Removes` row, rest on `docs/roadmap.md`, `docs/roadmap.ko.md` and `frame/design.md`, which no commit since `75c58c3c` touched, so they stand as that audit ran them (executed at `75c58c3c`).
+
+### The parties at `6d3710bf`
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | `frame/design.md` *Scope*, unchanged since the audit above: the list of five with the owner's test third; an issue not yet sorted where no milestone and no line stand; the owner asked on an issue that meets no test or asks for work held outside the first version; the hardening goal widened | the build, word for word; the tracker's placements; the owner's answer on Q2 | issue #304's *Done when* on the three points Q2 names, which the owner's answer decided for the design |
+| the build | `docs/roadmap.md:65-77` and `docs/roadmap.ko.md:65-77`, and ground 4 at line 39 of each, unchanged since `75c58c3c` | the design; the last round; the changelog; the owner's answer | the issue's *Done when* on the same three points, decided for the build by the owner's answer |
+| the last round | `trail/rounds/round-3.md`: no finding, at target `0195f871`, whose `docs` diff is the one at HEAD | the build and the records at its target | none. No round read `pr.md`, the Q2 row or this file. Each touches this work item's records alone, and this audit read each against HEAD above |
+| the changelog | `changelog.md:5-7`, unchanged: the list of five in the build's order, the three cases the owner decides, "not yet sorted" with no milestone and no line, the widened hardening goal | the build, the design and the owner's answer | none: the three points it shares with the build are the ones the owner kept |
+| the orchestrator's part of the pull request body | `pr.md`, unchanged since `75c58c3c`: `Closes #304`, quotes of *Scope* items 1 to 3, the Q2 default "The build's three departures stand. …" and the *Judgments of the run* row; `seal pr-body --check` confirms each quote stands in its record | the build, the design, the changelog; the owner's answer, which keeps what the quoted default states | none. The quote is of the Q2 row's *Default until answered* cell, which still stands, and the owner's answer chose the same reading, so the quote states nothing the owner overturned |
+
+The five parties tell one story. Where it departs from issue #304's *Done when*, on the owner's test third, on "not yet sorted" only where no milestone and no line stand, and on the owner asked about work held outside the first version, the owner's answer of 2026-11-27 keeps the story as `docs/roadmap.md` *Releases and the tracker* and its Korean twin write it. The issue body and that answer together are the owner's decision, and the tree at HEAD matches it. No party contradicts another or the tree.
+
+```seal
+target: 6d3710bf against 7c6cba4a
+Verdict: sealed
+```
