@@ -5,7 +5,7 @@
 import type { WorkItem } from "../shared/protocol";
 import { REFRESH_SAYS, REFRESHING_SAYS } from "./refresh";
 import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, bellSays, checkButton, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
+import { ageOf, bellSays, checkButton, daemonStatus, earlierButton, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -130,6 +130,18 @@ function olderCheckButton(repositoryId: number, repositoryName: string, version:
   return button;
 }
 
+/** The button of a repository's row that says its records stand in the earlier form, and opens the dialog of the records place, which shows the commit that moves them. */
+function earlierRecordsButton(repositoryId: number, repositoryName: string, root: string): HTMLButtonElement {
+  const { label, says } = earlierButton(repositoryName, root);
+  const button = document.createElement("button");
+  button.className = "icon-button repository-check";
+  button.textContent = label;
+  button.title = says;
+  button.setAttribute("aria-label", says);
+  button.addEventListener("click", () => actions.openRecords(repositoryId));
+  return button;
+}
+
 function workItemElement(workItem: WorkItem, title: string, marks: readonly (readonly [number, number])[], state: Parameters<typeof stateIcon>[0], since: number | null | undefined): HTMLElement {
   const workItemId = workItem.id;
   const button = document.createElement("button");
@@ -214,7 +226,7 @@ export function showSidebar(inFront: Front = front): void {
       menu.addEventListener("click", () => actions.openRepositoryMenu(repository.id, menu));
       const row = document.createElement("div");
       row.className = "repository-row";
-      row.append(head, ...(repository.olderCheck === null ? [] : [olderCheckButton(repository.id, repository.name, repository.olderCheck)]), add, menu);
+      row.append(head, ...(repository.earlier === null ? [] : [earlierRecordsButton(repository.id, repository.name, repository.earlier)]), ...(repository.olderCheck === null ? [] : [olderCheckButton(repository.id, repository.name, repository.olderCheck)]), add, menu);
       const listOf = (entries: typeof repository.entries): HTMLUListElement => {
         const list = document.createElement("ul");
         list.hidden = isFolded;

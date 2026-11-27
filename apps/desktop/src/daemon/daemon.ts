@@ -91,6 +91,7 @@ import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
+import { earlierRecordsSays, earlierRootOf, migrateRecords, planMigration } from "./records-migration";
 import { type Held, RepositoryStore, setAsideNotice, type StoredRepository, type StoredWorkItem } from "./repositories";
 import { writeRecordFile } from "./record-writer";
 import { SessionLogWatch } from "./session-log";
@@ -1319,6 +1320,13 @@ export class Daemon {
             const repository = this.store.repository(message.id);
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             if (typeof message.broadGate !== "string") throw new Error("a plan of the records place names the broad gate command, which may be empty");
+            // A main checkout whose records stand in the earlier form is offered their move, and no setup beside them.
+            if (this.migrates(repository.folder)) {
+              const moving = await planMigration(repository.folder, this.version());
+              const { from, moves, removes, writes, branch, subject, blocked, stamp } = moving;
+              this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { branch, subject, files: writes, blocked, proposedBroadGate: null, move: null, migration: from === null ? null : { from, moves, removes }, unread: [], stamp } });
+              return;
+            }
             const made = await planRecords(repository.folder, message.broadGate, this.version());
             this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { ...made, unread: made.move ? await this.unreadRecords(repository.id) : [] } });
           } catch (error) {
@@ -1336,7 +1344,8 @@ export class Daemon {
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             const { broadGate, stamp } = message as { broadGate: unknown; stamp: unknown };
             if (typeof broadGate !== "string" || typeof stamp !== "string") throw new Error("a setup of the records place names the broad gate command and the stamp of the plan the person read");
-            await setUpRecords(repository.folder, broadGate, this.version(), stamp, this.options.commitLimitMs);
+            if (this.migrates(repository.folder)) await migrateRecords(repository.folder, this.version(), stamp, this.options.commitLimitMs);
+            else await setUpRecords(repository.folder, broadGate, this.version(), stamp, this.options.commitLimitMs);
             const read = this.readRecords(repository);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries what the repository holds now.
             this.send(socket, { type: "done", requestId: message.requestId });
@@ -3036,24 +3045,27 @@ export class Daemon {
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
   private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups, accountId }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null }, chain: this.repositoryChains.get(id) ?? { owl: false }, accountId };
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null, earlier: null }, chain: this.repositoryChains.get(id) ?? { owl: false }, accountId };
   }
 
   /**
    * Reads what a repository's main checkout holds of the records place, from
-   * its working tree, and whether the checkout is on the owl chain. The
-   * older check is read against the daemon's own version. It answers whether
-   * any of it is another than was last read.
+   * its working tree, with the root in the earlier form where it holds one
+   * and no records root (`records-migration.ts#earlierRootOf`), and whether
+   * the checkout is on the owl chain. The older check is read against the
+   * daemon's own version. It answers whether any of it is another than was
+   * last read.
    */
   private readRecords(repository: StoredRepository): boolean {
     const { id, folder } = repository;
-    const read = readRecordsPlace(folder, this.options.version);
-    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null };
+    const place = readRecordsPlace(folder, this.options.version);
+    const read = { ...place, earlier: place.root === null ? earlierRootOf(folder) : null };
+    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null, earlier: null };
     this.records.set(id, read);
     const chain = { owl: onOwlChain(folder) };
     const chained = this.repositoryChains.get(id) ?? { owl: false };
     this.repositoryChains.set(id, chain);
-    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || chain.owl !== chained.owl;
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || read.earlier !== (known.earlier ?? null) || chain.owl !== chained.owl;
   }
 
   /**
@@ -3095,6 +3107,11 @@ export class Daemon {
   private version(): string {
     if (this.options.version === undefined) throw new Error("This build of Owlery names no version, so it cannot write the workflow of the pull request check.");
     return this.options.version;
+  }
+
+  /** Whether a plan of the records place in a main checkout is the move of its records: it holds a root in the earlier form and no records root, read from its working tree. */
+  private migrates(folder: string): boolean {
+    return rootOf(folder) === null && earlierRootOf(folder) !== null;
   }
 
   /**
@@ -3650,7 +3667,10 @@ export class Daemon {
    * first of these that holds is the reason: a chain of the work item is
    * running; a session of it is working; the work item has no branch yet
    * (`NO_BRANCH_FOR_CHAIN`); the worktree cannot take a commit
-   * (`worktrees.ts#whyNoCommit`); it holds no records root; the `Broad gate`
+   * (`worktrees.ts#whyNoCommit`); its records stand in the earlier form,
+   * a root of it in place of the records root or the work item's own
+   * directory under one (`records-migration.ts#earlierRecordsSays`), which
+   * the sentence names `migrate` for; it holds no records root; the `Broad gate`
    * key of its `config.json` holds no command, so no gate could pass and a
    * round would be spent for nothing; two directories
    * of its records name the branch; it holds a change no commit holds, or an
@@ -3673,6 +3693,8 @@ export class Daemon {
     if (branch === null) return NO_BRANCH_FOR_CHAIN;
     const why = await whyNoCommit(worktree, branch);
     if (why !== null) return `Owlery cannot commit a record in the worktree now: ${why}.`;
+    const earlier = earlierRecordsSays(worktree, branch);
+    if (earlier !== null) return earlier;
     const root = rootOf(worktree);
     if (root === null) return "The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.";
     if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") return `${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository's check there, and commit it.`;

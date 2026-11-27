@@ -1,9 +1,10 @@
 // The one way the daemon reads a file of a person's repository whose text it
 // acts on, but for the setup's command (below). These files are read through it: a work item's `decisions.md`,
 // its `trail/gate.md` and its `inspection.md` (`chain-records.ts`), and
-// each `routing.md` under `threads/` of its worktree, and, in a repository's
-// main checkout, the root's `README.md`, the root's
-// `config.json`, and `package.json`. The
+// each `routing.md` under `threads/` of its worktree, that root's and a root
+// in the earlier form's (`records-migration.ts`), and, in a repository's
+// main checkout, the `README.md` and the `config.json` of the root and of a
+// root in the earlier form, and `package.json`. The
 // pass reads every one but `package.json`, which is read where a setup of
 // the records place is planned. What a checkout
 // holds at such a path is input the daemon did not write, and the read is

@@ -50,7 +50,7 @@ const NO_RECORD = { decisions: [], questions: [], unread: [] };
 const NOTHING_RECORDED = { framed: false, rounds: 0, gate: null, verdict: null };
 /** What a repository holds of the fields a person sets, before any is set. */
 /** What a repository holds of the records place where its checkout holds none. */
-const NO_RECORDS = { root: null, check: null, broadGate: null, olderCheck: null };
+const NO_RECORDS = { root: null, check: null, broadGate: null, olderCheck: null, earlier: null };
 /** Which chain a repository's Claude Code panes run where its checkout holds no workflow of Owlery's and no person answered. */
 const NO_CHAIN = { owl: false };
 const PLAIN = { customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: NO_RECORDS, chain: NO_CHAIN, accountId: null };
@@ -607,7 +607,7 @@ describe("work items", () => {
     const ready = await (await client(url)).message("ready");
     expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "chain", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
-    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "olderCheck", "root"]);
+    expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "earlier", "olderCheck", "root"]);
     expect(Object.keys(ready.repositories[0]!.chain).sort()).toEqual(["owl"]);
     expect(Object.keys(ready.lastLook!).sort()).toEqual(["at", "sessions", "workItems"]);
     expect(Object.keys(ready.paneKinds[0]!).sort()).toEqual(["accounts", "continues", "kind", "label", "reportsState"]);
@@ -2065,6 +2065,43 @@ describe("the records place of a repository", () => {
     expect(await c.message("error", (m) => m.requestId === 4)).toMatchObject({ message: "no repository 9" });
   });
 
+  it("names a main checkout whose records stand in the earlier form, reads no record of it, answers planRecords with the move of its records and setUpRecords with that move's one commit, after which the repository carries IADD's root and no earlier one", async () => {
+    const made = repository();
+    const { repo } = made;
+    mkdirSync(join(repo, "seal", "threads", "1-x"), { recursive: true });
+    mkdirSync(join(repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(repo, "seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    writeFileSync(join(repo, "seal", "config.json"), '{ "Broad gate": "pnpm test" }\n');
+    writeFileSync(join(repo, "seal", "threads", "1-x", "guarantee.md"), "# Guarantee: 1-x\n\n```seal\ntarget: abcdef1 against main\nVerdict: sealed\n```\n");
+    writeFileSync(join(repo, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
+    git(repo, "add", "--all");
+    git(repo, "commit", "--quiet", "-m", "chore: the plugin's records");
+    const { url } = await daemon({ worktreesRoot: made.root, version: "1.2.3", commitPollMs: 60_000 });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "addRepository", requestId: 1, folder: repo });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: null, check: null, broadGate: null, olderCheck: null, earlier: "seal" });
+    c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
+    const { plan } = await c.message("recordsPlan");
+    expect(plan).toMatchObject({ branch: "main", subject: "chore: move the work records and the pull request check to IADD's forms", blocked: null, move: null, proposedBroadGate: null, unread: [] });
+    expect(plan.files).toEqual([{ path: WORKFLOW, text: workflowText("1.2.3") }]);
+    expect(plan.migration).toEqual({
+      from: "seal",
+      moves: [
+        { from: "seal/README.md", to: "iadd/README.md", rewritten: true },
+        { from: "seal/config.json", to: "iadd/config.json", rewritten: false },
+        { from: "seal/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+      ],
+      removes: [".github/workflows/owlery-seal.yml"],
+    });
+    c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "", stamp: plan.stamp });
+    expect(await c.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
+    const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
+    expect(inbox.repositories[0]?.records).toEqual({ root: "iadd", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
+    expect(git(repo, "log", "-1", "--format=%s").trim()).toBe("chore: move the work records and the pull request check to IADD's forms");
+    expect([existsSync(join(repo, "seal")), existsSync(join(repo, ".github", "workflows", "owlery-seal.yml")), status(repo)]).toEqual([false, false, ""]);
+  });
+
   it("sets up at setUpRecords with the plan's stamp: one commit of the plan's files alone, answered with done before the inbox, whose repository carries the root, the workflow and the command", async () => {
     const { repo, c } = await kept();
     writeFileSync(join(repo, "other.txt"), "staged by the person\n");
@@ -2074,7 +2111,7 @@ describe("the records place of a repository", () => {
     const { plan } = await c.message("recordsPlan");
     c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
     const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
-    expect(inbox.repositories[0]?.records).toEqual({ root: "iadd", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null });
+    expect(inbox.repositories[0]?.records).toEqual({ root: "iadd", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
     expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
     expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
@@ -2107,11 +2144,11 @@ describe("the records place of a repository", () => {
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder: made.repo });
     // Not committed: the place is read from the working tree.
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null, earlier: null });
     writeFileSync(join(made.repo, "iadd", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
-    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null, earlier: null });
     // A client that connects later is told the same in its `ready`.
-    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null });
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null, earlier: null });
     c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
     expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
   });
@@ -2124,7 +2161,7 @@ describe("the records place of a repository", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null, earlier: null });
   });
 
   it("tells the window that a repository's check is older than the daemon: the version Owlery's workflow in the main checkout pins, read again in the pass that reads the branches, and none once it pins the daemon's version or once it is gone, though AgenticSeal's hygiene.yml stands in its place", async () => {
@@ -2135,14 +2172,14 @@ describe("the records place of a repository", () => {
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder: made.repo });
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: "1.2.2" });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: "1.2.2", earlier: null });
     writeFileSync(join(made.repo, WORKFLOW), workflowText("1.2.3"));
-    expect((await c.message("inbox", (m) => m.repositories[0]?.records.olderCheck === null)).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: null });
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.olderCheck === null)).repositories[0]?.records).toEqual({ root: null, check: WORKFLOW, broadGate: null, olderCheck: null, earlier: null });
     rmSync(join(made.repo, WORKFLOW));
     const hygiene = join(made.repo, ".github", "workflows", "hygiene.yml");
     writeFileSync(hygiene, 'jobs:\n  hygiene:\n    steps:\n      - run: |\n          git clone --branch v1.2.2 \\\n          || git clone --branch release/v1.2.2 \\\n          python3 "$RUNNER_TEMP/agentic/skills/code-review/scripts/chain_check.py"\n');
     const read = await c.message("inbox", (m) => m.repositories[0]?.records.check === null);
-    expect(read.repositories[0]?.records).toEqual({ root: null, check: null, broadGate: null, olderCheck: null });
+    expect(read.repositories[0]?.records).toEqual({ root: null, check: null, broadGate: null, olderCheck: null, earlier: null });
   });
 
   it("names, in a plan that moves the check, each work item of the repository whose records at its branch's head the daemon's readers refuse, by its id and title with the reader's sentence, and not one whose head holds no records; a plan that moves nothing names none", { timeout: 60_000 }, async () => {

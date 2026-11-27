@@ -10,6 +10,7 @@ import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
+import { migrateRecords, planMigration } from "../src/daemon/records-migration";
 import { workItemInspection } from "../src/daemon/inspection-state";
 import { type Cleanups, commitInspection, inspectionWith, proofs, roles, roundRecord, standing } from "./chain-run";
 import { commandOn, inspectThrough } from "./chain-command-run";
@@ -191,6 +192,50 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // The written `config.json` names both languages, so the check refuses nothing of it.
     expect(ready.output).not.toContain("config.json");
     expect(ready.output).not.toContain("language");
+  });
+
+  it("reads the root the move from the earlier form wrote: a work item cleared on a branch of the moved commit passes, and one whose branch the earlier form cleared before it moved its records lapses, with a new inspection owed", async () => {
+    /** A repository whose `main` holds a root in the earlier form, committed. */
+    const earlier = (): { base: string; repo: string } => {
+      const made = repository();
+      write(made.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+      write(made.repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+      write(made.repo, ".github/workflows/owlery-seal.yml", "name: seal\n");
+      commitAll(made.repo, "chore: the plugin's records");
+      return made;
+    };
+    /** Records a round with no finding, the gate's run and a cleared verdict on the branch, under `root`, with the fence `fence` and the verdict's words of that form; gives the gate's commit. */
+    const cleared = (made: { repo: string }, root: string, fence: string, verdict: string[]): string => {
+      write(made.repo, `${root}/threads/1-x/routing.md`, routing("1-x", "feature"));
+      write(made.repo, "x", "x\n");
+      commitAll(made.repo, "feat: x", "1-x");
+      const target = git(made.repo, "rev-parse", "HEAD").trim();
+      write(made.repo, `${root}/threads/1-x/trail/rounds/round-1.md`, ["# Review round 1: 1-x", "", fence, `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+      commitAll(made.repo, "chore: record review round 1", "1-x");
+      const gate = git(made.repo, "rev-parse", "HEAD").trim();
+      write(made.repo, `${root}/threads/1-x/trail/gate.md`, ["# Broad gate: 1-x", "", fence, `run: ${gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+      write(made.repo, `${root}/threads/1-x/${fence === "```iadd" ? "inspection" : "guarantee"}.md`, [`# ${fence === "```iadd" ? "Inspection" : "Guarantee"}: 1-x`, "", "## Run 1", "", fence, `target: ${gate} against main`, ...verdict, "```", ""].join("\n"));
+      commitAll(made.repo, "chore: record the broad gate's run and the verdict", "1-x");
+      return gate;
+    };
+
+    const after = earlier();
+    await migrateRecords(after.repo, "1.2.3", (await planMigration(after.repo, "1.2.3")).stamp);
+    git(after.repo, "checkout", "--quiet", "-b", "feature");
+    const gate = cleared(after, "iadd", "```iadd", ["Verdict: cleared", ...DAEMONS_LINES]);
+    const passed = check(after, "ready");
+    expect(passed.exit, passed.output).toBe(0);
+    expect(passed.output).not.toContain(gate.slice(0, 7));
+
+    // The branch was cleared in the earlier form, and its own move lands after the cleared commit, outside the closing records.
+    const before = earlier();
+    git(before.repo, "checkout", "--quiet", "-b", "feature");
+    const earlierGate = cleared(before, "seal", "```seal", ["Verdict: sealed", "built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.1.0"]);
+    await migrateRecords(before.repo, "1.2.3", (await planMigration(before.repo, "1.2.3")).stamp);
+    const lapsed = check(before, "ready");
+    expect(lapsed.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \``);
+    expect(lapsed.output).toContain(`\` changed after the cleared commit \`${earlierGate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD`);
+    expect(lapsed.exit).toBe(1);
   });
 
   it("passes the records a sealed chain of two rounds and one fix pass left, as a ready pull request with no body: the gate's record, and the guarantee whose verdict block names the fix pass's session among the builders and another as the judge, in a commit that also carries the row of the write the sealer was refused, its command allowed, and fails the same branch before round 2 for the verifying round it owes (#127)", async () => {

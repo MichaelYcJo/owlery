@@ -32,6 +32,7 @@ import {
   chainNotifications,
   chainList,
   checkButton,
+  earlierButton,
   chainSays,
   stageAhead,
   machineQueue,
@@ -813,6 +814,13 @@ describe("submenuPlace", () => {
 
   it("names the button of a repository's older check by the word Check and the version, and says to a pointer and to a screen reader whose check it is, that it is older than this app, and that a press opens the commit that moves it", () => {
     expect(checkButton("the project", "0.0.4")).toEqual({ label: "Check 0.0.4", says: "The pull request check of the project is Owlery 0.0.4's, older than this app. Open to read the commit that moves it." });
+  });
+
+  it("names the button of a repository whose records stand in the earlier form, and says to a pointer and to a screen reader where they stand, that Owlery reads none of them, and that a press opens the commit that moves them", () => {
+    expect(earlierButton("the project", "seal")).toEqual({
+      label: "Records in the earlier form",
+      says: "The work records of the project stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. Open to read the commit that moves them to IADD's forms.",
+    });
   });
 });
 
@@ -3523,6 +3531,15 @@ describe("sidebarTree", () => {
     ]);
   });
 
+  it("carries the root in the earlier form the daemon read of a repository, which its row shows as a button, and none where the daemon read none or sent no such field", () => {
+    const moving: Repository = { ...PROJECT, records: { root: null, check: null, broadGate: null, olderCheck: null, earlier: "seal" } };
+    const unsent: Repository = { ...PROJECT, id: 2, records: { root: null, check: null, broadGate: null } };
+    expect(sidebarTree([moving, unsent], [], [], KINDS).map((repository) => [repository.id, repository.earlier])).toEqual([
+      [1, "seal"],
+      [2, null],
+    ]);
+  });
+
   it("names a repository as the daemon names it, and carries its icon, or none", () => {
     expect(sidebarTree([{ ...PROJECT, name: "the project", customName: "the project", icon: "P" }, { ...PROJECT, id: 2 }], [LOGIN], [], KINDS).map((repository) => [repository.name, repository.icon])).toEqual([
       ["the project", "P"],
@@ -5376,6 +5393,53 @@ describe("the dialog of the records place", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
     expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
     expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`.");
+  });
+
+  describe("a move of the records from the earlier form", () => {
+    const WORKFLOW = ".github/workflows/owlery-inspection.yml";
+    const EARLIER: Repository = { ...PROJECT, records: { root: null, check: null, broadGate: null, olderCheck: null, earlier: "seal" } };
+    const MIGRATION: RecordsPlan = {
+      branch: "main",
+      subject: "chore: move the work records and the pull request check to IADD's forms",
+      files: [{ path: WORKFLOW, text: "name: inspection\n" }],
+      blocked: null,
+      proposedBroadGate: null,
+      move: null,
+      migration: {
+        from: "seal",
+        moves: [
+          { from: "seal/README.md", to: "iadd/README.md", rewritten: true },
+          { from: "seal/config.json", to: "iadd/config.json", rewritten: false },
+          { from: "seal/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+        ],
+        removes: [".github/workflows/owlery-seal.yml"],
+      },
+      unread: [],
+      stamp: "g",
+    };
+
+    it("says where the records stand and what the commit does with them, names each file that moves and where, the earlier workflow it removes and the workflow it writes whole, hides the field, and offers the move's commit", () => {
+      const words = recordsDialog(EARLIER, MIGRATION, "", "");
+      expect(words.move).toBe(
+        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `iadd/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
+      );
+      expect(words.commit).toBe("This makes one commit on `main`: `chore: move the work records and the pull request check to IADD's forms`. Nothing is pushed.");
+      expect(words.files).toEqual([
+        { path: "seal/README.md", text: null, says: "`seal/README.md` moves to `iadd/README.md`, rewritten in IADD's forms." },
+        { path: "seal/config.json", text: null, says: "`seal/config.json` moves to `iadd/config.json` as it stands." },
+        { path: "seal/threads/1-x/guarantee.md", text: null, says: "`seal/threads/1-x/guarantee.md` moves to `iadd/threads/1-x/inspection.md`, rewritten in IADD's forms." },
+        { path: ".github/workflows/owlery-seal.yml", text: null, says: "The commit removes `.github/workflows/owlery-seal.yml`." },
+        { path: WORKFLOW, text: "name: inspection\n", says: "The commit writes this file whole." },
+      ]);
+      expect([words.gate.shown, words.holds, words.unread, words.submit]).toEqual([false, [], null, { shown: true, enabled: true, label: "Move and commit" }]);
+      expect(words.required).toContain("an administrator of the repository requires `inspection` on GitHub");
+      // A move that writes no workflow, since Owlery's stands, is still the move, and not a repository that holds every part.
+      const kept = recordsDialog(EARLIER, { ...MIGRATION, files: [] }, "", "");
+      expect([kept.files.length, kept.holds, kept.submit.label]).toEqual([4, [], "Move and commit"]);
+      // A blocked move names no commit and turns the button off.
+      const blocked = recordsDialog(EARLIER, { ...MIGRATION, blocked: "The earlier form's reader refuses a line of these records." }, "", "");
+      expect([blocked.blocked, blocked.commit, blocked.submit.enabled]).toEqual(["The earlier form's reader refuses a line of these records.", "", false]);
+    });
   });
 
   describe("a move of the check", () => {

@@ -242,6 +242,19 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of iadd/config.json. It names none.\n');
     expect(existsSync(join(on.folder, "ran"))).toBe(false);
   });
+
+  it("runs a command a root in the earlier form names where the worktree holds no records root, as this repository's runner does until its own move, and refuses a name it does not hold with that root's config.json", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    write(made.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+    write(made.repo, "seal/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": { test: 'touch "$OUT/ran"' } }, null, 2)}\n`);
+    commitAll(made.repo, "chore: the plugin's root");
+    const run = runner(made.repo, join(made.base, "run"), made.base, ["test"]);
+    expect((await run.end).code).toBe(0);
+    expect(existsSync(join(made.base, "ran"))).toBe(true);
+    const lint = await runner(made.repo, join(made.base, "run"), made.base, ["lint"]).end;
+    expect(lint).toEqual({ code: RUN_REFUSED, out: "", err: 'The repository names no heavy command "lint" under "Heavy commands" of seal/config.json. It names `test`.\n' });
+  });
 });
 
 describe("the stage lines of the turn socket", { timeout: 60_000 }, () => {

@@ -1063,6 +1063,8 @@ export interface SidebarRepository {
   groups: { id: number; name: string; entries: SidebarRepository["entries"] }[];
   /** The version of Owlery whose pull request check the repository's workflow fetches, where the daemon read it older than its own, or null. The row then holds the button `checkButton` names. */
   olderCheck: string | null;
+  /** The folder of the root in the earlier form the daemon read in the repository's main checkout, or null. The row then holds the button `earlierButton` names. */
+  earlier: string | null;
 }
 
 /**
@@ -1077,9 +1079,9 @@ export interface SidebarRepository {
  * state is chosen, a repository none of whose work items is left is not,
  * and neither is a group none of whose work items is left. The window makes
  * up no repository: a work item whose repository the daemon did not send is
- * under none. Each carries the version of its older check as the daemon
- * sent it, and null where the daemon sent none: the window compares no
- * versions itself.
+ * under none. Each carries the version of its older check and its root in
+ * the earlier form as the daemon sent them, and null where the daemon sent
+ * none: the window compares no versions and reads no folder itself.
  */
 export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
@@ -1091,7 +1093,7 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
       const listed = (entries: typeof own) => pinnedFirst(entries).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
       const groups = repository.groups.map(({ id, name }) => ({ id, name, entries: listed(own.filter((entry) => entry.workItem.groupId === id)) })).filter((group) => !narrowing || group.entries.length > 0);
       const entries = listed(own.filter((entry) => !repository.groups.some((group) => group.id === entry.workItem.groupId)));
-      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups, olderCheck: recordsOf(repository)?.olderCheck ?? null };
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups, olderCheck: recordsOf(repository)?.olderCheck ?? null, earlier: recordsOf(repository)?.earlier ?? null };
     })
     .filter((repository) => !narrowing || repository.count > 0);
 }
@@ -2832,7 +2834,13 @@ function requiredCheck(workflow: string | null): string {
  * over the committed file, names each work item whose records the daemon's
  * readers refuse or did not read and what those readers read, hides the
  * field, and offers
- * "Move and commit", on where the plan is not blocked.
+ * "Move and commit", on where the plan is not blocked. A plan that moves
+ * the records from a root in the earlier form says where they stand and
+ * what the commit does with them, names each file that moves with the path
+ * it moves to and whether it is rewritten, each file the commit removes and
+ * the workflow it writes whole, says that a rule that requires the check
+ * the removed workflow posted has to require `inspection`, hides the field, and offers "Move and
+ * commit", on where the plan is not blocked.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
@@ -2847,6 +2855,25 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
   const required = requiredCheck(plan.files.find((file) => file.path.startsWith(".github/workflows/"))?.path ?? null);
   // The key's place and its value, as the daemon last read them.
   const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
+  const migration = plan.migration ?? null;
+  if (migration !== null) {
+    const { from, moves, removes } = migration;
+    const commit = plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "";
+    return {
+      ...unplanned,
+      move: `The work records of this repository stand in \`${from}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to \`iadd/\`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires \`inspection\` in its place.`,
+      commit,
+      blocked: plan.blocked ?? "",
+      files: [
+        ...moves.map((move) => ({ path: move.from, text: null, says: move.rewritten ? `\`${move.from}\` moves to \`${move.to}\`, rewritten in IADD's forms.` : `\`${move.from}\` moves to \`${move.to}\` as it stands.` })),
+        ...removes.map((path) => ({ path, text: null, says: `The commit removes \`${path}\`.` })),
+        ...plan.files.filter((file) => file.text !== null).map((file) => ({ ...file, says: "The commit writes this file whole." })),
+      ],
+      // Owlery's workflow stands once the move is committed, written by it or kept.
+      required: requiredCheck(".github/workflows/owlery-inspection.yml"),
+      submit: { shown: true, enabled: plan.blocked === null && plannedFor === command, label: "Move and commit" },
+    };
+  }
   if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
     const [readme, , workflow] = plan.files;
     const gate = config === undefined || held?.broadGate == null ? kept : `Broad gate: \`${held.broadGate}\`, kept in \`${config.path}\` under \`Broad gate\``;
@@ -2918,6 +2945,11 @@ export function rowButtons(repositoryName: string): Record<"add" | "menu", { nam
     add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new worktree.` },
     menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
   };
+}
+
+/** The button a repository's row holds before its "+" where its main checkout holds a root in the earlier form, `root`, and no records root: its words, and what it says to a pointer and to a screen reader. A press opens the dialog of the records place, which shows the commit that moves the records. */
+export function earlierButton(repositoryName: string, root: string): { label: string; says: string } {
+  return { label: "Records in the earlier form", says: `The work records of ${repositoryName} stand in \`${root}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. Open to read the commit that moves them to IADD's forms.` };
 }
 
 /** The button a repository's row holds before its "+" where its pull request check is of an older Owlery than the app: its words, and what it says to a pointer and to a screen reader. A press opens the dialog of the records place, which shows the commit that moves the check. */

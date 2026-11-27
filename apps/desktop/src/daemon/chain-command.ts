@@ -42,7 +42,8 @@ import { backSection, bodyRecords, inspectionSection } from "./github";
 import { shellQuote } from "./hooks";
 import { BROAD_GATE_NAME, type TurnPlace } from "./machine-turns";
 import { ROUND_BASE, THE_SESSION, isSessionId, listed } from "./record-blocks";
-import { readHeavyCommands, readRecordsPlace, rootOf } from "./records-place";
+import { readRecordsPlace, rootOf } from "./records-place";
+import { earlierRecordsSays, heavyCommandsOf, migrateRecords, planMigration } from "./records-migration";
 import { repositoryFileText } from "./repository-file";
 import { backRecords } from "./inspection-sheet-records";
 import { watchMemory } from "./heavy-runs";
@@ -80,7 +81,7 @@ export interface CommandEnd {
 }
 
 /** The subcommands, in the order the usage names them. */
-export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "inspect", "body", "ask", "run"] as const;
+export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "inspect", "body", "migrate", "ask", "run"] as const;
 
 /** The usage, which a run with no subcommand or an unknown one is refused with. */
 export const USAGE = [
@@ -92,6 +93,7 @@ export const USAGE = [
   "  gate                                                  run the broad gate and record a pass",
   "  inspect <answer-file> --inspected-by <id> --model <name>  record an inspector's answer",
   "  body                                                  write the pull request body's sections",
+  "  migrate                                               move the worktree's records from the earlier form to IADD's",
   "  ask                                                   answer the bundle's hook on an AskUserQuestion call",
   "  run <name> [-- <words>]                               run a heavy command the repository names, in its turn on the machine",
   "",
@@ -165,9 +167,11 @@ const NO_BRANCH_HERE = "The worktree's HEAD names no branch yet. Owlery makes th
  * Reads where the command is run: the worktree's top, the branch its HEAD
  * names, and the work item's directory. It throws a `Refusal` where the
  * folder is in no worktree, where HEAD names no branch, where the worktree
- * cannot take a commit (`worktrees.ts#whyNoCommit`), where it holds no
- * records root, and where two directories name the branch, as the daemon
- * refuses a start of its chain for each.
+ * cannot take a commit (`worktrees.ts#whyNoCommit`), where its records
+ * stand in the earlier form (`records-migration.ts#earlierRecordsSays`),
+ * with the sentence that names `migrate`, where it holds no records root,
+ * and where two directories name the branch, as the daemon refuses a start
+ * of its chain for each.
  */
 async function here(context: CommandContext): Promise<Here> {
   const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
@@ -176,6 +180,8 @@ async function here(context: CommandContext): Promise<Here> {
   if (branch === null || branch === "") throw new Refusal(NO_BRANCH_HERE);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Refusal(`Owlery cannot commit a record in the worktree now: ${why}.`);
+  const earlier = earlierRecordsSays(worktree, branch);
+  if (earlier !== null) throw new Refusal(earlier);
   const root = rootOf(worktree);
   if (root === null) throw new Refusal("The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.");
   const directories = workItemDirectories(worktree, branch);
@@ -677,7 +683,8 @@ function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv, memoryRea
 
 /**
  * The runner of heavy commands: `run <name> [-- <words>]`. It looks the name
- * up in the worktree's `Heavy commands` (`records-place.ts#readHeavyCommands`),
+ * up in the worktree's `Heavy commands`, those of a root in the earlier form
+ * where the worktree holds no records root (`records-migration.ts#heavyCommandsOf`),
  * takes a turn on the machine in the place the worktree's committed records
  * give (`turnPlace`), and runs the command line at the worktree's top, with
  * each word after `--` added as one word, with the session's own input and
@@ -691,10 +698,10 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   if (next !== undefined && next !== "--") return refused(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
   const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
   if (worktree === null || worktree === "") return refused(`${context.cwd} is in no worktree of a repository, and a heavy command runs at the top of the worktree whose records name it.`);
-  const commands = readHeavyCommands(worktree);
+  const { root, commands } = heavyCommandsOf(worktree);
   const line = commands[name];
   const names = Object.keys(commands);
-  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${rootOf(worktree) ?? "iadd"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
+  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${root ?? "iadd"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
   const turn = await inTurn(context, { folder: worktree, name, place: await turnPlace(worktree), alone: false });
   // The launcher sets ELECTRON_RUN_AS_NODE for the Node it runs this script with (`pane-chain.ts`). The command runs in the session's environment, which a pane gives without it (`pty.ts#terminalEnv`), so an Electron program it starts runs as Electron.
   const env: NodeJS.ProcessEnv = { ...context.env };
@@ -708,7 +715,34 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   }
 }
 
-const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask" | "run">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, inspect, body };
+/**
+ * Moves the worktree's records from the earlier form to IADD's in one commit
+ * on its branch, as the dialog "Records and check" moves a repository's
+ * (`records-migration.ts#migrateRecords`): a root in the earlier form where
+ * the worktree holds no records root, and otherwise what the branch kept
+ * under the earlier root after it merged a base that moved. It writes
+ * Owlery's workflow of the app's version where the worktree holds none. It
+ * refuses, with nothing committed, where the worktree cannot take a commit,
+ * where its records stand in no earlier form, where the build names no
+ * version, and where the plan is blocked, with the plan's sentence.
+ */
+async function migrate(context: CommandContext, args: readonly string[]): Promise<object> {
+  parsed(args, []);
+  const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
+  if (worktree === null || worktree === "") throw new Refusal(`${context.cwd} is in no worktree of a repository, and \`migrate\` moves a worktree's records.`);
+  const branch = await gitSays(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch === null || branch === "") throw new Refusal(NO_BRANCH_HERE);
+  const why = await whyNoCommit(worktree, branch);
+  if (why !== null) throw new Refusal(`Owlery cannot commit a record in the worktree now: ${why}.`);
+  if (earlierRecordsSays(worktree, branch) === null) throw new Refusal("No work record of the worktree stands in the earlier form, so `migrate` has nothing to move.");
+  if (context.version === undefined) throw new Refusal("The chain command was built with no version, so it cannot write the workflow of the pull request check the move writes.");
+  const plan = await planMigration(worktree, context.version);
+  if (plan.blocked !== null) throw new Refusal(plan.blocked);
+  await migrateRecords(worktree, context.version, plan.stamp);
+  return { migrated: plan.from, moved: plan.moves.length, removed: plan.removes, written: plan.writes.map((write) => write.path), commit: await worktreeHead(worktree) };
+}
+
+const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask" | "run">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, inspect, body, migrate };
 
 /** The subcommands that end in their own way, each as its own comment says. */
 const OWN_ENDS: Record<"ask" | "run", (context: CommandContext, args: readonly string[]) => Promise<CommandEnd>> = { ask, run };

@@ -195,9 +195,7 @@ function checkOf(folder: string): string | null {
 /**
  * Whether a folder is on the owl chain: Owlery's workflow stands in it,
  * committed or not. A Claude Code pane that opens in such a folder carries
- * the chain, but where the person's Claude Code enables the AgenticSeal
- * plugin there and they did not choose the owl chain for the repository
- * (`pane-chain.ts#carriedIn`). A folder with no such workflow, or that does
+ * the chain (`pane-chain.ts#carriedIn`). A folder with no such workflow, or that does
  * not stand, is on none of Owlery's. The folder is read as it stands at the call, and nothing of it
  * is kept.
  */
@@ -241,7 +239,12 @@ function configOf(folder: string, root: string): Record<string, unknown> | null 
  */
 export function readHeavyCommands(folder: string): Record<string, string> {
   const root = rootOf(folder);
-  const value = root === null ? undefined : configOf(folder, root)?.["Heavy commands"];
+  return root === null ? {} : heavyCommandsIn(folder, root);
+}
+
+/** The heavy commands `config.json` of the root at `root` in a working tree names, read as `readHeavyCommands` reads its root's: `records-migration.ts` reads a root in the earlier form's with it. */
+export function heavyCommandsIn(folder: string, root: string): Record<string, string> {
+  const value = configOf(folder, root)?.["Heavy commands"];
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""));
 }
@@ -274,7 +277,7 @@ export function proposedBroadGate(folder: string): string | null {
 }
 
 /** Runs git in a folder, and gives its exit code with what it printed. It rejects only where git could not be started. */
-function git(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+export function git(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") reject(error);

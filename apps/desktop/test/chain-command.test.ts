@@ -588,6 +588,38 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
   });
 
+  it("refuses every subcommand of the chain in a worktree whose own records stand under the earlier root beside IADD's, naming `migrate`, which moves them in one commit that `owed` then reads, and refuses a second `migrate` with nothing to move", async () => {
+    const on = commandOn(cleanups);
+    const earlier = "seal/threads/1795388700-greet";
+    write(on.repo, `${earlier}/routing.md`, ["# Routing: 1795388700-greet", "", "| Axis | Answer |", "|---|---|", "| Review | through the review chain |", "| Destination | open the pull request |", "| Implementation | the session |", `| Branch | ${BRANCH} |`, ""].join("\n"));
+    commitAll(on.repo, "chore: declare the routing under the earlier root");
+    const before = head(on.repo);
+    const says = `This work item's records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's \`migrate\` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.\n`;
+    const answer = on.answer("answer.md", "# An answer\n");
+    for (const args of [["owed"], ["start"], ["round", answer], ["fix-pass", "--by", "the session"], ["gate"], ["inspect", answer, "--inspected-by", "x", "--model", "y"], ["body"]]) expect(await on.run(args), args[0]).toEqual({ code: 1, out: "", err: says });
+    expect(head(on.repo)).toBe(before);
+    const moved = await on.said<{ migrated: string; moved: number; removed: string[]; written: string[]; commit: string }>(["migrate"]);
+    expect(moved).toEqual({ migrated: "seal", moved: 1, removed: [], written: [".github/workflows/owlery-inspection.yml"], commit: head(on.repo) });
+    expect(git(on.repo, "log", "-1", "--format=%s").trim()).toBe("chore: move the work records and the pull request check to IADD's forms");
+    expect(git(on.repo, "show", "--name-status", "--no-renames", "--format=", "HEAD").trim().split("\n").sort()).toEqual(["A\t.github/workflows/owlery-inspection.yml", `A\t${DIRECTORY}/routing.md`, `D\t${earlier}/routing.md`].sort());
+    expect(await on.said(["owed"])).toMatchObject({ step: "round", round: 1 });
+    expect(await on.run(["migrate"])).toEqual({ code: 1, out: "", err: "No work record of the worktree stands in the earlier form, so `migrate` has nothing to move.\n" });
+    expect(await on.run(["migrate", "--all", "yes"])).toEqual({ code: 1, out: "", err: `The subcommand takes no option --all.\n${USAGE}` });
+  });
+
+  it("refuses every subcommand of the chain in a worktree whose records root is in the earlier form alone, naming `migrate`, which moves the root to iadd/ in IADD's forms", async () => {
+    const on = commandOn(cleanups);
+    git(on.repo, "rm", "--quiet", "-r", "iadd");
+    write(on.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+    write(on.repo, "seal/config.json", `${JSON.stringify({ "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+    commitAll(on.repo, "chore: the plugin's root");
+    expect(await on.run(["owed"])).toEqual({ code: 1, out: "", err: "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.\n" });
+    expect(await on.said(["migrate"])).toMatchObject({ migrated: "seal", moved: 2, written: [".github/workflows/owlery-inspection.yml"] });
+    expect(read(join(on.repo, "iadd/README.md")).split("\n")[0]).toBe("# What IADD keeps in iadd/");
+    expect(existsSync(join(on.repo, "seal"))).toBe(false);
+    expect(await on.said(["owed"])).toEqual({ step: "start" });
+  });
+
   it("refuses a run with no subcommand, an unknown one, an option the subcommand does not take and a person's word that names no round, each with the usage, which names the word on `owed` and `fix-pass`", async () => {
     const on = commandOn(cleanups);
     expect(await on.run([])).toEqual({ code: 1, out: "", err: `The chain command takes a subcommand.\n${USAGE}` });

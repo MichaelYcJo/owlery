@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MARKER, SUBJECT, moveSubject, olderVersion, onOwlChain, pinnedVersion, planRecords, proposedBroadGate, readHeavyCommands, readRecordsPlace, setUpRecords, workflowText } from "../src/daemon/records-place";
 import { REPOSITORY_FILE_BYTES } from "../src/daemon/repository-file";
+import { heavyCommandsOf } from "../src/daemon/records-migration";
 import { commitFile, git, runs, temporaryClone, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
@@ -205,7 +206,7 @@ describe("the records place", () => {
     expect(readRecordsPlace(keyless).broadGate).toBeNull();
   });
 
-  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, this repository's own `seal/` among them", () => {
+  it("reads the heavy commands a root's config.json names, each by its name with its command line, and none from a value that is no object, from an entry that holds no text or an empty one, from a config.json that is no JSON, and where no root stands, and reads this repository's own from its root in the earlier form, so its runner keeps its turn", () => {
     const repo = repository();
     write(repo, "iadd/README.md", `${MARKER}\n`);
     write(repo, "iadd/config.json", `${JSON.stringify({ "Broad gate": "pnpm test", "Heavy commands": { test: "pnpm --filter @owlery/desktop run test", install: "pnpm install", count: 3, blank: "  ", list: ["pnpm"] } })}\n`);
@@ -222,8 +223,13 @@ describe("the records place", () => {
     const rootless = repository();
     write(rootless, "iadd/config.json", JSON.stringify({ "Heavy commands": { test: "pnpm test" } }));
     expect(readHeavyCommands(rootless)).toEqual({});
-    // This repository's own root stays `seal/`, in AgenticSeal's form, so the daemon reads no heavy command of it.
-    expect(readHeavyCommands(join(__dirname, "..", "..", ".."))).toEqual({});
+    // This repository's own root stays `seal/`, in AgenticSeal's form, until its own move (#322, *When it lands*, step 4): the records root names no heavy command there, and the runner reads the earlier root's, which name the suite's runs.
+    const own = join(__dirname, "..", "..", "..");
+    const held = heavyCommandsOf(own);
+    expect(held.root).not.toBeNull();
+    const stated = (JSON.parse(readFileSync(join(own, held.root ?? "", "config.json"), "utf8")) as { "Heavy commands": Record<string, string> })["Heavy commands"];
+    expect(held.commands).toEqual(stated);
+    expect(Object.keys(held.commands)).toContain("test");
   });
 
   it("reads no root from a `README.md` that holds more than the daemon reads of a file, or that links to what is no plain file, though each opens with the marker or leads to a folder", () => {

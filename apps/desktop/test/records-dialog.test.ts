@@ -6,8 +6,10 @@
 // every part, with how an administrator makes the inspection check required in
 // both. It then registers a second temporary repository whose committed
 // workflow fetches the check of an older Owlery, presses the button its row
-// holds, and makes the move the dialog shows. Each commit lands in its
-// temporary repository alone.
+// holds, and makes the move the dialog shows. Last it registers a third
+// whose records stand in the earlier form, which the AgenticSeal plugin wrote,
+// and makes the move of its records from the dialog its registration opens.
+// Each commit lands in its temporary repository alone.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -19,6 +21,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
   let pinned: ReturnType<typeof temporaryRepository> | undefined;
+  let moved: ReturnType<typeof temporaryRepository> | undefined;
 
   const WORKFLOW = ".github/workflows/owlery-inspection.yml";
   /** What the dialog says of the inspection check Owlery's workflow posts, and how an administrator makes it required. */
@@ -48,6 +51,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     await app?.stop();
     made?.remove();
     pinned?.remove();
+    moved?.remove();
   }, 30_000);
 
   it("opens when a repository with no place for records is registered: it says what is out of scope and shows the plan before anything is written, Set up and commit makes the one commit, and the repository's menu then shows what the repository holds, with no button to commit", async () => {
@@ -144,5 +148,50 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     expect(git(repository.repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([moveSubject(version), WORKFLOW]);
     expect([readFileSync(join(repository.repo, WORKFLOW), "utf8"), git(repository.repo, "status", "--porcelain=v1", "--untracked-files=all")]).toEqual([workflowText(version), ""]);
     await app.until(`document.querySelector('#repositories section[data-repository="2"]') && !document.querySelector('${button}')`, "the row with no button of an older check");
+  });
+
+  it("opens the move of the records when a repository whose records stand in the earlier form is registered, with a button on its row that names that form, and Move and commit makes the one commit, after which the button is gone", async () => {
+    const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
+    const repository = temporaryRepository("earlier");
+    moved = repository;
+    mkdirSync(join(repository.repo, "seal"));
+    writeFileSync(join(repository.repo, "seal", "README.md"), "# What AgenticSeal maintains in seal/\n");
+    writeFileSync(join(repository.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": "make check" })}\n`);
+    mkdirSync(join(repository.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(repository.repo, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
+    git(repository.repo, "add", "seal", ".github");
+    git(repository.repo, "commit", "--quiet", "-m", "chore: the plugin's records");
+    const before = git(repository.repo, "rev-parse", "HEAD").trim();
+
+    await app.click("#new-work-item");
+    await dialogOpen("work-item-dialog");
+    await app.click("#work-item-register-only");
+    await value(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(repository.repo)}; field.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+    await app.click("#work-item-create");
+    await dialogClosed("work-item-dialog");
+
+    // The registration's answer opens the dialog, and the plan is the move of the records.
+    await dialogOpen("records-dialog");
+    await app.until(`!document.getElementById("records-submit").disabled`, "the plan of the move of the records");
+    const button = `#repositories section[data-repository="3"] .repository-check`;
+    expect(await value<string>(`document.querySelector('${button}')?.textContent`)).toBe("Records in the earlier form");
+    expect(await text("records-move")).toContain("The work records of this repository stand in `seal/`, in the earlier form of the records");
+    expect(await text("records-commit")).toBe("This makes one commit on `main`: `chore: move the work records and the pull request check to IADD's forms`. Nothing is pushed.");
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .says")].map((says) => says.textContent)`)).toEqual([
+      "`seal/README.md` moves to `iadd/README.md`, rewritten in IADD's forms.",
+      "`seal/config.json` moves to `iadd/config.json` as it stands.",
+      "The commit removes `.github/workflows/owlery-seal.yml`.",
+      "The commit writes this file whole.",
+    ]);
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files pre")].map((file) => file.textContent)`)).toEqual([workflowText(version)]);
+    expect(await value<unknown[]>(`[document.getElementById("records-gate-label").hidden, document.getElementById("records-submit").textContent]`)).toEqual([true, "Move and commit"]);
+    expect([git(repository.repo, "rev-parse", "HEAD").trim(), git(repository.repo, "status", "--porcelain=v1", "--untracked-files=all")]).toEqual([before, ""]);
+
+    await app.click("#records-submit");
+    await dialogClosed("records-dialog");
+    expect(git(repository.repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repository.repo, "ls-tree", "-r", "--name-only", "HEAD").trim().split("\n")).toEqual([WORKFLOW, "README.md", "iadd/README.md", "iadd/config.json"]);
+    expect(readFileSync(join(repository.repo, "iadd", "README.md"), "utf8")).toBe(`${MARKER}\n`);
+    await app.until(`document.querySelector('#repositories section[data-repository="3"]') && !document.querySelector('${button}')`, "the row with no button of the earlier form");
   });
 });

@@ -1561,6 +1561,22 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: iadd/threads/1-one and iadd/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
     });
 
+    it("refuses a worktree whose records stand in the earlier form, a root of it in place of the records root or the work item's own directory under one, with the sentence that names the chain command's `migrate`", async () => {
+      const migrate = "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.";
+      const bare = await standing(cleanups, ["Earlier root"], { root: false });
+      const a = bare.workItems[0]!;
+      write(a.worktree, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+      write(a.worktree, "seal/config.json", '{ "Broad gate": "true" }\n');
+      commitAll(a.worktree, "chore: the plugin's root");
+      await refusedWith(bare, a.id, `The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. ${migrate}`, stands(a.worktree));
+
+      const stood = await standing(cleanups, ["Kept under seal"]);
+      const b = stood.workItems[0]!;
+      write(b.worktree, "seal/threads/1-kept/routing.md", routingText("1-kept", branchOf(b), TODAY));
+      commitAll(b.worktree, "chore: the routing a merge left under the earlier root");
+      await refusedWith(stood, b.id, `This work item's records stand in seal/threads/1-kept/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. ${migrate}`, stands(b.worktree));
+    });
+
     it("refuses a work item with no base commit, and one whose branch holds no commit after its base", async () => {
       const stood = await standing(cleanups, ["No base", "Nothing new"]);
       const [a, b] = stood.workItems as [(typeof stood.workItems)[0], (typeof stood.workItems)[0]];
