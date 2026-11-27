@@ -8,8 +8,8 @@
 
 | Item | Who must answer |
 |---|---|
-| A `.dmg` built with the new value names `com.akmaios.owlery` as its `CFBundleIdentifier`: no build ran here, and `package.ts`'s own check of the built bundle reads it | the `package` job at the release's tag |
-| The broad gate | the orchestrator's broad gate |
+| closed A `.dmg` built with the new value names `com.akmaios.owlery` as its `CFBundleIdentifier`: no build ran here, and `package.ts`'s own check of the built bundle reads it | a measurement no record asks for: `package.ts` reads the built bundle's `CFBundleIdentifier` against `BUNDLE_ID` and fails the `package` job on any other value, so the tag's build answers it and nothing waits on a separate reading |
+| closed The broad gate | answered: the broad gate's run at `21234e23` (`trail/gate.md`), after which only this work item's records changed to the pull request's head (`git diff --name-only`); the `check` run of #335, run 46014156485, passed |
 
 ## Not done
 

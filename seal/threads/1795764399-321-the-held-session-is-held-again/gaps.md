@@ -8,8 +8,8 @@ The case of `apps/desktop/test/daemon.test.ts` that counts the panes alive and t
 
 | Item | Who must answer |
 |---|---|
-| The changed cases pass on the hosted runner at their first `check` attempt. The case phase 1 changed failed there in run 45956109171. Phases 1 and 2 ran their cases on this Mac only. | the orchestrator, from the pull request's `check` job |
-| The broad gate: every case of `daemon.test.ts` and the rest of the suite, the typecheck of the package and the docs checks. Phase 1 ran its changed case alone and typechecked `daemon.test.ts` alone. Phase 2 ran its changed cases in one command and typechecked the package with `tsc --noEmit`. Each spawn prompt narrowed the runs to the changed cases. | the orchestrator, at this work item's broad gate |
+| closed The changed cases pass on the hosted runner at their first `check` attempt. The case phase 1 changed failed there in run 45956109171. Phases 1 and 2 ran their cases on this Mac only. | answered: the changed cases passed in the first attempt of #327's `check` (run 45991476001, which failed only `chain-choice.test.ts`, #328), and in the first attempts of runs 46010619883 and 46014156485 |
+| closed The broad gate: every case of `daemon.test.ts` and the rest of the suite, the typecheck of the package and the docs checks. Phase 1 ran its changed case alone and typechecked `daemon.test.ts` alone. Phase 2 ran its changed cases in one command and typechecked the package with `tsc --noEmit`. Each spawn prompt narrowed the runs to the changed cases. | answered: the broad gate's run at `2454c91c` (`trail/gate.md`), after which only this work item's records changed to the pull request's head (`git diff --name-only`); the `check` run of #327, run 45991476001, passed on its third attempt after two failed on `chain-choice.test.ts` alone (#328) |
 
 ## Not done
 

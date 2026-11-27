@@ -8,8 +8,8 @@ The "New work item" form's `close` listener in `apps/desktop/src/renderer/render
 
 | Item | Who must answer |
 |---|---|
-| `chain-choice.test.ts` passes on the hosted runner at its first `check` attempt. It passed in 3 of the 7 runner attempts recorded before the fix (`trail/phases/phase-1.md`), and it never failed on this Mac, so no run here shows the fix holding there. The new case of `work-item-form.test.ts` shows the cause deterministically on this Mac. | the orchestrator, from this pull request's `check` job |
-| The broad gate: the whole suite, the package's typecheck and the docs checks. Phase 1 ran `work-item-form.test.ts` and `chain-choice.test.ts` in one command, and `tsc --noEmit` in `apps/desktop`. | the orchestrator, at this work item's broad gate |
+| closed `chain-choice.test.ts` passes on the hosted runner at its first `check` attempt. It passed in 3 of the 7 runner attempts recorded before the fix (`trail/phases/phase-1.md`), and it never failed on this Mac, so no run here shows the fix holding there. The new case of `work-item-form.test.ts` shows the cause deterministically on this Mac. | answered: `chain-choice.test.ts` passed in the first attempt of #332's `check` (run 46010619883) and of #335's (run 46014156485) |
+| closed The broad gate: the whole suite, the package's typecheck and the docs checks. Phase 1 ran `work-item-form.test.ts` and `chain-choice.test.ts` in one command, and `tsc --noEmit` in `apps/desktop`. | answered: the broad gate's run at `3e701ab3` (`trail/gate.md`), after which only this work item's records changed to the pull request's head (`git diff --name-only`); the `check` run of #332, run 46010619883, passed |
 
 ## Not done
 
