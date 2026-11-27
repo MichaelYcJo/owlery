@@ -51,6 +51,11 @@ const removed = [...plan.moves.filter((move) => move.to !== move.from).map((move
 
 The same commit rewrites the docstring of `planned` at `:335-338` ("or, where the commit holds IADD's root, the first under which it holds anything") to "or, where the commit holds IADD's root, the first under whose `threads/` it holds a file, of which the plan moves that `threads/` alone", and the docstring of `migrateRecords` at `:481-483` ("each file of the earlier root, each `guarantee.md` below IADD's root and the earlier workflow is removed") to "each file the plan moves to another path and the earlier workflow is removed". The case belongs in `apps/desktop/test/records-migration.test.ts`: a `main` that holds a project's own `seal/` (once with a `README.md` of its own and once without) beside an `agentic-seal/` root, a branch that adds `agentic-seal/threads/2-y/`, the base's move, the branch's merge with `merge.directoryRenames=false`, and then a plan whose `from` is `agentic-seal`, whose moves are the two files of `2-y`, and whose commit leaves the project's `seal/` as it stood.
 
+```seal
+verdict: fixed 243cfa33
+answer: The round's paste-ready fix, applied as written. `planned` takes as the kept root the first of `EARLIER_ROOTS` under whose `threads/` the commit holds a file, moves that `threads/` alone (`moving`), and gives git's status that path. `migrateRecords` removes each file the plan moves to another path and names no folder to `git rm`. The docstrings of `planned` and `migrateRecords` read as the round words them, and those of `MigrationPlan.from` and `MigrationPlan.moves` say the same (`243cfa33`, `f824096e`, `65a5c2d9`). The case "moves the threads/ a branch kept under agentic-seal/ beside a project's own seal/" in `records-migration.test.ts` runs the round's shape twice, with the project's `seal/notes.txt` alone and with a `seal/README.md` of its own beside it. It also has the branch keep `agentic-seal/config.json` outside `threads/` and leave an untracked `agentic-seal/local.txt`, and asserts that both stay. Against the code at the round's target, the case failed on the plan's `from`, which was `seal`. With `seal mutate`, each of the four guards was put back alone, and each run failed in this case. The kept root by `holds(root)` threw "fatal: no path specified" at the branch's plan. `below` by `from` blocked the plan on `iadd/config.json`. The status path `from` blocked it on `agentic-seal/local.txt`. The folder in `removed` made the commit hold `D agentic-seal/config.json`. `records-migration.test.ts` passed, 13 cases, executed.
+```
+
 ### 2. A record IADD's form wrote whole, which shows a fence of info `seal` in its prose, reads as a record in the earlier form: the chain refuses the work item with a sentence that says a merge put it there, and `migrate` refuses too
 
 ```seal
@@ -105,6 +110,11 @@ A `decisions.md`, a gate's run or a round record of that kind holds blocks IADD'
 
 The docstrings of `earlierRecordsSays` (`:117`) and `planned` (`:343`) say "a record the move rewrites" and "each record there the lines below would rewrite", and the same commit rewrites each to "a record the earlier form wrote (`writtenEarlier`)". The case belongs in `apps/desktop/test/records-migration.test.ts`: a moved repository whose branch commits a round record of IADD's form that shows a fence of info `seal` in its prose, where `earlierRecordsSays` gives null and the plan is blocked with the sentence that there is nothing to move.
 
+```seal
+verdict: fixed d134bfc4
+answer: Fixed in the pass's own words, for two reasons. First, `writtenEarlier` is a function name the frame does not hold, so `skills/implement/fix-pass.md` *A fix that needs a unit the frame does not name waits for the fold* stops it. Its test went into the body of `rewrite`, which both places already call. `rewrite` takes `stray`, and below IADD's root it gives null for a record of blocks of which IADD's grammar reads one. `earlierRecordsSays` passes `true`, and the plan passes its `stray`, so one test serves both places (`243cfa33`). A `guarantee.md` and a `trail/refusals.md` the move rewrites count as before. Second, the round's second condition, that the earlier grammar read at least one block, is left out (`d134bfc4`). With it, an earlier-form round or gate's run under `iadd/` whose every block the earlier grammar refuses would stay unread. Without it, the plan names the refused line, as `frame/design.md` *The migration writes nothing it cannot finish* asks. `gaps.md` `## Not done` states what that costs. The docstrings of `earlierRecordsSays`, `planned` and `rewrite` say "a record the earlier form wrote, as `rewrite` tells one below IADD's root". `gaps.md:25`'s sentence is the round's text, and the paragraph's opening names the narrowed test (`04de0d32`). The case "reads a round IADD's form wrote under IADD's root as IADD's" in `records-migration.test.ts` commits the round's shape: `earlierRecordsSays` gives null and the plan says there is nothing to move. It then commits a round of the earlier form whose `target:` line that grammar refuses, and the plan is blocked at `round-3.md:4` (`e20c01e4`). Against the code at the round's target, the case failed at `earlierRecordsSays`. With `seal mutate`, each of four mutants failed in this case: `earlierRecordsSays` without `true`, the plan without `stray`, `rewrite`'s test removed, and the round's second condition added. The last one failed on the refused round, where `earlierRecordsSays` gave null. `records-migration.test.ts` passed, 13 cases, and `chain-command.test.ts` (25) and `pr-check.test.ts` (26) passed, executed.
+```
+
 ### 3. `docs/product.md` and its Korean edition still state the chain choice phase 3 removed, in the bullet on panes and in the row *Plugins on the sealing side*
 
 ```seal
@@ -127,6 +137,11 @@ docs/product.ko.md:204, remove the two sentences:
 ```
 
 Each removal is inside a bullet or a table cell, so the count of headings and of table rows the broad gate compares across editions stays as it is.
+
+```seal
+verdict: fixed 608361b2
+answer: The four removals the round names, word for word, in both editions. After the pass's last fix commit, the finding's evidence search, run again, prints `apps/desktop/test/daemon.test.ts:8856` alone. That line is a case's title, and it stands. It names a handed account folder that enables the plugin as the case's fixture, and says that the pane carries the bundle there and asks nothing. It states no choice. A wider sample, `git grep -n -i -e 'chain choice' -e 'One chain seals' -e '인장을 찍는 체인은 하나' -e 'which chain' -e 'the two chains' -e '어느 체인' -e '두 체인' -e 'AgenticSeal plugin' -e 'AgenticSeal 플러그인' -- docs README.md README.ko.md TRADEMARKS.md CLAUDE.md`, printed no statement of the choice. `docs/architecture.ko.md:284`'s "두 체인" names the daemon's chain and the pane's. The other lines name the plugin, and their prose is phase 5's, as `gaps.md` `## Not done` says. The documents leg of the `Broad gate` key exited 0, executed.
+```
 
 ## Confirmations
 
