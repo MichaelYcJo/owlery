@@ -1,24 +1,69 @@
 import { spawn } from "node:child_process";
 import { fstatSync, openSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import WebSocket from "ws";
-import { buildOf, type Discovery, readDiscovery } from "../daemon/discovery";
+import { buildOf, type Discovery, readDiscovery, readyOf } from "../daemon/discovery";
 
 /** Whether a daemon answers at this address with this token. */
-export function answers(discovery: Discovery, timeoutMs = 1000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const socket = new WebSocket(`ws://127.0.0.1:${discovery.port}`);
-    const done = (ok: boolean) => {
-      clearTimeout(timer);
-      socket.terminate();
-      resolve(ok);
-    };
-    const timer = setTimeout(() => done(false), timeoutMs);
-    socket.on("open", () => socket.send(JSON.stringify({ type: "hello", token: discovery.token })));
-    socket.on("message", (raw) => done((JSON.parse(String(raw)) as { type?: string }).type === "ready"));
-    socket.on("error", () => done(false));
-    socket.on("close", () => done(false));
-  });
+export async function answers(discovery: Discovery, timeoutMs = 1000): Promise<boolean> {
+  return (await readyOf(discovery, timeoutMs)) !== undefined;
+}
+
+const isObject = (value: unknown): value is Readonly<Record<string, unknown>> => typeof value === "object" && value !== null;
+
+/**
+ * Whether a daemon's `ready` shows that it runs nothing: its `sessions`
+ * hold no pane that is alive, its `headless` no session but one that
+ * finished or failed, and its `workItems` no chain that runs. It mirrors
+ * `Daemon#checkIdle` of src/daemon/daemon.ts, the daemon's own idle exit,
+ * over the three lists of a `ready`, which a daemon of 0.0.2 already sends,
+ * and counts a queued headless session as one that runs, since it starts
+ * without anyone asking. A kind of work added to `checkIdle` is to be read
+ * here too, or a load replaces the daemon under it.
+ *
+ * It is false where a list is missing or no list, and where an entry is
+ * not of the shape it reads: a daemon whose lists it cannot read is kept.
+ */
+export function runsNothing(ready: Readonly<Record<string, unknown>>): boolean {
+  const { sessions, headless, workItems } = ready;
+  if (!Array.isArray(sessions) || !Array.isArray(headless) || !Array.isArray(workItems)) return false;
+  return (
+    sessions.every((session) => isObject(session) && session.alive === false) &&
+    headless.every((session) => isObject(session) && (session.state === "finished" || session.state === "failed")) &&
+    workItems.every((item) => isObject(item) && (item.chain === null || (isObject(item.chain) && typeof item.chain.state === "string" && item.chain.state !== "running")))
+  );
+}
+
+/**
+ * The daemon a load of the window attaches to. Where the daemon the run
+ * folder's `daemon.json` names answers, is of another build than
+ * `daemonScript` (`otherBuild`) and runs nothing (`runsNothing`), it stops
+ * that daemon as "Restart Daemon…" does (`stopDaemon`) and starts the
+ * script's, without a question, and gives the daemon it started. Every
+ * other daemon that answers it gives as it is, and where none answers it
+ * starts one (`ensureDaemon`).
+ *
+ * `replaced` holds the builds this run of the app has replaced a daemon of,
+ * with no build standing for every daemon whose `daemon.json` holds none,
+ * and the caller keeps it for as long as the app runs. A daemon of a build
+ * it holds is kept: another app of that build runs on the same run folder,
+ * and the two would otherwise replace each other's daemon at each load
+ * without end. A build is added as its stop begins, so a daemon that
+ * outlived its stop is not signalled again at the next load.
+ *
+ * Rejects with the stop's sentence where the stop fails, and starts
+ * nothing then, and with `ensureDaemon`'s where the start fails.
+ */
+export async function daemonForLoad(runDir: string, daemonScript: string, replaced: Set<string | undefined>, { startMs, stopMs }: { startMs?: number; stopMs?: number } = {}): Promise<Discovery> {
+  const running = readDiscovery(runDir);
+  // Only a daemon of another build that this run has not replaced is asked for its lists: a hello has the daemon read git again and hold its `ready` until that read ends, and `ensureDaemon` says its own.
+  if (running && otherBuild(running, daemonScript) && !replaced.has(running.build)) {
+    const ready = await readyOf(running);
+    if (ready && runsNothing(ready)) {
+      replaced.add(running.build);
+      await stopDaemon(runDir, stopMs);
+    }
+  }
+  return ensureDaemon(runDir, daemonScript, startMs);
 }
 
 /** The last line that is not empty of what a start wrote to the log, which held `from` bytes before it. */

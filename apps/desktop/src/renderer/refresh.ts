@@ -3,10 +3,15 @@
 // four lists back to this window (the client message `readLists`). One
 // request is under way at a time, so a press while its answer is on its way
 // sends nothing. The request ends at the daemon's `done` or `error` of its
-// id, or after `REFRESH_ANSWER_MS` with no answer: a daemon of an earlier
-// build drops the message and answers nothing, so where the window holds the
-// notice of a daemon of another build, the sentence of that end keeps the
-// notice after it. The answer's lists arrive in
+// id, or after `REFRESH_ANSWER_MS` with no answer: a daemon that knows the
+// message can be slow to read git. A daemon of a build before `answersUnknown`
+// drops the message and answers nothing, and the window's own wait
+// (./view, `answerWaits`) ends the request first, after `ANSWER_WAIT_MS`,
+// with an `error` that names "Restart Daemon…". A daemon of a later build
+// refuses it at once. So one press says one sentence, in the status line.
+// Where the window holds the notice of a daemon of another build, the
+// sentence of this module's own end keeps the notice after it. The answer's
+// lists arrive in
 // an `inbox` before the `done`, and the window draws them as any `inbox`. The
 // module touches no page when it is imported, so the unit project imports it.
 import type { ClientMessage } from "../shared/protocol";

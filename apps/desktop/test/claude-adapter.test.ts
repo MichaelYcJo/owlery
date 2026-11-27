@@ -822,10 +822,15 @@ describe("the Claude adapter's role launch", () => {
   const ANSWER = '{"type":"assistant","message":{"content":[{"type":"text","text":"owl"}]}}';
   const RESULT = '{"type":"result","is_error":false,"result":"owl","total_cost_usd":0.5}';
 
-  /** A folder with a script CLI that prints `lines` and then does `then`, a shell that names it, a scratch bundle and a folder for the rules files. */
-  function launch(lines: string[], then = "exit 0") {
+  /**
+   * A folder with a script CLI that does `before`, prints `lines` and then does `then`, a shell that names it, a
+   * scratch bundle and a folder for the rules files. What a case needs written whatever the adapter does with the
+   * first line goes in `before`: the adapter can stop the CLI as soon as it reads that line, and under load the
+   * signal reaches the script before it reaches `then` (issue #258).
+   */
+  function launch(lines: string[], then = "exit 0", before: string[] = []) {
     const folder = temporaryFolder();
-    const cli = script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, ...lines.map((line) => `echo '${line}'`), then].join("\n"));
+    const cli = script(folder, "cli", [`for a in "$@"; do printf '%s\\n' "$a"; done > '${folder}/args'`, ...before, ...lines.map((line) => `echo '${line}'`), then].join("\n"));
     const shell = script(folder, "shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n' '${cli}' '/usr/bin:/bin'`);
     const bundleDir = scratchBundle(folder);
     const rulesDir = join(folder, "run", "roles");
@@ -987,8 +992,8 @@ describe("the Claude adapter's role launch", () => {
     ["names a version older than the minimum", '{"type":"system","subtype":"init","claude_code_version":"2.1.328","agents":["claude","owlery:proofer"]}', `Claude Code 2.1.328 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`],
     ["names no version", '{"type":"system","subtype":"init","agents":["claude","owlery:proofer"]}', "the session did not say which version of Claude Code it is, so its sandbox was not checked"],
   ])("fails a role launch whose session %s: an error result with the reason, the CLI stopped, and nothing else of the run but its exit", async (_, first, reason) => {
-    // The CLI would go on to answer and then work for 30 seconds: the run ends because the adapter stops it.
-    const { folder, env, bundleDir, rulesDir } = launch([first, ANSWER, RESULT], "echo 'still here' >&2\nexec sleep 30");
+    // The CLI writes to its error stream, then would go on to answer and work for 30 seconds: the run ends because the adapter stops it.
+    const { folder, env, bundleDir, rulesDir } = launch([first, ANSWER, RESULT], "exec sleep 30", ["echo 'still here' >&2"]);
     const { events, ms } = await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, PROOFER);
     expect(events).toEqual([
       { type: "result", text: reason, isError: true, usage: null },

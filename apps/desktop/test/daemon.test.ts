@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
@@ -24,8 +25,10 @@ import { COMMIT_END_GRACE_MS, createWorktree, readLoss } from "../src/daemon/wor
 import { interruptToolCall, lines, REPLY_ESC, replay, SECOND_PROMPT, sessionLog, TOOL_ESC } from "./interrupted-turn";
 import { generateName } from "../src/shared/names";
 import { type HeadlessInfo, type KeepAwake, type Machine, type MachineReading, type PaneStage, type PullRequest, ROLE_STAGES, type RoleStage, type ServerMessage, type Usage, type WorkItem, type WorkItemLoss } from "../src/shared/protocol";
+import { endedLine, recordErrors, stopLine, stopRecord } from "../src/daemon/stop-record";
+import { runsNothing } from "../src/main/daemon-client";
 import { branchedWorktree, branchOf, commitFile, git, runs, temporaryClone, temporaryRepository, unansweringOrigin, writeStore } from "./repositories";
-import { client as chainClient, commitAll, commitSeal, ghStandIn, NOW, PULL_REQUEST_URL, roundRecord, standing, write } from "./chain-run";
+import { client as chainClient, clean, commitAll, commitSeal, ghStandIn, NOW, PULL_REQUEST_URL, roles, roundRecord, standing, write } from "./chain-run";
 import { routingText } from "../src/daemon/chain";
 import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { VIEW_FIELDS } from "../src/daemon/github";
@@ -87,6 +90,9 @@ async function client(url: string, token: string | null = TOKEN) {
   });
   if (token !== null) socket.send(JSON.stringify({ type: "hello", token }));
   cleanups.push(() => socket.close());
+  // The 5 seconds is a give-up, not a wait: the poll returns as soon as what it looks for is there. On 2026-11-27, in
+  // three runs of the account-change group beside eight `yes` loops on a 12-core Mac (load average up to 15), the
+  // longest of the group's polls took 278 ms.
   const until = async <T>(find: () => T | undefined, ms = 5000): Promise<T> => {
     const end = Date.now() + ms;
     for (;;) {
@@ -311,6 +317,19 @@ describe("the daemon's local server", () => {
     const c = await client(url, null);
     await c.until(() => c.closed());
     expect(c.closed()?.code).toBe(4001);
+  });
+
+  it("says in `ready` that it answers a request it does not know, answers one at once with an `error` that names its id and type and carries `unknown`, and answers nothing to such a message without a numeric `requestId`", async () => {
+    const { url } = await daemon();
+    const c = await client(url);
+    expect((await c.message("ready")).answersUnknown).toBe(true);
+    c.send({ type: "noSuchRequest", requestId: 7 });
+    c.send({ type: "noSuchRequest" });
+    c.send({ type: "noSuchRequest", requestId: "8" });
+    // A message the daemon refuses: every message it sent for the three before has then arrived.
+    c.send({ type: "stopHeadless", requestId: 9, id: 99 });
+    await c.message("error", (m) => m.requestId === 9);
+    expect(c.messages.filter((m) => m.type !== "ready" && !(m.type === "error" && m.requestId === 9))).toEqual([{ type: "error", requestId: 7, unknown: true, message: `This daemon does not know the request "noSuchRequest".` }]);
   });
 });
 
@@ -587,7 +606,7 @@ describe("work items", () => {
     c.send({ type: "attach", id: created.session.id });
     await c.message("replay");
     const ready = await (await client(url)).message("ready");
-    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(ready).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     expect(Object.keys(ready.repositories[0]!).sort()).toEqual(["accountId", "chain", "customName", "defaultBase", "folder", "groups", "hidden", "icon", "id", "name", "records"]);
     expect(Object.keys(ready.repositories[0]!.records).sort()).toEqual(["broadGate", "check", "root"]);
     expect(Object.keys(ready.repositories[0]!.chain).sort()).toEqual(["chosen", "owl", "plugin"]);
@@ -1340,23 +1359,35 @@ describe("the fetch of a base", () => {
   });
 
   it("has a creation join the fetch of its base that is under way: one fetch runs, and the work item is made after its answer", async () => {
-    const made = clone();
-    const held = git(made.repo, "rev-parse", "refs/remotes/origin/main").trim();
-    const standIn = unansweringOrigin(made);
-    cleanups.push(standIn.stop);
-    const { url } = await daemon({ worktreesRoot: made.root, baseFetchMs: 2000 });
-    const c = await client(url);
-    await c.message("ready");
-    c.send({ type: "fetchBase", requestId: 1, repo: made.repo, base: "origin/main" });
-    c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Joined", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
-    const created = await c.message("workItemCreated", (m) => m.requestId === 2);
-    expect(created.workItem.baseCommit).toBe(held);
-    const order = c.messages.filter((m) => m.type === "baseFetched" || m.type === "workItemCreated").map((m) => m.type);
-    expect(order).toEqual(["baseFetched", "workItemCreated"]);
-    expect(c.messages.find((m) => m.type === "baseFetched")).toMatchObject({ requestId: 1, commit: held, fetch: "kept", failure: "origin did not answer in 2 seconds" });
-    expect(standIn.started()).toHaveLength(1);
-    expect(await ended(standIn.started())).toBe(true);
-  });
+    // As in the fetch's own case (`worktrees.test.ts`, issue #202): under load git may not have started its transport
+    // when the wait passes, and the stand-in then records no start. Each attempt has a clone and a daemon of its own,
+    // whose wait is three times the last one's, so the stand-in's end is asserted in the attempt where git started it.
+    let started: number[] = [];
+    for (const waitMs of [2000, 6000, 18_000]) {
+      const made = clone();
+      const held = git(made.repo, "rev-parse", "refs/remotes/origin/main").trim();
+      const standIn = unansweringOrigin(made);
+      cleanups.push(standIn.stop);
+      const { url } = await daemon({ worktreesRoot: made.root, baseFetchMs: waitMs });
+      const c = await client(url);
+      await c.message("ready");
+      c.send({ type: "fetchBase", requestId: 1, repo: made.repo, base: "origin/main" });
+      c.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Joined", base: "origin/main", kind: "shell", cols: 80, rows: 24 });
+      // The answer comes after the wait, which can be longer than the client's own give-up.
+      await c.until(() => (c.messages.some((m) => m.type === "baseFetched") ? true : undefined), 2 * waitMs);
+      const created = await c.message("workItemCreated", (m) => m.requestId === 2);
+      expect(created.workItem.baseCommit).toBe(held);
+      const order = c.messages.filter((m) => m.type === "baseFetched" || m.type === "workItemCreated").map((m) => m.type);
+      expect(order).toEqual(["baseFetched", "workItemCreated"]);
+      expect(c.messages.find((m) => m.type === "baseFetched")).toMatchObject({ requestId: 1, commit: held, fetch: "kept", failure: `origin did not answer in ${String(waitMs / 1000)} seconds` });
+      started = standIn.started();
+      if (started.length > 0) break;
+    }
+    // Where no attempt started the stand-in, this fails: the case has not seen the end it guards.
+    expect(started).toHaveLength(1);
+    expect(await ended(started)).toBe(true);
+    // The limit is past the three waits and the time each attempt is allowed, twice its wait.
+  }, 60_000);
 
   it("leaves no fetch under way once the daemon has closed", async () => {
     const made = clone();
@@ -3015,6 +3046,11 @@ describe("the inbox", () => {
     git(folder, "commit", "--quiet", "-m", `add ${file}`);
   }
 
+  /**
+   * The inboxes a client was sent, in order. A case that compares the whole list, and whose daemon lists a work item
+   * at a hello, gives the daemon a hello that waits for the first read of the commits (`readyWaitMs`): where that read
+   * outlasts the default wait, `ready` goes out first and the read's counts follow in an inbox the list does not expect.
+   */
   const inboxes = (c: { messages: ServerMessage[] }): Inbox[] => c.messages.filter((m): m is Inbox => m.type === "inbox");
   const stateOf = (m: Inbox, id: number) => m.sessions.find((s) => s.id === id)?.state;
 
@@ -3043,7 +3079,7 @@ describe("the inbox", () => {
   });
 
   it("sends an inbox when the state changes, and none for an event that leaves it as it was", async () => {
-    const { daemon: d, url } = await daemonWithWorkItem();
+    const { daemon: d, url } = await daemonWithWorkItem({ readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3188,7 +3224,7 @@ describe("the inbox", () => {
 
   it("keeps what the event that began a state said: a later event that leaves the state as it was changes neither its time, its text nor its tool", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3213,7 +3249,7 @@ describe("the inbox", () => {
 
   it("lists a session whose agent asks a question as waiting from the call that asks, with the question as its text and its questions, and keeps them through the events that follow until the call ends", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3258,7 +3294,7 @@ describe("the inbox", () => {
 
   it("lists a pane that sent no event in the time after its start as waiting, from the clock's value then and with no text and no tool, and tells every client once", async () => {
     let clock = 100;
-    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
@@ -3277,7 +3313,7 @@ describe("the inbox", () => {
   });
 
   it.each(["SessionStart", "SubagentStop"])("never calls a pane waiting by silence once an event arrived under its id: %s, though it leaves no state", async (hook) => {
-    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 200 });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 200, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3291,7 +3327,7 @@ describe("the inbox", () => {
 
   it("takes the waiting of a silent pane away at its session's start, and gives a prompt after it working with the prompt's time", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3310,7 +3346,7 @@ describe("the inbox", () => {
 
   it("keeps the time of the silence, and neither a text nor a tool, where an event that maps to waiting arrives while the pane waits by silence", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3323,7 +3359,7 @@ describe("the inbox", () => {
   });
 
   it("keeps a silent pane of a kind that reports no state at none, and sends no inbox for its silence", async () => {
-    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60 });
+    const { url } = await daemonWithWorkItem({ ...SILENT, silentStartMs: 60, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 1 });
@@ -3334,7 +3370,7 @@ describe("the inbox", () => {
   });
 
   it("never calls a pane waiting whose process exited before the time passed", async () => {
-    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), silentStartMs: 300, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3348,7 +3384,7 @@ describe("the inbox", () => {
 
   it("sends nothing for the silence of a pane a client closed before the time passed", async () => {
     // The pane's shell ignores the signal a close sends, so its end does not come before the time passes.
-    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200 });
+    const { url } = await daemonWithWorkItem({ commandFor: () => ({ command: "/bin/sh", args: ["-c", "trap '' HUP; sleep 1"], env: {} }), silentStartMs: 200, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -3383,7 +3419,7 @@ describe("the inbox", () => {
 
   it("lists a Claude Code session whose tool call the person interrupted as waiting, from the entry its session log gained, and tells every client of the interruption", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     const bystander = await client(url);
@@ -3426,7 +3462,7 @@ describe("the inbox", () => {
 
   it("keeps an interrupted session waiting, from the interruption's time and with its text, at the end or the failure of a tool that arrives later, and lists it working from the next prompt as before", async () => {
     let clock = 100;
-    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock });
+    const { daemon: d, url } = await daemonWithWorkItem({ now: () => clock, readyWaitMs: 5000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ ...START, kind: "claude", requestId: 1, workItemId: 1 });
@@ -4002,7 +4038,7 @@ describe("the inbox", () => {
 
   it("reads the counts between two hellos at most once per interval, and tells the other clients, in an inbox, of a count a hello's read changed", async () => {
     const { repo, root } = repository();
-    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 60_000 });
+    const { url } = await daemon({ worktreesRoot: root, commitPollMs: 60_000, readyWaitMs: 5000 });
     const first = await client(url);
     await first.message("ready");
     first.send({ type: "createWorkItem", requestId: 1, repo, title: "Read once", kind: "shell", cols: 80, rows: 24 });
@@ -5932,7 +5968,7 @@ describe("headless sessions", () => {
     return { adapter, seen };
   }
 
-  it("starts no session at a message of a client: a client that sends what a window of an earlier build sent to start one is answered nothing, and the daemon lists no session", async () => {
+  it("starts no session at a message of a client: a client that sends what a window of an earlier build sent to start one is refused as a request the daemon does not know, and the daemon lists no session", async () => {
     const { adapter, seen } = watched();
     const { c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
     c.send({ type: "ask", requestId: 1, workItemId: workItem.id, prompt: "Q" });
@@ -5941,7 +5977,7 @@ describe("headless sessions", () => {
     c.send({ type: "stopHeadless", requestId: 3, id: 99 });
     await c.message("error", (m) => m.requestId === 3);
     await pause(100);
-    expect(c.messages.filter((m) => "requestId" in m && (m.requestId === 1 || m.requestId === 2))).toEqual([]);
+    expect(c.messages.filter((m) => "requestId" in m && (m.requestId === 1 || m.requestId === 2))).toEqual([1, 2].map((requestId) => ({ type: "error", requestId, unknown: true, message: `This daemon does not know the request "ask".` })));
     expect(c.messages.some((m) => m.type === "headless")).toBe(false);
     expect(seen.started).toEqual([]);
     expect((await (await client(url)).message("ready")).headless).toEqual([]);
@@ -7050,6 +7086,122 @@ describe("idle exit", () => {
     await new Promise((r) => setTimeout(r, 600));
     expect(idle).toBe(1);
   });
+
+  // The judgment of a load (src/main/daemon-client.ts, `runsNothing`) mirrors this exit over the lists a `ready` carries, so its cases read the lists the daemon really sends.
+  it("sends in `ready` lists that a load reads as a daemon that runs something while a pane is alive", async () => {
+    const { url } = await daemonWithWorkItem();
+    expect(runsNothing(await (await client(url)).message("ready"))).toBe(true);
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
+    await c.message("started");
+    expect(runsNothing(await (await client(url)).message("ready"))).toBe(false);
+  });
+
+  it("sends in `ready` lists that a load reads as a daemon that runs something while a headless session works, and as one that runs nothing once it and the work item's pane have ended", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }), roleAdapter: fakeAdapter({ delayMs: 1500 }) });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Asked", kind: "shell", cols: 80, rows: 24 });
+    const { workItem } = await c.message("workItemCreated");
+    await c.message("exit");
+    await d.startRoleSession(workItem.id, "Q", PROOFER);
+    const working = await (await client(url)).message("ready");
+    expect(working.headless.map((session) => session.state)).toEqual(["working"]);
+    expect(runsNothing(working)).toBe(false);
+    await c.message("headless", (m) => m.headless.state === "finished");
+    const ended = await (await client(url)).message("ready");
+    expect([ended.sessions.map((session) => session.alive), ended.headless.map((session) => session.state)]).toEqual([[false], ["finished"]]);
+    expect(runsNothing(ended)).toBe(true);
+  });
+
+  it("sends in `ready` lists that a load reads as a daemon that runs something while a chain runs with no session of it working, and as one that runs nothing once the chain rests", async () => {
+    const stood = await standing(cleanups, ["Chained work"], { gate: "sleep 2", roleAdapter: roles({ proofer: clean }) });
+    expect(await stood.c.startChain(1)).toBe("done");
+    // The broad gate is the stage, and the round's session before it has finished.
+    await stood.c.until(() => {
+      const stage = stood.c.workItem(1)?.chain?.stages.at(-1);
+      return stage?.kind === "gate" && stage.state === "working" ? true : undefined;
+    });
+    const gating = await (await chainClient(stood.url, cleanups)).message("ready");
+    expect([gating.workItems[0]?.chain?.state, gating.headless.filter((session) => session.state === "working" || session.state === "queued")]).toEqual(["running", []]);
+    expect(runsNothing(gating)).toBe(false);
+    await stood.c.until(() => (stood.c.workItem(1)?.chain?.state === "rested" ? true : undefined));
+    expect(runsNothing(await (await chainClient(stood.url, cleanups)).message("ready"))).toBe(true);
+  });
+});
+
+describe("the daemon's log of how a daemon ended", () => {
+  const AT = new Date(Date.UTC(2026, 10, 26, 9, 30));
+
+  it("gives the line of a stop with the daemon's process id, the time, what stopped it and the two counts", () => {
+    expect(stopLine(4242, AT, "idle", { panesAlive: 0, agentsWorking: 0 })).toBe("owlery daemon 4242 stopped at 2026-11-26T09:30:00.000Z: idle, panes alive 0, agents working 0");
+    expect(stopLine(4242, AT, "signal SIGTERM", { panesAlive: 3, agentsWorking: 2 })).toBe("owlery daemon 4242 stopped at 2026-11-26T09:30:00.000Z: signal SIGTERM, panes alive 3, agents working 2");
+  });
+
+  it("gives the line of a start on the daemon.json of a daemon that ended without stopping, with both process ids and the time", () => {
+    expect(endedLine(4242, AT, 4100)).toBe("owlery daemon 4242 started at 2026-11-26T09:30:00.000Z after daemon 4100 ended without stopping");
+  });
+
+  it("writes the stop's line once, with the counts read at the first stop", () => {
+    const lines: string[] = [];
+    let counts = { panesAlive: 1, agentsWorking: 1 };
+    const record = stopRecord((line) => lines.push(line), () => counts, 4242, () => AT);
+    record("idle");
+    counts = { panesAlive: 0, agentsWorking: 0 };
+    record("signal SIGTERM");
+    expect(lines).toEqual(["owlery daemon 4242 stopped at 2026-11-26T09:30:00.000Z: idle, panes alive 1, agents working 1"]);
+  });
+
+  it("writes the stop's line with `error` where the process says an error of the daemon's own code ends it, and listens to nothing that changes how it ends", () => {
+    const lines: string[] = [];
+    const record = stopRecord((line) => lines.push(line), () => ({ panesAlive: 2, agentsWorking: 1 }), 4242, () => AT);
+    const stand = new EventEmitter();
+    recordErrors(stand, record);
+    stand.emit("uncaughtExceptionMonitor", new Error("broken"), "uncaughtException");
+    expect(lines).toEqual(["owlery daemon 4242 stopped at 2026-11-26T09:30:00.000Z: error, panes alive 2, agents working 1"]);
+    expect(stand.eventNames()).toEqual(["uncaughtExceptionMonitor"]);
+  });
+
+  it("writes nothing, and throws nothing, where the counts cannot be read, so a listener of the process's end never throws", () => {
+    const lines: string[] = [];
+    const record = stopRecord(
+      (line) => lines.push(line),
+      () => {
+        throw new Error("the daemon is broken");
+      },
+      4242,
+      () => AT,
+    );
+    expect(() => record("error")).not.toThrow();
+    expect(lines).toEqual([]);
+  });
+
+  it("counts the panes that are alive, and the agents that work: a pane whose state is `working` and a headless session that works", async () => {
+    // The first pane exits at once, and every other stays. The role session started on "Held" works to the case's end, its work in the worktree never ending, and every other finishes.
+    const { daemon: d, url } = await daemonWithWorkItem({
+      commandFor: (_kind, id) => ({ command: "/bin/sh", args: ["-c", id === 1 ? "exit 0" : "sleep 30"], env: {} }),
+      roleAdapter: fakeAdapter({ work: (_cwd, prompt) => (prompt === "Held" ? new Promise<void>(() => undefined) : undefined) }),
+    });
+    const c = await client(url);
+    await c.message("ready");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 1, workItemId: 1 });
+    await c.message("exit");
+    c.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 2, workItemId: 1 });
+    const { session } = await c.message("started", (m) => m.requestId === 2);
+    d.agentEvent(session.id, "UserPromptSubmit", {});
+    await c.message("inbox", (m) => m.sessions.find((s) => s.id === session.id)?.state === "working");
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 3, workItemId: 1 });
+    c.send({ type: "start", kind: "shell", cols: 80, rows: 24, requestId: 4, workItemId: 1 });
+    await c.message("started", (m) => m.requestId === 4);
+    const quick = await d.startRoleSession(1, "Quick", PROOFER);
+    await c.message("headless", (m) => m.headless.id === quick.id && m.headless.state === "finished");
+    const held = await d.startRoleSession(1, "Held", PROOFER);
+    await c.message("headless", (m) => m.headless.id === held.id && m.headless.state === "working");
+    expect(d.stopCounts()).toEqual({ panesAlive: 3, agentsWorking: 2 });
+  });
 });
 
 describe("OutputBuffer", () => {
@@ -7580,7 +7732,7 @@ describe("keeping the Mac awake", () => {
     const runDir = runFolder();
     const { url } = await daemon({ runDir });
     const c = await client(url);
-    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
+    expect(Object.keys(await c.message("ready")).sort()).toEqual(["accounts", "agentNotice", "answersUnknown", "archived", "defaultAccountId", "headless", "lastLook", "paneKinds", "refreshesUsage", "repositories", "sessions", "type", "workItems"]);
     c.send({ type: "setKeepAwake", choice: "always" });
     c.send({ ...START, kind: "shell", requestId: 1, workItemId: 999 });
     await c.message("error", (m) => m.requestId === 1);
@@ -8862,6 +9014,9 @@ describe("a Claude Code pane and the owl chain", () => {
       const file = join(base, `launches-${String(pane)}.txt`);
       return existsSync(file) ? readFileSync(file, "utf8").split("\n").slice(0, -1) : [];
     };
+    // The 5 seconds is a give-up, not a wait: the poll returns once the pane's file holds the lines asked for. On
+    // 2026-11-27, in three runs of this group beside eight `yes` loops on a 12-core Mac (load average up to 15), the
+    // longest took 485 ms.
     const launches = async (pane: number, count: number) => {
       const end = Date.now() + 5000;
       while (read(pane).length < count) {

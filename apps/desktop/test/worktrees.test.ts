@@ -551,14 +551,22 @@ describe("the fetch of a base", () => {
     const held = commitOf(made.repo, "refs/remotes/origin/main");
     const standIn = unansweringOrigin(made);
     cleanups.push(standIn.stop);
-    const began = Date.now();
-    expect(await fetchBase(made.repo, "origin/main", { waitMs: 2000 })).toEqual({ base: "origin/main", commit: held, fetch: "kept", failure: "origin did not answer in 2 seconds", since: null });
-    expect(Date.now() - began).toBeLessThan(4000);
+    // The wait starts when git starts, and under load git may not have started its transport when the wait passes:
+    // the fetch is then given up as before and the stand-in records no start (issue #202). The fetch runs again with
+    // a wait three times as long, so the stand-in's end is asserted in the attempt where git started it.
+    for (const waitMs of [2000, 6000, 18_000]) {
+      const began = Date.now();
+      expect(await fetchBase(made.repo, "origin/main", { waitMs })).toEqual({ base: "origin/main", commit: held, fetch: "kept", failure: `origin did not answer in ${String(waitMs / 1000)} seconds`, since: null });
+      expect(Date.now() - began).toBeLessThan(2 * waitMs);
+      const locks = (readdirSync(join(made.repo, ".git"), { recursive: true }) as string[]).filter((file) => file.endsWith(".lock"));
+      expect(locks).toEqual([]);
+      if (standIn.started().length > 0) break;
+    }
+    // Where no attempt started the stand-in, this fails: the case has not seen the end it guards.
     expect(standIn.started()).toHaveLength(1);
     expect(await ended(standIn.started())).toBe(true);
-    const locks = (readdirSync(join(made.repo, ".git"), { recursive: true }) as string[]).filter((file) => file.endsWith(".lock"));
-    expect(locks).toEqual([]);
-  });
+    // The limit is past the three waits and the time each attempt is allowed, twice its wait.
+  }, 60_000);
 
   it("ends a fetch once git has exited, by git's exit code and with what git printed, where a process git's transport left behind holds git's stderr past the wait", async () => {
     const made = clone();

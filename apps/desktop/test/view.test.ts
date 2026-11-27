@@ -53,6 +53,11 @@ import {
   daemonEnding,
   daemonLists,
   daemonNotice,
+  ANSWER_WAIT_MS,
+  answerWaits,
+  NOT_ANSWERED_SAYS,
+  refusalSays,
+  UNKNOWN_REQUEST_SAYS,
   deleteChoice,
   deleteSays,
   deletionOf,
@@ -3633,6 +3638,83 @@ describe("daemonNotice", () => {
   it("names the menu's entry that replaces a daemon of another build, and says nothing of a daemon of the running build", () => {
     expect(daemonNotice(true)).toBe(`Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`);
     expect(daemonNotice(false)).toBe("");
+  });
+});
+
+describe("refusalSays", () => {
+  it("names the menu's entry that replaces the daemon where the daemon does not know the request, whatever its own sentence says", () => {
+    expect(refusalSays({ message: `This daemon does not know the request "readLists".`, unknown: true })).toBe(`Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`);
+    expect(refusalSays({ message: "", unknown: true })).toBe(UNKNOWN_REQUEST_SAYS);
+  });
+
+  it("gives the daemon's own sentence for every other refusal", () => {
+    expect(refusalSays({ message: "no work item 3" })).toBe("no work item 3");
+  });
+});
+
+describe("answerWaits", () => {
+  /** The unit against a stand-in for the window: each wait it was asked for, which runs only when the case runs it, and each refusal it made. */
+  function waitsLike() {
+    const waits: { ms: number; run: () => void; stopped: boolean }[] = [];
+    const refused: unknown[] = [];
+    const unit = answerWaits({
+      after(ms, run) {
+        const wait = { ms, run, stopped: false };
+        waits.push(wait);
+        return () => {
+          wait.stopped = true;
+        };
+      },
+      refuse: (error) => refused.push(error),
+    });
+    return { unit, waits, refused };
+  }
+
+  it("ends a request a daemon without `answersUnknown` has not answered after 10 seconds, once, as a refusal that names the menu's entry, and takes a late answer as nothing of its own", () => {
+    const { unit, waits, refused } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "readLists", requestId: 4 });
+    expect(ANSWER_WAIT_MS).toBe(10_000);
+    expect(waits.map(({ ms }) => ms)).toEqual([10_000]);
+    for (const { run } of waits) run();
+    expect(refused).toEqual([{ type: "error", requestId: 4, message: `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.` }]);
+    expect(NOT_ANSWERED_SAYS).toBe((refused[0] as { message: string }).message);
+    // The answer that comes after the wait, and the wait run again, make no second refusal.
+    unit.answered({ type: "done", requestId: 4 });
+    for (const { run } of waits) run();
+    expect(refused).toHaveLength(1);
+  });
+
+  it("stops the wait of a request at an answer that names it before the wait is over, arms none for a message that is no request, and keeps the wait of another request", () => {
+    const { unit, waits, refused } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "readLists", requestId: 4 });
+    unit.sent({ type: "readMachine" });
+    unit.sent({ type: "stopHeadless", requestId: 5, id: 3 });
+    // A message that names no request, and one of another request, end nothing.
+    unit.answered({ type: "inbox", sessions: [], workItems: [], repositories: [], archived: [] });
+    unit.answered({ type: "error", requestId: 9, message: "no work item 9" });
+    expect(waits.map(({ stopped }) => stopped)).toEqual([false, false]);
+    unit.answered({ type: "error", requestId: 4, message: "The work items were not read again: no git." });
+    expect(waits.map(({ stopped }) => stopped)).toEqual([true, false]);
+    for (const { run } of waits) run();
+    expect(refused).toEqual([{ type: "error", requestId: 5, message: NOT_ANSWERED_SAYS }]);
+  });
+
+  it("arms no wait against a daemon whose `ready` holds `answersUnknown`, and none before the daemon's `ready`", () => {
+    const { unit, waits } = waitsLike();
+    unit.sent({ type: "readLists", requestId: 1 });
+    unit.ready({ answersUnknown: true });
+    unit.sent({ type: "readLists", requestId: 2 });
+    expect(waits).toEqual([]);
+  });
+
+  it("arms no wait for a creation, which every daemon from 0.0.2 on answers by its id after work that can outlast the wait", () => {
+    const { unit, waits } = waitsLike();
+    unit.ready({});
+    unit.sent({ type: "createWorkItem", requestId: 3, repo: "/r", title: "T", kind: "shell", cols: 80, rows: 24 });
+    unit.sent({ type: "readLists", requestId: 4 });
+    expect(waits.map(({ ms }) => ms)).toEqual([10_000]);
   });
 });
 

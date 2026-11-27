@@ -3,9 +3,9 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { type HeadlessMark, type HeldAccounts, answerWaits, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -59,8 +59,27 @@ export function connected(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }
 
+/** What the window does with a request whose wait ended with no answer: ./renderer hands the refusal to its `onMessage`, as the daemon's own. */
+let unanswered: (error: Extract<ServerMessage, { type: "error" }>) => void = () => undefined;
+
+/** Takes what the window does with a request a daemon of an earlier build has not answered (`waits`). */
+export function whenUnanswered(take: typeof unanswered): void {
+  unanswered = take;
+}
+
+/** The waits on the daemon's answers (./view, `answerWaits`): `send` tells them of each request, and ./renderer of the daemon's `ready` and of each message the daemon sends. */
+export const waits = answerWaits({
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  refuse: (error) => unanswered(error),
+});
+
 export function send(message: ClientMessage): void {
-  socket?.send(JSON.stringify(message));
+  if (!socket) return;
+  socket.send(JSON.stringify(message));
+  waits.sent(message);
 }
 
 /** The id of the window's next request to the daemon. */

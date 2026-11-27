@@ -8,7 +8,7 @@ import { Channel, type DaemonConnection, type DaemonEnd, type DaemonFailure, typ
 import { groundAtStart, readAppearance, writeAppearance } from "./appearance";
 import { closeHides, quitsWithLastWindow, showInBackground, takeBackground } from "./background";
 import { chooseClipboard, pastedImage } from "./clipboard";
-import { ensureDaemon, otherBuild, stopDaemon } from "./daemon-client";
+import { daemonForLoad, otherBuild, stopDaemon } from "./daemon-client";
 import { daemonControl } from "./daemon-control";
 import { dockImage } from "./dock-image";
 import { readEditor, writeEditor } from "./editor";
@@ -22,8 +22,10 @@ import { chooseFolderDialog, pickFolder } from "./pick-folder";
 import { WINDOW_SIZE } from "./window-size";
 
 // The daemon owns the terminals and outlives the app; the window reaches it
-// over WebSocket. The main process finds or starts it, tells the window
-// whether it is of another build than the one it would start, stops it where a
+// over WebSocket. The main process finds or starts it, replaces it at the
+// window's load where it runs nothing and is of another build than the one
+// the app would start, tells the window whether the daemon it attaches to
+// is of another build, stops it where a
 // person chose "Restart Daemon…" or "Quit Owlery Completely…" in the menu
 // and confirmed it in the window, opens the folder
 // dialog the window asks for outside a background start, and keeps the theme and the appearance a person chose. It sets
@@ -103,9 +105,11 @@ const openers: Openers = {
 
 // The daemon's script, which the app starts where no daemon answers, and whose build it compares with the build of a daemon that does.
 const daemonScript = join(__dirname, "daemon.js");
-// The one place that stops and starts the daemon, in turn (./daemon-control). It stops the daemon of this app's run folder and no other (./daemon-client, `stopDaemon`).
+// The builds this run of the app replaced a daemon of at a load, held while the app runs and written nowhere (./daemon-client, `daemonForLoad`).
+const replaced = new Set<string | undefined>();
+// The one place that stops and starts the daemon, in turn (./daemon-control). It stops the daemon of this app's run folder and no other (./daemon-client, `stopDaemon`). A load's replacement of a daemon of another build that runs nothing runs inside the load's own turn, before the window attaches.
 const control = daemonControl({
-  start: () => ensureDaemon(runDir, daemonScript),
+  start: () => daemonForLoad(runDir, daemonScript, replaced),
   stop: () => stopDaemon(runDir),
   quit: () => app.quit(),
 });
