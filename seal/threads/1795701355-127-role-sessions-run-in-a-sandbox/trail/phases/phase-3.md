@@ -2,7 +2,7 @@
 
 ## What this phase found
 
-The phase was finished on `5a23fbb5`, whose parent `86cd3008` holds the stand-in runs per pair. The crafter that started the phase was stopped before its last change was committed, and the handoff kept that change as a patch. This crafter applied the patch, finished it, and committed it as `f479b1bd`. The comments it corrected after the runs are `9acf2304`.
+The phase was finished on `5a23fbb5`, whose parent `86cd3008` holds the stand-in runs per pair. The crafter that started the phase was stopped before its last change was committed, and the handoff kept that change as a patch. This crafter applied the patch, finished it, and committed it as `f479b1bd`. The comments it corrected after the runs are `9acf2304`, rewrapped in `0bcdfe71`.
 
 **The frame holds for item 9, but the measurement under Q3 shows a place it did not name.** A proofer's, a sealer's and the orchestrator's commands could write in the repository's git folder, which no place of the launch named, and so a proofer's command could make a branch. The daemon now names that folder as refused for every grant but the crafter's. Three "only" sentences of `frame/design.md` *Rule changes* stand on Q3, and they need the fold described below. Judged against `frame/design.md` *Scope* item 4, which says the bound holds whatever Claude Code lets a command write by default, and against `frame/questions.md` Q3, whose options fold a writable place into item 4 as one more deny entry.
 
