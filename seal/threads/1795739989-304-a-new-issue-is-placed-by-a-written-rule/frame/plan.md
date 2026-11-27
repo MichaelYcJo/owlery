@@ -31,7 +31,7 @@ The failure scenario of the chosen approach, six months on: the tracker gains or
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | *Scope* items 1 to 3 of `frame/design.md`, in both editions of the roadmap | Scenarios E and F of `frame/design.md`, each search run at the phase's commit. Scenarios A to D and G read. The counts of scenario H run by the crafter, and the broad gate by the orchestrator. No test, since no code changes. | |
+| 1 | *Scope* items 1 to 3 of `frame/design.md`, in both editions of the roadmap | Scenarios E and F of `frame/design.md`, each search run at the phase's commit. Scenarios A to D and G read. The counts of scenario H run by the crafter, and the broad gate by the orchestrator. No test, since no code changes. | 90fcfa85 |
 
 ## Overlap with the release
 
