@@ -12,7 +12,7 @@
 url='https://github.com/owner/project/pull/12'
 case "$1 $2" in
   "pr view")
-    printf '{"number":12,"url":"%s","state":"OPEN","isDraft":false,"headRefOid":"%s","mergedAt":null,"statusCheckRollup":[{"__typename":"CheckRun","name":"records","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/actions/runs/7/job/21"},{"__typename":"CheckRun","name":"seal","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/runs/22"}]}\n' "$url" "$(git rev-parse HEAD)"
+    printf '{"number":12,"url":"%s","state":"OPEN","isDraft":false,"headRefOid":"%s","mergedAt":null,"statusCheckRollup":[{"__typename":"CheckRun","name":"records","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/actions/runs/7/job/21"},{"__typename":"CheckRun","name":"inspection","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/owner/project/runs/22"}]}\n' "$url" "$(git rev-parse HEAD)"
     ;;
   *)
     echo "the stand-in for gh answers pr view alone" >&2
