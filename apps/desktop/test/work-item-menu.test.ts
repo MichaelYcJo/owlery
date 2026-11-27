@@ -31,7 +31,7 @@ import { readDiscovery } from "../src/daemon/discovery";
 import { installedApps } from "../src/main/openers";
 import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
 import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, deleteSays, rowButtons } from "../src/renderer/view";
-import { BuiltApp, atRestAfterFailure, buildApp } from "./built-app";
+import { BuiltApp, atRestAfterFailure, buildApp, formPlanOf } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { slugFor } from "../src/daemon/worktrees";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
@@ -223,8 +223,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: name });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-    // Create creates nothing before the form shows the plan of its folder.
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf(name), `the plan of the folder for ${name}`);
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
     const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((each) => each.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.dataset.workItem)`);
@@ -707,6 +707,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#new-work-item");
     await dialogOpen("work-item-dialog");
     expect((await form()).filter((_, at) => at !== 2)).toEqual([false, false, false, "Create"]);
+    // The form asks the plan of the folder it holds as it opens, and the plan's lines and the Branch menu it draws move Cancel down: Cancel is pressed once the plan stands.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the last folder");
     await app.click("#work-item-cancel");
     await dialogClosed("work-item-dialog");
   });
@@ -717,6 +719,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click(`${repository(1)} .repository-add`);
     await dialogOpen("work-item-dialog");
     expect(await value<string>(`document.getElementById("work-item-repo").value`)).toBe(clone.repo);
+    // Cancel is pressed once the plan the opening asked for stands, as at the opening above.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the repository's folder");
     await app.click("#work-item-cancel");
     await dialogClosed("work-item-dialog");
   });

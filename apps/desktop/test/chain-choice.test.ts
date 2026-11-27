@@ -9,10 +9,10 @@
 // they stand in.
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { hookSettings } from "../src/daemon/hooks";
 import { MARKER } from "../src/daemon/records-place";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp, formPlanOf } from "./built-app";
 import { git, temporaryRepository } from "./repositories";
 
 const KEY = "agentic@agenticseal";
@@ -105,6 +105,9 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     made?.remove();
   }, 30_000);
 
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
+
   it("asks which chain runs over the form before a new work item's Claude Code pane opens, with the owl chain chosen, opens no pane where the dialog is cancelled, and at the answer launches the pane with the bundle and a settings file of its own that turns the plugin off", async () => {
     await app.click("#sidebar section[data-repository] .repository-add");
     await dialogOpen("work-item-dialog");
@@ -113,7 +116,8 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Chosen" });
     await value(`document.getElementById("work-item-kind").value = "claude"`);
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create is pressed once the plan of the name typed stands (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf("Chosen"), "the plan of the folder for Chosen");
     await app.click("#work-item-create");
     await dialogOpen("chain-dialog");
     // The form stays under the dialog with what was typed, and the owl chain is the choice the dialog opens on.

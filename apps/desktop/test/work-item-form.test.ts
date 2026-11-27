@@ -12,9 +12,9 @@
 // reaches the network.
 import { realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { FIRST_WORDS, SECOND_WORDS } from "../src/shared/names";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { commitFile, git, temporaryClone, unansweringOrigin } from "./repositories";
 
@@ -88,6 +88,9 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     unanswering?.stop();
     clone?.remove();
   }, 30_000);
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("offers a generated name, and shows the branch it gives, the remote's default branch as the base, and no branch picked in the Branch menu, which disables the branch the main checkout holds", async () => {
     await app.click("#new-work-item");
@@ -235,13 +238,17 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
       const SETUP_LINE = `document.getElementById("work-item-setup").textContent === "Copies the ignored files .worktreeinclude names from the main checkout. Then runs: make setup"`;
       const { name } = await openForm();
       await app.until(SETUP_LINE, "the setup under the name");
-      // Create pressed at once after a key in the folder field, before the plan of the field's new text answers, creates nothing.
-      const setRepo = (folder: string, press: boolean) =>
-        app.evaluate(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(folder)}; field.dispatchEvent(new Event("input")); if (${String(press)}) document.getElementById("work-item-create").click(); })()`);
-      await setRepo(`${clone.repo}/`, true);
-      expect(await text("work-item-error")).toBe("Wait until the form shows what this folder's work item gets, its setup among it.");
-      expect(await app.evaluate<boolean>(`document.getElementById("work-item-dialog").open`)).toBe(true);
-      await setRepo(clone.repo, false);
+      // Create pressed at once after a key in the folder field, before the plan of the field's new text answers, creates nothing. The folder is set back in the same call, within the form's wait before it asks a plan, so the form asks no plan of the text with the slash, whose answer would clear the plan of the folder while Create is pressed below.
+      const pressed = await app.evaluate<[string, boolean]>(`(() => {
+        const field = document.getElementById("work-item-repo");
+        const set = (folder) => { field.value = folder; field.dispatchEvent(new Event("input")); };
+        set(${JSON.stringify(`${clone.repo}/`)});
+        document.getElementById("work-item-create").click();
+        const seen = [document.getElementById("work-item-error").textContent, document.getElementById("work-item-dialog").open];
+        set(${JSON.stringify(clone.repo)});
+        return seen;
+      })()`);
+      expect(pressed).toEqual(["Wait until the form shows what this folder's work item gets, its setup among it.", true]);
       await app.until(SETUP_LINE, "the setup under the name again");
       await create(name);
       await app.until(`${TABS} === "Setup, Shell"`, "the setup pane's tab before the shell's");

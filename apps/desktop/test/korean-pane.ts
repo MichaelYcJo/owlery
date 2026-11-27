@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { BuiltApp } from "./built-app";
+import { type BuiltApp, formPlanOf } from "./built-app";
 
 /** One call of the debugging port. A recorded event of a person's typing becomes one of these. */
 export type Step =
@@ -179,8 +179,8 @@ export async function openReceiverPane(app: BuiltApp, repo: string, receivedFile
   await app.cdp("Input.insertText", { text: "Korean input" });
   // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
   await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-  // Create creates nothing before the form shows the plan of its folder.
-  await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+  // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+  await app.until(formPlanOf("Korean input"), "the plan of the folder for Korean input");
   await app.click("#work-item-create");
   try {
     await app.until(`!document.getElementById("work-item-view").hidden && document.querySelectorAll(".xterm-helper-textarea").length === 1`, "the work item's view with one terminal");

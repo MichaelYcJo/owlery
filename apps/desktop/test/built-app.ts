@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { TestContext } from "vitest";
+import { slugFor } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
 
 const APP_DIR = join(__dirname, "..");
@@ -433,6 +434,20 @@ export function atRestAfterFailure(app: () => BuiltApp | undefined): (context: T
     }
     if (open.length > 0) throw new Error(`Escape did not close what the failed case left open: ${open.join(", ")}`);
   };
+}
+
+/**
+ * The page's expression that holds once the "New work item" form shows the
+ * plan of the folder for `title`: the worktree it names ends in the title's
+ * slug, or in the slug with the number the daemon adds where that folder is
+ * taken. A case waits on it before it presses Create. The form asks a plan
+ * of the name it generates as it opens and a plan of each name typed after,
+ * so a wait on any plan drawn can end on the generated name's while the
+ * title's is asked, and the title's lines can wrap onto another count of
+ * rows, which moves Create away from the press.
+ */
+export function formPlanOf(title: string): string {
+  return `/\\/${slugFor(title)}(-\\d+)?$/.test(document.getElementById("work-item-worktree").textContent)`;
 }
 
 /** The first target a debugging port lists that `wanted` takes, once the app has opened it. It fails with `missing` where none came in thirty seconds. */
