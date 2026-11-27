@@ -176,6 +176,24 @@ describe("a job that is not rerun", () => {
     );
   });
 
+  // Each of the never-started job's facts in the list of jobs is changed alone, and its annotation still says that no
+  // runner took it, so only the fact changed keeps the job from a rerun. The values stand in for a job that ran:
+  // attempt 1 of run 45855610271 failed, and runner 1000023252 took attempt 3.
+  it.each([
+    ["a conclusion other than cancelled", { conclusion: "failure" }],
+    ["a step", { steps: [{ name: "Set up job" }] }],
+    ["a runner", { runner_id: 1000023252 }],
+  ])("a job that GitHub says no runner took, but that has %s", (_, changed) => {
+    const listed = JSON.parse(body("actions/runs/45855610271/attempts/2/jobs").stdout ?? "") as { jobs: object[] };
+    const ran = command(NEVER_STARTED, {
+      ...neverStarted(),
+      [jobsRead(NEVER_STARTED.RUN_ID, "2")]: { stdout: JSON.stringify({ jobs: listed.jobs.map((job) => ({ ...job, ...changed })) }) },
+    });
+    expect(ran.status).toBe(0);
+    expect(reruns(ran)).toEqual([]);
+    expect(ran.stdout).toBe("Attempt 2 of run 45855610271 holds no job that no runner took, so nothing is rerun.\n");
+  });
+
   it("a job cancelled while it ran, which has a runner and steps", () => {
     const run: Run = {
       ...NEVER_STARTED,
