@@ -27,10 +27,10 @@
 // it is a link into the person's own config folder where the person's holds
 // one (`claude-accounts.ts#LINKED_NAMES`), which the case does not try. The
 // case writes the daemon's port and token into its `daemon.json` as the
-// daemon's start does. The stand-in answers the session's first turn with one shell
-// command, so the call is made whatever a model would choose. The daemon
-// allows it by the role's grant, and the command runs in Claude Code's
-// sandbox with the places the daemon gave the launch: a proofer's and a
+// daemon's start does. The stand-in answers the session's first turn with
+// one shell command, so the call is made whatever a model would choose. The
+// daemon allows it by the role's grant, and the command runs in Claude
+// Code's sandbox with the places the daemon gave the launch: a proofer's and a
 // sealer's command clones the worktree into the session's scratch folder,
 // appends to the clone's file, makes a branch in the repository's git folder
 // and appends to the worktree's file; a crafter's appends to the worktree's
