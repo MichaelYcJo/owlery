@@ -62,9 +62,19 @@ A milestone named by its goal takes no number, and its issues ship in the releas
 | `after launch: first findings and conveniences` | What the launch of 0.1.0 and its first users find, and the conveniences the owner's walk of 2026-11-25 named that the launch left out |
 | `milestone 3: hand over an issue` | Row 3 of [Milestones](#milestones) |
 | `milestone 4: the person's hands on the work` | Row 4 of [Milestones](#milestones) |
-| `hardening: boundaries and edge cases` | The boundaries and edge cases found while milestones 1 and 2 were built |
+| `hardening: boundaries and edge cases` | The boundaries and edge cases found while milestones 1 and 2, and the releases after them, were built |
 | `milestone 5: after the PR, and limits` | Row 5 of [Milestones](#milestones), and the check of the first version's [done criteria](#done-criteria) |
 | `owner: by hand` | Work only the owner can do, such as a walk of the built app, a drawing, a choice between sheets or a build in a pane, which the orchestrator asks the owner about at the end of each release |
+
+**A new issue takes the first milestone below whose test it meets, read from the top.** The tests stand in an order because one issue can meet two of them, and then the order decides.
+
+1. It blocks the checks or the publication of the release that is open: that release's milestone, `release: <version>`, and on the owner's word only.
+2. It builds what a row of [Milestones](#milestones) names, and the table above names a milestone for that row: that milestone.
+3. Only the owner can do it: `owner: by hand`.
+4. It is a defect or a gap that a person met in what has shipped: `after launch: first findings and conveniences`.
+5. It is a boundary or an edge case that building found and no person has met yet: `hardening: boundaries and edge cases`.
+
+**An issue with no milestone, and with no line on it that says why, is not yet sorted.** A person outside the repository cannot set a milestone, because GitHub lets only an account with triage access or more set one, so their issue arrives with none. The orchestrator sorts such an issue by the list above and leaves one line on the issue that says which test placed it. Tests 2 to 5 wait for nobody. Under test 1 the line names the release and what the issue blocks, and the issue keeps no milestone until the owner's word. The list does not decide an issue that meets none of its tests. The orchestrator asks the owner then and writes the answer on the issue, also where the answer leaves the issue with no milestone, as work that waits for what comes [after the first version](#after-the-first-version) is left.
 
 **In release 0.0.3 the owl chain in a pane runs from the review rounds to the seal, on what the session built.** The pane's session is the builder, and the bundle holds no framer. Design and implementation as stages of the process, and the daemon's chain started for a handed-over issue, come with milestone 3 (issues #54 and #55). Owlery reads no cost of a pane's stages, since no hook carries one, and the back of such a seal says so. The first reading of what a pane's session used is issue #73's, in the milestone `after launch: first findings and conveniences`, which reads the subscription's usage limit through the pane's status line.
 
