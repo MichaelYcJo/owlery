@@ -1,6 +1,0 @@
-# Changelog: the plan of the folder shows on the runner
-
-Issue #328. The built app's cases of the choice of a chain failed on the hosted runner in most of its recorded runs, and the pull requests into the release waited on reruns. The first case waited for the "New work item" form to show the plan of the name it typed, and the window never asked the daemon for that plan.
-
-- **The "New work item" form shows the plan of a name typed in it, even where the window delivers the close event of its last opening late.** A dialog's close event arrives after the close. On the hosted runner it arrived after the form had opened again and a name had been typed in it. The form took that event as its own close and cancelled the request for the new name's plan, so the form kept showing the plan of the name it had generated. It now ignores a close event while it stands open, as the rename and records dialogs already did.
-- **For a contributor:** a dialog's `close` listener that clears what an opening set has to return while its dialog stands open, as the form's, the rename dialog's and the records dialog's listeners in `apps/desktop/src/renderer/renderer.ts` do. The case in `apps/desktop/test/work-item-form.test.ts` makes the close event late within one task of the page: it closes the form, opens it and types a name in one evaluation.
