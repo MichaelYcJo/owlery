@@ -7311,9 +7311,13 @@ describe("the daemon's log of how a daemon ended", () => {
 
   it("counts the panes that are alive, and the agents that work: a pane whose state is `working` and a headless session that works", async () => {
     // The first pane exits at once, and every other stays. The role session started on "Held" works to the case's end, its work in the worktree never ending, and every other finishes.
+    // A proofer's adapter is given its prompt with the paragraph that names its scratch folder after it, so "Held" is matched with that paragraph. Matched alone, it never equals what the adapter is given, and the count then read a session that had finished or not by how long the daemon took to start it.
+    const adapter: ReturnType<typeof fakeAdapter> = fakeAdapter({
+      work: (_cwd, prompt) => (prompt === withScratch("Held", adapter.starts.at(-1)?.scratch ?? "") ? new Promise<void>(() => undefined) : undefined),
+    });
     const { daemon: d, url } = await daemonWithWorkItem({
       commandFor: (_kind, id) => ({ command: "/bin/sh", args: ["-c", id === 1 ? "exit 0" : "sleep 30"], env: {} }),
-      roleAdapter: fakeAdapter({ work: (_cwd, prompt) => (prompt === "Held" ? new Promise<void>(() => undefined) : undefined) }),
+      roleAdapter: adapter,
     });
     const c = await client(url);
     await c.message("ready");
