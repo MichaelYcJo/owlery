@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -890,10 +890,13 @@ describe("the Claude adapter's role launch", () => {
       const init = JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", agents: [agentOf(pair)] });
       const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
       const { account, ...places }: { commands: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string; account?: boolean } = given[pair.role];
-      // An added account's folder, as the daemon makes it in its run folder; the case's shell names no config folder, so a pair given none runs under the default one.
+      // An added account's folder, as the daemon makes it in its run folder, given through a link to that folder, so the launch names it by its real path as the daemon names the run folder; the case's shell names no config folder, so a pair given none runs under the default one.
       const accountDir = account === true ? join(folder, "run", "accounts", "a") : undefined;
-      if (accountDir !== undefined) mkdirSync(accountDir, { recursive: true });
-      const bound = { ...places, ...(accountDir === undefined ? {} : { accountDir }) };
+      if (accountDir !== undefined) {
+        mkdirSync(accountDir, { recursive: true });
+        symlinkSync(join(folder, "run"), join(folder, "run-link"));
+      }
+      const bound = { ...places, ...(accountDir === undefined ? {} : { accountDir: join(folder, "run-link", "accounts", "a") }) };
       await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, pair, bound);
       const args = readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1);
       const settings = JSON.parse(args[args.indexOf("--settings") + 1]!) as { sandbox: unknown };
