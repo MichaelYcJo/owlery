@@ -59,6 +59,12 @@ The repair is to refuse a role's commands the read of the run folder, and give t
 
 The snippet leaves these for the fix pass, which owes them too. The doc of `RoleStart.commands` (`adapter.ts:68-77`) states `unread`. The cases that build `commands` or `sandbox` by hand (`claude-adapter.test.ts`, `daemon.test.ts` *headless sessions*, `fake-adapter.test.ts`, `role-bundle.test.ts:476`) gain the field. `frame/design.md` *Scope* items 3 and 4, *Data & interfaces*, the *Out* row on what a command reads, and the `add` of *Agent adapters* with its Korean twin are the framer's to fold. `changelog.md:9` is the fix pass's to rewrite, so that it says a command reads nothing of the run folder. An alternative the fix pass may weigh instead is a launch whose commands reach no loopback port at all. Whether `allowLocalBinding: false` refuses a connection to another process's loopback port was not measured, and it would refuse a test's local server, which `claude.ts:139` names as the reason for the key.
 
+```seal
+verdict: fixed eb5f375a
+location: `apps/desktop/test/claude-adapter.test.ts`, `apps/desktop/test/daemon.test.ts`, `apps/desktop/test/fake-adapter.test.ts`, `apps/desktop/test/role-bundle.test.ts`
+answer: Every role's launch now refuses its commands the read of the daemon's run folder and gives back the read of the session's scratch folder inside it: `Daemon#commandsOf` gives every grant `RoleStart.commands.unread`, the run folder's real path where the daemon has one, and the Claude adapter passes it as `sandbox.filesystem.denyRead` with `allowRead` naming the scratch folder (`adapter.ts`, `claude.ts`, `daemon.ts`, with their comments; the cases this finding lists, at the paths of this block's `location:`, gain the fields). `unread` is a field of the existing `RoleStart.commands` type, and `denyRead` and `allowRead` fields of the existing `RoleLaunch.sandbox`, which `skills/implement/fix-pass.md` *A fix that needs a unit the frame does not name waits for the fold* counts as a change to the body of a part the tree holds, so the fix did not wait for a fold. The stand-in case gives the daemon a run folder of the case's, writes `daemon.json` there with `writeDiscovery` as `main.ts` does, puts the session's config folder inside it as an added account's folder stands, and has every role's command `cat` the file. Executed at `5cc7a73e` with the installed Claude Code 2.1.332 through the lock: `role:refusal`, `role:refusal:sealer` and `role:refusal:crafter` each read 1 passed and 1 skipped, each tool result named `<run folder>/daemon.json: Operation not permitted` and held no token, and the proofer's and the sealer's clone in the scratch folder was made and printed, so a command whose config folder stands in the run folder still runs. That pair of runs and these mutants are the measurement that both keys given through `--settings` reach the sandbox, each executed once with `seal mutate` and read on its failing line: with the run folder left out of `unread`, the proofer's and the crafter's command printed `{"port":…,"token":"rrrr…"}` and the case failed `role-session.test.ts:296`, the token's line, once `5cc7a73e` had moved that line before each role's own (before it, the proofer's run failed on the clone's line, since the command then exited 0); with `denyRead` left out of the settings it failed the same line; with `allowRead` left out the clone was refused (`unable to access …/scratch/1-…/clone/.git/config: Operation not permitted`) and it failed `:311`; and the unit mutants failed `daemon.test.ts:6039`, `claude-adapter.test.ts:58` and `:896`. The bound holds for every role, since no grant picks `unread`: the crafter's stand-in run asserts it too, and the orchestrator, which has no stand-in script, is pinned by `daemon.test.ts`. Whether Claude Code 2.1.329, the minimum, applies the two keys was not run, since the caller allowed the installed version alone, and whether the session's file tools still read the scratch folder under `denyRead` was not run, since the stand-in calls `Bash` alone; both are rows of `gaps.md` *Not verified*. `changelog.md:9` now says a command reads no file of the run folder, and its contributor's line names the read. The finding's `git grep` on "loopback" and "network bound", run again at `20af7ebd`, prints `frame/design.md:69` and `:131`, which state the old bound and are the orchestrator's to fold with the replacement text the hand-back gives, with *Scope* items 3, 4, 6 and 9, *Data & interfaces* and `frame/plan.md` *Technical context*'s "The run folder is refused nothing"; it prints `changelog.md:9`, `claude.ts:83-84` and `:141`, `daemon.ts:2465` and `proofer.md:190`, which state the bound as it now holds; and it prints lines of `frame/design.md`, `frame/plan.md`, `frame/questions.md`, the phase records and this record that state what the loopback reaches and claim nothing it keeps in. The search is a sample of spellings: a statement of the bound in other words escapes it.
+```
+
 ### 2. The proofer's definition says a claim no run settled is no finding, which turns every finding read from the tree into a row of `## Not judged`
 
 ```seal
@@ -77,6 +83,11 @@ finding: it is a row of `## Not judged`, with who answers it.
 
 ```ts
       "A claim that only a run could settle, and that no run of yours settled, is no finding: it is a row of `## Not judged`, with who answers it.",
+```
+
+```seal
+verdict: fixed dff6de30
+answer: `proofer.md:192-194` and its pin `role-bundle.test.ts:323` now read the paste-ready text, so a claim the proofer settled by reading is a finding again, and only a claim that only a run could settle, and that no run of the proofer's settled, is a row of `## Not judged`. Executed with `seal mutate`: the old sentence put back failed `role-bundle.test.ts:325`, the loop that names the sentence. The finding's `git grep`, run again at `20af7ebd`, prints `proofer.md:193`, its pin and this record, and nothing else.
 ```
 
 ### 3. The sealer's *Never* list still reads "Never run a command", beside the *Job* paragraph that gives its commands a scratch folder
@@ -101,6 +112,11 @@ Why it matters: the item reads "Write a file of the worktree, run a command, or 
       "- Make a claim hold by running a command, or by editing code or a record: you check each claim against the tree as it stands.",
 ```
 
+```seal
+verdict: fixed dff6de30
+answer: The item is split in two, the second in the fix pass's own words: "- Write a file of the worktree: your section reaches the tree by Owlery's hand." and "- Change the tree so that a claim holds, by a command or by an edit of code or a record: you check each claim against the tree as it stands." The paste-ready "Make a claim hold by running a command" can still be read as "do not establish a claim by running one", the reading the finding says contradicts *Job*; "Change the tree so that a claim holds" has the one reading the finding asks for. The pin of `role-bundle.test.ts` follows both items. Executed with `seal mutate`: the old item put back failed `role-bundle.test.ts:331`. The finding's `git grep`, run again at `20af7ebd`, prints `trail/phases/phase-2.md:27`, which states its own commit, and this record.
+```
+
 ### 4. Two new cases of `claude-adapter.test.ts` assert nothing that the full-arguments case and the case of each role's bound do not already assert
 
 ```seal
@@ -114,6 +130,11 @@ Why it matters: "gives a crafter's launch the sandbox of its commands in the one
 ```ts
 // Remove the two cases at claude-adapter.test.ts:56-71, "gives a crafter's launch the sandbox of its commands…" and
 // "gives a proofer's launch the scratch folder as the one place its commands write…": `:73` and `:899` hold their facts.
+```
+
+```seal
+verdict: fixed 61d7eb24
+answer: The two cases are removed, as the paste-ready text says. Read against `claude.ts`: the full-arguments case, at `claude-adapter.test.ts:56` at `20af7ebd`, pins one `--settings` and its exact JSON, and "bounds each role's commands to the places it was given…", at `:882`, pins every pair's `sandbox` block whole and the folders after `--add-dir`. After `eb5f375a` the two also pin `denyRead` and `allowRead`, which the unit mutants of finding 1's block failed. Executed: `claude-adapter.test.ts` with `fake-adapter.test.ts` and `role-bundle.test.ts` at `5cc7a73e`, 151 passed.
 ```
 
 ### 5. That a crafter's command cannot point git at a folder of its own rests on Claude Code's own protections, which the launch does not name and no case runs
@@ -138,6 +159,11 @@ Why it matters: the `add` of *Agent adapters* says the crafter's commands are re
 ```
 
 The fix pass may also name the two places as deny entries of the crafter's launch, `<worktree>/.git` and the worktree's `commondir`, so the bound is the launch's own. A commit writes neither (read: `git commit` writes the index, the objects, the refs and the logs). The comment block above `standInCommand` (`role-session.test.ts:72-84`) and the file's head (`:28-32`) state the crafter's command and change with it.
+
+```seal
+verdict: fixed eb5f375a
+answer: The crafter's stand-in command now writes, whatever each step before did, the worktree's `.git` file and `commondir` of the worktree's own git folder to name the case's folder, and the case asserts both refusals and that git still names the repository's folder, as the paste-ready text has it; the comment above `standInCommand` and the file's head say so. Executed at `5cc7a73e` with the installed 2.1.332: `role:refusal:crafter` read 1 passed, its tool result naming `operation not permitted: <worktree>/.git` and `operation not permitted: <git folder>/worktrees/a-real-role-session/commondir`. The guard the two assertions pin is Claude Code's own protection, which no run can take away, so neither was seen red with its guard removed, and by contract rule 13 the defence stays unverified as Owlery's; executed with `seal mutate`, each step taken out of the command failed its own line, `role-session.test.ts:306` and `:307`, so each assertion reads its step. The fix pass did not name the two places as deny entries of the launch: `commondir` stands in the worktree's own git folder, which `Daemon#commandsOf` does not ask git for, and a change to *Scope* item 4's places is the framer's, so `gaps.md` *Not done* holds it. The class was built from what git reads, at the daemon's commit in a linked worktree, to find its folders, its config and its hooks, read in git-config(1): the worktree's `.git` file and `commondir`, now tried; the common folder's `config` and `hooks`, which the launch refuses; `config.worktree` of the worktree's own git folder, which git reads only where the repository's config sets `extensions.worktreeConfig`, and which no run tried; and a relative `core.hooksPath`, which git takes as relative to the folder where the hooks run, so where a repository's config sets one, as a hook manager that keeps its hooks in the tree does, a crafter's edit of a hook file in the worktree runs at the daemon's commit outside the sandbox. The last two are named in the hand-back for the orchestrator, beside the *Not judged* row of this record on the broad gate, which runs the crafter's code outside any sandbox too. The read after the last fix commit `20af7ebd`: every hunk of `git diff 49b5f65f..20af7ebd` was read with its unit (executed, `git diff`, in parts at `5cc7a73e` and at `20af7ebd`); `routing.md` and the three frame files were read whole at the start of the pass and are held, not read again, since the range changes none of them (executed, `git diff --stat 49b5f65f..20af7ebd` on them printed nothing); `gaps.md` and `changelog.md` were read whole at the start and their hunks of the range at `20af7ebd`. The narrow set ran at `5cc7a73e`, and the commits after it change a comment of `claude.ts` and `gaps.md` alone.
+```
 
 ## Confirmations
 
