@@ -81,17 +81,17 @@ function firstOf(text: string): string {
  * `sandbox.denyWrite`, which wins over both; they read no file of
  * `sandbox.denyRead` but in `sandbox.allowRead`, so not the port and the
  * token of the daemon that listens on the loopback; and they reach no host
- * but the loopback. The runs of `pnpm run role:refusal` against Claude Code 2.1.332
- * showed the default to hold its own temporary folder `/tmp/claude-<uid>`,
- * the session's folder, and the git folder of the repository whose linked
- * worktree the session ran in. No command can ask to run outside it, a
- * session whose sandbox cannot start does not start, and a sandboxed
- * command still asks the adapter as any other does. Its scratch folder,
- * where it has one, joins the folders the session works in. A refresh of
- * an account's usage, which has no role, holds no tool at all, takes one
- * turn and writes no transcript. No other launch is made: a session with
- * neither a role nor a refresh would keep Claude Code's default tools,
- * with no grant to answer its calls.
+ * but the loopback. The runs of `pnpm run role:refusal` against Claude Code
+ * 2.1.332 showed the default to hold its own temporary folder
+ * `/tmp/claude-<uid>`, the session's folder, and the git folder of the
+ * repository whose linked worktree the session ran in. No command can ask
+ * to run outside it, a session whose sandbox cannot start does not start,
+ * and a sandboxed command still asks the adapter as any other does. Its
+ * scratch folder, where it has one, joins the folders the session works
+ * in. A refresh of an account's usage, which has no role, holds no tool at
+ * all, takes one turn and writes no transcript. No other launch is made: a
+ * session with neither a role nor a refresh would keep Claude Code's
+ * default tools, with no grant to answer its calls.
  */
 export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[] {
   return [
