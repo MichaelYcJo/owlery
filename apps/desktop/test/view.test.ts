@@ -3741,7 +3741,7 @@ describe("statusNotice", () => {
   const OWN = "The theme could not be saved.";
   const DAEMON = daemonNotice(true);
   const STORE = "Owlery could not read its list of repositories, so it kept the file as /run/repositories-unread-20261126T123005Z.json and started with none. Nothing in that file was changed.";
-  const AGENT = `Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+  const AGENT = `Claude Code 2.1.300 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
 
   it("says the agent's notice where the window, the daemon and the store have none", () => {
     expect(statusNotice("", "", null, AGENT)).toBe(AGENT);

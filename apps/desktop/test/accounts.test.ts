@@ -511,6 +511,9 @@ async function ended(d: Daemon, c: Client, workItemId: number, accountId?: numbe
   return (await c.message("headless", (m) => m.headless.id === started.id && m.headless.state !== "working")).headless;
 }
 
+/** The fake's answer to a proofer, with the paragraph the daemon appends to its prompt to name the scratch folder taken off the quoted prompt: what a case of accounts reads is the config folder after it. */
+const withoutScratch = (answer: string): string => answer.replace(/\n\nYour scratch folder is [^"]*"/u, '"');
+
 /** Adds an account Owlery makes, as the Accounts dialog's press does, with no name: the sign-in pane the daemon answers with, and the daemon's word on how the add ended once the pane's process did. */
 async function added(c: Client): Promise<{ pane: SessionInfo; ended: Extract<ServerMessage, { type: "addEnded" }> }> {
   const answer = await c.request({ type: "addAccount", cols: 80, rows: 24 });
@@ -546,8 +549,8 @@ describe("the daemon's accounts", () => {
     const first = await ended(d, c, one.workItemId);
     const second = await ended(d, c, two.workItemId);
     expect([first.accountId, second.accountId]).toEqual([1, 2]);
-    expect(first.answer).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${work}`);
-    expect(second.answer).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${home}`);
+    expect(withoutScratch(first.answer)).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${work}`);
+    expect(withoutScratch(second.answer)).toBe(`As the proofer at the stage round, you asked: "Who am I?" under the config folder ${home}`);
     for (const [workItemId, account] of [
       [one.workItemId, { id: 1, name: "Work" }],
       [two.workItemId, { id: 2, name: "Home" }],
@@ -639,7 +642,7 @@ describe("the daemon's accounts", () => {
     const { workItemId } = await workItemIn(c);
     await c.request({ type: "setWorkItem", id: workItemId, accountId: 1 });
     const session = await ended(d, c, workItemId);
-    expect([session.answer, session.accountId]).toEqual(['As the proofer at the stage round, you asked: "Who am I?"', null]);
+    expect([withoutScratch(session.answer), session.accountId]).toEqual(['As the proofer at the stage round, you asked: "Who am I?"', null]);
     expect(started).toHaveLength(1);
     expect("accountDir" in started[0]!).toBe(false);
     c.send({ type: "readLedger", requestId: 78, workItemId });

@@ -8,10 +8,18 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import type { RoleStage } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 
-/** What a role may do at a stage: where it may write a file, and whether a command of its session that asks permission is allowed. */
+/**
+ * What a role may do at a stage: where it may write a file, whether a
+ * command of its session that asks permission is allowed, and where the
+ * session's commands may write, which the operating system's sandbox holds
+ * them to: the worktree, a scratch folder of the session's own, or nowhere.
+ * The daemon resolves the folders each of the three names
+ * (`Daemon#commandsOf`).
+ */
 export interface RoleGrant {
   writes: "worktree" | "nowhere";
   runs: boolean;
+  commands: "worktree" | "scratch" | "nowhere";
 }
 
 /** A pair of the protocol as one key of a table that holds a row for each pair. */
@@ -26,13 +34,15 @@ export function pairKey(role: RoleStage): PairKey {
 /**
  * The grants. A crafter at a fix pass changes the work item's worktree. A
  * proofer at a round, a sealer at the seal and the orchestrator at a
- * judgment judge a tree or its records, and change nothing of it.
+ * judgment judge a tree or its records, and change nothing of it: the
+ * proofer's and the sealer's commands run and write in a scratch folder of
+ * the session's own, and the orchestrator runs no command that asks.
  */
 const GRANTS: Record<PairKey, RoleGrant> = {
-  "proofer at round": { writes: "nowhere", runs: false },
-  "crafter at fix-pass": { writes: "worktree", runs: true },
-  "sealer at seal": { writes: "nowhere", runs: false },
-  "orchestrator at judgment": { writes: "nowhere", runs: false },
+  "proofer at round": { writes: "nowhere", runs: true, commands: "scratch" },
+  "crafter at fix-pass": { writes: "worktree", runs: true, commands: "worktree" },
+  "sealer at seal": { writes: "nowhere", runs: true, commands: "scratch" },
+  "orchestrator at judgment": { writes: "nowhere", runs: false, commands: "nowhere" },
 };
 
 /** The grant of each pair of `ROLE_STAGES`. */

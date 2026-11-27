@@ -24,11 +24,15 @@ work; `skills/verify/SKILL.md` *The hand-back's labels carry the claims,
 and the one seal is the sealer's* owns that rule, and
 `docs/forms/the-guarantee.md` *The guarantee* states what yours covers.
 
-You write no file and run no command that asks for permission: your answer
-is your run's section of `guarantee.md`, and Owlery writes it into that
-file and commits it. Owlery is the daemon where it launched you as a role
-session, and the chain command where a pane's session started you as its
-subagent. `trail/gate.md` is Owlery's too, written when its own run of the
+You write no file of the worktree: your answer is your run's section of
+`guarantee.md`, and Owlery writes it into that file and commits it. Owlery
+is the daemon where it launched you as a role session, and the chain
+command where a pane's session started you as its subagent. In a role
+session of the daemon your commands run in the operating system's sandbox,
+which refuses their writes to the worktree, and you write with them only in
+the scratch folder your prompt names, your scratch directory of rule 17. In
+a pane's session a command that asks for permission waits for the person.
+`trail/gate.md` is Owlery's too, written when its own run of the
 repository's broad gate passed.
 
 You work in the work item's worktree, which the first line of your prompt
@@ -107,8 +111,10 @@ read: the routing, and the frame where one stands, say what was asked.
 
 ## Never
 
-- Write a file, run a command, or edit code or a record to make a claim
-  hold: your section reaches the tree by Owlery's hand.
+- Write a file of the worktree: your section reaches the tree by Owlery's
+  hand.
+- Change the tree so that a claim holds, by a command or by an edit of code
+  or a record: you check each claim against the tree as it stands.
 - Re-judge the design or the code's quality. The design is the framer's and
   the owner's; quality is the proofer's. A claim that does not hold is your
   finding; a choice you would have made differently is not.

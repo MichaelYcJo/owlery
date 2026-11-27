@@ -5,7 +5,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { claudeArgs, versionNotice } from "../src/daemon/adapters/claude";
@@ -276,11 +276,11 @@ describe("the role bundle", () => {
     expect(sectionOf(`I read the branch.\n\n${filled}`, { run: 3, target })).toBe(filled);
   });
 
-  it("tells the sealer what the owl chain does: it works on the commit the gate passed on, runs no command and writes no file, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
+  it("tells the sealer what the owl chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const definition = read("agents/sealer.md").replace(/\s+/gu, " ");
     for (const named of [
-      "You write no file and run no command that asks for permission: your answer is your run's section of `guarantee.md`",
+      "You write no file of the worktree: your answer is your run's section of `guarantee.md`",
       "the commit you audit is the one your prompt's target line names: the commit the broad gate passed on",
       "The work item names no issue",
       "You check each claim by reading",
@@ -306,6 +306,37 @@ describe("the role bundle", () => {
     ]) expect(form, named).toContain(named);
     for (const gone of ["pull request body", "seal mark", "the orchestrator's broad run"]) expect(form, gone).not.toContain(gone);
     expect(read("README.md")).toContain("a sealer reads the commit Owlery's run of the broad gate passed on and answers with its run's section of the guarantee, which Owlery completes with who built the work and who judged it, writes and commits");
+  });
+
+  it("tells the proofer and the sealer where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the guarantee's form says that they run nothing (scenario 8 of #127)", () => {
+    // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
+    const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
+    const proofer = flat("agents/proofer.md");
+    for (const named of [
+      "You write no file of the worktree: Owlery writes your answer to the record's path and commits it.",
+      "Where your commands run and what they write is **A round changes nothing of the worktree, and its runs stand in a scratch folder.** below.",
+      "**A round changes nothing of the worktree, and its runs stand in a scratch folder.** The folder you work in is the person's worktree, and you write no file there, with a tool or with a command.",
+      "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17.",
+      "Clone the worktree there to run a narrow test or a probe, give each run a row of `## Probes`, and write `executed` on each `evidence:` line that stands on a run.",
+      "The folder is removed when your session ends, so a row says what its run settled. A clone there holds no installed dependency and reaches no host but the loopback.",
+      "In a pane's session a command that asks for permission waits for the person, so there every `evidence:` line is `read`, with each `path:line` you opened, and the `## Probes` table holds no row.",
+      "A claim that only a run could settle, and that no run of yours settled, is no finding: it is a row of `## Not judged`, with who answers it.",
+      "- Write a file of the worktree, or commit: the record reaches the tree by Owlery's hand.",
+    ]) expect(proofer, named).toContain(named);
+    const sealer = flat("agents/sealer.md");
+    for (const named of [
+      "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17. In a pane's session a command that asks for permission waits for the person.",
+      "- Write a file of the worktree: your section reaches the tree by Owlery's hand.",
+      "- Change the tree so that a claim holds, by a command or by an edit of code or a record: you check each claim against the tree as it stands.",
+    ]) expect(sealer, named).toContain(named);
+    const form = flat("docs/forms/the-guarantee.md");
+    for (const named of [
+      "It reads that record and never runs the broad gate itself, and its order of work and where its commands run are `agents/sealer.md`'s.",
+      "**How it errs.** It checks each claim by reading, so a claim that only a run would refute passes: a case that was never red, a command that does not pass.",
+    ]) expect(form, named).toContain(named);
+    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/sealer.md", sealer], ["docs/forms/the-guarantee.md", form]] as const) {
+      for (const gone of ["run no command", "runs nothing", "**A round reads, and runs nothing.**"]) expect(text, `${file} says ${gone}`).not.toContain(gone);
+    }
   });
 
   it("tells the sealer how a run that follows a broken seal judges: its prompt hands it what changed since that seal's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
@@ -422,7 +453,7 @@ describe("the built app's role bundle", () => {
       [
         `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
+        `echo '{"type":"system","subtype":"init","claude_code_version":"2.1.330","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
         `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
         // It exits at the end of its input, which the daemon ends once the result has arrived.
         "cat > /dev/null",
@@ -438,7 +469,12 @@ describe("the built app's role bundle", () => {
 
     const bundleDir = join(APP_DIR, "dist", "bundle");
     const rulesFile = join(runDir, "roles", "proofer-round.md");
-    expect(readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1)).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"] }));
+    // The proofer's commands write in the scratch folder the daemon made for the session, the last folder of the launch, are refused the worktree, the repository's git folder and the bundle, and read nothing of the run folder but that scratch folder.
+    const args = readFileSync(join(made.base, "args"), "utf8").split("\n").slice(0, -1);
+    const scratch = args.at(-1) ?? "";
+    expect(dirname(scratch)).toBe(join(realpathSync(runDir), "scratch"));
+    expect(basename(scratch)).toMatch(new RegExp(`^${String(headless.id)}-[A-Za-z0-9]{6}$`, "u"));
+    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir], denyRead: [realpathSync(runDir)], allowRead: [scratch] }, scratch }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
     expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
@@ -511,7 +547,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
     // Stands for the login shell: it names the CLI and ends.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     const old = versionNotice("2.1.300 (Claude Code)");
-    expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
+    expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
     /** What the status line says, and whether it is drawn as a notice. */
     const status = (): Promise<{ text: string; notice: boolean }> => app.evaluate(`({ text: document.getElementById("status").textContent, notice: document.getElementById("status").classList.contains("notice") })`);
     const app = await BuiltApp.start({ SHELL: shell });
@@ -524,7 +560,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
       // The person updates. The daemon reads the version again as a window connects, and that read is held here, so the page loaded anew has the sentence from the daemon's `ready` alone.
       // The hold stands before the new version does, and the new version is put in place whole, so a read under way prints the old version and a later one is held.
       writeFileSync(hold, "");
-      writeFileSync(`${version}.next`, "2.1.326 (Claude Code)\n");
+      writeFileSync(`${version}.next`, "2.1.329 (Claude Code)\n");
       renameSync(`${version}.next`, version);
       await app.evaluate(`window.__beforeReload = true`);
       await app.cdp("Page.reload");
