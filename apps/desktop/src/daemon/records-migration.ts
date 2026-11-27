@@ -321,10 +321,11 @@ function movedPath(below: string): string {
  * The text a file of the earlier root moves with, by its path below that
  * root, or null for a file that moves as it stands. With `stray`, the file
  * stands below IADD's root, where a record of blocks was written in the
- * earlier form only where IADD's grammar reads none of its blocks and the
- * earlier grammar reads at least one. A record of IADD's form that shows a
- * fence of info `seal` in its prose reads its own blocks in IADD's grammar,
- * so it gives null and stays as it is.
+ * earlier form only where IADD's grammar reads none of its blocks. A record
+ * of IADD's form that shows a fence of info `seal` in its prose reads its own
+ * blocks in IADD's grammar, so it gives null and stays as it is. One that
+ * holds no block IADD's grammar reads is read with the earlier grammar, which
+ * names each line it refuses, as an earlier root's record is.
  */
 function rewrite(below: string, text: string, stray = false): string | null {
   if (below === "README.md") return readmeMoved(text);
@@ -335,7 +336,7 @@ function rewrite(below: string, text: string, stray = false): string | null {
   if (inside === "trail/refusals.md") return refusalsMoved(text);
   const kinds = blockKinds(inside);
   if (kinds === null) return null;
-  if (stray && (read(text, kinds.now).blocks.length > 0 || readEarlier(text, kinds).got.blocks.length === 0)) return null;
+  if (stray && read(text, kinds.now).blocks.length > 0) return null;
   return inside === "decisions.md" ? decisionsMoved(text) : fencesMoved(text);
 }
 
