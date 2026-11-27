@@ -38,7 +38,7 @@ The other two passed under the slowed git, as the next paragraph explains, and s
 
 **Mutation of units that add behaviour: none is owed.** The phase changes cases and no code of `apps/desktop/src`. The two breaks above are the evidence that the fixed cases watch what they name.
 
-**Census of the cases that act on a role adapter's start, a sample.** It ran at `81778dd4`. It was built from the producer: the daemon calls a role adapter in two places (`git grep -n "roleAdapter.start(" -- apps/desktop/src/daemon` prints `daemon.ts:2276` and `daemon.ts:2578`). Only the second waits on `commandsOf`. The first, the account refresh's, calls the adapter at once, so the refresh cases of `accounts.test.ts` are outside the class. Then the census listed what a case can hold of a start, and where it acts on it:
+**Census of the cases that act on a role adapter's start, a sample.** It ran at `81778dd4`. It was built from the producer: the daemon calls a role adapter in two places (`git grep -n -E "(roleAdapter|adapter)\.start\(" -- apps/desktop/src/daemon` prints `daemon.ts:2276`, the account refresh's `adapter.start(` through `const adapter = this.options.roleAdapter`, and `daemon.ts:2578`). Only the second waits on `commandsOf`. The first, the account refresh's, calls the adapter at once, so the refresh cases of `accounts.test.ts` are outside the class. Then the census listed what a case can hold of a start, and where it acts on it:
 
 ```
 git grep -l -E "startRoleSession|startChain\(" -- apps/desktop/test
