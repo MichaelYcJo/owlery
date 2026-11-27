@@ -13,4 +13,4 @@ The case of `apps/desktop/test/daemon.test.ts` that counts the panes alive and t
 
 ## Not done
 
-The daemon still calls the role adapter for a session that a stop or a close ended while git was naming the repository's folder, and then stops the run at once (`startHeadless` in `apps/desktop/src/daemon/daemon.ts`), so the real adapter launches Claude Code only to stop it. Phase 2 left it as it is. Its spawn kept `apps/desktop/src` out of the phase, and the behaviour is the one `Daemon#stopHeadless`'s docstring states and the case "stops a run that starts only after the daemon closed" pins. Whether to skip the call is for the orchestrator to weigh as a follow-up.
+The daemon still calls the role adapter for a session that a stop or a close ended while git was naming the repository's folder, and then stops the run at once (`startHeadless` in `apps/desktop/src/daemon/daemon.ts`), so the real adapter launches Claude Code only to stop it. Phase 2 left it as it is, and it is issue #326, in the milestone `hardening: boundaries and edge cases`.
