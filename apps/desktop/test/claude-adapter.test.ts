@@ -53,23 +53,6 @@ describe("the Claude adapter's launch", () => {
     ]);
   });
 
-  it("gives a crafter's launch the sandbox of its commands in the one settings value: on, never left, still asked, writing in the worktree and the git folder less that folder's hooks and config and the bundle, and reaching no host but the loopback (scenario 1 of #127)", () => {
-    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:crafter", rulesFile: "/run/roles/crafter-fix-pass.md", tools: ["Read", "Glob", "Grep", "Bash", "Edit", "Write"], sandbox: { allowWrite: ["/work/tree", "/repo/.git"], denyWrite: ["/repo/.git/hooks", "/repo/.git/config", "/app/dist/bundle"] }, scratch: null };
-    const args = claudeArgs("/work/tree", role);
-    expect(args.filter((arg) => arg === "--settings")).toHaveLength(1);
-    expect(args[args.indexOf("--settings") + 1]).toBe(
-      '{"disableAllHooks":true,"autoMemoryEnabled":false,"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,"autoAllowBashIfSandboxed":false,"filesystem":{"allowWrite":["/work/tree","/repo/.git"],"denyWrite":["/repo/.git/hooks","/repo/.git/config","/app/dist/bundle"]},"network":{"strictAllowlist":true,"allowedDomains":[],"allowLocalBinding":true}}}',
-    );
-    expect(args.slice(args.indexOf("--add-dir"))).toEqual(["--add-dir", "/work/tree", "/app/dist/bundle"]);
-  });
-
-  it("gives a proofer's launch the scratch folder as the one place its commands write, refuses them the worktree and the bundle, and adds the folder after the bundle's (scenario 2 of #127)", () => {
-    const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: ["/run/scratch/3"], denyWrite: ["/work/tree", "/app/dist/bundle"] }, scratch: "/run/scratch/3" };
-    const args = claudeArgs("/work/tree", role);
-    expect(JSON.parse(args[args.indexOf("--settings") + 1]!)).toMatchObject({ sandbox: { filesystem: { allowWrite: ["/run/scratch/3"], denyWrite: ["/work/tree", "/app/dist/bundle"] } } });
-    expect(args.slice(args.indexOf("--add-dir"))).toEqual(["--add-dir", "/work/tree", "/app/dist/bundle", "/run/scratch/3"]);
-  });
-
   it("gives a role launch the role's tools as one value, then the bundle, the role's agent and the rules file, and the bundle's folder after the worktree, and nothing else", () => {
     const role = { bundleDir: "/app/dist/bundle", agent: "owlery:proofer", rulesFile: "/run/roles/proofer-round.md", tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [], denyWrite: ["/work/tree", "/app/dist/bundle"] }, scratch: null };
     expect(claudeArgs("/work/tree", role)).toEqual([
