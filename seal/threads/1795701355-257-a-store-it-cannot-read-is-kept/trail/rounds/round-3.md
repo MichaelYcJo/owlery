@@ -28,6 +28,11 @@ The search on the directory's name printed two lines. `trail/rounds/round-1.md:1
 - The protection holds for a move back to this build or a later one alone. `v0.0.5` and earlier builds write over a file they refuse, so #217's way round stands for them: copy `repositories.json` before running such a build (the release notes of `v0.0.5`, the last bullet of #217's section: "A person who may run an earlier build copies `repositories.json` aside first."). The changelog fragment of this work says both.
 ```
 
+```seal
+verdict: fixed 1476c3e7
+answer: The orchestrator replaced the bullet at `frame/plan.md:63` with the round's text, word for word. Records alone.
+```
+
 ### 2. Line coordinates in the frame's present-tense sections, and one in the memo, name lines that hold something else at the target
 
 ```seal
@@ -98,6 +103,11 @@ gaps.md:8
 ```
 
 `frame/plan.md:26`'s added words "and at each `readLists`" are #216's: at the target the daemon asks the adapter again in `readOutside`, which a hello and a `readLists` both run (`apps/desktop/src/daemon/daemon.ts:970-972`). The rejection stands either way, since a third reader of the slot only sooner replaces the store's sentence.
+
+```seal
+verdict: fixed 1476c3e7
+answer: The orchestrator applied every replacement of the round's table to `frame/design.md`, `frame/plan.md` and `gaps.md`, word for word (21 of them, each matched on its line). Records alone.
+```
 
 ## Confirmations
 
