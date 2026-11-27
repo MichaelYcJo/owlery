@@ -383,7 +383,7 @@ export async function planMigration(folder: string, version: string): Promise<Mi
   return (await planned(folder, version)).plan;
 }
 
-/** The plan `planMigration` gives, with the bytes or the text each file of the earlier root moves with, by its path in the commit. */
+/** The plan `planMigration` gives, with the bytes or the text each file the plan moves goes with, by its path in the commit. */
 async function planned(folder: string, version: string): Promise<{ plan: MigrationPlan; texts: Map<string, string | Buffer> }> {
   const inside = await git(folder, ["rev-parse", "--is-inside-work-tree"]);
   if (inside.code !== 0 || inside.stdout.trim() !== "true") throw new Error(inside.stderr.trim() || `${folder} is no checkout of a repository`);
