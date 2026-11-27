@@ -19,4 +19,4 @@ The issue is in the milestone `release: 0.1.0`, the minimum for Owlery to be pub
 - **Implementation, crafter:** the role session's launch, the per-role profile, and a run that shows a write outside the allowed place refused by the system.
 - **Review, through the review chain:** a bound on what an agent may write on a person's machine is a security boundary; a gap in it is the defect the issue names.
 - **Automation, yes:** the questions foreseen have defaults the tree or the framer can give; a person's question is recorded with its default and the build proceeds on it.
-- **Branch:** cut from `release/v0.0.5` at `f683c693`; the pull request merges into it by squash, and it takes its turn in the one-at-a-time tail.
+- **Branch:** cut from `release/v0.0.5` at `f683c693`; release 0.0.5 shipped without it and merged into `main` (#303), and `release/v0.1.0` was cut from that merge (`e7737b7e`), so the branch merges `release/v0.1.0` in before its broad gate and the pull request merges into `release/v0.1.0` by squash, taking its turn in the one-at-a-time tail.
