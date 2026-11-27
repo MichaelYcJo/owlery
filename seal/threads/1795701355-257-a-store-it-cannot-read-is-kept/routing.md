@@ -19,4 +19,4 @@ The issue is in the milestone `release: 0.1.0`, the minimum for Owlery to be pub
 - **Implementation, crafter:** the daemon's read and write of the store, a notice the window shows, and a case that starts a daemon on a file it refuses.
 - **Review, through the review chain:** a store written over is every repository and work item a person had, gone; the review reads every path that writes the file.
 - **Automation, yes:** the questions foreseen have defaults the tree or the framer can give; a person's question is recorded with its default and the build proceeds on it.
-- **Branch:** cut from `release/v0.0.5` at `f683c693`; the pull request merges into it by squash, and it takes its turn in the one-at-a-time tail.
+- **Branch:** cut from `release/v0.0.5` at `f683c693`; release 0.0.5 shipped without it, and the branch merged `release/v0.1.0` at `e7737b7e` (`61361a38`), so the pull request merges into `release/v0.1.0` by squash, and it takes its turn in the one-at-a-time tail.

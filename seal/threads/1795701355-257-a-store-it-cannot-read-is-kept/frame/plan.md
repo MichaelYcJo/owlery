@@ -60,7 +60,7 @@ Each item the spawn names was read on its branch at `origin` after `git fetch` o
 - No migration. A file the store reads is read as before, and a file it refuses is renamed, never rewritten. A new `repositories.json` with no repository, under the refused file's counts where it states them, is written in its place at the same start.
 - `ready` gains an optional `storeNotice`. A window of an earlier build ignores the key. A window of this build on a daemon of an earlier build reads its absence as nothing to say.
 - The run folder may gain files named `repositories-unread-<UTC time>[-<n>].json`, readable by the user alone as `repositories.json` was, and the daemon never removes them.
-- The protection holds for a move back to this build or a later one alone. `v0.0.4` and earlier builds write over a file they refuse, so #217's way round stands for them: copy `repositories.json` before running such a build (`seal/threads/1795610869-217-a-new-work-item-picks-its-branch/changelog.md`). The changelog fragment of this work says both.
+- The protection holds for a move back to this build or a later one alone. `v0.0.5` and earlier builds write over a file they refuse, so #217's way round stands for them: copy `repositories.json` before running such a build (`seal/threads/1795610869-217-a-new-work-item-picks-its-branch/changelog.md`). The changelog fragment of this work says both.
 - No new dependency, environment variable or version move.
 
 ## Judgments of the run

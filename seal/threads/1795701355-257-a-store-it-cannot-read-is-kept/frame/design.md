@@ -51,7 +51,7 @@ In scope, numbered for `plan.md`'s Delivers cells:
 Out of scope:
 
 - **The other files of the class** (*Grounding*, the last item). `accounts.json` is the one whose loss a person feels: the accounts' names and which folder each one has. The issue's *Done when* names the repositories file, and the release ships on 2026-11-29. *What the daemon could do beyond the issue* names an issue for it.
-- **A build before this one.** `v0.0.4` and every earlier build still write over a file they refuse, and nothing a later build ships changes them. #217's way round, a copy of `repositories.json` before an earlier build runs, stays the way round for those builds (`plan.md` *Operational impact*).
+- **A build before this one.** `v0.0.5` and every earlier build still write over a file they refuse, and nothing a later build ships changes them. #217's way round, a copy of `repositories.json` before an earlier build runs, stays the way round for those builds (`plan.md` *Operational impact*).
 - **Bringing a kept file back.** The person renames it by hand while the daemon is stopped. An offer in the window is in *What the daemon could do beyond the issue*.
 - **Reading part of a refused file.** The store reads the whole file or none of it, as the issue's *Done when* asks (`plan.md` *Alternatives considered*).
 - **Keeping the fields a build does not know.** The store reads "only the fields of the store, whatever else the file's entries carry" (`repositories.ts:274`), so a file an earlier build can read loses the later build's fields at its next write. That is a quieter loss of the same kind, and *What the daemon could do beyond the issue* names it.
