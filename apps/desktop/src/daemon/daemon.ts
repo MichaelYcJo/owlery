@@ -2452,7 +2452,7 @@ export class Daemon {
    * null where the grant names none. A crafter's commands write in the
    * worktree and the repository's git folder, which a commit in a linked
    * worktree writes, and are refused that folder's `hooks` and `config`, so
-   * no hook that would run outside the sandbox is planted. A proofer's and a
+   * a command plants no hook through either. A proofer's and a
    * sealer's are given the scratch folder alone, and the orchestrator's no
    * folder; each of those is refused the worktree and the repository's git
    * folder, which Claude Code 2.1.332's sandbox let a command write by
