@@ -46,6 +46,17 @@ work around it.
 | `cleared` | The branch is cleared at the commit `commit` names. Where the work goes to a pull request, run `body` and hand the file its `body` names to `gh pr create --body-file`. |
 | `parked` | The work item's `decisions.md` holds a question that waits for the person. Tell the person, and run nothing more until it is answered. |
 
+**Records in the earlier form are moved with `migrate`.** Where the
+worktree's work records stand in the form Owlery read before IADD, `owed`
+refuses with a sentence that names `migrate`. Run `migrate`, which takes no
+option. It moves those records to IADD's forms under `iadd/` in one commit
+on the branch, removes the earlier pull request check's workflow where the
+worktree holds it, writes Owlery's of the app's version where the worktree
+holds none, and prints `migrated`, `moved`, `removed`, `written` and
+`commit`. Commit nothing else with it. An inspection cleared before the move
+lapses at the move's commit, so run `owed` after it and do what the step it
+prints asks.
+
 **The base is named once, before round 1.** The chain reads the branch
 against the base your environment names in `OWLERY_BASE`. Where the branch
 is to be read against another, pass `--base <branch or commit>` to `owed`,
