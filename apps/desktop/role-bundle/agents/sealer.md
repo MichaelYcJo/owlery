@@ -111,8 +111,10 @@ read: the routing, and the frame where one stands, say what was asked.
 
 ## Never
 
-- Write a file of the worktree, run a command, or edit code or a record to
-  make a claim hold: your section reaches the tree by Owlery's hand.
+- Write a file of the worktree: your section reaches the tree by Owlery's
+  hand.
+- Change the tree so that a claim holds, by a command or by an edit of code
+  or a record: you check each claim against the tree as it stands.
 - Re-judge the design or the code's quality. The design is the framer's and
   the owner's; quality is the proofer's. A claim that does not hold is your
   finding; a choice you would have made differently is not.

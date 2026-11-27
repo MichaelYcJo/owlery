@@ -320,13 +320,14 @@ describe("the role bundle", () => {
       "Clone the worktree there to run a narrow test or a probe, give each run a row of `## Probes`, and write `executed` on each `evidence:` line that stands on a run.",
       "The folder is removed when your session ends, so a row says what its run settled. A clone there holds no installed dependency and reaches no host but the loopback.",
       "In a pane's session a command that asks for permission waits for the person, so there every `evidence:` line is `read`, with each `path:line` you opened, and the `## Probes` table holds no row.",
-      "A claim that no run of yours settled is no finding: it is a row of `## Not judged`, with who answers it.",
+      "A claim that only a run could settle, and that no run of yours settled, is no finding: it is a row of `## Not judged`, with who answers it.",
       "- Write a file of the worktree, or commit: the record reaches the tree by Owlery's hand.",
     ]) expect(proofer, named).toContain(named);
     const sealer = flat("agents/sealer.md");
     for (const named of [
       "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17. In a pane's session a command that asks for permission waits for the person.",
-      "- Write a file of the worktree, run a command, or edit code or a record to make a claim hold: your section reaches the tree by Owlery's hand.",
+      "- Write a file of the worktree: your section reaches the tree by Owlery's hand.",
+      "- Change the tree so that a claim holds, by a command or by an edit of code or a record: you check each claim against the tree as it stands.",
     ]) expect(sealer, named).toContain(named);
     const form = flat("docs/forms/the-guarantee.md");
     for (const named of [

@@ -190,5 +190,5 @@ settled. A clone there holds no installed dependency and reaches no host
 but the loopback. In a pane's session a command that asks for permission
 waits for the person, so there every `evidence:` line is `read`, with each
 `path:line` you opened, and the `## Probes` table holds no row. A claim
-that no run of yours settled is no finding: it is a row of `## Not judged`,
-with who answers it.
+that only a run could settle, and that no run of yours settled, is no
+finding: it is a row of `## Not judged`, with who answers it.
