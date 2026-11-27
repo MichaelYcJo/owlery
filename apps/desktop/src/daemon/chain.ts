@@ -1162,13 +1162,13 @@ function isGateRun(value: unknown): value is GateRun {
 /** A stage as a file holds one: one written before a chain ran a broad gate has no `gate`, and one written before the rename to IADD may hold an earlier kind (`storedKind`). */
 type WrittenStage = Omit<ChainStage, "gate" | "kind"> & { kind: string; gate?: GateRun | null };
 
-/** The kinds a build before the rename to IADD stored a stage under, by the kind this build names: `seal` is the stage `inspection`. */
-const EARLIER_KINDS: Readonly<Record<string, ChainStageKind>> = { seal: "inspection" };
+/** The kinds a build before the rename to IADD stored a stage under, by the kind this build names: `seal` is the stage `inspection`. A map, so a member name of `Object.prototype`, such as `constructor`, names no kind. */
+const EARLIER_KINDS: ReadonlyMap<string, ChainStageKind> = new Map<string, ChainStageKind>([["seal", "inspection"]]);
 
 /** The kind of `CHAIN_STAGE_KINDS` a stored value names: one of them, or an earlier kind (`EARLIER_KINDS`); nothing where it names none. The cost ledger reads a stage's kind with it too. */
 export function storedKind(value: unknown): ChainStageKind | undefined {
   if (typeof value !== "string") return undefined;
-  return CHAIN_STAGE_KINDS.includes(value as ChainStageKind) ? (value as ChainStageKind) : EARLIER_KINDS[value];
+  return CHAIN_STAGE_KINDS.includes(value as ChainStageKind) ? (value as ChainStageKind) : EARLIER_KINDS.get(value);
 }
 
 /** The pair of `ROLE_STAGES` a stored value names, as `roleStageOf` reads it, or the inspector's pair where it names the sealer at the seal, as a build before the rename to IADD stored it; nothing where it names none. */

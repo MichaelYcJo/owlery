@@ -814,6 +814,10 @@ describe("a chain as the store reads it", () => {
     expect(chainRead(earlier as Chain, 9)?.stages.map(({ kind }) => kind)).toEqual(["round", "inspection"]);
   });
 
+  it("reads no chain whose stage names a kind no build stored, a member name of Object.prototype among them", () => {
+    for (const kind of ["constructor", "toString", "__proto__", "hasOwnProperty", "sealed"]) expect(isChain({ ...chain(), stages: [{ ...stage(), kind }] }), kind).toBe(false);
+  });
+
   it("reads a chain stored running as stopped: its sentence says that the daemon ended while the stage ran, and the stage that was working has failed", () => {
     const working = stage({ kind: "fix-pass", round: 2, state: "working", endedAt: null, headlessId: 9 });
     expect(chainRead(chain({ state: "running", says: "The fix pass of round 2 is running.", stages: [stage(), working] }), 9)).toEqual({

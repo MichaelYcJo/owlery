@@ -153,6 +153,7 @@ describe("Ledger", () => {
       { ...good, chain: "round" },
       { ...good, chain: [] },
       { ...good, chain: { kind: "build", round: 1 } },
+      { ...good, chain: { kind: "constructor", round: 2 } },
       { ...good, chain: { round: 1 } },
       { ...good, chain: { kind: "round" } },
       { ...good, chain: { kind: "round", round: "1" } },
