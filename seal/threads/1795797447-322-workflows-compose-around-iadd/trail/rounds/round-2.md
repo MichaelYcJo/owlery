@@ -79,7 +79,14 @@ choice(String(index), index === question.chosen, part("label", option.label), pa
 ```seal
 severity: should
 location: `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:28`
-evidence: read `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:26-28`, `seal/threads/1795797447-322-workflows-compose-around-iadd/trail/phases/phase-2.md:39`, `apps/desktop/src/daemon/last-look.ts:100-131`, `apps/desktop/src/daemon/last-look.ts:156-198`, `apps/desktop/test/last-look.test.ts:385-394`; executed the narrow run of `last-look.test.ts` named in `## Probes`
+evidence: read `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:26-28`, `seal/threads/1795797447-322-workflows-compose-around-iadd/trail/phases/phase-2.md:39`, `apps/desktop/src/daemon/last-look.ts:100-131`, `apps/desktop/src/daemon/last-look.ts:156-198`, `apps/desktop/test/last-look.test.ts:385-394`; executed the narrow run of `last-look.test.ts` named in `
+
+```seal
+verdict: fixed acee1116
+answer: frame/questions.md's Q10 Status cell now carries the round's paste-ready text, answered by the work in phase 2. The orchestrator made the repair, since the questions are a frame file.
+```
+
+## Probes`
 ```
 
 Why it matters: Q10's answerer is "the work", and its default says phase 2 pins the scenario with a look file an earlier build wrote and records what it found in its phase record. Phase 2 did both. `phase-2.md:39` records that the reader takes such a look, and the case "reads a look a build before the rename to IADD wrote" (`last-look.test.ts:385-394`) pins it with `toStrictEqual`, which also fails if the reader carries `seal` across under the new key. The code agrees: `last-look.ts#isWorkItem` no longer reads `seal`, and `lookOf` copies the fields it names alone. The row's Status cell still reads `open`, beside Q8 and Q9, which are measurements phase 4 owes. A reader of the frame takes an open row as a question that still waits on its answerer, so this one sends the orchestrator and the inspector of this branch to a question that nobody owes. The frame is the orchestrator's to edit, as round 1's findings 2 and 6 were. The Status cell:
