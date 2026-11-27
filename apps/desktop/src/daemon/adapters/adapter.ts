@@ -69,8 +69,9 @@ export interface RoleAdapter {
    * a refresh, are the absolute folders the session's commands may write in
    * (`write`) and are refused (`refuse`): an adapter that launches a role
    * runs its commands in the operating system's sandbox, which lets them
-   * write in those folders alone, and refuses them the adapter's own
-   * folders as well; one that cannot, or that is given a role with no
+   * write in the `write` folders and never in the `refuse` ones, and
+   * refuses them the adapter's own folders as well; one that cannot, or
+   * that is given a role with no
    * `commands`, starts no session. `scratch`, which the daemon gives where
    * the role's commands write in a scratch folder of the session's own, is
    * that folder, which the session's file tools reach as well. The promise

@@ -1809,7 +1809,8 @@ describe("repositories", () => {
     expect(stopped).toBe(0);
     c.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (stopped === 1 ? true : undefined));
     const after = await (await client(url)).message("ready");
     expect([after.repositories, after.workItems, after.sessions, after.headless]).toEqual([[], [], [], []]);
   });
@@ -2538,7 +2539,8 @@ describe("what a person sets on a work item", () => {
     expect(stopped).toBe(0);
     c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (stopped === 1 ? true : undefined));
     const failed = { ...headless, state: "failed", error: "ended when the work item was archived", stopped: "request" };
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
     c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
@@ -5970,7 +5972,7 @@ describe("headless sessions", () => {
     expect(seen.started).toEqual([expect.objectContaining({ prompt: withScratch("Where am I?", seen.started[0]?.scratch ?? ""), cwd: workItem.worktree, role: PROOFER })]);
   });
 
-  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree, and the orchestrator no place, refused the worktree (scenarios 1 to 4 of #127)", async () => {
+  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree and the repository's git folder, and the orchestrator no place, refused the same two (scenarios 1 to 4 of #127)", async () => {
     // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
     const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
@@ -5995,10 +5997,10 @@ describe("headless sessions", () => {
     expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
     expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
     expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
-    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree] }, scratch: proofers });
+    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree, common] }, scratch: proofers });
     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")] } });
-    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree] }, scratch: sealers });
-    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree] } });
+    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree, common] }, scratch: sealers });
+    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree, common] } });
     // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
     expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
     expect(readFileSync(join(scratches, "1-before", "clone.txt"), "utf8")).toBe("left");
@@ -6051,14 +6053,16 @@ describe("headless sessions", () => {
     expect(await gone(scratch)).toBe(true);
   });
 
-  it("starts no crafter's session where git names no repository's folder for its worktree, and says so", async () => {
+  it("starts no role's session where git names no repository's folder for its worktree, and says so: a crafter's commands then have no place to write, and another role's cannot be refused that folder (#127)", async () => {
     const adapter = fakeAdapter();
     const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     rmSync(join(workItem.worktree, ".git"));
-    await d.startRoleSession(workItem.id, "Q", { role: "crafter", stage: "fix-pass" });
-    const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-    expect(headless.state).toBe("failed");
-    expect(headless.error).toMatch(/^git named no repository's folder for the worktree, so the crafter's commands have no place to write: /u);
+    for (const pair of ROLE_STAGES) {
+      const started = await d.startRoleSession(workItem.id, "Q", pair);
+      const { headless } = await c.message("headless", (m) => m.headless.id === started.id && m.headless.state !== "working");
+      const bound = pair.role === "crafter" ? "have no place to write" : "cannot be refused the repository's git folder";
+      expect([headless.state, headless.error?.startsWith(`git named no repository's folder for the worktree, so the ${pair.role}'s commands ${bound}: `)], pair.role).toEqual(["failed", true]);
+    }
     expect(adapter.starts).toEqual([]);
   });
 
@@ -6086,7 +6090,7 @@ describe("headless sessions", () => {
       { role: "orchestrator", stage: "judgment" },
     ]);
     for (const pair of ROLE_STAGES) expect((await d.startRoleSession(workItem.id, "Q", pair)).role).toEqual(pair);
-    // A crafter's run starts once git has named the repository's folder its commands write in, so the runs start in no set order.
+    // Each run starts once git has named the repository's folder its commands write in or are refused, so the runs start in no set order.
     await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
     expect(seen.started.map((started) => started.role)).toEqual(expect.arrayContaining([...ROLE_STAGES]));
   });
@@ -6102,7 +6106,8 @@ describe("headless sessions", () => {
     c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
     const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
     expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
-    expect(seen.stopped).toBe(2);
+    // The stop can arrive while git still names the repository's folder the sealer's commands are refused, before the run has started; the run is stopped once it starts.
+    await vi.waitFor(() => expect(seen.stopped).toBe(2), { timeout: 5000, interval: 50 });
   });
 
   it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
@@ -6237,7 +6242,8 @@ describe("headless sessions", () => {
     const { daemon: d, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 300 });
     await d.startRoleSession(workItem.id, "One", PROOFER);
     await d.startRoleSession(workItem.id, "Two", PROOFER);
-    await pause(20);
+    // Each run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(seen.started).toHaveLength(2), { timeout: 5000, interval: 50 });
     expect(seen.stopped).toBe(0);
     await d.close();
     expect(seen.stopped).toBe(2);
@@ -6333,7 +6339,8 @@ describe("headless sessions", () => {
     const headless = await d.startRoleSession(workItem.id, "Q", PROOFER);
     const failed = (await c.message("headless", (m) => m.headless.state === "failed")).headless;
     expect(failed).toEqual({ ...headless, state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" });
-    expect(seen.stopped).toBe(1);
+    // The limit can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (seen.stopped === 1 ? true : undefined));
     c.socket.close();
     await c.until(() => (idle === 1 ? true : undefined));
     // Where the options name no limit, a session works an hour at most.
@@ -6383,7 +6390,8 @@ describe("headless sessions", () => {
     expect(await one.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
     const failed = { ...headless, state: "failed", error: "the session was stopped at a request before it finished", stopped: "request" };
     for (const c of [one, two]) expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
-    expect(seen.stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await one.until(() => (seen.stopped === 1 ? true : undefined));
     const before = one.messages.length;
     one.send({ type: "stopHeadless", requestId: 4, id: finished.id });
     one.send({ type: "stopHeadless", requestId: 5, id: headless.id });
@@ -7950,7 +7958,8 @@ describe("the caps on the machine", () => {
     clock = 5_000;
     c.send({ type: "input", id: pane.id, data: "\n" });
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "working")).headless).toMatchObject({ startedAt: 5_000, queuedAt: 1_000 });
-    expect(starts).toEqual(["Which file?"]);
+    // The run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless.stopped).toBe("limit");
     c.send({ type: "readLedger", requestId: 2, workItemId: 1 });
     expect((await c.message("ledger", (m) => m.requestId === 2)).entries.map(({ startedAt, stopped }) => ({ startedAt, stopped }))).toEqual([{ startedAt: 5_000, stopped: "limit" }]);
@@ -8006,7 +8015,8 @@ describe("the caps on the machine", () => {
     await c.message("headless", (m) => m.headless.id === first.id);
     expect(c.messages.some((m) => m.type === "headless" && m.headless.id === first.id && m.headless.state === "queued")).toBe(false);
     expect((await d.startRoleSession(1, "Second?", PROOFER)).state).toBe("queued");
-    expect(starts).toEqual(["First?"]);
+    // The first run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["First?"]), { timeout: 5000, interval: 50 });
   });
 
   it("ends a work item's queued session before its working one at an archive, so the place the working one frees starts none of them, and writes the one entry of the run that ran (scenario 9)", async () => {
@@ -8020,7 +8030,8 @@ describe("the caps on the machine", () => {
     expect(second.state).toBe("queued");
     c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [first.id, second.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(starts).toEqual(["First?"]);
+    // The first run starts once git has named the repository's folder the proofer's commands are refused, which can be after the archive ended the session.
+    await vi.waitFor(() => expect(starts).toEqual(["First?"]), { timeout: 5000, interval: 50 });
     expect(c.messages.some((m) => m.type === "headless" && m.headless.id === second.id && m.headless.state === "working")).toBe(false);
     expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
     c.send({ type: "readLedger", requestId: 5, workItemId: 1 });
@@ -8080,7 +8091,8 @@ describe("the caps on the machine", () => {
     for (const requestId of [1, 2, 3]) c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
     await c.message("started", (m) => m.requestId === 3);
     expect((await d.startRoleSession(1, "Which file?", PROOFER)).state).toBe("working");
-    expect(starts).toEqual(["Which file?"]);
+    // The run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
   });
 
   it("reads once a minute the resident memory of each agent's own process while one lives, keeps each agent's highest in `agent-memory.json`, and proposes from it once five are measured (scenario 2, the store)", async () => {

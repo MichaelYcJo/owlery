@@ -25,10 +25,12 @@
 // daemon allows it by the role's grant, and the command runs in Claude
 // Code's sandbox with the places the daemon gave the launch: a proofer's and
 // a sealer's command clones the worktree into the session's scratch folder,
-// appends to the clone's file and then to the worktree's, and a crafter's
+// appends to the clone's file, makes a branch in the repository's git folder
+// and appends to the worktree's file, and a crafter's
 // appends to the worktree's file, commits it, and then appends to a file of
-// the case's folder outside the worktree. The system refuses the last write
-// of each. The case reads the stream for the session's tools and the
+// the case's folder outside the worktree. The system refuses each write
+// after the first two of a proofer and a sealer, and the last of a crafter.
+// The case reads the stream for the session's tools and the
 // request, the case's config folder for the session's conversation, what
 // the stand-in was told the command printed, and the files and the
 // worktree's commits for what was written.
@@ -73,7 +75,9 @@ const PROMPT = [
  * them is one Claude Code runs unasked. A proofer's and a sealer's clones the
  * worktree into the scratch folder, which the CLI was given last after
  * `--add-dir` and the case's script kept in `args`, appends a byte to the
- * clone's `README.md` and prints it, then appends one to the worktree's. A
+ * clone's `README.md` and prints it, then makes the branch `probe` in the
+ * repository's git folder, and then, whatever that did, appends a byte to
+ * the worktree's `README.md`. A
  * crafter's appends a byte to the worktree's `README.md`, commits it as
  * `probe`, then appends one to `outside.txt` of `kept`, which no place of
  * the launch names. The paths of the case hold no quote.
@@ -81,7 +85,7 @@ const PROMPT = [
 function standInCommand(pair: RoleStage, worktree: string, kept: string): string {
   if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'`;
   const scratch = readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? "";
-  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && printf x >> '${worktree}/README.md'`;
+  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }`;
 }
 
 /** A shell's sentence that the system refused a write to `file`, in the words of either shell: zsh's "operation not permitted: <file>" and bash's "<file>: Operation not permitted". */
@@ -271,8 +275,10 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
       expect(git(worktree, "show", "--format=", "--name-only", "HEAD")).toBe("README.md\n");
       expect(existsSync(join(kept, "outside.txt"))).toBe(false);
     } else {
-      // The clone in the scratch folder took the byte, which the command printed; the system refused the write to the worktree, and the worktree holds no change.
+      // The clone in the scratch folder took the byte, which the command printed; the system refused the branch in the repository's git folder and the write to the worktree, and the worktree holds no change.
       expect(told).toContainEqual({ isError: true, content: expect.stringContaining("a repository\nx") });
+      expect(told).toContainEqual({ isError: true, content: expect.stringMatching(/refs\/heads\/probe\.lock.*operation not permitted/is) });
+      expect(git(worktree, "branch", "--list", "probe")).toBe("");
       expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refusedWrite(join(worktree, "README.md"))) });
       expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
       expect(git(worktree, "status", "--porcelain")).toBe("");

@@ -66,8 +66,8 @@ export type Launch = "session" | "pane";
  */
 const COMMANDS_WRITE: Record<RoleGrant["commands"], string> = {
   worktree: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
-  scratch: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree and to the bundle's root.",
-  nowhere: "Write nothing with them: the system refuses their writes to the worktree and to the bundle's root.",
+  scratch: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
+  nowhere: "Write nothing with them: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
 };
 
 /**
