@@ -46,7 +46,7 @@
         --summary-line-height: 38px;
         --summary-title: 300px;
         --list-width: 404px;
-        --facts-width: 420px;
+        --facts-width: 488px;
         --fact-label: 76px;
         --said-height: 260px;
         --dialog-width: 460px;
@@ -162,7 +162,7 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. After each name but the inspector's stands the rule that joins it to the next place, in the form the theme gives it, and the inspector's place holds the inspection's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
+      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. A view's right column is as wide as four places that each hold the inspector's name on one line. A note wider than its place breaks between its words. After each name but the inspector's stands the rule that joins it to the next place, in the form the theme gives it, and the inspector's place holds the inspection's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
       .approval .places { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; box-shadow: var(--approval-edge); }
       .place { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-3); box-shadow: var(--approval-box-edge); }
       .place:first-child { box-shadow: none; }
@@ -170,7 +170,7 @@
       .place .name { flex: none; font-size: var(--size-text); font-weight: 500; color: var(--ink); white-space: nowrap; }
       .place .join { flex: 1; min-width: 0; height: 1px; background: var(--approval-rule); }
       .place .mark { margin-left: auto; }
-      .place .note { padding-left: calc(var(--icon) + var(--space-3)); font-size: var(--size-caption); color: var(--ink-muted); white-space: nowrap; }
+      .place .note { padding-left: calc(var(--icon) + var(--space-3)); font-size: var(--size-caption); color: var(--ink-muted); white-space: normal; }
       .approval .under { padding-top: var(--space-3); font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .approval .under.failed { color: var(--state-failed); }
       /* The questions an agent asks in its pane, in place of its words: each question in the face of what an agent says, its choices under it as a numbered list in the agent's order, each choice's label in the strong ink and what it leads to in the muted one, and under a question that takes more than one choice the words that say so. No choice is a button and the card holds no field. Each text is plain, with its line breaks kept. */

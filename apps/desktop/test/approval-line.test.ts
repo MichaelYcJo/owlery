@@ -267,6 +267,8 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     expect(why).toBe(`\`after-the-inspection.ts\` changed after the cleared commit \`${clearedAt.slice(0, 7)}\`.`);
     const inView = await sealsOf(gamma.id);
     expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.inspector]).toEqual([["lapsed", words], words, "", 0, [["lapsed", words], "Inspection lapsed", ["waiting"]]]);
+    // "Inspection lapsed" is wider than the inspector's place, so it breaks between its words, and the section and each place stay within the view's right column.
+    expect((await overflows("view")).over).toEqual([]);
     // The inspection's sentence stands under the head, in the foot.
     expect(await app.evaluate(`[document.getElementById("view-inspection-head").nextElementSibling.id, document.getElementById("view-inspection-why").textContent]`)).toEqual(["view-inspection-why", why]);
     expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under", `Inspector: ${why}`]]);
