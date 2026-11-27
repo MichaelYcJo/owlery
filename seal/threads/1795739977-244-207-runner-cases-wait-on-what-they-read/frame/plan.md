@@ -9,7 +9,7 @@ The work changes three test files of `apps/desktop/test/` and files of the same 
 - `built-app.ts:277` `BuiltApp.until` polls an expression of the page every 100 ms for 15 seconds, and its message names only what never came. `built-app.ts:287` `BuiltApp.click` reads the element's middle with one call of the debugging port and presses with two more, so what the page draws between the calls moves the element away from the press.
 - `work-item-menu.test.ts:269` starts one app for the file's cases. Its cases build on each other: a later case reads the work items an earlier one made.
 - `work-item-menu.test.ts:1026-1028` is the removal case's wait, and `work-item-menu.test.ts:689-692` the register case's press of "Not now".
-- `role-bundle.test.ts:507` is the stand-in for the CLI, and `role-bundle.test.ts:525-529` the rewrite, the reload and the wait.
+- `role-bundle.test.ts:510` is the stand-in for the CLI, and `role-bundle.test.ts:525-529` the rewrite, the reload and the wait.
 - A run of a built-app file goes through the session's lock, with `OWLERY_BACKGROUND=1`, as the spawn states it.
 
 **The failure scenario of the chosen approach.** The waits are written case by case, so a case written later can press in a dialog before its answer is drawn, and nothing refuses it. It then fails now and then under load, as these did. *Scope* item 6 is what that later failure gets: its message names the press that missed. Item 3's list is made from the requests the window sends at this commit, so a request added later is outside it.
