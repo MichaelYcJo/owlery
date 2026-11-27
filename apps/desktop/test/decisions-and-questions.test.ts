@@ -21,11 +21,11 @@
 // second work item as a second client of the daemon.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withApplied, withDecision, withQuestion, withReversal } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
 import type { ClientMessage, ServerMessage } from "../src/shared/protocol";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp } from "./built-app";
 import { type Cleanups, commitSeal, heldGit } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
@@ -148,6 +148,9 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     await app?.stop();
     made?.remove();
   }, 30_000);
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("opens on the summary with the lists that changed since the look while the daemon's read of a seal waits, joins that seal given since the look when the read ends, counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
     // The look holds two of the first work item's three decisions, no question of the second and no seal of the fourth, so one decision is new, the parked work item changed and the fourth's seal was given. The daemon's read of the fourth's seal waits, so its `ready` went out without that seal: the summary opens on the two others, and the fourth has no line and no strong title in the sidebar.

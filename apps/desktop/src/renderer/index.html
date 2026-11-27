@@ -265,6 +265,8 @@
       .repository .fold[aria-expanded="false"] svg.icon { transform: rotate(-90deg); }
       /* The one character a person gave a repository, before its name. */
       .repository-icon { flex: none; }
+      /* Before "+", where the repository's pull request check is of an older Owlery than the app: the word "Check" and the version, as a fact, on no ground. It is neither the signal nor the wax. */
+      .repository-check { font-family: var(--font-fact); font-size: var(--size-caption); white-space: nowrap; }
       /* The button under the repositories that says how many are hidden. */
       #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
       /* What the sidebar says where a search or a filter leaves no repository, and the button under it that shows them all again. */
@@ -591,6 +593,13 @@
       #records-dialog .row.end { position: sticky; bottom: calc(-1 * var(--space-7)); margin-bottom: calc(-1 * var(--space-7)); padding: var(--space-4) 0 var(--space-7); background: var(--ground-raised); }
       #records-files pre { max-height: 180px; margin: 0 0 var(--space-5); padding: var(--space-3) var(--space-4); overflow: auto; border-radius: var(--radius-card); background: var(--ground-raised); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); user-select: text; }
       #records-files .path { display: block; margin-bottom: var(--space-2); }
+      #records-files .says { margin-bottom: var(--space-2); }
+      /* Before a move of the check, each work item whose records the app's readers refuse or did not read: its title, and under it its entry's sentence in the secondary colour, both whole. */
+      #records-unread .named { margin-bottom: var(--space-3); }
+      #records-unread .named li { display: block; min-height: 0; padding: var(--space-2) 0; }
+      #records-unread .named li > span { display: block; }
+      #records-unread .why { font-size: var(--size-second); color: var(--ink-muted); }
+      #records-unread .says { margin-bottom: 0; }
       #records-gate-says { margin-top: calc(-1 * var(--space-3)); font-size: var(--size-second); }
       /* A menu, drawn over the window where it was asked for: its items in a column, and a rule where another part of it begins. A submenu is a second one, drawn beside the item that opens it. */
       .menu { position: fixed; z-index: 1; display: flex; flex-direction: column; box-sizing: border-box; min-width: var(--menu-width); max-width: var(--menu-width-most); padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
@@ -1136,10 +1145,16 @@
       <form id="records-form">
         <h2 id="records-head" class="head"></h2>
         <p id="records-scope" class="says"></p>
+        <p id="records-move" class="says" hidden></p>
         <p id="records-commit" class="says" hidden></p>
         <p id="records-blocked" class="refusal" role="alert" hidden></p>
         <div id="records-holds" hidden><ul class="named whole"></ul></div>
         <div id="records-files"></div>
+        <section id="records-unread" hidden>
+          <h3 id="records-unread-head" class="caption" hidden></h3>
+          <ul id="records-unread-list" class="named whole" hidden></ul>
+          <p id="records-unread-says" class="says" hidden></p>
+        </section>
         <label id="records-gate-label" hidden>
           <span id="records-gate-name"></span>
           <span class="row"><input id="records-gate" spellcheck="false" autocomplete="off" /></span>

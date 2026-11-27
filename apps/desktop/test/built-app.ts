@@ -7,6 +7,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { TestContext } from "vitest";
+import { slugFor } from "../src/daemon/worktrees";
 import { WINDOW_SIZE } from "../src/main/window-size";
 
 const APP_DIR = join(__dirname, "..");
@@ -273,23 +275,66 @@ export class BuiltApp {
     return targets.filter((target) => target.type === "page").map((target) => target.url);
   }
 
-  /** Waits until an expression of the page is true, and says `what` never came where it is not within `ms`. */
+  /**
+   * Waits until an expression of the page is true, and says `what` never came
+   * where it is not within `ms`. Where the press of the last `click` landed on
+   * something other than the element it aimed at, the message says so too.
+   */
   async until(expression: string, what: string, ms = 15_000): Promise<void> {
     const deadline = Date.now() + ms;
     for (;;) {
       if (await this.evaluate<boolean>(`Boolean(${expression})`)) return;
-      if (Date.now() >= deadline) throw new Error(`the window never showed ${what}`);
+      if (Date.now() >= deadline) throw new Error(`the window never showed ${what}${await this.missedPress()}`);
       await sleep(100);
     }
   }
 
-  /** A click of the mouse in the middle of the element a selector finds, as a person's click arrives. */
+  /**
+   * A click of the mouse in the middle of the element a selector finds, as a
+   * person's click arrives. The element's middle is read in one call and the
+   * press arrives in another, so what the page draws between them can move
+   * the element away from the press. The page notes what the press arrived
+   * on, for `until` to name where it missed.
+   */
   async click(selector: string): Promise<void> {
     const at = await this.evaluate<{ x: number; y: number }>(
-      `(() => { const box = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`,
+      `(() => {
+        const selector = ${JSON.stringify(selector)};
+        const element = document.querySelector(selector);
+        const box = element.getBoundingClientRect();
+        // One press is noted at a time: the last click's.
+        window.__builtAppPress?.stop();
+        const press = { selector, arrived: false, missed: null, stop: () => window.removeEventListener("pointerdown", arrived, true) };
+        function arrived(event) {
+          press.stop();
+          press.arrived = true;
+          const on = event.target;
+          // The element the selector finds when the press arrives is the one aimed at too, where the page drew it anew in between.
+          if (element.contains(on) || document.querySelector(selector)?.contains(on)) return;
+          const named = on instanceof Element ? on.tagName.toLowerCase() + (on.id ? "#" + on.id : "") + (typeof on.className === "string" && on.className.trim() !== "" ? "." + on.className.trim().split(/\\s+/).join(".") : "") : String(on);
+          const words = (on.textContent ?? "").trim().replace(/\\s+/g, " ").slice(0, 40).trim();
+          press.missed = words === "" ? named : named + ' saying "' + words + '"';
+        }
+        window.addEventListener("pointerdown", arrived, true);
+        window.__builtAppPress = press;
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      })()`,
     );
     await this.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", clickCount: 1 });
     await this.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", clickCount: 1 });
+  }
+
+  /** Where the press of the last `click` landed on something other than the element it aimed at, or raised no pointerdown in the page, the words a failed wait adds to say so; nothing otherwise, and nothing where the page cannot be read. */
+  private async missedPress(): Promise<string> {
+    try {
+      const press = await this.evaluate<{ selector: string; arrived: boolean; missed: string | null } | null>(`window.__builtAppPress ? { selector: window.__builtAppPress.selector, arrived: window.__builtAppPress.arrived, missed: window.__builtAppPress.missed } : null`);
+      if (!press) return "";
+      // A press outside the page, past its edge for one, raises no pointerdown in it.
+      if (!press.arrived) return `; the last click aimed at ${press.selector} and no pointerdown of its press reached the page`;
+      return press.missed === null ? "" : `; the last click aimed at ${press.selector} and its press landed on ${press.missed}`;
+    } catch {
+      return "";
+    }
   }
 
   /**
@@ -354,6 +399,55 @@ export class BuiltApp {
     rmSync(this.userData, { recursive: true, force: true });
     return left;
   }
+}
+
+/** What the window shows open that keeps it from opening another: each modal dialog by its id, and each menu by its label. */
+const LEFT_OPEN = `[...document.querySelectorAll('dialog[open], [role="menu"]')].map((part) => part.tagName === "DIALOG" ? "the dialog " + (part.id || "with no id") : "the menu " + JSON.stringify(part.getAttribute("aria-label") ?? part.id))`;
+/** Escape, as `Input.dispatchKeyEvent` takes it. */
+const ESCAPE = { code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 };
+
+/**
+ * The `afterEach` hook of a file whose cases share one started app, which
+ * `app` gives. The window opens no dialog and no menu while one stands
+ * open, so a case that fails with one open would fail every later case that
+ * opens one. After a case that failed, it presses Escape, as a person closes
+ * a dialog or a menu, until nothing stands open, and it throws with what
+ * stays open where a press closes nothing. After a case that passed it does
+ * nothing: a passing case that leaves something open still fails the next.
+ */
+export function atRestAfterFailure(app: () => BuiltApp | undefined): (context: TestContext) => Promise<void> {
+  return async ({ task }) => {
+    const started = app();
+    if (task.result?.state !== "fail" || started === undefined) return;
+    let open = await started.evaluate<string[]>(LEFT_OPEN);
+    // A press closes one thing at most, a submenu before its menu among them, and the window holds a few at once.
+    for (let press = 0; open.length > 0 && press < 10; press += 1) {
+      const before = JSON.stringify(open);
+      await started.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", ...ESCAPE });
+      await started.cdp("Input.dispatchKeyEvent", { type: "keyUp", ...ESCAPE });
+      const deadline = Date.now() + 2_000;
+      do {
+        await sleep(100);
+        open = await started.evaluate<string[]>(LEFT_OPEN);
+      } while (JSON.stringify(open) === before && Date.now() < deadline);
+      if (JSON.stringify(open) === before) break;
+    }
+    if (open.length > 0) throw new Error(`Escape did not close what the failed case left open: ${open.join(", ")}`);
+  };
+}
+
+/**
+ * The page's expression that holds once the "New work item" form shows the
+ * plan of the folder for `title`: the worktree it names ends in the title's
+ * slug, or in the slug with the number the daemon adds where that folder is
+ * taken. A case waits on it before it presses Create. The form asks a plan
+ * of the name it generates as it opens and a plan of each name typed after,
+ * so a wait on any plan drawn can end on the generated name's while the
+ * title's is asked, and the title's lines can wrap onto another count of
+ * rows, which moves Create away from the press.
+ */
+export function formPlanOf(title: string): string {
+  return `/\\/${slugFor(title)}(-\\d+)?$/.test(document.getElementById("work-item-worktree").textContent)`;
 }
 
 /** The first target a debugging port lists that `wanted` takes, once the app has opened it. It fails with `missing` where none came in thirty seconds. */

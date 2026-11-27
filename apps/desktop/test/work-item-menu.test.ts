@@ -25,13 +25,13 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { readDiscovery } from "../src/daemon/discovery";
 import { installedApps } from "../src/main/openers";
 import { SUBMENU_LEAVE_MS } from "../src/renderer/menu";
-import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, rowButtons } from "../src/renderer/view";
-import { BuiltApp, buildApp } from "./built-app";
+import { NEW_WORK_ITEM_SAYS, REGISTER_ONLY_SAYS, deleteSays, rowButtons } from "../src/renderer/view";
+import { BuiltApp, atRestAfterFailure, buildApp, formPlanOf } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { slugFor } from "../src/daemon/worktrees";
 import { commitFile, git, temporaryClone, temporaryRepository } from "./repositories";
@@ -223,8 +223,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: name });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-    // Create creates nothing before the form shows the plan of its folder.
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf(name), `the plan of the folder for ${name}`);
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(name)}`, `the view of ${name}`);
     const id = await value<number>(`Number([...document.querySelectorAll('${SIDEBAR} button[data-work-item]')].find((each) => each.querySelector(".title")?.textContent === ${JSON.stringify(name)})?.dataset.workItem)`);
@@ -286,6 +286,9 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     lone?.remove();
     aside?.remove();
   }, 30_000);
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("opens a work item's menu at a press of the right button on its line in the sidebar, with its items in order and the keyboard on the first, moves through them with the arrows, and closes at Escape", async () => {
     expect(await order(SIDEBAR)).toEqual([1, 2]);
@@ -688,6 +691,9 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     // The repository holds no place for work records, so the dialog of the records place opens, and "Not now" writes nothing.
     await dialogOpen("records-dialog");
     expect(await value<string>(`document.getElementById("records-head").textContent`)).toBe("Records and check: second");
+    // The dialog opens before the daemon's plan and grows when the plan is drawn, which moves "Not now": it is pressed once the plan's files stand.
+    await app.until(`document.querySelectorAll("#records-files .path").length > 0`, "the plan's files in the dialog records-dialog");
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"]);
     await app.click("#records-cancel");
     await dialogClosed("records-dialog");
     expect(git(second.repo, "status", "--porcelain=v1", "--untracked-files=all")).toBe("");
@@ -701,6 +707,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click("#new-work-item");
     await dialogOpen("work-item-dialog");
     expect((await form()).filter((_, at) => at !== 2)).toEqual([false, false, false, "Create"]);
+    // The form asks the plan of the folder it holds as it opens, and the plan's lines and the Branch menu it draws move Cancel down: Cancel is pressed once the plan stands.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the last folder");
     await app.click("#work-item-cancel");
     await dialogClosed("work-item-dialog");
   });
@@ -711,6 +719,8 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await app.click(`${repository(1)} .repository-add`);
     await dialogOpen("work-item-dialog");
     expect(await value<string>(`document.getElementById("work-item-repo").value`)).toBe(clone.repo);
+    // Cancel is pressed once the plan the opening asked for stands, as at the opening above.
+    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the repository's folder");
     await app.click("#work-item-cancel");
     await dialogClosed("work-item-dialog");
   });
@@ -1025,7 +1035,9 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     await dialogOpen("remove-dialog");
     await app.click("#remove-delete");
     const COMMITS = twelveIn("#remove-losses");
-    await app.until(`[...document.querySelectorAll("#remove-losses h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)}) && !document.getElementById("remove-force-label").hidden`, "the loss of twelve commits, and the choice to force the deletes");
+    // The dialog asks for each work item's loss, the daemon answers each when its read of git ends, and each answer draws every list of losses anew: the lists are noted once every work item's loss is drawn.
+    const everyLoss = `(() => { const named = document.querySelectorAll("#remove-losses h3.work-item").length; return named > 0 && named === document.querySelectorAll("#remove-work-items li").length && ![...document.querySelectorAll("#remove-losses .says")].some((says) => says.textContent === ${JSON.stringify(deleteSays(null))}); })()`;
+    await app.until(`${everyLoss} && [...document.querySelectorAll("#remove-losses h3")].some((head) => head.textContent === ${JSON.stringify(TWELVE)}) && !document.getElementById("remove-force-label").hidden`, "every work item's loss, the loss of twelve commits among them, and the choice to force the deletes");
     const row = Number.parseFloat(await value<string>(`${RESOLVED}("min-height", "--detail-line")`));
     // The list is scrolled past its top to a whole row, where a turn of the wheel comes to rest.
     expect(await value<number>(`(() => { const list = ${COMMITS}; list.scrollTop = 2 * ${row}; return list.scrollTop; })()`)).toBe(2 * row);
