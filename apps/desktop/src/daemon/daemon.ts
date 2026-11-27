@@ -2448,11 +2448,11 @@ export class Daemon {
    * worktree and the repository's git folder, which a commit in a linked
    * worktree writes, and are refused that folder's `hooks` and `config`, so
    * no hook that would run outside the sandbox is planted. A proofer's and a
-   * sealer's write in the scratch folder alone, and the orchestrator's
-   * nowhere; each of those is refused the worktree and the repository's git
-   * folder, which Claude Code's sandbox lets a command write by default
-   * where the session's folder is a linked worktree, and through which a
-   * command would move the branch under judgment. Each refused folder is
+   * sealer's are given the scratch folder alone, and the orchestrator's no
+   * folder; each of those is refused the worktree and the repository's git
+   * folder, which Claude Code 2.1.332's sandbox let a command write by
+   * default in a session of a linked worktree, and through which a command
+   * would move the branch under judgment. Each refused folder is
    * named, so the bound holds whatever the sandbox lets a command write by
    * default. It rejects, with a sentence a person reads, where git names no
    * repository's folder for the worktree.

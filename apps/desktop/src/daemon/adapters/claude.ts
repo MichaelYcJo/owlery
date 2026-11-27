@@ -74,14 +74,15 @@ function firstOf(text: string): string {
  * reads the bundle's other documents. A role launch also turns Claude Code's
  * own sandbox on in the settings it passes, which on macOS runs each command
  * under `sandbox-exec`: its commands write in `sandbox.allowWrite` and
- * where that sandbox lets a command write by default, which in Claude Code
- * 2.1.332 is its own temporary folder, the session's folder, the folders
- * after `--add-dir` and, where the session's folder is a linked worktree,
- * its repository's git folder; never in `sandbox.denyWrite`, which wins over
- * both; and they reach no host but the loopback. No command can ask to run
- * outside it, a session whose sandbox cannot start does not start, and a
- * sandboxed command still asks the adapter as any other does. Its scratch folder, where it has one, joins
- * the folders the session works in. A refresh of an account's usage, which
+ * where that sandbox lets a command write by default, never in
+ * `sandbox.denyWrite`, which wins over both, and they reach no host but the
+ * loopback. The runs of `pnpm run role:refusal` against Claude Code 2.1.332
+ * showed the default to hold its own temporary folder `/tmp/claude-<uid>`,
+ * the session's folder, and the git folder of the repository whose linked
+ * worktree the session ran in. No command can ask to run outside it, a
+ * session whose sandbox cannot start does not start, and a sandboxed
+ * command still asks the adapter as any other does. Its scratch folder,
+ * where it has one, joins the folders the session works in. A refresh of an account's usage, which
  * has no role, holds no tool at all, takes one turn and writes no
  * transcript. No other launch is made: a session with neither a role nor a
  * refresh would keep Claude Code's default tools, with no grant to answer
