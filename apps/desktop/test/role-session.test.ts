@@ -292,6 +292,9 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     expect(requests.filter((request) => request.subtype === "can_use_tool").map((request) => ({ tool: request.tool_name, command: request.input?.command }))).toContainEqual({ tool: "Bash", command });
     // The daemon allowed the call, so the command ran and the model was told what it printed and no rule of the daemon's.
     expect(told.map(({ content }) => content).join("\n")).not.toContain("Owlery gives the");
+    // Every role's command was refused the read of the run folder's `daemon.json`, so it was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
+    expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
+    expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
     if (pair.role === "crafter") {
       // The worktree's file took the byte and the commit holds it; the system refused the write to the case's folder, which no place of the launch names.
       expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(kept, "outside.txt"))) });
@@ -312,9 +315,6 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
       expect(readFileSync(join(worktree, "README.md"), "utf8")).toBe("a repository\n");
       expect(git(worktree, "status", "--porcelain")).toBe("");
     }
-    // Every role's command was refused the read of the run folder's `daemon.json`, so it was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
-    expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
-    expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
     expect([headless.state, headless.error, headless.role]).toEqual(["finished", null, pair]);
   }, 300_000);
 });
