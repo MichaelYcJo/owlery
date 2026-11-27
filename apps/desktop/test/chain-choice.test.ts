@@ -68,7 +68,7 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     // A repository on the owl chain: its checkout holds Owlery's workflow, committed, so a work item's worktree holds it. It holds a place for work records too, so its registration offers no setup of one.
     mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
     writeFileSync(join(made.repo, ".github", "workflows", "owlery-inspection.yml"), "name: seal\n");
-    mkdirSync(join(made.repo, "seal"));
+    mkdirSync(join(made.repo, "iadd"));
     writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
     writeFileSync(join(made.repo, "iadd", "config.json"), '{ "Mode": "shared", "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");

@@ -106,7 +106,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     buildApp();
     made = temporaryRepository();
     // The place for work records stands on the branch the work items are cut from.
-    mkdirSync(join(made.repo, "seal"));
+    mkdirSync(join(made.repo, "iadd"));
     writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
     writeFileSync(join(made.repo, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");

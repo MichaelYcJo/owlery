@@ -44,3 +44,5 @@
 - `chain.ts`: `EARLIER_KINDS` empty, and no earlier pair of the sealer. Red in the stored chain case of `chain.test.ts` and in the earlier line case of `ledger.test.ts`.
 - `stage-records.ts`: builders read from `IADD-Built-By:` alone. Red in the `Seal-Built-By:` case of `chain.test.ts`, whose failing line named `built-by: the session, s-9, fake-2` without `s-8`.
 - `records-place.ts`: a project's own `iadd/` taken for the root, and `agentic-seal/` read as a second name. Both red in `records-place.test.ts`.
+
+**The built-app batch at `505892e7` found fixtures the rename missed.** `approval-line.test.ts`, `chain-choice.test.ts`, `machine-dialog.test.ts`, `screenshots.test.ts` and `seal-back-view.test.ts` made a `seal/` folder and wrote `iadd/README.md` into it, so four of them failed in their setup. The scripted pass of the rename had rewritten `join(..., "seal")` only in the daemon-side files. Each now makes and stages `iadd/`, and `screenshots.test.ts` lists the check by its name `inspection`. The five files ran green in one built-app run.

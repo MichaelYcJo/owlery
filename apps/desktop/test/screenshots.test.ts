@@ -257,7 +257,7 @@ const STORED = [PARKED, FINISHED, QUEUED, SHOWN];
 const PULL_REQUEST_NUMBER = 12;
 const PULL_REQUEST_ADDRESS = "https://github.com/owner/project/pull/12";
 const PULL_REQUEST = `Pull request #${String(PULL_REQUEST_NUMBER)}`;
-const CHECKS = ["records", "seal"];
+const CHECKS = ["records", "inspection"];
 const FINISHED_RECORDS = "1795396352-add-an-export-of-the-history";
 /** The stages of the finished work item's chain, in the order they ended: four agents' turns and the gate. */
 const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
@@ -850,7 +850,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     made = temporaryRepository();
     // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch. The place for work records is committed with it, with the broad gate command its `config.json` names and the script that command runs, so the records the run commits in a worktree stand under a records root that is whole. Owlery's workflow is committed with it too, so the repository is on the owl chain.
     writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n*.pem\n");
-    mkdirSync(join(made.repo, "seal"));
+    mkdirSync(join(made.repo, "iadd"));
     writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
     writeFileSync(join(made.repo, "iadd", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
     mkdirSync(join(made.repo, "scripts"));
