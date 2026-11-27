@@ -720,7 +720,9 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
  * on its branch, as the dialog "Records and check" moves a repository's
  * (`records-migration.ts#migrateRecords`): a root in the earlier form where
  * the worktree holds no records root, and otherwise what the branch kept
- * under the earlier root after it merged a base that moved. It writes
+ * under the earlier root after it merged a base that moved, and the records
+ * of that form such a merge put under the records root, where `migrated` is
+ * null. It writes
  * Owlery's workflow of the app's version where the worktree holds none. It
  * refuses, with nothing committed, where the worktree cannot take a commit,
  * where its records stand in no earlier form, where the build names no

@@ -5421,7 +5421,7 @@ describe("the dialog of the records place", () => {
     it("says where the records stand and what the commit does with them, names each file that moves and where, the earlier workflow it removes and the workflow it writes whole, hides the field, and offers the move's commit", () => {
       const words = recordsDialog(EARLIER, MIGRATION, "", "");
       expect(words.move).toBe(
-        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `iadd/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
+        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `iadd/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
       );
       expect(words.commit).toBe("This makes one commit on `main`: `chore: move the work records and the pull request check to IADD's forms`. Nothing is pushed.");
       expect(words.files).toEqual([

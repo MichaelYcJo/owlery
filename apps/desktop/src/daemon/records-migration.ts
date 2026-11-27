@@ -112,10 +112,17 @@ export function heavyCommandsOf(folder: string): { root: string | null; commands
  * root and holds one in the earlier form, and where it holds the records
  * root and a directory under the earlier root's `threads/` whose
  * `routing.md` names the branch: a branch that merged a base that moved
- * keeps its own records where they were.
+ * keeps its own records where they were. They do too where the directory
+ * under the records root's `threads/` whose `routing.md` names the branch
+ * holds a `guarantee.md`, or a record the move rewrites: a merge that took
+ * git's proposal of a place under the moved folder (`CONFLICT (file
+ * location)`) puts there what the branch added in the earlier form. The
+ * sentence says, before the move, that an inspection cleared before it
+ * lapses at its commit.
  */
 export function earlierRecordsSays(worktree: string, branch: string | null): string | null {
-  const migrate = "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.";
+  const migrate =
+    "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.";
   if (rootOf(worktree) === null) {
     const earlier = earlierRootOf(worktree);
     return earlier === null ? null : `The worktree's work records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. ${migrate}`;
@@ -131,7 +138,30 @@ export function earlierRecordsSays(worktree: string, branch: string | null): str
     const own = names.find((name) => declaredBranch(textOf(join(worktree, root, "threads", name, ROUTING_FILE)) ?? "") === branch);
     if (own !== undefined) return `This work item's records stand in ${root}/threads/${own}/, in the form the AgenticSeal plugin wrote, and the branch's records root is ${ROOT}/. ${migrate}`;
   }
-  return null;
+  let held: string[];
+  try {
+    held = readdirSync(join(worktree, ROOT, "threads")).sort();
+  } catch {
+    return null;
+  }
+  const here = held.find((name) => declaredBranch(textOf(join(worktree, ROOT, "threads", name, ROUTING_FILE)) ?? "") === branch);
+  if (here === undefined) return null;
+  const directory = join(worktree, ROOT, "threads", here);
+  let rounds: string[];
+  try {
+    rounds = readdirSync(join(directory, "trail", "rounds")).filter((name) => ROUND.test(name));
+  } catch {
+    rounds = [];
+  }
+  // The records the move rewrites, by their path in the directory; a record IADD's form holds the move gives back as it stands.
+  const earlier =
+    textOf(join(directory, EARLIER_INSPECTION)) !== null ||
+    ["decisions.md", "trail/gate.md", "trail/refusals.md", ...rounds.map((name) => `trail/rounds/${name}`)].some((inside) => {
+      const text = textOf(join(directory, inside));
+      const after = text === null ? null : rewrite(`threads/${here}/${inside}`, text);
+      return after !== null && after !== text;
+    });
+  return earlier ? `This work item's directory ${ROOT}/threads/${here}/ holds records in the form the AgenticSeal plugin wrote, which a merge of a base that moved put there. ${migrate}` : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -243,9 +273,9 @@ export interface MigrationPlan {
   /** The branch the commit lands on, or null where the checkout stands on none. */
   branch: string | null;
   subject: string;
-  /** The root in the earlier form the plan moves, or null where the commit holds none. */
+  /** The root in the earlier form the plan moves, or null where the commit holds none and the plan rewrites only records below IADD's root. */
   from: string | null;
-  /** Each file of that root, by its path in the commit and the path it moves to, and whether its text is rewritten, in the commit's order. */
+  /** Each file of that root, and each record in the earlier form below IADD's root, by its path in the commit and the path it moves to, the same for a record rewritten where it stands, and whether its text is rewritten, in the commit's order. */
   moves: { from: string; to: string; rewritten: boolean }[];
   /** The files the commit removes without moving: the earlier workflow, where the commit holds it. */
   removes: string[];
@@ -307,7 +337,14 @@ function rewrite(below: string, text: string): string | null {
  * holds IADD's root, the first under which it holds anything: what a branch
  * kept of the earlier root after it merged a base that moved. Each file the
  * commit holds below that root moves to the same path below `iadd/`, a work
- * item's `guarantee.md` to its `inspection.md`. A record that holds blocks
+ * item's `guarantee.md` to its `inspection.md`. Where the commit holds IADD's
+ * root, each file of a work item's directory below it that is a
+ * `guarantee.md` moves to that directory's `inspection.md`, and each record
+ * there the lines below would rewrite is rewritten where it stands: a merge
+ * that took git's proposal of a place under the moved folder (`CONFLICT
+ * (file location)`) put there what a branch added in the earlier form. Every
+ * other file below IADD's root is IADD's form already and stays out of the
+ * plan. A record that holds blocks
  * moves with its openers as `iadd` ones, and `guarantee.md`,
  * `decisions.md`, `trail/refusals.md` and the root's `README.md` with the
  * lines `inspectionFromGuarantee`, `decisionsMoved`, `refusalsMoved` and
@@ -374,19 +411,25 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
     for (const root of EARLIER_ROOTS) if (opensEarlier(await textAt(`${root}/README.md`))) return root;
     return null;
   })();
-  const keptByBranch = whole === null && (await textAt(`${ROOT}/README.md`))?.split("\n", 1)[0]?.replace(/\r+$/u, "") === MARKER ? (EARLIER_ROOTS.find((root) => holds(root)) ?? null) : null;
+  const rooted = whole === null && (await textAt(`${ROOT}/README.md`))?.split("\n", 1)[0]?.replace(/\r+$/u, "") === MARKER;
+  const keptByBranch = rooted ? (EARLIER_ROOTS.find((root) => holds(root)) ?? null) : null;
   const from = whole ?? keptByBranch;
-  if (from === null) return plan(null, [], [], [], none);
+  // Below IADD's root, each file of a work item's directory is read too: a merge that took git's proposal of a place under the moved folder put there what the branch added in the earlier form.
+  const strayed = rooted ? [...inCommit.keys()].filter((path) => path.startsWith(`${ROOT}/threads/`) && holdsFile(path)) : [];
 
-  const below = [...inCommit.keys()].filter((path) => path.startsWith(`${from}/`));
+  const below = from === null ? [] : [...inCommit.keys()].filter((path) => path.startsWith(`${from}/`));
   const moves: MigrationPlan["moves"] = [];
   const refused: string[] = [];
-  for (const path of below) {
+  const candidates = new Set([...below, ...strayed]);
+  for (const path of [...inCommit.keys()].filter((path) => candidates.has(path))) {
     if (!holdsFile(path)) continue;
-    const rest = path.slice(from.length + 1);
+    const stray = from === null || !path.startsWith(`${from}/`);
+    const rest = path.slice((stray ? ROOT : from).length + 1);
     const bytes = await blob(folder, head, path);
     const before = bytes.toString("utf8");
     const after = rewrite(rest, before);
+    // A file below IADD's root moves only where it is a work item's `guarantee.md` or a record the move rewrites; the rest is IADD's form already.
+    if (stray && movedPath(rest) === path && (after === null || after === before)) continue;
     // Each record that holds blocks is read with the earlier grammar, and what it moves with in IADD's, which reads as many blocks at the same lines.
     const [threads, id, ...within] = rest.split("/");
     const kinds = threads === "threads" && id !== undefined ? blockKinds(within.join("/")) : null;
@@ -400,21 +443,23 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
     moves.push({ from: path, to: movedPath(rest), rewritten: after !== null && after !== before });
     texts.set(path, after === null ? bytes : after);
   }
+  if (from === null && moves.length === 0) return plan(null, [], [], [], none);
   const removes = holdsFile(EARLIER_WORKFLOW) ? [EARLIER_WORKFLOW] : [];
   const writes = holds(WORKFLOW) ? [] : [{ path: WORKFLOW, text: workflowText(version) }];
   const written = [...moves.map((move) => move.to), ...writes.map((write) => write.path)];
 
   const odd = below.filter((path) => !holdsFile(path));
-  const taken = moves.filter((move) => holds(move.to)).map((move) => move.to);
+  // A record rewritten where it stands takes no other path.
+  const taken = moves.filter((move) => move.to !== move.from && holds(move.to)).map((move) => move.to);
   let blocked: string | null = null;
   if (odd.length > 0) blocked = `The commit this checkout stands at holds something other than a file at ${named(odd)}, and the move moves files alone. Rename or remove it in a commit, and open this again.`;
   else if (whole !== null && holds(ROOT)) blocked = `${ROOT}/ holds something of this repository's own, so Owlery has no folder to move the work records to. Rename that folder in a commit, and open this again.`;
-  else if (taken.length > 0) blocked = `The commit this checkout stands at holds ${named(taken)} already, where the move puts a file of ${from}/. Rename or remove it in a commit, and open this again.`;
+  else if (taken.length > 0) blocked = `The commit this checkout stands at holds ${named(taken)} already, where the move puts ${from === null ? "a record in the earlier form" : `a file of ${from}/`}. Rename or remove it in a commit, and open this again.`;
   else if (holds(WORKFLOW) && !holdsFile(WORKFLOW)) blocked = `The commit this checkout stands at holds something other than a file at ${WORKFLOW}, where the check's workflow stands. Rename it in a commit, and open this again.`;
   else if (refused.length > 0) blocked = `The earlier form's reader refuses ${refused.length === 1 ? "a line" : `${String(refused.length)} lines`} of these records, so Owlery cannot move them as they mean: ${refused.join("; ")}. Fix each line named in a commit, and open this again.`;
   if (blocked !== null) return plan(from, moves, removes, writes, blocked);
 
-  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", from, ROOT, EARLIER_WORKFLOW, WORKFLOW]);
+  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", ...(from === null ? [] : [from]), ROOT, EARLIER_WORKFLOW, WORKFLOW]);
   if (status.code !== 0) throw new Error(status.stderr.trim() || "git could not say how the checkout differs from its commit");
   const differing = [...new Set(status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3)))];
   const ignored = await git(folder, ["check-ignore", "--no-index", "--", ...written]);
@@ -431,31 +476,43 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
  * the plan: the plan is made again, and the move is refused where its stamp
  * is not `stamp` and where it is blocked. Each file moves to its path with
  * the text the plan gives it and its mode, each created where nothing
- * stands, and each file of the earlier root and the earlier workflow is
- * removed from the index and the checkout. Those paths alone are staged and
- * committed, on the branch the checkout stands on, with the person's git
- * identity and the repository's hooks, under `limitMs` as
+ * stands, but a record below IADD's root that the plan rewrites where it
+ * stands, which is written over; each file of the earlier root, each
+ * `guarantee.md` below IADD's root and the earlier workflow is removed from
+ * the index and the checkout. Those paths alone are staged and committed,
+ * on the branch the checkout stands on, with the person's git identity and
+ * the repository's hooks, under `limitMs` as
  * `records-place.ts#setUpRecords` runs its commit, and nothing is pushed.
  * Where a write or the commit fails, those paths are unstaged, the files
- * and folders this call made are removed, the removed files are put back as
- * the commit holds them, and the error holds git's words.
+ * and folders this call made are removed, the removed files and the records
+ * written over are put back as the commit holds them, and the error holds
+ * git's words.
  */
 export async function migrateRecords(folder: string, version: string, stamp: string, limitMs?: number): Promise<void> {
   const { plan, texts } = await planned(folder, version);
   if (plan.stamp !== stamp) throw new Error("The repository changed since the plan was read. Read the plan again.");
-  if (plan.blocked !== null || plan.from === null) throw new Error(plan.blocked ?? "There is nothing to move.");
+  if (plan.blocked !== null) throw new Error(plan.blocked);
   const head = (await git(folder, ["rev-parse", "HEAD"])).stdout.trim();
   const modes = new Map<string, string>();
-  const tree = await git(folder, ["ls-tree", "-r", "-z", head, "--", plan.from]);
+  const tree = await git(folder, ["ls-tree", "-r", "-z", head, "--", ...(plan.from === null ? [] : [plan.from]), ROOT]);
   for (const entry of tree.stdout.split("\0")) {
     const tab = entry.indexOf("\t");
     if (tab !== -1) modes.set(entry.slice(tab + 1), entry.slice(0, entry.indexOf(" ")));
   }
   const madeFiles: string[] = [];
   const madeFolders: string[] = [];
+  const overwritten: string[] = [];
   const written = [...plan.moves.map((move) => move.to), ...plan.writes.map((write) => write.path)];
-  const removed = [plan.from, ...plan.removes];
-  const write = (path: string, content: string | Buffer, mode: string): void => {
+  const { from } = plan;
+  // A file below IADD's root that moves to another path is a `guarantee.md`, which goes as the earlier root goes.
+  const removed = [...(from === null ? [] : [from]), ...plan.moves.filter((move) => move.to !== move.from && (from === null || !move.from.startsWith(`${from}/`))).map((move) => move.from), ...plan.removes];
+  const write = (path: string, content: string | Buffer, mode: string, over = false): void => {
+    if (over) {
+      // The plan found the record in the checkout as the commit holds it, so the commit's is what is put back.
+      writeFileSync(join(folder, path), content);
+      overwritten.push(path);
+      return;
+    }
     const missing: string[] = [];
     for (let above = dirname(path); above !== "." && !standsAt(join(folder, above)); above = dirname(above)) missing.unshift(above);
     for (const made of missing) {
@@ -469,11 +526,13 @@ export async function migrateRecords(folder: string, version: string, stamp: str
   };
   let staged = false;
   try {
-    for (const move of plan.moves) write(move.to, texts.get(move.from) ?? "", modes.get(move.from) ?? "100644");
+    for (const move of plan.moves) write(move.to, texts.get(move.from) ?? "", modes.get(move.from) ?? "100644", move.to === move.from);
     for (const each of plan.writes) write(each.path, each.text, "100644");
     staged = true;
-    const removal = await git(folder, ["rm", "-r", "--quiet", "--", ...removed]);
-    if (removal.code !== 0) throw new Error(removal.stderr.trim() || "git rm failed");
+    if (removed.length > 0) {
+      const removal = await git(folder, ["rm", "-r", "--quiet", "--", ...removed]);
+      if (removal.code !== 0) throw new Error(removal.stderr.trim() || "git rm failed");
+    }
     const bounded = commitRunner({ limitMs });
     const added = await bounded(folder, ["add", "--", ...written]);
     if (added.ended !== null) throw new Error(added.ended);
@@ -486,9 +545,10 @@ export async function migrateRecords(folder: string, version: string, stamp: str
   } catch (error) {
     if (staged) {
       await git(folder, ["reset", "--quiet", "--", ...written, ...removed]).catch(() => undefined);
-      // The plan found each removed file as the commit holds it, so the commit's is what is put back.
-      await git(folder, ["checkout", head, "--", ...removed]).catch(() => undefined);
     }
+    // The plan found each removed file and each record written over as the commit holds it, so the commit's is what is put back.
+    const back = [...(staged ? removed : []), ...overwritten];
+    if (back.length > 0) await git(folder, ["checkout", head, "--", ...back]).catch(() => undefined);
     for (const path of madeFiles) rmSync(join(folder, path), { force: true });
     for (const made of madeFolders.reverse()) {
       try {

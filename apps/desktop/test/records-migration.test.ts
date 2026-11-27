@@ -4,7 +4,7 @@
 // blocks the move, and what is read of a root in the earlier form. Each case
 // runs in a temporary repository, never in Owlery's own, whose records stay in
 // the earlier form until its own move.
-import { mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readRefusals } from "../src/daemon/chain";
@@ -329,7 +329,7 @@ describe("the move of the records from the earlier form", () => {
     write(repo, "seal/threads/1-x/routing.md", routing("1-x", "feature"));
     commitAll(repo, "chore: the routing stays where the branch kept it");
     expect(earlierRecordsSays(repo, "feature")).toBe(
-      "This work item's records stand in seal/threads/1-x/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.",
+      "This work item's records stand in seal/threads/1-x/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.",
     );
     expect(earlierRecordsSays(repo, "other")).toBeNull();
     const plan = await planMigration(repo, VERSION);
@@ -344,10 +344,65 @@ describe("the move of the records from the earlier form", () => {
     expect(earlierRecordsSays(repo, "feature")).toBeNull();
   });
 
+  it("rewrites in place, under IADD's root, the records a branch added in the earlier form where its merge of a base that moved took git's proposal of their place, moves a guarantee there to inspection.md, puts them back where the commit is refused, and names the work item's own directory until then", async () => {
+    const repo = earlier();
+    git(repo, "rm", "--quiet", "seal/threads/1-x/guarantee.md");
+    commitAll(repo, "chore: no inspection yet");
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    const round2 = ROUND.replace("round 1", "round 2");
+    write(repo, "seal/threads/1-x/trail/rounds/round-2.md", round2);
+    write(repo, "seal/threads/1-x/guarantee.md", GUARANTEE);
+    commitAll(repo, "chore: record review round 2 and the inspection");
+    git(repo, "checkout", "--quiet", "main");
+    const base = await planMigration(repo, VERSION);
+    await migrateRecords(repo, VERSION, base.stamp);
+    git(repo, "checkout", "--quiet", "feature");
+    // Git reads the base's move as a rename of the folder, and a file the branch added inside it stops the merge with `CONFLICT (file location)` and git's proposal of its place under iadd/, which this merge takes.
+    git(repo, "-c", "merge.directoryRenames=true", "merge", "--quiet", "--no-edit", "main");
+    expect(git(repo, "ls-tree", "-r", "--name-only", "HEAD", "--", "seal", "iadd/threads/1-x/guarantee.md", "iadd/threads/1-x/trail/rounds").trim().split("\n")).toEqual([
+      "iadd/threads/1-x/guarantee.md",
+      "iadd/threads/1-x/trail/rounds/round-1.md",
+      "iadd/threads/1-x/trail/rounds/round-2.md",
+    ]);
+    expect([rootOf(repo), earlierRootOf(repo)]).toEqual(["iadd", null]);
+    expect(earlierRecordsSays(repo, "feature")).toBe(
+      "This work item's directory iadd/threads/1-x/ holds records in the form the AgenticSeal plugin wrote, which a merge of a base that moved put there. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.",
+    );
+    expect(earlierRecordsSays(repo, "other")).toBeNull();
+    const plan = await planMigration(repo, VERSION);
+    // The base's round, which IADD's form already holds, is not part of the move.
+    expect([plan.from, plan.blocked, plan.moves, plan.removes, plan.writes]).toEqual([
+      null,
+      null,
+      [
+        { from: "iadd/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+        { from: "iadd/threads/1-x/trail/rounds/round-2.md", to: "iadd/threads/1-x/trail/rounds/round-2.md", rewritten: true },
+      ],
+      [],
+      [],
+    ]);
+    // A hook that refuses the commit leaves the branch's records as the commit holds them.
+    writeFileSync(join(repo, ".git", "hooks", "pre-commit"), "#!/bin/sh\necho 'the hook refuses the move' >&2\nexit 1\n", { mode: 0o755 });
+    const before = [head(repo), status(repo)];
+    await expect(migrateRecords(repo, VERSION, plan.stamp)).rejects.toThrow("the hook refuses the move");
+    expect([head(repo), status(repo)]).toEqual(before);
+    expect([readFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), "utf8"), readFileSync(join(repo, "iadd/threads/1-x/guarantee.md"), "utf8")]).toEqual([round2, GUARANTEE]);
+    rmSync(join(repo, ".git", "hooks", "pre-commit"));
+    await migrateRecords(repo, VERSION, plan.stamp);
+    expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before[0]);
+    expect(status(repo)).toBe("");
+    expect(git(repo, "show", "--name-status", "--no-renames", "--format=", "HEAD").trim().split("\n").sort()).toEqual(["A\tiadd/threads/1-x/inspection.md", "D\tiadd/threads/1-x/guarantee.md", "M\tiadd/threads/1-x/trail/rounds/round-2.md"]);
+    expect(readFileSync(join(repo, "iadd/threads/1-x/inspection.md"), "utf8")).toBe(INSPECTION);
+    expect(readFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), "utf8")).toBe(round2.replace(`${F}seal`, `${F}iadd`));
+    expect(readInspection(readFileSync(join(repo, "iadd/threads/1-x/inspection.md"), "utf8")).verdicts.map((verdict) => verdict.is)).toEqual(["withheld", "cleared"]);
+    expect(earlierRecordsSays(repo, "feature")).toBeNull();
+    expect((await planMigration(repo, VERSION)).blocked).toBe("The commit this checkout stands at holds no work records in the form the AgenticSeal plugin wrote, so there is nothing to move.");
+  });
+
   it("names a worktree whose records stand in an earlier root alone, and reads the heavy commands of that root's config.json and nothing else of it", () => {
     const repo = earlier();
     expect(earlierRecordsSays(repo, "main")).toBe(
-      "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.",
+      "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.",
     );
     expect(heavyCommandsOf(repo)).toEqual({ root: "seal", commands: { test: "make test" } });
     expect(readRecordsPlace(repo).broadGate).toBeNull();

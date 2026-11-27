@@ -2836,7 +2836,8 @@ function requiredCheck(workflow: string | null): string {
  * field, and offers
  * "Move and commit", on where the plan is not blocked. A plan that moves
  * the records from a root in the earlier form says where they stand and
- * what the commit does with them, names each file that moves with the path
+ * what the commit does with them, that an inspection cleared before the
+ * move lapses at its commit, names each file that moves with the path
  * it moves to and whether it is rewritten, each file the commit removes and
  * the workflow it writes whole, says that a rule that requires the check
  * the removed workflow posted has to require `inspection`, hides the field, and offers "Move and
@@ -2861,7 +2862,7 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
     const commit = plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "";
     return {
       ...unplanned,
-      move: `The work records of this repository stand in \`${from}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to \`iadd/\`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires \`inspection\` in its place.`,
+      move: `The work records of this repository stand in \`${from}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to \`iadd/\`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires \`inspection\` in its place.`,
       commit,
       blocked: plan.blocked ?? "",
       files: [

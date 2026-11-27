@@ -594,7 +594,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     write(on.repo, `${earlier}/routing.md`, ["# Routing: 1795388700-greet", "", "| Axis | Answer |", "|---|---|", "| Review | through the review chain |", "| Destination | open the pull request |", "| Implementation | the session |", `| Branch | ${BRANCH} |`, ""].join("\n"));
     commitAll(on.repo, "chore: declare the routing under the earlier root");
     const before = head(on.repo);
-    const says = `This work item's records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's \`migrate\` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.\n`;
+    const says = `This work item's records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's \`migrate\` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.\n`;
     const answer = on.answer("answer.md", "# An answer\n");
     for (const args of [["owed"], ["start"], ["round", answer], ["fix-pass", "--by", "the session"], ["gate"], ["inspect", answer, "--inspected-by", "x", "--model", "y"], ["body"]]) expect(await on.run(args), args[0]).toEqual({ code: 1, out: "", err: says });
     expect(head(on.repo)).toBe(before);
@@ -613,7 +613,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     write(on.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
     write(on.repo, "seal/config.json", `${JSON.stringify({ "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
     commitAll(on.repo, "chore: the plugin's root");
-    expect(await on.run(["owed"])).toEqual({ code: 1, out: "", err: "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.\n" });
+    expect(await on.run(["owed"])).toEqual({ code: 1, out: "", err: "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.\n" });
     expect(await on.said(["migrate"])).toMatchObject({ migrated: "seal", moved: 2, written: [".github/workflows/owlery-inspection.yml"] });
     expect(read(join(on.repo, "iadd/README.md")).split("\n")[0]).toBe("# What IADD keeps in iadd/");
     expect(existsSync(join(on.repo, "seal"))).toBe(false);

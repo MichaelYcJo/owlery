@@ -3668,8 +3668,9 @@ export class Daemon {
    * running; a session of it is working; the work item has no branch yet
    * (`NO_BRANCH_FOR_CHAIN`); the worktree cannot take a commit
    * (`worktrees.ts#whyNoCommit`); its records stand in the earlier form,
-   * a root of it in place of the records root or the work item's own
-   * directory under one (`records-migration.ts#earlierRecordsSays`), which
+   * a root of it in place of the records root, the work item's own
+   * directory under one, or records of that form in its directory under the
+   * records root (`records-migration.ts#earlierRecordsSays`), which
    * the sentence names `migrate` for; it holds no records root; the `Broad gate`
    * key of its `config.json` holds no command, so no gate could pass and a
    * round would be spent for nothing; two directories

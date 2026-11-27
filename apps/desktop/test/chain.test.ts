@@ -1562,7 +1562,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     });
 
     it("refuses a worktree whose records stand in the earlier form, a root of it in place of the records root or the work item's own directory under one, with the sentence that names the chain command's `migrate`", async () => {
-      const migrate = "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it.";
+      const migrate = "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.";
       const bare = await standing(cleanups, ["Earlier root"], { root: false });
       const a = bare.workItems[0]!;
       write(a.worktree, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
