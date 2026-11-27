@@ -2,10 +2,12 @@
 // runs the real `claude` CLI: the CLI is pointed at it with
 // `ANTHROPIC_BASE_URL` and a key that is no key, so the check spends no usage
 // and needs no login. Its first answer to a session that holds `Bash` is one
-// call of that tool with the command it was given, so the call the check is
-// about is made by the stand-in and not by a model's turn. Every other
-// streamed request to the messages endpoint is answered with one line of
-// text. It answers only what a run showed the CLI asks, streamed messages
+// call of that tool with the command it was given, and each answer after it
+// is the next of the later calls it was given, one a turn, so the calls the
+// check is about are made by the stand-in and not by a model's turn. Every
+// other streamed request to the messages endpoint, and each one after the
+// last call, is answered with one line of text. It answers only what a run
+// showed the CLI asks, streamed messages
 // requests: any other request, a messages request that is not streamed among
 // it, is refused with 404 and its method and path, and the check prints every
 // request the stand-in kept.
@@ -19,10 +21,16 @@ export interface Received {
   body: Record<string, unknown> | null;
 }
 
-/** A block of content the stand-in answers with: the one call, or a line of text. */
-type Block = { type: "tool_use"; id: string; name: string; input: { command: string; description: string } } | { type: "text"; text: string };
+/** A call the stand-in makes after its first: the tool's name and the input it is called with. */
+export interface StandInCall {
+  name: string;
+  input: Record<string, unknown>;
+}
 
-/** The line of text every answer but the call holds. */
+/** A block of content the stand-in answers with: a call, or a line of text. */
+type Block = { type: "tool_use"; id: string; name: string; input: Record<string, unknown> } | { type: "text"; text: string };
+
+/** The line of text every answer but a call holds. */
 export const STAND_IN_TEXT = "The stand-in model makes no other call.";
 
 /** The tool results a request's messages hold, each as the CLI sent it. */
@@ -54,11 +62,16 @@ function streamed(response: ServerResponse, model: unknown, block: Block, stop: 
 /**
  * Starts the stand-in at a port the system gives, and gives its address, the
  * requests it received in the order they came, and a function that closes
- * it. `command` is the command of the `Bash` call it answers a session's
+ * it. `command` gives the command of the `Bash` call it answers a session's
  * first request with: a request whose tools name `Bash` and whose messages
- * hold no tool result.
+ * hold no tool result. It is called when that request arrives, so a command
+ * can name a folder the session was given only when it started. `after`
+ * gives the calls it makes after that one, in order: a request whose tools
+ * name `Bash` and whose messages hold `n` tool results is answered with the
+ * call at `n - 1`, or with the line of text where `after` holds none there.
+ * It is called when such a request arrives, for the same reason.
  */
-export async function startModelStandIn(command: string): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
+export async function startModelStandIn(command: () => string, after: () => readonly StandInCall[] = () => []): Promise<{ url: string; received: Received[]; close: () => Promise<void> }> {
   const received: Received[] = [];
   const server = createServer((request, response) => {
     let text = "";
@@ -79,7 +92,15 @@ export async function startModelStandIn(command: string): Promise<{ url: string;
       const pathname = new URL(path, "http://stand-in").pathname;
       if (request.method === "POST" && pathname === "/v1/messages" && body?.stream === true) {
         const tools = Array.isArray(body.tools) ? (body.tools as { name?: unknown }[]).map((tool) => tool.name) : [];
-        const block: Block = tools.includes("Bash") && toolResults(body).length === 0 ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command, description: "The stand-in model's one call" } } : { type: "text", text: STAND_IN_TEXT };
+        const results = toolResults(body).length;
+        const later = tools.includes("Bash") && results > 0 ? after()[results - 1] : undefined;
+        const block: Block = !tools.includes("Bash")
+          ? { type: "text", text: STAND_IN_TEXT }
+          : results === 0
+            ? { type: "tool_use", id: "toolu_stand_in_1", name: "Bash", input: { command: command(), description: "The stand-in model's first call" } }
+            : later === undefined
+              ? { type: "text", text: STAND_IN_TEXT }
+              : { type: "tool_use", id: `toolu_stand_in_${String(results + 1)}`, name: later.name, input: later.input };
         streamed(response, body.model, block, block.type === "tool_use" ? "tool_use" : "end_turn");
         return;
       }

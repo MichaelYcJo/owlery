@@ -39,6 +39,17 @@ export interface RoleRun {
 /** A feature an adapter can declare: it sets a session's tools by its role, it reports permission requests and takes their answers, it launches a session under the account whose config folder it is given, and it starts the short session that refreshes an account's usage (`refresh`). */
 export type RoleFeature = "role-tools" | "permission-requests" | "accounts" | "limit-refresh";
 
+/** What a session is started with (`RoleAdapter.start`). */
+export interface RoleStart {
+  prompt: string;
+  cwd: string;
+  role?: RoleStage;
+  accountDir?: string;
+  refresh?: true;
+  commands?: { write: readonly string[]; refuse: readonly string[]; unread: readonly string[] };
+  scratch?: string;
+}
+
 export interface RoleAdapter {
   readonly name: string;
   /** The features this adapter supports. The daemon starts a role session only through an adapter that declares `role-tools` and `permission-requests`, and starts no session with no role but a refresh; `accounts` decides only whether a session is given its account's folder, and `limit-refresh` whether the daemon starts a refresh through it. */
@@ -54,10 +65,22 @@ export interface RoleAdapter {
    * daemon gives only an adapter that declares `limit-refresh` and never with
    * a role, the session holds no tool, takes one turn and writes no
    * transcript, and is started only for the `limit` events its stream hands
-   * over. The promise rejects, with a message a person can read, where no
-   * session started.
+   * over. `commands`, which the daemon gives with every role and never with
+   * a refresh, are the absolute folders the session's commands may write in
+   * (`write`) and are refused (`refuse`), and the folders they read no file
+   * of (`unread`): an adapter that launches a role runs its commands in the
+   * operating system's sandbox, which lets them write in the `write`
+   * folders and never in the `refuse` ones, refuses them the adapter's own
+   * folders as well, and refuses them every read in the `unread` folders
+   * but in `scratch` and in what its agent itself has each command read
+   * first, such as Claude Code's snapshot of the person's shell setup in
+   * the session's config folder; one that cannot, or that is given a role
+   * with no `commands`, starts no session. `scratch`, which the daemon gives
+   * where the role's commands write in a scratch folder of the session's
+   * own, is that folder, which the session's file tools reach as well. The promise
+   * rejects, with a message a person can read, where no session started.
    */
-  start(options: { prompt: string; cwd: string; role?: RoleStage; accountDir?: string; refresh?: true }, listener: (event: RoleEvent) => void): Promise<RoleRun>;
+  start(options: RoleStart, listener: (event: RoleEvent) => void): Promise<RoleRun>;
   /**
    * What a person should know of the adapter's agent before any session
    * starts, as a sentence a window shows as it is, or null where there is

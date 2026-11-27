@@ -636,7 +636,9 @@ function openingLine(stage: string, worktree: string): string {
  * decisions where one stands, the paths the reviewed commits changed, and
  * their diff, cut at `PROMPT_DIFF_CHARS` characters with a line that says
  * so. Every path but the worktree's is from the top of the worktree the
- * prompt names (`openingLine`).
+ * prompt names (`openingLine`). It says to write no file of that worktree,
+ * and names no place for the proofer's commands: the daemon appends the
+ * scratch folder it makes when the session starts (`daemon.ts#withScratch`).
  */
 export function roundPrompt(given: { round: number; worktree: string; directory: string; target: string; earlier: readonly number[]; decisions: boolean; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
@@ -650,7 +652,7 @@ export function roundPrompt(given: { round: number; worktree: string; directory:
     given.earlier.length === 0 ? "- Earlier round records: none, this is the first round" : `- Earlier round records: ${given.earlier.map((round) => `\`${rounds}/${roundFile(round)}\``).join(", ")}`,
     ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
     "",
-    `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${rounds}/${roundFile(given.round)}\` and commits it. Write no file and run no command: read the files of that worktree.`,
+    `Your answer is the round record, whole, from its heading to its end. Owlery writes it unchanged to \`${rounds}/${roundFile(given.round)}\` and commits it. Write no file of that worktree: read its files.`,
     "",
     given.paths.length === 0 ? "The reviewed commits changed no path." : "The reviewed commits changed these paths:",
     ...given.paths.map((path) => `- \`${path}\``),
@@ -697,7 +699,8 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * says so. Every path but the worktree's is from the top of the worktree
  * the prompt names (`openingLine`). The form of the answer is named by the
  * sealer's definition, whose paths are the bundle's, so the prompt gives
- * no path of the bundle.
+ * no path of the bundle. It says to write no file of that worktree, and
+ * names no place for the sealer's commands, as `roundPrompt` does.
  *
  * `earlier` is the seal a later commit broke, where the run follows one: its
  * run and its sealed commit, which the prompt names. The paths and the diff
@@ -724,7 +727,7 @@ export function sealPrompt(given: { run: number; worktree: string; directory: st
     "- The issue: the work item names none, so no issue's text is among what you read",
     ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
     "",
-    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file and run no command: read the files of that worktree.`,
+    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file of that worktree: read its files.`,
     "",
     given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),

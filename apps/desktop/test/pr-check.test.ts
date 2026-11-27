@@ -180,10 +180,10 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(ready.output).not.toContain("language");
   });
 
-  it("passes the records a sealed chain of two rounds and one fix pass left, as a ready pull request with no body: the gate's record, and the guarantee whose verdict block names the fix pass's session among the builders and another as the judge, in a commit that also carries the rows of the two calls the sealer was refused, and fails the same branch before round 2 for the verifying round it owes", async () => {
+  it("passes the records a sealed chain of two rounds and one fix pass left, as a ready pull request with no body: the gate's record, and the guarantee whose verdict block names the fix pass's session among the builders and another as the judge, in a commit that also carries the row of the write the sealer was refused, its command allowed, and fails the same branch before round 2 for the verifying round it owes (#127)", async () => {
     // The first start stops after the fix pass: round 2's proofer answers with no record until the case lets it.
     let verifies = false;
-    // The sealer asks to write a file and to run a command: its grant refuses both, and each is a row of `trail/refusals.md` in the commit that carries the guarantee.
+    // The sealer asks to write a file and to run a command: its grant refuses the write, which is a row of `trail/refusals.md` in the commit that carries the guarantee, and allows the command, which the sandbox bounds.
     const asks = (_prompt: string, role?: { role: string }) => (role?.role === "sealer" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }, { asks }) });
     const a = workItems[0]!;
@@ -202,7 +202,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(sealed.exit, sealed.output).toBe(0);
     for (const file of ["round-", "gate.md", "guarantee.md:"]) expect(sealed.output, file).not.toContain(file);
     expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the sealer's verdict", "", "seal/threads/1795388700-sealed-work/guarantee.md", "seal/threads/1795388700-sealed-work/trail/refusals.md"]);
-    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toContain("| seal 2 | sealer | Write | writes a file | no-write |\n| seal 2 | sealer | Bash | runs a command | no-command |\n");
+    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toMatch(/\n\| seal 2 \| sealer \| Write \| writes a file \| no-write \|\n$/u);
     expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/guarantee.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\njudged-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\n```\n/u);
     // A body with no seal section is named as not read, and the same records pass with it.
     const ready = check(worktree, "ready");

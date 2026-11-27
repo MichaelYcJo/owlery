@@ -2,10 +2,10 @@ import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
-import type { AccountLogins, RoleAdapter } from "../src/daemon/adapters/adapter";
+import type { AccountLogins, RoleAdapter, RoleStart } from "../src/daemon/adapters/adapter";
 import { claudeLogins } from "../src/daemon/adapters/claude-accounts";
 import { type FakeAsk, fakeAdapter } from "../src/daemon/adapters/fake";
 import { agentEventFor } from "../src/daemon/agent-events";
@@ -284,6 +284,11 @@ const NONE_RUNNING = { panes: [], headless: [] };
 const PROOFER = { role: "proofer", stage: "round" } as const;
 /** What the fake adapter answers a proofer's prompt with. */
 const proofersAnswer = (prompt: string): string => `As the proofer at the stage round, you asked: "${prompt}"`;
+/** The prompt the adapter is given for a session whose commands write in the scratch folder `folder`: the session's prompt, then a paragraph that names the folder (scenario 7 of #127). */
+const withScratch = (prompt: string, folder: string): string =>
+  `${prompt.replace(/\n+$/u, "")}\n\nYour scratch folder is \`${folder}\`, made new for this session. Write with your commands only there: put a clone, a probe and what they print in it, since the system refuses a write to the worktree. Owlery removes the folder once this session's process has ended, so a path in it that your answer names is gone after the session.\n`;
+/** The prompt a session was started with, read from what its adapter was given: the paragraph `withScratch` adds taken off, for a case's adapter that picks what it does by the prompt. */
+const startedWith = (given: RoleStart): string => (given.scratch === undefined ? given.prompt : given.prompt.replace(withScratch("", given.scratch), ""));
 
 describe("the daemon's local server", () => {
   it("listens on the loopback address only", async () => {
@@ -1843,7 +1848,7 @@ describe("repositories", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (startedWith(options) === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { daemon: d, url } = await daemon({ worktreesRoot: root, roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     const c = await client(url);
     await c.message("ready");
@@ -1859,7 +1864,8 @@ describe("repositories", () => {
     expect(stopped).toBe(0);
     c.send({ type: "removeRepository", requestId: 4, id: 1, workItems: [workItem.id], running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (stopped === 1 ? true : undefined));
     const after = await (await client(url)).message("ready");
     expect([after.repositories, after.workItems, after.sessions, after.headless]).toEqual([[], [], [], []]);
   });
@@ -2680,7 +2686,7 @@ describe("what a person sets on a work item", () => {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
     // The prompt "Quick?" is answered at once, and any other after a minute.
-    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (options.prompt === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
+    const roleAdapter: RoleAdapter = { name: slow.name, features: slow.features, notice: slow.notice, start: async (options, listener) => { const run = await (startedWith(options) === "Quick?" ? quick : slow).start(options, listener); return { ...run, stop: () => { stopped++; return run.stop(); } }; } };
     const { daemon: d, c, url, workItem } = await withWorkItem(made, { roleAdapter, commandFor: () => ({ command: "/bin/sh", args: ["-c", "exit 0"], env: {} }) });
     await allExited(url);
     await d.startRoleSession(workItem.id, "Quick?", PROOFER);
@@ -2691,7 +2697,8 @@ describe("what a person sets on a work item", () => {
     expect(stopped).toBe(0);
     c.send({ type: "archiveWorkItem", requestId: 4, id: workItem.id, running: { panes: [], headless: [headless.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (stopped === 1 ? true : undefined));
     const failed = { ...headless, state: "failed", error: "ended when the work item was archived", stopped: "request" };
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
     c.send({ type: "restoreWorkItem", requestId: 5, id: workItem.id });
@@ -6064,12 +6071,12 @@ describe("headless sessions", () => {
     const c = connected[0]!;
     c.send({ type: "createWorkItem", requestId: 100, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
-    return { daemon: d, url, clients: connected, c, workItem };
+    return { daemon: d, url, clients: connected, c, workItem, repo: made.repo };
   }
 
-  /** A fake adapter that also records where each session was started, and how many runs were stopped. */
+  /** A fake adapter that also records what each session was started with, and how many runs were stopped. */
   function watched(inner: RoleAdapter = fakeAdapter()) {
-    const seen = { started: [] as { prompt: string; cwd: string; role?: RoleStage }[], stopped: 0 };
+    const seen = { started: [] as Parameters<RoleAdapter["start"]>[0][], stopped: 0 };
     const adapter: RoleAdapter = {
       name: inner.name,
       features: inner.features, notice: inner.notice,
@@ -6113,12 +6120,116 @@ describe("headless sessions", () => {
     }
   });
 
+  /** Waits until `folder` is gone, five seconds at most, and says whether it is. */
+  async function gone(folder: string): Promise<boolean> {
+    const end = Date.now() + 5000;
+    while (existsSync(folder) && Date.now() < end) await pause(20);
+    return !existsSync(folder);
+  }
+
   it("starts the session in the work item's worktree, with the prompt and the role it was given", async () => {
     const { adapter, seen } = watched();
     const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     await d.startRoleSession(workItem.id, "Where am I?", PROOFER);
     await c.message("headless", (m) => m.headless.state === "finished");
-    expect(seen.started).toEqual([{ prompt: "Where am I?", cwd: workItem.worktree, role: PROOFER }]);
+    expect(seen.started).toEqual([expect.objectContaining({ prompt: withScratch("Where am I?", seen.started[0]?.scratch ?? ""), cwd: workItem.worktree, role: PROOFER })]);
+  });
+
+  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree and the repository's git folder, and the orchestrator no place, refused the same two, and every role no file of the run folder to read but its scratch folder (scenarios 1 to 4 of #127)", async () => {
+    // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
+    const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
+    cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
+    // An earlier daemon's session 1, whose ids counted from 1 as this daemon's do, left its folder, which a session that outlived that daemon may still write.
+    mkdirSync(join(runDir, "scratch", "1-before"), { recursive: true });
+    writeFileSync(join(runDir, "scratch", "1-before", "clone.txt"), "left");
+    // The worktrees are made through a link, so the worktree's path is not its real one, and outside the run folder, as the daemon's are.
+    const roots = mkdtempSync(join(tmpdir(), "owlery-scratch-roots-"));
+    cleanups.push(() => rmSync(roots, { recursive: true, force: true }));
+    mkdirSync(join(roots, "roots"));
+    symlinkSync(join(roots, "roots"), join(roots, "via"));
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { daemon: d, c, workItem, repo } = await withWorkItem({ roleAdapter: adapter, runDir, worktreesRoot: join(roots, "via") });
+    const worktree = realpathSync(workItem.worktree);
+    expect(worktree).not.toBe(workItem.worktree);
+    const common = realpathSync(join(repo, ".git"));
+    const unread = [realpathSync(runDir)];
+    for (const pair of ROLE_STAGES) await d.startRoleSession(workItem.id, "Q", pair);
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    const byRole = new Map(seen.started.map((started) => [started.role?.role, started]));
+    const scratches = join(realpathSync(runDir), "scratch");
+    expect(scratches.startsWith(runDir)).toBe(false);
+    const proofers = byRole.get("proofer")?.scratch ?? "";
+    const sealers = byRole.get("sealer")?.scratch ?? "";
+    expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
+    expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
+    expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
+    expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree, common], unread }, scratch: proofers });
+    expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")], unread } });
+    expect(byRole.get("sealer")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "sealer", stage: "seal" }, commands: { write: [sealers], refuse: [worktree, common], unread }, scratch: sealers });
+    expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree, common], unread } });
+    // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
+    expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
+    expect(readFileSync(join(scratches, "1-before", "clone.txt"), "utf8")).toBe("left");
+    for (const folder of [proofers, sealers]) {
+      expect(readdirSync(folder)).toEqual([]);
+      expect(statSync(folder).mode & 0o777).toBe(0o700);
+    }
+  });
+
+  it("ends the prompt a proofer's and a sealer's session give the adapter with one paragraph that names the session's scratch folder, says that a clone, a probe and what they print go there and that the system refuses a write to the worktree, and that the folder goes once the process has ended; a crafter's and the orchestrator's prompt hold none, and every session lists the prompt it was started with (scenario 7 of #127)", async () => {
+    const { adapter, seen } = watched(fakeAdapter({ delayMs: 60_000 }));
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const prompt = "Review it.\n\nThe paths:\n- `a.ts`\n";
+    const listed: string[] = [];
+    for (const pair of ROLE_STAGES) listed.push((await d.startRoleSession(workItem.id, prompt, pair)).prompt);
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    expect(listed).toEqual(ROLE_STAGES.map(() => prompt));
+    const given = new Map(seen.started.map((started) => [started.role?.role, started]));
+    for (const role of ["proofer", "sealer"] as const) {
+      const scratch = given.get(role)?.scratch ?? "";
+      expect(given.get(role)?.prompt, role).toBe(
+        `Review it.\n\nThe paths:\n- \`a.ts\`\n\nYour scratch folder is \`${scratch}\`, made new for this session. Write with your commands only there: put a clone, a probe and what they print in it, since the system refuses a write to the worktree. Owlery removes the folder once this session's process has ended, so a path in it that your answer names is gone after the session.\n`,
+      );
+    }
+    for (const role of ["crafter", "orchestrator"] as const) expect(given.get(role)?.prompt, role).toBe(prompt);
+  });
+
+  it("removes a session's scratch folder once the session's process has ended: one that finished, one whose result failed, one that exited without a result, one whose start the adapter refused, and one stopped; and makes it under the system's temporary folder where it has no run folder (scenario 4 of #127)", async () => {
+    const temporary = realpathSync(tmpdir());
+    for (const fail of [undefined, "result", "exit", "start"] as const) {
+      const held: boolean[] = [];
+      const adapter = fakeAdapter({ ...(fail === undefined ? {} : { fail }), work: () => void held.push(existsSync(adapter.starts.at(-1)?.scratch ?? "")) });
+      const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      await d.startRoleSession(workItem.id, "Q", PROOFER);
+      await c.message("headless", (m) => m.headless.state !== "working");
+      const scratch = adapter.starts[0]?.scratch ?? "";
+      expect(scratch.startsWith(join(temporary, "owlery-scratch-")), String(fail)).toBe(true);
+      expect(await gone(scratch), String(fail)).toBe(true);
+      // The finished session's work saw its folder.
+      if (fail === undefined) expect(held).toEqual([true]);
+    }
+    const adapter = fakeAdapter({ delayMs: 60_000 });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const headless = await d.startRoleSession(workItem.id, "Q", { role: "sealer", stage: "seal" });
+    await c.until(() => (adapter.starts.length === 1 ? true : undefined));
+    const scratch = adapter.starts[0]?.scratch ?? "";
+    expect(existsSync(scratch)).toBe(true);
+    c.send({ type: "stopHeadless", requestId: 2, id: headless.id });
+    await c.message("headless", (m) => m.headless.state === "failed");
+    expect(await gone(scratch)).toBe(true);
+  });
+
+  it("starts no role's session where git names no repository's folder for its worktree, and says so: a crafter's commands then have no place to write, and another role's cannot be refused that folder (#127)", async () => {
+    const adapter = fakeAdapter();
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+    rmSync(join(workItem.worktree, ".git"));
+    for (const pair of ROLE_STAGES) {
+      const started = await d.startRoleSession(workItem.id, "Q", pair);
+      const { headless } = await c.message("headless", (m) => m.headless.id === started.id && m.headless.state !== "working");
+      const bound = pair.role === "crafter" ? "have no place to write" : "cannot be refused the repository's git folder";
+      expect([headless.state, headless.error?.startsWith(`git named no repository's folder for the worktree, so the ${pair.role}'s commands ${bound}: `)], pair.role).toEqual(["failed", true]);
+    }
+    expect(adapter.starts).toEqual([]);
   });
 
   it("launches a role: the session starts as the pair it is given, every `headless` and a later `ready` carry the pair, and the answer names it", async () => {
@@ -6131,13 +6242,13 @@ describe("headless sessions", () => {
       expect(headless.answer).toBe('As the crafter at the stage fix-pass, you asked: "Which owl?"');
       expect(told(c).map((h) => h.role)).toEqual([role, role, role]);
     }
-    expect(seen.started).toEqual([{ prompt: "Which owl?", cwd: workItem.worktree, role }]);
+    expect(seen.started).toEqual([expect.objectContaining({ prompt: "Which owl?", cwd: workItem.worktree, role })]);
     expect((await (await client(url)).message("ready")).headless.map((h) => h.role)).toEqual([role]);
   });
 
   it("launches each pair the protocol lists", async () => {
     const { adapter, seen } = watched();
-    const { daemon: d, workItem } = await withWorkItem({ roleAdapter: adapter });
+    const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
     expect(ROLE_STAGES).toEqual([
       { role: "proofer", stage: "round" },
       { role: "crafter", stage: "fix-pass" },
@@ -6145,7 +6256,9 @@ describe("headless sessions", () => {
       { role: "orchestrator", stage: "judgment" },
     ]);
     for (const pair of ROLE_STAGES) expect((await d.startRoleSession(workItem.id, "Q", pair)).role).toEqual(pair);
-    expect(seen.started.map((started) => started.role)).toEqual([...ROLE_STAGES]);
+    // Each run starts once git has named the repository's folder its commands write in or are refused, so the runs start in no set order.
+    await c.until(() => (seen.started.length === ROLE_STAGES.length ? true : undefined));
+    expect(seen.started.map((started) => started.role)).toEqual(expect.arrayContaining([...ROLE_STAGES]));
   });
 
   it("holds a role session to its limit and to a client's stop as any other", async () => {
@@ -6159,7 +6272,8 @@ describe("headless sessions", () => {
     c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
     const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
     expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
-    expect(seen.stopped).toBe(2);
+    // The stop can arrive while git still names the repository's folder the sealer's commands are refused, before the run has started; the run is stopped once it starts.
+    await vi.waitFor(() => expect(seen.stopped).toBe(2), { timeout: 5000, interval: 50 });
   });
 
   it("carries the usage the adapter reports, takes the result's text as the whole answer, and nothing after it", async () => {
@@ -6238,13 +6352,14 @@ describe("headless sessions", () => {
   });
 
   it("lists a finished session, with its answer, to a client that connects later", async () => {
-    const { daemon: d, c, url, workItem } = await withWorkItem();
+    const adapter = fakeAdapter();
+    const { daemon: d, c, url, workItem } = await withWorkItem({ roleAdapter: adapter });
     await d.startRoleSession(workItem.id, "Remembered?", PROOFER);
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
     c.socket.close();
     const later = await client(url);
     expect((await later.message("ready")).headless).toEqual([headless]);
-    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: proofersAnswer("Remembered?"), error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: PROOFER, accountId: 0 });
+    expect(headless).toEqual({ id: 1, workItemId: workItem.id, prompt: "Remembered?", state: "finished", answer: proofersAnswer(withScratch("Remembered?", adapter.starts[0]?.scratch ?? "")), error: null, usage: null, startedAt: 1234, errorOutput: "", stopped: null, role: PROOFER, accountId: 0 });
   });
 
   it("lists no headless session where none was started, and counts them apart from the panes", async () => {
@@ -6293,7 +6408,8 @@ describe("headless sessions", () => {
     const { daemon: d, workItem } = await withWorkItem({ roleAdapter: adapter, headlessLimitMs: 300 });
     await d.startRoleSession(workItem.id, "One", PROOFER);
     await d.startRoleSession(workItem.id, "Two", PROOFER);
-    await pause(20);
+    // Each run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(seen.started).toHaveLength(2), { timeout: 5000, interval: 50 });
     expect(seen.stopped).toBe(0);
     await d.close();
     expect(seen.stopped).toBe(2);
@@ -6358,7 +6474,7 @@ describe("headless sessions", () => {
   function quickOrSlow() {
     const slow = fakeAdapter({ delayMs: 60_000 });
     const quick = fakeAdapter();
-    return watched({ name: "fake", features: ["role-tools", "permission-requests"], notice: quick.notice, start: (options, listener) => (options.prompt === "Quick?" ? quick : slow).start(options, listener) });
+    return watched({ name: "fake", features: ["role-tools", "permission-requests"], notice: quick.notice, start: (options, listener) => (startedWith(options) === "Quick?" ? quick : slow).start(options, listener) });
   }
 
   it("carries what the agent's process printed on its error stream: every client sees the failed session with it, and `ready` lists it so", async () => {
@@ -6389,7 +6505,8 @@ describe("headless sessions", () => {
     const headless = await d.startRoleSession(workItem.id, "Q", PROOFER);
     const failed = (await c.message("headless", (m) => m.headless.state === "failed")).headless;
     expect(failed).toEqual({ ...headless, state: "failed", error: "the session reached its time limit and was stopped", stopped: "limit" });
-    expect(seen.stopped).toBe(1);
+    // The limit can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await c.until(() => (seen.stopped === 1 ? true : undefined));
     c.socket.close();
     await c.until(() => (idle === 1 ? true : undefined));
     // Where the options name no limit, a session works an hour at most.
@@ -6405,7 +6522,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt === "Slow to start?") await pause(400);
+        if (startedWith(options) === "Slow to start?") await pause(400);
         const run = await inner.adapter.start(options, listener);
         return {
           ...run,
@@ -6439,7 +6556,8 @@ describe("headless sessions", () => {
     expect(await one.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
     const failed = { ...headless, state: "failed", error: "the session was stopped at a request before it finished", stopped: "request" };
     for (const c of [one, two]) expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless).toEqual(failed);
-    expect(seen.stopped).toBe(1);
+    // The stop can arrive while git still names the repository's folder the proofer's commands are refused, before the run has started; the run is stopped once it starts.
+    await one.until(() => (seen.stopped === 1 ? true : undefined));
     const before = one.messages.length;
     one.send({ type: "stopHeadless", requestId: 4, id: finished.id });
     one.send({ type: "stopHeadless", requestId: 5, id: headless.id });
@@ -6461,7 +6579,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt !== "Slow?") return quick.start(options, listener);
+        if (startedWith(options) !== "Slow?") return quick.start(options, listener);
         finishSlow = () => {
           listener({ type: "result", text: "slow", isError: false, usage: null });
           listener({ type: "exit", exitCode: 0, errorOutput: "" });
@@ -6518,7 +6636,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: async (options, listener) => {
-        if (options.prompt !== "First?") return quick.start(options, listener);
+        if (startedWith(options) !== "First?") return quick.start(options, listener);
         setTimeout(() => listener({ type: "result", text: "first", isError: false, usage: null }), 0);
         exitFirst = () => listener({ type: "exit", exitCode: 0, errorOutput: "late" });
         return { stop: () => Promise.resolve(), answer: () => {} };
@@ -6545,7 +6663,7 @@ describe("headless sessions", () => {
       features: ["role-tools", "permission-requests"],
       notice: () => Promise.resolve(null),
       start: (options, listener) =>
-        options.prompt !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
+        startedWith(options) !== "Slow?" ? quick.start(options, listener) : new Promise((_, reject) => rejects.push(() => reject(new Error("the login shell found no CLI")))),
     };
     const { daemon: d, c, url, workItem } = await withWorkItem({ roleAdapter, keptHeadless: 1 });
     const start = async (prompt: string) => (await d.startRoleSession(workItem.id, prompt, PROOFER)).id;
@@ -6608,9 +6726,10 @@ describe("headless sessions", () => {
     it("keeps one entry for each session that ends: its work item, its repository and branch, its stage, no chain's stage, since no chain started it, its two times, how it ended and the usage its result reported", async () => {
       let clock = 1000;
       // The clock moves on while each turn runs, so a session's end is read after its start.
+      // A proofer's and a sealer's prompt reach the adapter with the paragraph that names the scratch folder after them.
       const usage = (prompt: string): Usage => {
         clock += 500;
-        return prompt === "Which owl?" ? USAGE : { ...USAGE, costUsd: 0.5 };
+        return prompt.startsWith("Which owl?\n") ? USAGE : { ...USAGE, costUsd: 0.5 };
       };
       const { daemon: d, c, workItem } = await withWorkItem({ now: () => clock, roleAdapter: fakeAdapter({ usage }) });
       clock = 1500;
@@ -6704,9 +6823,9 @@ describe("headless sessions", () => {
         features: ["role-tools", "permission-requests"],
         notice: () => Promise.resolve(null),
         start: (options, listener) => {
-          if (options.prompt === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
+          if (startedWith(options) === "Rejected?") return Promise.reject(new Error("the login shell found no CLI"));
           setTimeout(() => {
-            if (options.prompt === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
+            if (startedWith(options) === "Error?") listener({ type: "result", text: "the turn failed", isError: true, usage: USAGE });
             listener({ type: "exit", exitCode: 1, errorOutput: "" });
           }, 0);
           return Promise.resolve({ stop: () => Promise.resolve(), answer: () => {} });
@@ -6765,7 +6884,9 @@ describe("headless sessions", () => {
     async function answersOf(d: Daemon, c: Client, workItemId: number, role: RoleStage): Promise<string[]> {
       const headless = await d.startRoleSession(workItemId, "Q", role);
       const finished = await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "finished");
-      return finished.headless.answer.split("\n").slice(0, -1);
+      // The fake's own text quotes the prompt, which runs over several lines where the daemon named a scratch folder in it.
+      const { answer } = finished.headless;
+      return answer.slice(0, answer.indexOf(`As the ${role.role} at the stage ${role.stage}, you asked: "`)).split("\n").slice(0, -1);
     }
     const OUTSIDE = (role: string, path: string) => `Owlery lets the ${role} write only inside the work item's worktree, and ${path} is outside it. Do not work around it: say in your report which step needed the write.`;
     const NO_WRITE = (role: string) => `Owlery gives the ${role} no call that writes a file. Do not work around it: say in your report which step needed the write.`;
@@ -6891,13 +7012,21 @@ describe("headless sessions", () => {
     it.each([
       ["proofer", { role: "proofer", stage: "round" }],
       ["sealer", { role: "sealer", stage: "seal" }],
-      ["orchestrator", { role: "orchestrator", stage: "judgment" }],
-    ] as const)("refuses every request of a %s, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report", async (name, role) => {
+    ] as const)("allows a %s's command, which the sandbox bounds to its scratch folder, and refuses its write inside the worktree and every other call, with a reason that names the role and says to name the step in the report (scenario 5 of #127)", async (name, role) => {
       const { held, adapter } = asking();
       const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
       held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
       const answers = await answersOf(d, c, workItem.id, role);
-      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, `refused: Bash: ${NO_COMMAND(name)}`, `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE(name)}`, "allowed: Bash", `refused: Read: ${NO_CALL(name)}`, `refused: WebFetch: ${NO_CALL(name)}`]);
+      for (const answer of answers.filter((line) => line.startsWith("refused: "))) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
+    });
+
+    it("refuses every request of the orchestrator, a write inside the worktree and a command among them, with a reason that names the role and says to name the step in the report (scenario 5 of #127)", async () => {
+      const { held, adapter } = asking();
+      const { daemon: d, c, workItem } = await withWorkItem({ roleAdapter: adapter });
+      held.asks = [{ tool: "Edit", action: "write", path: join(workItem.worktree, "README.md"), text: "README.md" }, SHELL, { tool: "Read", action: "read", path: "/etc/hosts", text: "/etc/hosts" }, { tool: "WebFetch", action: "other", path: null, text: "{}" }];
+      const answers = await answersOf(d, c, workItem.id, { role: "orchestrator", stage: "judgment" });
+      expect(answers).toEqual([`refused: Edit: ${NO_WRITE("orchestrator")}`, `refused: Bash: ${NO_COMMAND("orchestrator")}`, `refused: Read: ${NO_CALL("orchestrator")}`, `refused: WebFetch: ${NO_CALL("orchestrator")}`]);
       for (const answer of answers) expect(answer).toMatch(/Do not work around it: say in your report which step needed /);
     });
 
@@ -7027,14 +7156,15 @@ describe("the agent's notice", () => {
   it("launches a session all the same while a notice stands", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, roleAdapter: fakeAdapter({ notice: NOTICE }) });
+    const roleAdapter = fakeAdapter({ notice: NOTICE });
+    const { daemon: d, url } = await daemon({ worktreesRoot: made.root, roleAdapter });
     const c = await client(url);
     expect((await c.message("ready")).agentNotice).toBe(NOTICE);
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "Asked in", kind: "shell", cols: 80, rows: 24 });
     const { workItem } = await c.message("workItemCreated");
     await d.startRoleSession(workItem.id, "Which owl?", PROOFER);
     const { headless } = await c.message("headless", (m) => m.headless.state !== "working");
-    expect([headless.state, headless.answer]).toEqual(["finished", proofersAnswer("Which owl?")]);
+    expect([headless.state, headless.answer]).toEqual(["finished", proofersAnswer(withScratch("Which owl?", roleAdapter.starts[0]?.scratch ?? ""))]);
   });
 });
 
@@ -8062,7 +8192,7 @@ describe("the caps on the machine", () => {
   function noting(delayMs = 0) {
     const fake = fakeAdapter({ delayMs });
     const starts: string[] = [];
-    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(options.prompt), fake.start(options, listener)) };
+    const roleAdapter: RoleAdapter = { ...fake, start: (options, listener) => (starts.push(startedWith(options)), fake.start(options, listener)) };
     return { roleAdapter, starts };
   }
 
@@ -8110,7 +8240,8 @@ describe("the caps on the machine", () => {
     clock = 5_000;
     c.send({ type: "input", id: pane.id, data: "\n" });
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "working")).headless).toMatchObject({ startedAt: 5_000, queuedAt: 1_000 });
-    expect(starts).toEqual(["Which file?"]);
+    // The run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
     expect((await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless.stopped).toBe("limit");
     c.send({ type: "readLedger", requestId: 2, workItemId: 1 });
     expect((await c.message("ledger", (m) => m.requestId === 2)).entries.map(({ startedAt, stopped }) => ({ startedAt, stopped }))).toEqual([{ startedAt: 5_000, stopped: "limit" }]);
@@ -8166,7 +8297,8 @@ describe("the caps on the machine", () => {
     await c.message("headless", (m) => m.headless.id === first.id);
     expect(c.messages.some((m) => m.type === "headless" && m.headless.id === first.id && m.headless.state === "queued")).toBe(false);
     expect((await d.startRoleSession(1, "Second?", PROOFER)).state).toBe("queued");
-    expect(starts).toEqual(["First?"]);
+    // The first run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["First?"]), { timeout: 5000, interval: 50 });
   });
 
   it("ends a work item's queued session before its working one at an archive, so the place the working one frees starts none of them, and writes the one entry of the run that ran (scenario 9)", async () => {
@@ -8180,7 +8312,8 @@ describe("the caps on the machine", () => {
     expect(second.state).toBe("queued");
     c.send({ type: "archiveWorkItem", requestId: 4, id: 1, running: { panes: [], headless: [first.id, second.id] } });
     await c.message("done", (m) => m.requestId === 4);
-    expect(starts).toEqual(["First?"]);
+    // The first run starts once git has named the repository's folder the proofer's commands are refused, which can be after the archive ended the session.
+    await vi.waitFor(() => expect(starts).toEqual(["First?"]), { timeout: 5000, interval: 50 });
     expect(c.messages.some((m) => m.type === "headless" && m.headless.id === second.id && m.headless.state === "working")).toBe(false);
     expect(newest(c, second.id)).toMatchObject({ state: "failed", stopped: "request" });
     c.send({ type: "readLedger", requestId: 5, workItemId: 1 });
@@ -8240,7 +8373,8 @@ describe("the caps on the machine", () => {
     for (const requestId of [1, 2, 3]) c.send({ ...START, kind: "claude", requestId, workItemId: 1 });
     await c.message("started", (m) => m.requestId === 3);
     expect((await d.startRoleSession(1, "Which file?", PROOFER)).state).toBe("working");
-    expect(starts).toEqual(["Which file?"]);
+    // The run starts once git has named the repository's folder the proofer's commands are refused.
+    await vi.waitFor(() => expect(starts).toEqual(["Which file?"]), { timeout: 5000, interval: 50 });
   });
 
   it("reads once a minute the resident memory of each agent's own process while one lives, keeps each agent's highest in `agent-memory.json`, and proposes from it once five are measured (scenario 2, the store)", async () => {
