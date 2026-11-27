@@ -33,10 +33,14 @@
 // file, commits it, appends to a file of the case's folder outside the
 // worktree, and then writes the worktree's `.git` file and the `commondir`
 // of the worktree's own git folder to name the case's folder; and every
-// role's command then reads the run folder's `daemon.json` and makes a
-// symbolic link to it in the place the role's commands write. The system
-// refuses each write after the first two of a proofer and a sealer, each
-// after the first two of a crafter, and the read of every role. The
+// role's command then makes a symbolic link to the run folder's
+// `daemon.json` in the place the role's commands write, calls a function
+// the shell setup of the case's home defines, and reads that file. The
+// system refuses each write after the first two of a proofer and a sealer,
+// each after the first two of a crafter, and the read of every role, and the
+// function runs, since Claude Code starts each command from its snapshot of
+// that setup, which stands in the config folder and which the launch gives
+// back the read of. The
 // stand-in then makes the file tools' reads of the run folder, one a turn
 // (`fileReads`): a `Read` of `daemon.json` by its path and one through the
 // link, a `Grep` and a `Glob`. A file tool reads in Claude Code's own
@@ -86,6 +90,12 @@ const PROMPT = [
 /** The daemon's token, which the case writes into the run folder's `daemon.json` and no command may read. */
 const TOKEN = "r".repeat(64);
 
+/** What the function the case's home defines in its shell setup prints, which a command prints only where it started from Claude Code's snapshot of that setup. */
+const SETUP_RAN = "the shell setup of the home ran";
+
+/** The shell setup of the case's home: one function, which the stand-in's command calls. */
+const SHELL_SETUP = `owlery_shell_setup() { printf '%s\\n' '${SETUP_RAN}'; }\n`;
+
 /** The run folder the case gives the daemon, in the case's own folder `kept`. */
 const runFolderIn = (kept: string): string => join(kept, "run");
 
@@ -109,14 +119,15 @@ const linkIn = (place: string): string => join(place, "daemon-link");
  * through `commondir` of the worktree's own git folder, both inside the
  * places a crafter writes. Every role's then, whatever the steps before
  * did, makes the link `linkIn` to the run folder's `daemon.json` in the
- * place its commands write, for the stand-in's `Read` through it, and
- * last prints that file, so the command fails where the read is refused.
- * The paths of the case hold no quote.
+ * place its commands write, for the stand-in's `Read` through it, calls the
+ * function of the home's shell setup, and last prints that file, so the
+ * command fails where the read is refused. The paths of the case hold no
+ * quote.
  */
 function standInCommand(pair: RoleStage, worktree: string, kept: string): string {
   const daemonFile = join(runFolderIn(kept), "daemon.json");
   const place = placeOf(pair, worktree, kept);
-  const discovery = `ln -s '${daemonFile}' '${linkIn(place)}'; cat '${daemonFile}'`;
+  const discovery = `ln -s '${daemonFile}' '${linkIn(place)}'; owlery_shell_setup; cat '${daemonFile}'`;
   if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'; printf 'gitdir: %s\\n' '${kept}' > '${worktree}/.git'; printf '%s\\n' '${kept}' > "$(git -C '${worktree}' rev-parse --path-format=absolute --git-dir)/commondir"; ${discovery}`;
   return `git clone -q --no-local '${worktree}' '${place}/clone' && printf x >> '${place}/clone/README.md' && cat '${place}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }; ${discovery}`;
 }
@@ -189,7 +200,7 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     // The daemon's run folder, readable by the person alone as the daemon's start makes it.
     const run = runFolderIn(kept);
     mkdirSync(run, { mode: 0o700 });
-    // In the run folder, as the folder the daemon makes for an added account is, so the session's commands run where their config folder is one they read nothing of.
+    // In the run folder, as the folder the daemon makes for an added account is, so the session's commands run where their config folder is one they read nothing of but its shell snapshots.
     const config = model === undefined ? null : join(run, "config");
     // Set in the script, because the daemon passes a session none of its own variables, and before the read of the
     // version, so that run takes them too. The config folder is the daemon's to give, below.
@@ -198,6 +209,8 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
       const home = join(kept, "home");
       mkdirSync(home);
       mkdirSync(config);
+      // The home's shell setup, which Claude Code takes into the snapshot each command of the session starts from: zsh's and bash's.
+      for (const file of [".zshrc", ".bashrc"]) writeFileSync(join(home, file), SHELL_SETUP);
       pointed = `export ANTHROPIC_BASE_URL='${model}'\nexport ANTHROPIC_API_KEY='stand-in-key-not-a-secret'\nexport HOME='${home}'\nexport CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1\n`;
     }
     // The daemon also runs the CLI at its start, to read its version, and that run's output is no part of the stream.
@@ -338,6 +351,8 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     expect([...refusedCalls].sort()).toEqual(fileReads(pair, worktree, kept).map((_call, index) => `toolu_stand_in_${String(index + 2)}`));
     // Every role's command was refused the read of the run folder's `daemon.json`, and no file tool's read of it was let through, so the session was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
     expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
+    // The command started from Claude Code's snapshot of the home's shell setup, though the snapshot stands in the config folder inside the run folder, as an added account's does: the launch gives back the read of the config folder's `shell-snapshots` alone.
+    expect(told.map(({ content }) => content).join("\n")).toContain(SETUP_RAN);
     expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
     if (pair.role === "crafter") {
       // The worktree's file took the byte and the commit holds it; the system refused the write to the case's folder, which no place of the launch names.

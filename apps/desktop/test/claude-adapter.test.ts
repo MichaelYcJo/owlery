@@ -823,13 +823,13 @@ describe("the Claude adapter's role launch", () => {
   /** The places a case's role launch is given for its commands, where they are not what it tests: the folder alone, and nothing refused or unread. */
   const placesIn = (cwd: string) => ({ write: [cwd], refuse: [], unread: [] });
 
-  /** Starts one run, of a role or a refresh, and gives its events once it has exited, and how long that took. A role's run is given `commands`, or the places of `placesIn`, and `scratch` where it is given one. */
-  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, launch: RoleStage | "refresh", bound: { commands?: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string } = {}): Promise<{ events: RoleEvent[]; ms: number }> {
+  /** Starts one run, of a role or a refresh, and gives its events once it has exited, and how long that took. A role's run is given `commands`, or the places of `placesIn`, and `scratch` and `accountDir` where it is given them. */
+  async function run(adapter: ReturnType<typeof claudeAdapter>, cwd: string, launch: RoleStage | "refresh", bound: { commands?: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string; accountDir?: string } = {}): Promise<{ events: RoleEvent[]; ms: number }> {
     const events: RoleEvent[] = [];
     const at = Date.now();
     await new Promise<void>((resolve, reject) => {
       adapter
-        .start({ prompt: "Q", cwd, ...(launch === "refresh" ? { refresh: true } : { role: launch, commands: bound.commands ?? placesIn(cwd), ...(bound.scratch === undefined ? {} : { scratch: bound.scratch }) }) }, (event) => {
+        .start({ prompt: "Q", cwd, ...(launch === "refresh" ? { refresh: true } : { role: launch, commands: bound.commands ?? placesIn(cwd), ...(bound.scratch === undefined ? {} : { scratch: bound.scratch }), ...(bound.accountDir === undefined ? {} : { accountDir: bound.accountDir }) }) }, (event) => {
           events.push(event);
           if (event.type === "exit") resolve();
         })
@@ -879,17 +879,21 @@ describe("the Claude adapter's role launch", () => {
     ]);
   });
 
-  it("bounds each role's commands to the places it was given: they write where `write` names, are refused what `refuse` names and the bundle's folder, read nothing of what `unread` names but of the scratch folder, and a scratch folder is added after the bundle's (scenarios 1 to 3 of #127)", async () => {
+  it("bounds each role's commands to the places it was given: they write where `write` names, are refused what `refuse` names and the bundle's folder, read nothing of what `unread` names but of the scratch folder and of the `shell-snapshots` folder of an account's folder, and a scratch folder is added after the bundle's (scenarios 1 to 3 of #127)", async () => {
     const given = {
-      crafter: { commands: { write: ["/w/tree", "/repo/.git"], refuse: ["/repo/.git/hooks", "/repo/.git/config"], unread: ["/run"] } },
-      proofer: { commands: { write: ["/run/scratch/1"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/1" },
+      crafter: { commands: { write: ["/w/tree", "/repo/.git"], refuse: ["/repo/.git/hooks", "/repo/.git/config"], unread: ["/run"] }, account: true },
+      proofer: { commands: { write: ["/run/scratch/1"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/1", account: true },
       sealer: { commands: { write: ["/run/scratch/2"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/2" },
       orchestrator: { commands: { write: [], refuse: ["/w/tree"], unread: ["/run"] } },
     };
     for (const pair of ROLE_STAGES) {
       const init = JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", agents: [agentOf(pair)] });
       const { folder, env, bundleDir, rulesDir } = launch([init, RESULT]);
-      const bound: { commands: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string } = given[pair.role];
+      const { account, ...places }: { commands: { write: string[]; refuse: string[]; unread: string[] }; scratch?: string; account?: boolean } = given[pair.role];
+      // An added account's folder, as the daemon makes it in its run folder; the case's shell names no config folder, so a pair given none runs under the default one.
+      const accountDir = account === true ? join(folder, "run", "accounts", "a") : undefined;
+      if (accountDir !== undefined) mkdirSync(accountDir, { recursive: true });
+      const bound = { ...places, ...(accountDir === undefined ? {} : { accountDir }) };
       await run(claudeAdapter(env, { bundleDir, rulesDir }), folder, pair, bound);
       const args = readFileSync(join(folder, "args"), "utf8").split("\n").slice(0, -1);
       const settings = JSON.parse(args[args.indexOf("--settings") + 1]!) as { sandbox: unknown };
@@ -898,7 +902,7 @@ describe("the Claude adapter's role launch", () => {
         failIfUnavailable: true,
         allowUnsandboxedCommands: false,
         autoAllowBashIfSandboxed: false,
-        filesystem: { allowWrite: bound.commands.write, denyWrite: [...bound.commands.refuse, bundleDir], denyRead: bound.commands.unread, allowRead: bound.scratch === undefined ? [] : [bound.scratch] },
+        filesystem: { allowWrite: bound.commands.write, denyWrite: [...bound.commands.refuse, bundleDir], denyRead: bound.commands.unread, allowRead: [...(bound.scratch === undefined ? [] : [bound.scratch]), ...(accountDir === undefined ? [] : [join(accountDir, "shell-snapshots")])] },
         network: { strictAllowlist: true, allowedDomains: [], allowLocalBinding: true },
       });
       expect(args.slice(args.indexOf("--add-dir")), pair.role).toEqual(["--add-dir", folder, bundleDir, ...(bound.scratch === undefined ? [] : [bound.scratch])]);

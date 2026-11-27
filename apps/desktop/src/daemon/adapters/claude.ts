@@ -4,7 +4,7 @@
 // sessions run detached from the user's environment"). Owlery never turns a
 // permission check off (docs/roadmap.md, milestone 1).
 import { execFile, spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
@@ -138,7 +138,8 @@ function sandboxOf(places: RoleLaunch["sandbox"]): unknown {
     // A sandboxed command still reaches the adapter as a request, so the daemon's grant answers it.
     autoAllowBashIfSandboxed: false,
     // A command reads no file of `denyRead`, which holds the daemon's run folder, whose `daemon.json` names the port and the token a client
-    // reaches the daemon with on the loopback and has it act outside the sandbox; `allowRead` gives the session's scratch folder back inside it.
+    // reaches the daemon with on the loopback and has it act outside the sandbox; `allowRead` gives back inside it the session's scratch
+    // folder, and the folder of shell snapshots each command starts from, where the session's config folder stands there.
     filesystem: { allowWrite: places.allowWrite, denyWrite: places.denyWrite, denyRead: places.denyRead, allowRead: places.allowRead },
     // No domain is allowed, and a host is refused with no request; a local server a test starts is reached on the loopback.
     network: { strictAllowlist: true, allowedDomains: [], allowLocalBinding: true },
@@ -510,7 +511,9 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
    * and the file are the user's alone, as the daemon's other files are. The
    * session's commands write where `commands` lets them, and are refused the
    * bundle's folder beside what `commands` refuses. They read no file of the
-   * folders `commands` names unread, but of the scratch folder.
+   * folders `commands` names unread, but of the scratch folder and of the
+   * folder of shell snapshots that `start` adds once it knows the session's
+   * config folder.
    */
   const launchOf = (role: RoleStage, commands: RoleStart["commands"], scratch: string | undefined): RoleLaunch => {
     if (!commands) throw new Error("the Claude adapter launches a role only with the places its commands may write, and was given none");
@@ -533,12 +536,24 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     async start({ prompt, cwd, role, accountDir, refresh, commands, scratch }, listener) {
       // The daemon launches a role's session or a refresh. A session that is neither would hold Claude Code's default tools with no grant to answer its calls, so none is launched.
       if (!role && refresh !== true) throw new Error("the Claude adapter launches a role or a refresh of an account's usage, and was given neither");
-      const launch = role ? launchOf(role, commands, scratch) : "refresh";
+      const made = role ? launchOf(role, commands, scratch) : "refresh";
       const { cli, path, configDir } = await located();
+      // The account's folder, and under System default the folder the login shell names, as a pane of the work item would run under it.
+      const folder = accountDir ?? configDir;
+      // Claude Code starts each command by sourcing its snapshot of the person's shell setup, kept in `shell-snapshots` of the config
+      // folder, and drops the source's error. An added account's folder stands in the run folder, which `denyRead` names, so `allowRead`
+      // names that one folder of the config folder, by its real path as `denyRead` names the run folder; the rest of the config folder,
+      // its login among it, stays refused. For a config folder outside the run folder the entry gives back nothing a command was refused.
+      let real = folder;
+      try {
+        if (folder) real = realpathSync.native(folder);
+      } catch {
+        // A folder that does not stand yet is named as given.
+      }
+      const launch = made === "refresh" || !real ? made : { ...made, sandbox: { ...made.sandbox, allowRead: [...made.sandbox.allowRead, join(real, "shell-snapshots")] } };
       // Pipes, not a terminal: stream-json is one JSON value per line. The CLI leads a process group of its own, so a
-      // signal to the group also reaches what the CLI started in it, such as a tool's shell. The account's folder, and
-      // under System default the folder the login shell names, as a pane of the work item would run under it.
-      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path, accountDir ?? configDir), stdio: ["pipe", "pipe", "pipe"], detached: true });
+      // signal to the group also reaches what the CLI started in it, such as a tool's shell.
+      const child = spawn(cli, claudeArgs(cwd, launch), { cwd, env: claudeEnv(env, path, folder), stdio: ["pipe", "pipe", "pipe"], detached: true });
       await new Promise<void>((resolve, reject) => {
         child.once("spawn", resolve);
         child.once("error", reject);

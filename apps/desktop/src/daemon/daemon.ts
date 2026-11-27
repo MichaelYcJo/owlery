@@ -2460,10 +2460,12 @@ export class Daemon {
    * would move the branch under judgment. Each refused folder is
    * named, so the bound holds whatever the sandbox lets a command write by
    * default. Every role's commands read no file of the run folder, where
-   * the daemon has one, but of the session's scratch folder inside it: the
-   * folder's `daemon.json` names the port and the token with which a client
-   * on the loopback, which the sandbox lets a command reach, has the daemon
-   * act outside the sandbox as a window would. It rejects, with a sentence a
+   * the daemon has one, but of the session's scratch folder inside it and of
+   * what the adapter gives back for its agent's own start of each command
+   * (`RoleAdapter.start`): the folder's `daemon.json` names the port and the
+   * token with which a client on the loopback, which the sandbox lets a
+   * command reach, has the daemon act outside the sandbox as a window
+   * would. It rejects, with a sentence a
    * person reads, where git names no repository's folder for the worktree.
    */
   private async commandsOf(session: HeadlessSession, cwd: string): Promise<{ commands: { write: string[]; refuse: string[]; unread: string[] }; scratch: string | null }> {

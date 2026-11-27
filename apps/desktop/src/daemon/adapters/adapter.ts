@@ -72,8 +72,10 @@ export interface RoleAdapter {
    * operating system's sandbox, which lets them write in the `write`
    * folders and never in the `refuse` ones, refuses them the adapter's own
    * folders as well, and refuses them every read in the `unread` folders
-   * but in `scratch`; one that cannot, or that is given a role with no
-   * `commands`, starts no session. `scratch`, which the daemon gives where
+   * but in `scratch` and in what its agent itself has each command read
+   * first, such as Claude Code's snapshot of the person's shell setup in
+   * the session's config folder; one that cannot, or that is given a role
+   * with no `commands`, starts no session. `scratch`, which the daemon gives where
    * the role's commands write in a scratch folder of the session's own, is
    * that folder, which the session's file tools reach as well. The promise
    * rejects, with a message a person can read, where no session started.
