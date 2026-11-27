@@ -34,6 +34,11 @@ The row of `trail/phases/phase-3.md` *Item 4, by file*:
 | `daemon-restart.test.ts` | Left out. The first describe's last case quits the app, and *Scope* item 4 leaves out a file whose cases end the app. Its first describe's cases share the app and the first opens the daemon dialog, but the second reloads the page (`daemon-restart.test.ts:175`) before it reads the window, so a dialog the first leaves open when it fails is gone before a later case reads the window. `gaps.md` *Not done* names it. `a1ad6511` registered the hook there behind a check that the app's process still runs, and `6bf50a2c` took it back to build to the frame. |
 ```
 
+```seal
+verdict: fixed 822b0e61
+answer: The orchestrator replaced the paragraph under `gaps.md` `## Not done` and the `daemon-restart.test.ts` row of `trail/phases/phase-3.md` *Item 4, by file* with the finding's paste-ready text. The paragraph stays under `## Not done` as the record of a file the helper does not reach. The decision the memo handed the orchestrator falls away: the hook stays out, as *Scope* item 4 says. Records alone change, so the sealer reads the close.
+```
+
 ### 2. The changelog gives #207 a cause that the daemon's code rules out
 
 ```seal
@@ -50,6 +55,11 @@ The two searches printed `changelog.md:3` alone, and they are a sample on words.
 
 ```markdown
 The old-CLI case of `role-bundle.test.ts` lost its notice where a read of the CLI's version passed the case's hold before the case wrote it, read the version the case had just rewritten, and ended before the page loaded anew connected to the daemon.
+```
+
+```seal
+verdict: fixed 822b0e61
+answer: The orchestrator replaced the last sentence of the opening paragraph of `changelog.md` with the finding's paste-ready sentence, which matches `frame/design.md` *Grounding*, cause 3. Records alone change, so the sealer reads the close.
 ```
 
 ## Confirmations
