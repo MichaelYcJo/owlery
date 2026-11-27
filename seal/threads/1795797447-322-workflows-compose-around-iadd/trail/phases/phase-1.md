@@ -27,7 +27,9 @@
 **Removals the frame does not name.**
 
 - `pr-check/skills/settle/scripts/rule_changes.py`'s `order`, `merge_order`, `group`, `unordered`, `place`, `where`, `overlapping` and `gitcmd`, with `EARLIER = ("seal/specs", ...)`. Nothing of the check calls them (`grep` of each name over `pr-check/`), and `EARLIER` read the earlier root's path.
-- The case of `records-place.test.ts` that held this repository's own workflow to the one a setup writes. It cannot hold: `frame/design.md` *Operational impact*, *This repository does not move*, keeps `owlery-seal.yml` at its pin. The case beside it no longer reads this repository's own heavy commands, since its root is `seal/`. The sentence of `docs/architecture.md` that the removed case held is phase 5's to rewrite.
+- The case of `records-place.test.ts` that held this repository's own workflow to the one a setup writes was removed in `90763db0`, since *This repository does not move* keeps `owlery-seal.yml` at its pin. The case beside it no longer reads this repository's own heavy commands, since its root is `seal/`.
+
+**The merge of the release branch at `a75f4581`, with #323's pull request #341, restored that case.** #323 kept it and added this repository's exception: while `seal/README.md` opens with the plugin's marker, the case holds the pin at 0.1.0, and `docs/architecture.md` states the exception. The resolution keeps both decisions. Where the plugin's root stands, the case reads `.github/workflows/owlery-seal.yml` by its own name and holds its pin at 0.1.0. Where it is gone, the case holds `iadd/README.md` to Owlery's marker and `.github/workflows/owlery-inspection.yml` to the text a setup writes for the app's version. The pin's assertion was shown red with the held version changed.
 
 **What this phase leaves for phase 3.** After this phase a repository whose root is `seal/` in the earlier form reads as one with no root. A setup there plans a new root at `iadd/` and `owlery-inspection.yml` beside `owlery-seal.yml`. Phase 3 names the earlier root and offers the move in its place.
 
