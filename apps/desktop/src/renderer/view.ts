@@ -4,19 +4,22 @@
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
- * order: "Setup" for `setupPane`, the pane the work item's setup record
- * names, and for any other pane its kind, as the daemon labels it, alone
- * where it is the one pane of its kind but the setup pane, and otherwise
- * followed by its place among those panes, from 1. The daemon's id of a pane
- * counts every pane it started, so it is no tab's to show. The work item's
- * title is the view's header's to say.
+ * order: the name a person gave the tab, where it has one; otherwise
+ * "Setup" for `setupPane`, the pane the work item's setup record names, and
+ * for any other pane its kind, as the daemon labels it, alone where it is
+ * the one pane of its kind but the setup pane, and otherwise followed by its
+ * place among those panes, from 1. A named pane keeps its place among them,
+ * so a name changes no other tab's number. The daemon's id of a pane counts
+ * every pane it started, so it is no tab's to show. The work item's title is
+ * the view's header's to say.
  */
 export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], setupPane: number | null = null): string {
+  if (typeof session.name === "string") return session.name;
   if (session.id === setupPane) return SETUP_HEAD;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const name = kind ? kind.label : session.kind;
@@ -26,6 +29,16 @@ export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], pan
 
 /** The label of the pane a setup runs in, and the head of the section that says the setup. */
 export const SETUP_HEAD = "Setup";
+
+/** The word that names each colour of a tab, in its menu's row, in its tooltip and to a screen reader. */
+export const COLOUR_WORDS: Readonly<Record<TabColour, string>> = { green: "Green", blue: "Blue", pink: "Pink" };
+/** The word of the row's swatch that takes a tab's colour off. */
+export const NO_COLOUR = "No colour";
+
+/** What a pane's tab says to a pointer that rests on it and to a screen reader: its label, followed by its colour's word where it has a colour, as "Shell 2, Blue". */
+export function tabSays(label: string, colour: TabColour | null): string {
+  return colour === null ? label : `${label}, ${COLOUR_WORDS[colour]}`;
+}
 
 /** The words a work item's line carries of its setup, in its second row: "Setting up" while it runs, "Setup failed" where it failed, and nothing where it succeeded or the repository named none. */
 export function setupMark(workItem: WorkItem): string {
@@ -679,21 +692,39 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
 }
 
 /**
- * How far a role came by the newest stage of the work item's chain, or null
- * where that stage says nothing of the role: it is of another role's kind
- * or of the orchestrator's, it finished, or no chain ran. The role's place
- * failed where the stage failed, with the stage's failure as a sentence for
- * its text, and works where the chain runs the stage, with the stage's
- * start as the time its age counts from. A broad gate that failed is no
+ * How far a role came by the newest stage of the work item's chain, where
+ * that stage is in the state `state`, or null where it says nothing of the
+ * role: it is of another role's kind or of the orchestrator's, it is in
+ * the other state or finished, or no chain ran. The role's place works
+ * where the chain runs the stage, with the stage's start as the time its
+ * age counts from, and failed where the stage failed, with the stage's
+ * failure as a sentence for its text. A broad gate that failed is no
  * failure of the sealer: its place then waits, and reads "Gate failed".
  */
-function byChain(role: Role, workItem: WorkItem): Reached | null {
+function byChain(role: Role, workItem: WorkItem, state: "working" | "failed"): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
   const marks = newest === undefined ? null : STAGES[newest.kind].marks;
   if (newest === undefined || marks === null || marks.role !== role) return null;
-  if (newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
-  if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
+  if (state === "failed" && newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
+  if (state === "working" && runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
   return null;
+}
+
+/**
+ * How far a role came by the stage a pane's session runs through the chain
+ * command (`WorkItem.paneStage`), or null where the work item carries none,
+ * the stage is of another role, or the daemon's chain runs a stage. The
+ * role's place works, with the note and the words of the stage's kind and
+ * the time the daemon was first told of it, or its broad gate asked for its
+ * turn, as the time its age counts from. The daemon's own broad gate asks
+ * for its turn as a pane's does, so while the daemon's chain runs a stage,
+ * that stage says the place and the pane's stage says none.
+ */
+function byPane(role: Role, workItem: WorkItem): Reached | null {
+  const stage = workItem.paneStage ?? null;
+  const marks = stage === null ? null : STAGES[stage.kind].marks;
+  if (stage === null || marks === null || marks.role !== role || runningStage(workItem) !== null) return null;
+  return { state: "working", note: marks.note(stage.round), label: marks.label(stage.round), since: stage.since, text: null };
 }
 
 /**
@@ -703,14 +734,16 @@ function byChain(role: Role, workItem: WorkItem): Reached | null {
  * place's state is the first of these that holds. It waits where an open
  * question of the work item names its role, exactly, as the asker, with
  * that question's text under the line. It works where the work item's chain
- * runs a stage of its role, and it failed where the chain's newest stage is
- * of its role and failed, with the stage's failure under the line. The
+ * runs a stage of its role, and where the daemon's chain runs no stage and
+ * the work item's `paneStage`, the stage a pane's session runs through the
+ * chain command, is of its role. It failed where the chain's newest stage
+ * is of its role and failed, with the stage's failure under the line. The
  * broad gate and the seal are the sealer's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
  * gate that failed. Otherwise the records say how far it came, and for the
  * sealer the seal the branch's head holds: finished where it holds, and
  * waiting, with "Seal broken" and the seal's sentence under the line, where
- * a later commit broke it. It reads the work item alone, so no pane's
+ * a later commit broke it. It reads the work item alone, so no pane's agent
  * state, no hook and no session changes it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
@@ -719,7 +752,7 @@ export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
   const open = parkedWith(workItem) ?? [];
   return ROLES.map((role) => {
     const asked = open.find(({ by }) => by === role);
-    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem) ?? byRecords(role, workItem, recorded));
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem, "working") ?? byPane(role, workItem) ?? byChain(role, workItem, "failed") ?? byRecords(role, workItem, recorded));
     const name = ROLE_NAME[role];
     const { text, ...shown } = reached;
     return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
@@ -908,6 +941,82 @@ export function repoNameOf(workItem: WorkItem): string {
  */
 export function daemonNotice(otherBuild: boolean): string {
   return otherBuild ? `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.` : "";
+}
+
+/** What the window shows where a request's refusal goes, in place of the daemon's sentence, where the daemon does not know the request. The daemon's own sentence names the request's type and no entry of a menu, since the phone speaks the same protocol. */
+export const UNKNOWN_REQUEST_SAYS = `Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`;
+/** What the window shows where a request's refusal goes, once the wait of `answerWaits` ended a request the daemon has not answered. */
+export const NOT_ANSWERED_SAYS = `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.`;
+/** How long the window waits for the answer to a request, against a daemon whose `ready` holds no `answersUnknown`. It is the time the daemon gives a silent pane before the window says it waits (src/daemon/daemon.ts, `SILENT_START_MS`). */
+export const ANSWER_WAIT_MS = 10_000;
+
+/** The sentence the window shows for a refusal: its own, which names "Restart Daemon…", where the daemon said it does not know the request (`unknown`), and the daemon's otherwise. */
+export function refusalSays(refusal: { message: string; unknown?: true }): string {
+  return refusal.unknown === true ? UNKNOWN_REQUEST_SAYS : refusal.message;
+}
+
+/** What the waits of `answerWaits` do in the window around them. */
+export interface AnswerWaitsWorld {
+  /** Runs `run` after `ms`, and gives what stops it. */
+  after(ms: number, run: () => void): () => void;
+  /** Takes the refusal a wait that ended made, which the window hands on as the daemon's own (src/renderer/renderer.ts, `onMessage`). */
+  refuse(error: Extract<ServerMessage, { type: "error" }>): void;
+}
+
+/** The waits on the daemon's answers, told of each request the window sends and of each message the daemon sends. */
+export interface AnswerWaits {
+  /** Takes the daemon's `ready`. Against one that holds no `answersUnknown`, each request sent from then on but a creation has a wait. */
+  ready(message: { answersUnknown?: true }): void;
+  /** Takes a message the window sent. A request is one that carries a numeric `requestId`. */
+  sent(message: ClientMessage): void;
+  /** Takes a message of the daemon. One that names a request with a wait ends that wait. */
+  answered(message: ServerMessage): void;
+}
+
+/**
+ * The waits that end a request a daemon of an earlier build leaves open. A
+ * daemon whose `ready` holds `answersUnknown` answers each request, a
+ * refusal among the answers, so against it no request has a wait. Against
+ * one whose `ready` holds none, each request but a creation has a wait of
+ * `ANSWER_WAIT_MS`: an answer that names the request before it is over
+ * ends it, and otherwise it ends the request as a refusal that says
+ * `NOT_ANSWERED_SAYS`, once. An answer that comes after it is the window's
+ * to take as an answer to a request it no longer waits for. A creation
+ * (`createWorkItem`) has no wait: every daemon from 0.0.2 on knows it and
+ * answers it by its id, after a fetch of the base and a copy of the included
+ * paths that can outlast the wait, and a refusal before that answer would
+ * turn the form's Create button back on while the daemon still creates, so
+ * a second press would make a second work item. Nothing is armed before
+ * the daemon's `ready`.
+ */
+export function answerWaits(world: AnswerWaitsWorld): AnswerWaits {
+  let armed = false;
+  /** What stops each wait under way, by its request's id. */
+  const open = new Map<number, () => void>();
+  const requestOf = (message: object): number | undefined => {
+    const { requestId } = message as { requestId?: unknown };
+    return typeof requestId === "number" ? requestId : undefined;
+  };
+  return {
+    ready(message) {
+      armed = message.answersUnknown !== true;
+    },
+    sent(message) {
+      const requestId = requestOf(message);
+      if (!armed || requestId === undefined || message.type === "createWorkItem" || open.has(requestId)) return;
+      const stop = world.after(ANSWER_WAIT_MS, () => {
+        if (!open.delete(requestId)) return;
+        world.refuse({ type: "error", requestId, message: NOT_ANSWERED_SAYS });
+      });
+      open.set(requestId, stop);
+    },
+    answered(message) {
+      const requestId = requestOf(message);
+      if (requestId === undefined) return;
+      open.get(requestId)?.();
+      open.delete(requestId);
+    },
+  };
 }
 
 /**
@@ -2181,6 +2290,20 @@ export function closeAsks(session: SessionInfo): boolean {
 }
 
 /**
+ * What the dialog that asks before a close of panes says: a sentence that
+ * names each pane of the close whose session is working, `working` being
+ * their tabs' labels in the tabs' order, one at least, and says how many
+ * panes the close ends, `count`, and the words of the button that closes
+ * them. A close of one pane says what the dialog said before a close took
+ * several.
+ */
+export function closeSays(working: readonly string[], count: number): { says: string; confirm: string } {
+  const named = working.length > 1 ? `${working.slice(0, -1).join(", ")} and ${working.at(-1)} are` : `${working[0]} is`;
+  const closing = count === 1 ? "the pane" : `${count} panes`;
+  return { says: `${named} working. Closing ${closing} ends ${working.length > 1 ? "their sessions" : "its session"}.`, confirm: count === 1 ? "Close pane" : `Close ${count} panes` };
+}
+
+/**
  * The text a pane is handed for the files dropped on it, `paths` being each
  * file's path in the order of the drop, empty for a file that is on no
  * disk. Each path is written as a shell reads one word: a backslash stands
@@ -2470,6 +2593,10 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * work items, or, for `group`, opens the dialog of a new group. On both:
  * writes a text to the clipboard, or, from an item of the "Open in" submenu,
  * opens a folder in Finder, where `app` is null, or in an installed app.
+ * On a pane's tab's menu: opens the dialog that renames the pane `id`, sets
+ * its tab's colour, where `colour` null takes the colour off, or closes the
+ * panes `ids` names, in the tabs' order, after one dialog where the session
+ * of any of them is working.
  */
 export type MenuAction =
   | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
@@ -2477,7 +2604,10 @@ export type MenuAction =
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
-  | { do: "pane"; accountId: number | null };
+  | { do: "pane"; accountId: number | null }
+  | { do: "closePanes"; ids: number[] }
+  | { do: "renamePane"; id: number }
+  | { do: "colourPane"; id: number; colour: TabColour | null };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2497,8 +2627,27 @@ export interface Submenu {
   divides: boolean;
 }
 
-/** One entry of a menu: an item a press acts on, or one that opens a submenu. */
-export type MenuEntry = MenuItem | Submenu;
+/** One item of a row of a menu, which a press acts on: its words, which a screen reader is told in place of a label it draws, the sentence a pointer over it is told, what its press does, the colour of the mark it draws, or null for the mark of no colour, and whether it is the one of the row that holds. */
+export interface MenuRowItem {
+  label: string;
+  /** What a press does, opening with the item's words, since the item draws a mark and no words. */
+  description: string;
+  action: MenuAction;
+  colour: TabColour | null;
+  checked: boolean;
+}
+
+/** An entry of a menu that stands as a row of items, one of which holds, in place of one item: the row's words, which a screen reader is told, the sentence a pointer over the row is told, its items, and whether a rule stands above it. The arrow keys reach its items as they reach every other item of the menu. */
+export interface MenuRow {
+  label: string;
+  /** What the row's items choose, in other words than the label's. */
+  description: string;
+  row: readonly MenuRowItem[];
+  divides: boolean;
+}
+
+/** One entry of a menu: an item a press acts on, one that opens a submenu, or a row of items. */
+export type MenuEntry = MenuItem | Submenu | MenuRow;
 
 /**
  * Where a submenu stands, as the left and top of its box: its left edge at
@@ -2762,6 +2911,52 @@ export function renameChoice(plan: RenamePlanned | null, branched: boolean): { e
  */
 export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The menu of a pane's tab, `session` being its pane and `tabs` the panes of
+ * its work item in the tabs' order (`paneTabs`), in its order: "Rename…",
+ * which opens the dialog that names the pane; the row of colours, Green,
+ * Blue, Pink and No colour, which checks the tab's colour, or No colour
+ * where it has none; and, under a rule, "Close Pane"; "Close Other Panes",
+ * which closes every other pane of the work item, exited ones among them,
+ * where the work item has another tab; and "Close Panes to the Right", which
+ * closes every pane whose tab stands after this one, where one does.
+ * "Rename…" and the row stand only where the session carries a `name`
+ * field, null or a name: a daemon of an earlier build sends none, keeps no
+ * name and no colour, and would answer no request to set one. An item that
+ * would close nothing is left out, since the form of a menu draws no item
+ * disabled. Each close item closes its panes through one close, which asks once
+ * where any of them is working (./work-item-view, `closePanes`).
+ */
+export function tabMenu(session: SessionInfo, tabs: readonly SessionInfo[]): MenuEntry[] {
+  const others = tabs.filter((tab) => tab.id !== session.id).map((tab) => tab.id);
+  const at = tabs.findIndex((tab) => tab.id === session.id);
+  const right = at === -1 ? [] : tabs.slice(at + 1).map((tab) => tab.id);
+  const marks = session.name !== undefined;
+  const close = (label: string, description: string, ids: number[], divides = false): MenuItem[] => (ids.length === 0 ? [] : [{ label, description, action: { do: "closePanes", ids }, divides }]);
+  const held = session.colour ?? null;
+  const swatch = (colour: TabColour | null, label: string, description: string): MenuRowItem => ({ label, description, action: { do: "colourPane", id: session.id, colour }, colour, checked: colour === held });
+  const named: MenuEntry[] = marks
+    ? [
+        { label: "Rename…", description: "Give this pane's tab a name of its own, which the window names the pane by everywhere.", action: { do: "renamePane", id: session.id }, divides: false },
+        {
+          label: "Colour",
+          description: "Mark this pane's tab with a colour, which its tooltip names.",
+          row: [
+            ...TAB_COLOURS.map((colour) => swatch(colour, COLOUR_WORDS[colour], `${COLOUR_WORDS[colour]} draws a ${colour} bar along the bottom of this pane's tab.`)),
+            swatch(null, NO_COLOUR, `${NO_COLOUR} takes the colour's bar off this pane's tab.`),
+          ],
+          divides: false,
+        },
+      ]
+    : [];
+  return [
+    ...named,
+    ...close("Close Pane", "End this pane's process and close its tab. Where its session is working, a dialog asks first.", [session.id], marks),
+    ...close("Close Other Panes", "End every other pane of the work item and close their tabs. Where a session among them is working, a dialog asks first.", others),
+    ...close("Close Panes to the Right", "End the panes whose tabs stand after this one and close their tabs. Where a session among them is working, a dialog asks first.", right),
+  ];
 }
 
 /**
@@ -3226,7 +3421,7 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
  */
 export type BaseAnswer = "awaited" | BaseFetch | { error: string };
 
-/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of an earlier build never answers. */
+/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of a build before the fetch never answers, and against it `answerWaits` ends the request first, after `ANSWER_WAIT_MS`. */
 export const BASE_ANSWER_MS = BASE_FETCH_MS + 2_000;
 
 /** The name the form keeps the fetch of a base under: the repository field's text without the spaces around it, and the base. No branch's name holds a line break. */

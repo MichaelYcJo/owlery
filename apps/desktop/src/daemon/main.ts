@@ -2,7 +2,9 @@
 // outlives the app; it exits by itself once no session is alive, no headless
 // session is working and no window is connected. On macOS it keeps the Mac
 // from idle sleep while an agent works, and its display awake while a heavy
-// command holds a turn on the machine.
+// command holds a turn on the machine. It writes a line to its log when it
+// stops, and one when it starts where the daemon before it ended without
+// stopping (./stop-record).
 import { randomBytes } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -11,9 +13,10 @@ import { HookServer, paneCommands, setupPaneCommand, writeHookSettings } from ".
 import { readPlugins } from "./claude-plugins";
 import { carriedIn, writePaneChain, writeRunner } from "./pane-chain";
 import { Daemon } from "./daemon";
-import { buildOf, readDiscovery, writeDiscovery } from "./discovery";
+import { buildOf, readDiscovery, readyOf, writeDiscovery } from "./discovery";
 import { holdAwakeFor, wakeDisplayFor } from "./keep-awake";
 import { type MachineReader, readMachine, turnReading } from "./machine";
+import { endedLine, recordErrors, type StopCause, stopRecord } from "./stop-record";
 import { TURN_SOCKET, TurnServer } from "./turn-socket";
 import { worktreesRoot } from "./worktrees";
 import { PANE_KINDS } from "./pane-kinds";
@@ -52,9 +55,13 @@ async function main(): Promise<void> {
 
   let turns: TurnServer | undefined;
   let stopping = false;
-  const stop = async (code: number): Promise<void> => {
+  // The line of the stop, written once, to the log, with the panes and the agents the daemon held when it began to stop (./stop-record).
+  const record = stopRecord((line) => console.log(line), () => daemon.stopCounts());
+  const stop = async (code: number, cause: StopCause): Promise<void> => {
     if (stopping) return;
     stopping = true;
+    // Before anything is ended, so the counts are of what the stop ends.
+    record(cause);
     // The discovery file is removed only while it still names this process.
     if (readDiscovery(runDir)?.pid === process.pid) rmSync(join(runDir, "daemon.json"), { force: true });
     // A command that waits for its turn runs at once once the socket is gone.
@@ -89,10 +96,12 @@ async function main(): Promise<void> {
     // Every headless session is the user's own CLI, found once through their login shell. A role session loads the
     // role bundle the build put beside this script, and its rules file is written into the run folder.
     roleAdapter: claudeAdapter(process.env, { bundleDir: beside === undefined ? undefined : join(beside, "bundle"), rulesDir: join(runDir, "roles") }),
-    onIdle: () => void stop(0),
+    onIdle: () => void stop(0, "idle"),
   });
-  // Each command a session runs through the runner, and each gate a pane's chain runs, asks the daemon's keeper for its turn on this socket.
-  turns = await TurnServer.listen(join(runDir, TURN_SOCKET), daemon.turnGiver());
+  // An error of the daemon's own code that nothing caught writes the stop's line before the process ends as it would have.
+  recordErrors(process, record);
+  // Each command a session runs through the runner, and each gate a pane's chain runs, asks the daemon's keeper for its turn on this socket, and a pane's chain command tells the daemon there the stage its session runs and when that stage ended.
+  turns = await TurnServer.listen(join(runDir, TURN_SOCKET), daemon.turnGiver(), (line) => daemon.stageTold(line));
   hooks.onEvent(({ paneId, name, payload }) => {
     // Event and field names only: a hook's values carry the person's prompts.
     if (process.env.OWLERY_DEBUG_HOOKS === "1") console.log(`hook pane=${paneId} ${name} ${Object.keys(payload).sort().join(",")}`);
@@ -100,10 +109,13 @@ async function main(): Promise<void> {
   });
 
   const port = await daemon.listen(0);
+  // A `daemon.json` that still stands names a daemon that did not remove it: one that was killed, crashed or lost its Mac's power, where no daemon answers at its address with its token.
+  const standing = readDiscovery(runDir);
+  if (standing && standing.pid !== process.pid && (await readyOf(standing)) === undefined) console.log(endedLine(process.pid, new Date(), standing.pid));
   writeDiscovery(runDir, { port, token, pid: process.pid, build });
   console.log(`owlery daemon ${process.pid} listening on 127.0.0.1:${port}`);
-  process.on("SIGTERM", () => void stop(0));
-  process.on("SIGINT", () => void stop(0));
+  process.on("SIGTERM", () => void stop(0, "signal SIGTERM"));
+  process.on("SIGINT", () => void stop(0, "signal SIGINT"));
 }
 
 main().catch((error: unknown) => {

@@ -5,8 +5,9 @@
 // a later commit broke, and writes one PNG file for each view (the summary,
 // the inbox, a work item's view, the find bar over that view's pane, the
 // view of the parked work item, the view of the finished work item, the
-// view of the broken one, a work item's menu,
-// the "New work item" form, the dialog of the chain choice, the
+// view of the broken one, a work item's menu, the view of the work item at
+// review with its tabs marked in each colour and the menu of one tab open,
+// the dialog that renames that tab, the "New work item" form, the dialog of the chain choice, the
 // repository's settings, the Accounts dialog, the Accounts dialog while the
 // login of an account "Add an account" adds runs, the Accounts dialog with
 // the row that login named, the Machine dialog, the app's Settings dialog,
@@ -146,7 +147,7 @@ import { GATE_OUTPUT_FOLDER } from "../src/daemon/gate";
 import { MARKER } from "../src/daemon/records-place";
 import { copyIncluded } from "../src/daemon/worktree-setup";
 import { WINDOW_SIZE } from "../src/main/window-size";
-import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
+import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { branchedWorktree, branchOf, commitFile, git, temporaryRepository } from "./repositories";
 import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, parkedOnAQuestion, roundRecord, TODAY, write } from "./chain-run";
@@ -258,8 +259,9 @@ const BROKEN = "Cache the user avatars";
 const BROKEN_RECORDS = "1795396354-cache-the-user-avatars";
 /** The file of the commit that breaks the seal, which the seal's sentence names. */
 const AFTER_THE_SEAL = "avatars.ts";
-/** A work item whose branch holds one commit and no record. */
+/** A work item whose branch holds one commit and no record. The run gives it three more panes, whose tabs it marks with the tabs' colours, and names the blue one `MARKED_NAME`. Its view is the view "tabs". */
 const AT_REVIEW = "Sort the history by date";
+const MARKED_NAME = "build";
 /** The folder of the records of the shown work item, which hold its routing and one round. */
 const SHOWN_RECORDS = "1795396357-fix-the-login-redirect";
 /** The two questions the run writes into the parked work item's record, each asked by the sealer. */
@@ -359,6 +361,8 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-dark-finished.png",
       "night-watch-dark-broken.png",
       "night-watch-dark-menu.png",
+      "night-watch-dark-tabs.png",
+      "night-watch-dark-rename.png",
       "night-watch-dark-dialog.png",
       "night-watch-dark-chain.png",
       "night-watch-dark-settings.png",
@@ -377,6 +381,8 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-finished.png",
       "night-watch-light-broken.png",
       "night-watch-light-menu.png",
+      "night-watch-light-tabs.png",
+      "night-watch-light-rename.png",
       "night-watch-light-dialog.png",
       "night-watch-light-chain.png",
       "night-watch-light-settings.png",
@@ -389,9 +395,9 @@ describe.skipIf(RUN)("the screenshot command, without the app", () => {
       "night-watch-light-narrowed.png",
     ]);
     const all = shots(["night-watch", "register", "desk"]);
-    expect(all).toHaveLength(108);
-    expect(new Set(all.map((shot) => shot.file)).size).toBe(108);
-    expect(all[107]).toEqual({ theme: "desk", appearance: "light", view: "narrowed", file: "desk-light-narrowed.png" });
+    expect(all).toHaveLength(120);
+    expect(new Set(all.map((shot) => shot.file)).size).toBe(120);
+    expect(all[119]).toEqual({ theme: "desk", appearance: "light", view: "narrowed", file: "desk-light-narrowed.png" });
   });
 
   it("writes into a folder named by the run's start, or into the folder it is given", () => {
@@ -463,6 +469,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);
   const dialogClosed = (id: string): Promise<void> => app.until(`!document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id} closed`);
   const QUEUED_LINE = `#repositories button[data-work-item="${QUEUED_ID}"]`;
+  const AT_REVIEW_ID = WORK_ITEMS.findIndex(({ title }) => title === AT_REVIEW) + 1;
+  /** The marks of the panes' tabs of the view on screen, in the tabs' order: each tab's colour, or nothing for a tab with none, with commas between them. */
+  const TAB_COLOURS_DRAWN = `[...document.querySelectorAll("#tabs .tab:not(.back)")].map((tab) => tab.dataset.colour ?? "").join()`;
   /** What the narrowed view types into the sidebar's search field: a word only the titles of work items that hold no decision made without asking hold. */
   const NARROWED_QUERY = "history";
   /** What the sidebar says once "Decided without asking" and that search leave the scene's one repository unlisted. */
@@ -634,6 +643,24 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await show.inbox();
       await openMenu(SIDEBAR_LINE);
     },
+    tabs: async () => {
+      await app.click(`#repositories button[data-work-item="${AT_REVIEW_ID}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(AT_REVIEW)} && ${TAB_COLOURS_DRAWN} === ",${TAB_COLOURS.join()}" && [...document.querySelectorAll("#tabs .tab:not(.back) .label")].map((label) => label.textContent).join() === "Shell 1,Shell 2,${MARKED_NAME},Shell 4"`, `the view of ${AT_REVIEW} with its first tab plain, its others marked ${TAB_COLOURS.join(", ")}, and its blue tab named ${MARKED_NAME}`);
+      // The menu of the blue tab checks Blue in its row. It is opened by a press of the right button at the bottom left of the tab's label, so it opens under the strip and leaves the tabs' bars in sight.
+      const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#tabs .tab[data-colour="blue"] .label').getBoundingClientRect(); return { x: box.x + 4, y: box.y + box.height - 1 }; })()`);
+      await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+      await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+      await app.until(`document.querySelector('${MENU}')`, "the blue tab's menu");
+      await app.until(`document.querySelector('${MENU} [role="menuitemradio"][aria-checked="true"]')?.getAttribute("aria-label") === "Blue"`, "the tab's menu with Blue checked");
+    },
+    rename: async () => {
+      // "Rename…" of the blue tab's menu opens the dialog, with the tab's name in its field, selected.
+      await show.tabs();
+      await app.evaluate(`(() => { for (const item of document.querySelectorAll('${MENU} [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Rename…"); })()`);
+      await app.click(`${MENU} [role="menuitem"][data-pressed-here]`);
+      await dialogOpen("pane-name-dialog");
+      await app.until(`document.getElementById("pane-name-head").textContent === ${JSON.stringify(`Rename ${MARKED_NAME}`)} && document.getElementById("pane-name-field").value === ${JSON.stringify(MARKED_NAME)} && document.activeElement === document.getElementById("pane-name-field")`, `the rename dialog of ${MARKED_NAME}, with the keyboard in its field`);
+    },
     dialog: async () => {
       await show.inbox();
       await openForm("Show the seal on a line");
@@ -718,6 +745,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.cdp("Input.dispatchKeyEvent", { type: "rawKeyDown", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
       await app.cdp("Input.dispatchKeyEvent", { type: "keyUp", code: "Escape", key: "Escape", windowsVirtualKeyCode: 27 });
       await app.until(`!document.querySelector('${MENU}')`, "the menu closed");
+    },
+    tabs: async () => {
+      await leave.menu?.();
+    },
+    rename: async () => {
+      await app.click("#pane-name-cancel");
+      await dialogClosed("pane-name-dialog");
     },
     dialog: async () => {
       await app.click("#work-item-cancel");
@@ -966,6 +1000,17 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const atReview = (await listed()).workItems.find((item) => item.title === AT_REVIEW);
     if (!atReview) throw new Error(`the daemon lists no work item ${AT_REVIEW}`);
     commitFile(atReview.worktree, "history.ts");
+    // Three more panes of the work item at review, whose tabs a person marked green, blue and pink, as its tab's menu marks them, and the blue one renamed. Its own pane keeps no colour.
+    const panesOf = async (): Promise<SessionInfo[]> => (await listed()).sessions.filter((session) => session.workItemId === atReview.id).sort((a, b) => a.id - b.id);
+    for (const [at] of TAB_COLOURS.entries()) await listed({ type: "start", requestId: 20 + at, kind: "shell", cols: 80, rows: 24, workItemId: atReview.id });
+    for (const deadline = Date.now() + 10_000; (await panesOf()).length !== 1 + TAB_COLOURS.length; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`${AT_REVIEW} never held ${String(1 + TAB_COLOURS.length)} panes: ${JSON.stringify(await panesOf())}`);
+    }
+    const added = (await panesOf()).slice(1);
+    for (const [at, colour] of TAB_COLOURS.entries()) await listed({ type: "setPane", requestId: 30 + at, id: added[at]?.id ?? 0, colour, ...(colour === "blue" ? { name: MARKED_NAME } : {}) });
+    for (const deadline = Date.now() + 10_000; (await panesOf()).map((pane) => pane.colour ?? "").join() !== `,${TAB_COLOURS.join()}`; await new Promise((resolve) => setTimeout(resolve, 100))) {
+      if (Date.now() >= deadline) throw new Error(`the tabs of ${AT_REVIEW} never held their colours: ${JSON.stringify(await panesOf())}`);
+    }
     write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
     const routed = commitAll(shown.worktree, "chore: declare the work item's routing");
     write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));

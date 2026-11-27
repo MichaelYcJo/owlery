@@ -6,7 +6,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
 import { composeBack } from "../shared/seal-back";
 import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
@@ -81,7 +81,7 @@ import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./
 import { LastLook } from "./last-look";
 import { addHeavyRun, heavyRan, readHeavyRuns, watchMemory } from "./heavy-runs";
 import { BROAD_GATE_NAME, LOAD_EVERY_MS, MachineTurns, NO_READING_LIMIT } from "./machine-turns";
-import { type GivenTurn, type HeavyRunTaken, type TurnGiver, turnGiver } from "./turn-socket";
+import { type GivenTurn, type HeavyRunTaken, type StageLine, type TurnGiver, turnGiver } from "./turn-socket";
 import { placesFree, type QueueRank, queueOrder } from "./agent-queue";
 import { AgentMemoryStore, CAPS, LimitsStore, type MachineReader } from "./machine";
 import { agentsProposal, capRefusal, CHARS_PER_LINE, heavyProposal, KEEP_FREE_BYTES, panesProposal, SCROLLBACK_DEFAULT, worktreesProposal } from "../shared/machine";
@@ -98,6 +98,7 @@ import { verdictOn } from "./role-grants";
 import type { Verdict } from "./seal-records";
 import { noSealRecords, sealRecords } from "./seal-back-records";
 import { workItemSeal } from "./seal-state";
+import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
@@ -358,6 +359,8 @@ export interface DaemonOptions {
   wordRetryMs?: number;
   /** How long a hello's answer waits for the read of the work items' new commits. It stays under the second the app gives a daemon to answer (`answers` of src/main/daemon-client.ts). */
   readyWaitMs?: number;
+  /** How long the answer to a `readLists` waits, from the start of the reads it asked for, for the reads of the open pull requests; 5 seconds when absent. A pull request read later reaches every client in the watch's own inbox. */
+  listsWaitMs?: number;
   /** How long a pane of a kind that reports state may send no event after its start before it is listed as waiting; 10 seconds when absent. */
   silentStartMs?: number;
   /** How long the watch of a working pane's session log waits for a log that does not stand yet; `SESSION_LOG_WAIT_MS` of `session-log.ts` when absent. */
@@ -528,6 +531,8 @@ export class Daemon {
   private readonly ledger: Ledger;
   // What was last read of each work item's record of decisions and questions, by the work item's id, as a client is sent it. The record is the store: this is what the last read found, and nothing is written from it.
   private readonly recordsRead = new Map<number, RecordRead>();
+  // The stage a pane's session runs in each work item, by the work item's id, as the chain command told it on the turn socket, with the pane that told it (`stageTold`). It lives in memory alone, since a pane's process lives as long as the daemon that started it.
+  private readonly paneStages = new Map<number, { paneId: number; kind: Exclude<PaneStage["kind"], "gate">; round: number; since: number }>();
   // The hold that stands now, where one does. The daemon holds one at most.
   private hold: { release(): void } | undefined;
   // Whether the hold that stands holds the display too.
@@ -594,10 +599,14 @@ export class Daemon {
   });
   private commitTimer: NodeJS.Timeout | undefined;
   private commitsReadAt = 0;
-  // The read of the counts under way, which a hello that arrives meanwhile waits on.
+  // The read of the counts under way, which a hello that arrives meanwhile waits on, and after whose end a `readLists` that arrives meanwhile reads again.
   private readingCommits: Promise<void> | undefined;
   // When the watch next reads each work item's open pull request, by the work item's id, on the system's clock. A pull request with no time here is read at the watch's next turn.
   private readonly pullRequestDue = new Map<number, number>();
+  // How many times `readOutside` made every watched pull request due at once. A read that began before the latest of them leaves its pull request due.
+  private pullRequestAsks = 0;
+  // What waits on the watch: each settles once the turn that starts after it was added has ended, which is the turn that reads what `readOutside` made due.
+  private readonly turnWaits: (() => void)[] = [];
   private watchTimer: NodeJS.Timeout | undefined;
   // The watch's reads under way: one turn of reads runs at a time.
   private watching: Promise<void> | undefined;
@@ -935,12 +944,7 @@ export class Daemon {
         this.clients.set(socket, new Set());
         this.greeting.add(socket);
         this.checkIdle();
-        // A notice that stands is read again as a window connects, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
-        if (this.agentNotice !== null) void this.readAgentNotice();
-        // Each open pull request is read again at a hello, which is when a person looks.
-        this.pullRequestDue.clear();
-        this.scheduleWatch();
-        void this.greet(socket, early);
+        void this.greet(socket, early, this.readOutside().commits);
         return;
       }
       if (this.greeting.has(socket)) early.push(message);
@@ -956,27 +960,77 @@ export class Daemon {
   }
 
   /**
-   * Answers a hello. The counts of new commits are read from git first, so
-   * `ready` carries the commits that landed while no client was connected and
-   * a daemon that just started sends counts. Where the read takes longer than
-   * the wait, `ready` carries the counts the daemon holds and the read's
-   * result follows in an inbox. What the client sent meanwhile is handled
-   * after its `ready`.
+   * Reads again what the daemon holds from outside: the one list a client's
+   * hello and a `readLists` both read, so a press reads what a window that
+   * connects reads. It reads the adapter's notice where one stands, makes
+   * every watched pull request due now, and reads git (`readCommitsNow`). It
+   * gives that read of git, and what settles once the watch's turn that
+   * reads those pull requests has ended, at once where the watch reads none.
    */
-  private async greet(socket: WebSocket, early: ClientMessage[]): Promise<void> {
+  private readOutside(): { commits: Promise<void>; pullRequests: Promise<void> } {
+    // A notice that stands is read again as a window connects and at a `readLists`, so it goes once the person did what it asks. The daemon outlives the app for days, and a notice read once would stay.
+    if (this.agentNotice !== null) void this.readAgentNotice();
+    // Each open pull request is read again at a hello and at a `readLists`, which is when a person looks.
+    this.pullRequestDue.clear();
+    this.pullRequestAsks++;
+    const pullRequests = new Promise<void>((resolve) => this.turnWaits.push(resolve));
+    this.scheduleWatch();
+    return { commits: this.readCommitsNow(), pullRequests };
+  }
+
+  /**
+   * Answers a hello. The counts of new commits are read from git first
+   * (`commits`, which `readOutside` started), so `ready` carries the commits
+   * that landed while no client was connected and a daemon that just started
+   * sends counts. Where the read takes longer than the wait, `ready` carries
+   * the counts the daemon holds and the read's result follows in an inbox.
+   * What the client sent meanwhile is handled after its `ready`.
+   */
+  private async greet(socket: WebSocket, early: ClientMessage[], commits: Promise<void>): Promise<void> {
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.readyWaitMs ?? 500);
     });
-    await Promise.race([this.readCommitsNow(), waited]);
+    await Promise.race([commits, waited]);
     clearTimeout(waitTimer);
     // The client left, or the daemon closed, while the counts were read.
     if (!this.greeting.delete(socket)) return;
     // A client that connects reads the load and the free disk as they are now.
     this.readMachineNow();
     const machine = this.machineNow();
-    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...(this.storeNotice === null ? {} : { storeNotice: this.storeNotice }), ...this.accountsMessage(), ...(machine ? { machine } : {}) });
+    this.send(socket, { type: "ready", ...this.lists(), paneKinds: [...this.options.paneKinds], headless: this.headlessList(), lastLook: this.lastLook.get(), ...(this.options.holdAwake ? { keepAwake: this.keepAwakeNow() } : {}), agentNotice: this.agentNotice, ...(this.storeNotice === null ? {} : { storeNotice: this.storeNotice }), ...this.accountsMessage(), ...(machine ? { machine } : {}), answersUnknown: true });
     for (const message of early) this.handle(socket, message);
+  }
+
+  /**
+   * Answers a `readLists`: reads again what a hello reads (`readOutside`),
+   * once the read of git under way has ended, since that read began before
+   * the message arrived. Once git has been read and the watch's reads of the
+   * pull requests have ended, or `listsWaitMs` has passed since they were
+   * asked for, the client that asked is sent the four lists in an `inbox`,
+   * whether or not anything changed, and then `done`. Where a read throws, it
+   * is sent an `error` with the read's sentence and no `inbox`. A client that
+   * left meanwhile is sent nothing.
+   */
+  private async answerReadLists(socket: WebSocket, requestId: number): Promise<void> {
+    let waitTimer: NodeJS.Timeout | undefined;
+    try {
+      // What a read under way throws is not this request's to say: the read that follows reads the same, and says why.
+      await this.readingCommits?.catch(() => undefined);
+      const { commits, pullRequests } = this.readOutside();
+      const waited = new Promise<void>((resolve) => {
+        waitTimer = setTimeout(resolve, this.options.listsWaitMs ?? 5000);
+      });
+      await Promise.all([commits, Promise.race([pullRequests, waited])]);
+    } catch (error) {
+      if (!this.closed && this.clients.has(socket)) this.send(socket, { type: "error", requestId, message: `The work items were not read again: ${(error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "")}.` });
+      return;
+    } finally {
+      clearTimeout(waitTimer);
+    }
+    if (this.closed || !this.clients.has(socket)) return;
+    this.send(socket, { type: "inbox", ...this.lists() });
+    this.send(socket, { type: "done", requestId });
   }
 
   private handle(socket: WebSocket, message: ClientMessage): void {
@@ -1592,6 +1646,28 @@ export class Daemon {
         this.closePane(session);
         return;
       }
+      case "setPane": {
+        try {
+          const { id, name, colour } = message as { id: unknown; name?: unknown; colour?: unknown };
+          const session = typeof id === "number" ? this.sessions.get(id) : undefined;
+          if (!session) throw new Error(`No pane ${String(id)} is open.`);
+          if (session.info.workItemId === null) throw new Error("A sign-in pane has no tab to name or colour.");
+          if (name !== undefined && name !== null && typeof name !== "string") throw new Error("A pane's name is a text, or null for none.");
+          const given = typeof name === "string" ? name.trim() : name;
+          if (typeof given === "string" && given.length > PANE_NAME_CHARS) throw new Error(`A pane's name is ${String(PANE_NAME_CHARS)} characters at most.`);
+          if (colour !== undefined && colour !== null && !(TAB_COLOURS as readonly unknown[]).includes(colour)) throw new Error(`A tab's colour is ${TAB_COLOURS.slice(0, -1).join(", ")} or ${String(TAB_COLOURS.at(-1))}, or null for none.`);
+          // Nothing is set before every field has been read, so a refusal sets nothing of the message.
+          const before = { name: session.info.name ?? null, colour: session.info.colour ?? null };
+          if (given !== undefined) session.info.name = given === "" || given === null ? null : given;
+          if (colour !== undefined) session.info.colour = colour as TabColour | null;
+          // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
+          this.send(socket, { type: "done", requestId: message.requestId });
+          if (session.info.name !== before.name || session.info.colour !== before.colour) this.broadcastInbox();
+        } catch (error) {
+          this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
+        }
+        return;
+      }
       case "stopHeadless": {
         const session = this.headless.get(message.id);
         if (!session) {
@@ -1732,6 +1808,9 @@ export class Daemon {
         if (machine) this.send(socket, { type: "machine", machine });
         return;
       }
+      case "readLists":
+        void this.answerReadLists(socket, message.requestId);
+        return;
       case "input":
         this.sessions.get(message.id)?.terminal.write(message.data);
         return;
@@ -1742,8 +1821,12 @@ export class Daemon {
         if (session && typeof message.cols === "number" && typeof message.rows === "number") session.size = { cols: message.cols, rows: message.rows };
         return;
       }
-      default:
+      default: {
+        // A window of a later build sends requests this daemon does not know. It is refused at once, through the path every refusal takes, so nothing in the window waits for it, and `unknown` lets the window say that a restart of the daemon brings the request in. A message of such a type with no numeric `requestId` names nothing to answer, and is dropped.
+        const { type, requestId } = message as { type?: unknown; requestId?: unknown };
+        if (typeof requestId === "number") this.send(socket, { type: "error", requestId, unknown: true, message: `This daemon does not know the request "${String(type)}".` });
         return;
+      }
     }
   }
 
@@ -2070,6 +2153,7 @@ export class Daemon {
     this.endLog(session);
     session.ended = true;
     if (session.info.alive) session.terminal.kill();
+    this.dropStageOf(session.info.id);
     this.broadcastInbox();
     this.checkIdle();
   }
@@ -2298,7 +2382,10 @@ export class Daemon {
    * pane's has not within the wait, it refuses with the sentence `late`, and
    * goes on where `late` is null; a headless run that has not ended by then
    * refuses nothing. It refuses where a session started in one of the work
-   * items while it waited. The panes stay listed, as exited ones.
+   * items while it waited. The panes stay listed, as exited ones. The stage
+   * a pane it ends told is dropped as the pane ends, since an ended pane runs
+   * no stage (`stageTold`), and the lists that say so are sent then, before
+   * the wait, so a pane whose process outlives the wait holds none.
    */
   private async endSessions(workItemIds: ReadonlySet<number>, told: Running, why: string, late: string | null): Promise<void> {
     const { panes, headless } = this.runningTold(workItemIds, told);
@@ -2310,10 +2397,13 @@ export class Daemon {
       const stopping = this.stopGate(id, "request", `the command was ${why}`);
       if (stopping !== undefined) stops.push(stopping);
     }
+    let dropped = false;
     for (const session of panes) {
       session.ended = true;
       session.terminal.kill();
+      dropped = this.dropStageOf(session.info.id) || dropped;
     }
+    if (dropped) this.broadcastInbox();
     let waitTimer: NodeJS.Timeout | undefined;
     const waited = new Promise<void>((resolve) => {
       waitTimer = setTimeout(resolve, this.options.endWaitMs ?? END_WAIT_MS);
@@ -2580,7 +2670,7 @@ export class Daemon {
     if (launch === undefined) throw new Error("a pane opens in a work item");
     const size = { cols: pane.cols, rows: pane.rows };
     const session: Session = {
-      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null },
+      info: { id, kind: pane.kind, alive: true, workItemId, accountId, signsIn, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null, name: null, colour: null },
       terminal: this.spawnPane(launch, cwd, size, signsIn === null),
       output: new OutputBuffer(this.outputLimit()),
       silentStart: undefined,
@@ -2630,6 +2720,8 @@ export class Daemon {
     terminal.onData(print);
     terminal.onExit((exitCode, signal) => {
       session.info.alive = false;
+      // The session that told a stage is gone with its process; the lists that follow the exit carry the drop.
+      this.dropStageOf(id);
       // A change of the account waits on this exit, unless the pane's close, an archive or a removal ended the pane meanwhile: then the exit is the pane's end.
       if (session.replacing && !session.ended) {
         clearTimeout(session.silentStart);
@@ -2841,6 +2933,13 @@ export class Daemon {
     return [...this.headless.values()].map((s) => s.info);
   }
 
+  /** What the line of the daemon's stop counts (./stop-record): the panes alive, and the agents working, a pane alive whose state is `working` and a headless session that is. A stop reads it before it closes the daemon, which ends the panes. */
+  stopCounts(): StopCounts {
+    const panes = [...this.sessions.values()].filter((session) => session.info.alive);
+    const headless = [...this.headless.values()].filter((session) => session.info.state === "working");
+    return { panesAlive: panes.length, agentsWorking: panes.filter((session) => session.info.state === "working").length + headless.length };
+  }
+
   /** The work items that are not archived, as an `inbox` and a look list them. */
   private workItemList(): WorkItem[] {
     return this.store.workItems().filter(({ item }) => item.archivedAt === null).map((held) => this.workItemOf(held));
@@ -2950,7 +3049,64 @@ export class Daemon {
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
       machineWait: this.turns.waitOf(item.worktree),
       wordOwed: this.wordOwedOf(item),
+      paneStage: this.paneStageOf(item),
     };
+  }
+
+  /**
+   * The stage a pane's session runs in the work item, as the lists carry it
+   * (`WorkItem.paneStage`): a broad gate where the keeper lists an ask of the
+   * place `gate` in its worktree, holding a turn or waiting, from that ask's
+   * time and of the rounds its records hold; otherwise the stage a pane of it
+   * told (`stageTold`); otherwise null.
+   */
+  private paneStageOf(item: Held["item"]): PaneStage | null {
+    const gate = this.turns.queue().find(({ folder, place }) => place === "gate" && folder === item.worktree);
+    if (gate !== undefined) return { kind: "gate", round: (this.recordsRead.get(item.id) ?? NO_RECORD).recorded.rounds, since: gate.since };
+    const held = this.paneStages.get(item.id);
+    return held === undefined ? null : { kind: held.kind, round: held.round, since: held.since };
+  }
+
+  /**
+   * Takes a line the chain command told on the turn socket
+   * (`turn-socket.ts#StageLine`), for the work item that is not archived
+   * whose worktree the folder is, by its real path, and does nothing for a
+   * folder that is no such work item's. A `stage` line is held only where its
+   * pane is listed, alive, in that work item, and not ended by the daemon at
+   * an archive or a removal (`endSessions`, which drops the stage a pane it
+   * ends told), and replaces the stage held
+   * before, keeping that one's time where the kind and the round are the
+   * same. A `stage-ended` line drops the work item's stage, whichever pane
+   * told it, and reads the work item's records again first, so the lists do
+   * not carry a reading older than the record just committed. Every client
+   * is sent the lists where anything changed.
+   */
+  stageTold(line: StageLine): void {
+    if (this.closed) return;
+    const real = realPathOf(line.folder);
+    const held = this.store.workItems().find(({ item }) => item.archivedAt === null && realPathOf(item.worktree) === real);
+    if (held === undefined) return;
+    const { id } = held.item;
+    if (line.is === "stage-ended") {
+      const dropped = this.paneStages.delete(id);
+      const read = this.readRecord(held);
+      this.flushTimes();
+      if (dropped || read) this.broadcastInbox();
+      return;
+    }
+    const pane = this.sessions.get(line.pane);
+    if (pane === undefined || !pane.info.alive || pane.ended || pane.info.workItemId !== id) return;
+    const was = this.paneStages.get(id);
+    const same = was !== undefined && was.kind === line.kind && was.round === line.round;
+    this.paneStages.set(id, { paneId: line.pane, kind: line.kind, round: line.round, since: same ? was.since : (this.options.now ?? Date.now)() });
+    if (!same) this.broadcastInbox();
+  }
+
+  /** Drops the stage the pane told, where one stands, and says whether one stood. The caller sends the lists. */
+  private dropStageOf(paneId: number): boolean {
+    let dropped = false;
+    for (const [workItemId, stage] of this.paneStages) if (stage.paneId === paneId) dropped = this.paneStages.delete(workItemId) || dropped;
+    return dropped;
   }
 
   /**
@@ -4430,25 +4586,31 @@ export class Daemon {
    * is connected: a turn that comes while none is reads nothing and arranges
    * no other, and the hello of the next client to connect starts them again.
    * A daemon that closed arranges none, and nothing the watch does holds the
-   * daemon or the Mac.
+   * daemon or the Mac. What waits for the next turn (`turnWaits`) is settled
+   * once that turn has ended, and at once where no pull request is watched.
    */
   private scheduleWatch(): void {
     if (this.closed || this.watching) return;
     clearTimeout(this.watchTimer);
     this.watchTimer = undefined;
     const watched = this.watched();
-    if (watched.length === 0) return;
+    if (watched.length === 0) {
+      for (const end of this.turnWaits.splice(0)) end();
+      return;
+    }
     const next = Math.min(...watched.map(({ item }) => this.pullRequestDue.get(item.id) ?? 0));
     this.watchTimer = setTimeout(() => {
       this.watchTimer = undefined;
       // Nobody is told what the watch reads while no client is connected.
       if (this.clients.size === 0 || this.closed) return;
+      const waits = this.turnWaits.splice(0);
       const due = this.watched().filter(({ item }) => (this.pullRequestDue.get(item.id) ?? 0) <= Date.now());
       const turn = Promise.all(due.map((held) => this.readPullRequest(held))).then((changed) => {
         if (changed.includes(true)) this.broadcastInbox();
       });
       this.watching = turn.finally(() => {
         this.watching = undefined;
+        for (const end of waits) end();
         this.scheduleWatch();
       });
     }, Math.max(0, next - Date.now()));
@@ -4467,14 +4629,16 @@ export class Daemon {
    * pushed commit, and after `prRestPollMs` otherwise. Where the call fails
    * or its answer does not read, the stored pull request keeps what the
    * last read gave, its `failure` holds the sentence that says why, and the
-   * next read is due after `prRestPollMs`. A work item that left the watch
-   * while `gh` was asked, or whose pull request the stage replaced, keeps
-   * what it holds. It answers whether the stored pull request changed in
-   * more than the time of its read.
+   * next read is due after `prRestPollMs`. Where `readOutside` made every
+   * pull request due while `gh` was asked, the next read stays due now. A
+   * work item that left the watch while `gh` was asked, or whose pull
+   * request the stage replaced, keeps what it holds. It answers whether the
+   * stored pull request changed in more than the time of its read.
    */
   private async readPullRequest({ item }: Held): Promise<boolean> {
     const before = item.pullRequest;
     if (before === null) return false;
+    const asks = this.pullRequestAsks;
     const now = this.options.now ?? Date.now;
     let read: PullRequest;
     let wait: number;
@@ -4487,7 +4651,8 @@ export class Daemon {
       wait = this.options.prRestPollMs ?? PR_REST_POLL_MS;
     }
     if (this.closed || !this.watched().some((held) => held.item.id === item.id && held.item.pullRequest === before)) return false;
-    this.pullRequestDue.set(item.id, Date.now() + wait);
+    // A hello or a `readLists` that came while gh was asked made the pull request due after this read began, so it stays due.
+    if (asks === this.pullRequestAsks) this.pullRequestDue.set(item.id, Date.now() + wait);
     this.store.setWorkItem(item.id, { pullRequest: read });
     return JSON.stringify({ ...read, readAt: 0 }) !== JSON.stringify({ ...before, readAt: 0 });
   }

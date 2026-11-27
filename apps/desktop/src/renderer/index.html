@@ -251,6 +251,8 @@
       .line-mark svg.icon { width: var(--line-mark); height: var(--line-mark); }
       #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
       #repositories-head h2 { flex: 1; color: var(--ink-faint); }
+      /* While the refresh's answer is on its way, its arrows go round once in 1.1s, as the working mark's part does. */
+      #refresh-lists[aria-busy="true"] svg { animation: turn 1.1s linear infinite; }
       #bell-count { font-weight: 600; color: var(--ink); }
       #bell-count:empty { display: none; }
       /* The dot on the bell where a work item waits, in the strong ink. */
@@ -389,7 +391,7 @@
       #pane-buttons button:active, #side-by-side:active, #side-by-side[aria-pressed="true"] { background: var(--pressed); }
       #side-by-side[aria-pressed="true"] { color: var(--ink-strong); }
       /* The tab of each pane on the stage stands on the terminal's ground. The tab in front, whose pane has the keyboard, has its edge and the strong ink as well. */
-      #tabs .tab { flex: none; display: flex; align-items: stretch; }
+      #tabs .tab { position: relative; flex: none; display: flex; align-items: stretch; }
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
       #tabs .tab.shown { background: var(--terminal-ground); }
       #tabs .tab.shown .label { color: var(--terminal-ink); }
@@ -408,6 +410,12 @@
       #tabs .tab.back .label { padding-right: var(--space-4); }
       #tabs .tab.back.active { background: var(--selected); box-shadow: var(--selected-edge); }
       #tabs .tab.back.active .label { color: var(--ink-strong); }
+      /* A colour a person marked a tab with, which the tab's bar and the swatch of the tab's menu are drawn in. */
+      [data-colour="green"] { --colour: var(--tab-green); }
+      [data-colour="blue"] { --colour: var(--tab-blue); }
+      [data-colour="pink"] { --colour: var(--tab-pink); }
+      /* A tab with a colour carries a bar of it 2px high along its bottom edge, across its width, the same shape for every colour, and its tooltip and its name to a screen reader say the colour's word. */
+      #tabs .tab[data-colour]::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--colour); pointer-events: none; }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
@@ -597,6 +605,14 @@
       .menu [aria-haspopup="menu"]::after { content: ""; flex: none; box-sizing: border-box; width: var(--space-3); height: var(--space-3); border-top: 1px solid var(--ink-faint); border-right: 1px solid var(--ink-faint); transform: rotate(45deg); }
       .menu [aria-haspopup="menu"][aria-expanded="true"] { background: var(--hover); }
       .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
+      /* A row of a menu holds its items side by side, each as high as an item and as wide, drawing the mark its press gives a tab and no words: a bar in its colour, or for no colour the same bar outlined in the faint ink. The item that holds has an edge in the muted ink. */
+      .menu .swatches { flex: none; display: flex; gap: var(--space-2); padding: 0 var(--space-3); }
+      .menu [role="menuitemradio"] { flex: none; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: var(--sidebar-line); height: var(--sidebar-line); border: 1px solid transparent; border-radius: var(--radius-line); }
+      .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus { background: var(--hover); }
+      .menu [role="menuitemradio"]:active { background: var(--pressed); }
+      .menu [role="menuitemradio"][aria-checked="true"] { border-color: var(--ink-muted); }
+      .menu [role="menuitemradio"]::before { content: ""; box-sizing: border-box; width: 14px; height: 4px; background: var(--colour); }
+      .menu [role="menuitemradio"]:not([data-colour])::before { border: 1px solid var(--ink-faint); background: none; }
       #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
       #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
       /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
@@ -665,6 +681,9 @@
         <button id="bell" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z" /><path d="M6.8 14h2.4" /></svg>
           <span id="bell-count" class="count"></span>
+        </button>
+        <button id="refresh-lists" class="icon-button" type="button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 0 1 4.5-4.5 4.9 4.9 0 0 1 3.37 1.37L12.5 6" /><path d="M12.5 3.5V6H10" /><path d="M12.5 8a4.5 4.5 0 0 1-4.5 4.5 4.9 4.9 0 0 1-3.37-1.37L3.5 10" /><path d="M6 10H3.5v2.5" /></svg>
         </button>
         <label id="sidebar-filter-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
@@ -1155,8 +1174,22 @@
       <p id="close-pane-sentence"></p>
       <div class="row">
         <button type="button" id="close-pane-cancel" class="quiet">Cancel</button>
-        <button type="button" id="close-pane-confirm" class="primary">Close pane</button>
+        <button type="button" id="close-pane-confirm" class="primary"></button>
       </div>
+    </dialog>
+    <dialog id="pane-name-dialog">
+      <form id="pane-name-form">
+        <h2 id="pane-name-head" class="head"></h2>
+        <label>
+          <span class="row"><input id="pane-name-field" aria-label="Name" autocomplete="off" spellcheck="false" /></span>
+        </label>
+        <p class="says">An empty name names the pane by its kind again.</p>
+        <p id="pane-name-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="pane-name-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="pane-name-submit" class="primary">Save</button>
+        </div>
+      </form>
     </dialog>
     <div id="link-card" hidden></div>
     <script src="./renderer.js"></script>
