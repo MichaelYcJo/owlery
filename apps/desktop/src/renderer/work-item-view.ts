@@ -1,9 +1,9 @@
 // A work item's view: its header, its tabs with the terminals of the panes
-// on the stage, or the back of its seal in the stage's place behind a tab of
+// on the stage, or the inspection sheet in the stage's place behind a tab of
 // its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
-// above the list of the daemon's chain and the seal's place with the
+// above the list of the daemon's chain and the inspection's place with the
 // sentence of the work item's chain, with the work item's pull request
 // under it. The pool of terminal screens the window holds lives here, and
 // so do the card of the link under the pointer, the menu of a pane and the
@@ -13,10 +13,10 @@ import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import { type HeadlessInfo, type LedgerEntry, PANE_NAME_CHARS, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, PANE_NAME_CHARS, type PaneKind, type BackRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
 import { editorOpener, openSettings } from "./app-settings";
 import { openMenu as openItemMenu } from "./menu";
-import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import { backParts, byId, detail, drawMark, entries, headlessIcon, held, part, request, row, markPlace, send, showState, stateClass } from "./shared";
 import { tell } from "./sidebar";
 import {
   answersFor,
@@ -68,7 +68,7 @@ import {
   replayStep,
   repoNameOf,
   screenMoves,
-  sealShown,
+  inspectionShown,
   sideBySideTitle,
   stageAhead,
   stageGrid,
@@ -129,12 +129,12 @@ let pullRequestUrl: string | undefined;
 let gateRead: GateOutput | null = null;
 // The request a press of "Show output" is waiting on, with the work item and the run whose line was pressed.
 let gateRequest: { requestId: number; workItemId: number; startedAt: number } | undefined;
-// Whether the back of the seal is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
+// Whether the inspection sheet is in front in the view on screen, in place of the panes. It is decided where the view is entered and by a press of a tab, and by no later list.
 let backFront = false;
 // What the back's place last drew, so a list that changes nothing of it draws nothing again and a selection in it stays.
 let backDrawn: string | undefined;
 // What the back asked the daemon while it is in front, and the answers: the work item, the key it was asked at (./view, `backKey`), each request, each answer, and the daemon's refusal of either. The answers are let go when a pane comes in front or the view is left.
-let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
+let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: BackRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
 // The panes the dialog that asks before a close of panes asked about last, in the tabs' order, which its main button closes. Once that dialog has closed they decide nothing, since a close of a dialog that is not open does nothing.
@@ -183,11 +183,11 @@ const questionsAge = byId("questions-age");
 const questionsList = byId("questions-list");
 const questionsError = byId("questions-error");
 const questionsSubmit = byId<HTMLButtonElement>("questions-submit");
-const sealHead = byId("view-seal-head");
-const sealWhy = byId("view-seal-why");
-// The seal's place at the view's foot is made once, and drawn again for each work item the view shows.
-const viewSeal = sealPlace("view", null);
-const sealSays = byId("seal-says");
+const inspectionHead = byId("view-inspection-head");
+const inspectionWhy = byId("view-inspection-why");
+// The inspection's place at the view's foot is made once, and drawn again for each work item the view shows.
+const viewMark = markPlace("view", null);
+const inspectionSays = byId("inspection-says");
 const pullRequestSection = byId("view-pull-request");
 const pullRequestList = byId("pull-request-list");
 const closeDialog = byId<HTMLDialogElement>("close-pane-dialog");
@@ -1017,7 +1017,7 @@ export function takeGateOutput(requestId: number, output: { text: string; cut: b
 }
 
 /**
- * Draws the list of the daemon's chain at the view's foot, above the seal's
+ * Draws the list of the daemon's chain at the view's foot, above the inspection's
  * place (./view, `chainList`): the line of the work item's newest broad
  * gate, first, and the work item's headless sessions, or no list where it
  * holds no line. The line of a working session offers
@@ -1167,23 +1167,23 @@ function sendAnswers(): void {
 }
 
 /**
- * Draws the view's foot for the view's work item: the seal's place and its
- * words for the seal its branch's head holds (./view, `sealShown`), with
- * the seal's sentence under its head where the seal is broken, and the
+ * Draws the view's foot for the view's work item: the inspection's place and its
+ * words for the inspection its branch's head holds (./view, `inspectionShown`), with
+ * the inspection's sentence under its head where the inspection lapsed, and the
  * sentence of the work item's chain (./view, `chainSays`) under them. The
  * foot holds nothing to press.
  */
-function showSeal(workItem: WorkItem): void {
-  drawSeal(viewSeal, workItem.seal);
-  const shown = sealShown(workItem.seal);
-  sealHead.textContent = shown.words;
+function showInspection(workItem: WorkItem): void {
+  drawMark(viewMark, workItem.inspection);
+  const shown = inspectionShown(workItem.inspection);
+  inspectionHead.textContent = shown.words;
   // The daemon's sentence is plain text, never markup.
-  sealWhy.textContent = shown.why;
-  sealSays.textContent = chainSays(workItem, stageAhead(workItem, held.machine));
+  inspectionWhy.textContent = shown.why;
+  inspectionSays.textContent = chainSays(workItem, stageAhead(workItem, held.machine));
 }
 
 /**
- * Draws the view's work item's pull request under the seal's place (./view,
+ * Draws the view's work item's pull request under the inspection's place (./view,
  * `pullRequestFacts`), or hides the section where it has none: its number
  * and its state on a row that opens it, the result of its checks, a row for
  * each check, which opens the check where GitHub gave it an address, how
@@ -1464,7 +1464,7 @@ function backTab(active: boolean): HTMLElement {
 }
 
 /**
- * Draws the back of the seal of the view's work item in the back's place
+ * Draws the inspection sheet of the view's work item in the back's place
  * (./view, `backShown`; ./shared, `backParts`), and asks the daemon for its
  * records and its ledger, both at once, where nothing was asked for this
  * work item yet or a later list gives another key. While a second ask waits,
@@ -1475,16 +1475,16 @@ function showBack(workItem: WorkItem): void {
   const key = backKey(workItem);
   if (backAsked?.workItemId !== workItem.id || backAsked.key !== key) {
     backAsked = { workItemId: workItem.id, key, recordsRequest: request(), ledgerRequest: request(), records: null, ledger: null, refusal: null };
-    send({ type: "readSealRecords", requestId: backAsked.recordsRequest, workItemId: workItem.id });
+    send({ type: "readBackRecords", requestId: backAsked.recordsRequest, workItemId: workItem.id });
     send({ type: "readLedger", requestId: backAsked.ledgerRequest, workItemId: workItem.id });
   }
   const shown = backShown(backAsked);
   if (shown === BACK_READING && back.dataset.workItem === String(workItem.id) && back.childElementCount > 0) return;
-  const drawn = JSON.stringify([workItem.id, shown, workItem.seal ?? null]);
+  const drawn = JSON.stringify([workItem.id, shown, workItem.inspection ?? null]);
   if (drawn === backDrawn) return;
   backDrawn = drawn;
   back.dataset.workItem = String(workItem.id);
-  back.replaceChildren(...backParts(shown, workItem.seal));
+  back.replaceChildren(...backParts(shown, workItem.inspection));
 }
 
 /** Lets the back's answers go and empties its place, as when a pane comes in front or the view is left. */
@@ -1504,8 +1504,8 @@ function takeBackAnswer(requestId: number, took: (asked: NonNullable<typeof back
   return true;
 }
 
-/** Takes the daemon's `sealRecords`, and answers whether it answered the back. */
-export function takeSealRecords(requestId: number, records: SealRecords): boolean {
+/** Takes the daemon's `backRecords`, and answers whether it answered the back. */
+export function takeBackRecords(requestId: number, records: BackRecords): boolean {
   return takeBackAnswer(requestId, (asked) => {
     if (requestId === asked.recordsRequest) asked.records = records;
   });
@@ -1531,7 +1531,7 @@ export function takeBackRefusal(requestId: number, refusal: string): boolean {
  * them, its right column, the questions it is parked with among it, and the
  * list of the daemon's chain at its foot. The stage holds the pane in
  * front, or as many panes as the cap on panes side by side as tiles where "Side by side" is pressed, and
- * gives way to the back of the seal while the back's tab is in front. It
+ * gives way to the inspection sheet while the back's tab is in front. It
  * starts no process.
  */
 export function showView(): void {
@@ -1561,7 +1561,7 @@ export function showView(): void {
     }),
   );
   showQuestions(workItem);
-  showSeal(workItem);
+  showInspection(workItem);
   showPullRequest(workItem);
   viewDetail.replaceChildren(...detail(entry, 0, { reverse: (decisionId) => reverseDecision(workItem.id, decisionId), runSetup: (command) => runSetup(workItem.id, command) }));
   stripWorktree.textContent = workItem.worktree;
@@ -1597,7 +1597,7 @@ export function showView(): void {
 export function enterView(workItemId: number, pane?: number): void {
   held.viewing = workItemId;
   front = undefined;
-  // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
+  // A view entered with no pane opens to the back where the work item holds an inspection (./view, `opensToBack`).
   backFront = opensToBack(held.workItems.find((item) => item.id === workItemId), pane);
   if (backAsked?.workItemId !== workItemId) dropBack();
   if (pane !== undefined) broughtToFront(workItemId, pane);
@@ -1740,7 +1740,7 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     event.preventDefault();
     event.stopPropagation();
   });
-  byId("view-seal-place").replaceWith(viewSeal);
+  byId("view-inspection-place").replaceWith(viewMark);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
   });

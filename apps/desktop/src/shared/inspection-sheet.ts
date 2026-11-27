@@ -1,6 +1,6 @@
-// The back of a seal, composed once for the window and for the pull
+// The inspection sheet, composed once for the window and for the pull
 // request's body: from what a work item's committed records say
-// (`SealRecords`) and the ledger's entries of its stages, the seal's record
+// (`BackRecords`) and the ledger's entries of its stages, the inspection's record
 // as rows, the sentences at its head, one part for each round with its
 // findings and the stages that ran for it, the stages after the rounds, the
 // sums, the sessions outside the chain, the refused calls and the lines not
@@ -16,7 +16,7 @@
 // It reads no file and no clock, and imports nothing of the daemon or the
 // renderer. A text holds a commit, a path or a name between backticks,
 // which the body writes as Markdown and the window draws as code.
-import { type BackFinding, type BackRound, type ChainStageKind, type LedgerEntry, type SealRecords, type Usage } from "./protocol";
+import { type BackFinding, type BackRound, type ChainStageKind, type LedgerEntry, type BackRecords, type Usage } from "./protocol";
 
 /** The words over the cells of a stage's line, in the window's back and in the table of the pull request's body alike. */
 export const STAGE_COLUMNS = ["Stage", "Ended", "Time", "Tokens in / out", "Cache read / written", "Cost"] as const;
@@ -56,15 +56,15 @@ export interface RoundPart {
   stages: StageLine[];
 }
 
-/** The back of a seal, as plain values. */
+/** The inspection sheet, as plain values. */
 export interface Back {
-  /** The seal's record as rows, and none where the records hold no seal. */
+  /** The inspection's record as rows, and none where the records hold no inspection. */
   record: { label: string; value: string }[];
-  /** The line of a broken seal that names the commit that broke it, and the commit's subject. */
-  brokenBy: { says: string; subject: string } | null;
+  /** The line of a lapsed inspection that names the commit that lapsed it, and the commit's subject. */
+  lapsedBy: { says: string; subject: string } | null;
   head: string[];
   rounds: RoundPart[];
-  /** The broad gate's and the sealer's lines, and a ruling on the sealer's question after the sealer's line, in the ledger's order. */
+  /** The broad gate's and the inspector's lines, and a ruling on the inspector's question after the inspector's line, in the ledger's order. */
   after: StageLine[];
   /** The sentences on what the chain's stages cost, or the one that says the stages ran outside the daemon, where the records hold a round or a verdict and the ledger holds no stage of the chain. */
   sums: string[];
@@ -75,7 +75,7 @@ export interface Back {
   unread: string[];
 }
 
-/** The kinds of stage that ran for a round: a ruling that follows the sealer's entry of its round is the sealer's question's, and runs after the rounds. */
+/** The kinds of stage that ran for a round: a ruling that follows the inspector's entry of its round is the inspector's question's, and runs after the rounds. */
 const ROUND_KINDS: readonly ChainStageKind[] = ["round", "fix-pass", "judgment", "ruling"];
 
 /** The kinds of stage that are no agent's turn, so that no cost is asked of them. */
@@ -88,7 +88,7 @@ const STAGE_NAMES: Record<ChainStageKind, (round: number) => string> = {
   judgment: (round) => `Judgment after round ${String(round)}`,
   ruling: (round) => `Ruling after round ${String(round)}`,
   gate: () => "Broad gate",
-  inspection: () => "Sealer",
+  inspection: () => "Inspector",
   "pull-request": () => "Pull request",
 };
 
@@ -213,14 +213,14 @@ function noFindingSays(round: BackRound): string {
 }
 
 /** The sentences at the back's head: the defects caught and fixed, the findings rejected, deferred and open, and the count of findings of each round. */
-function headOf(rounds: readonly BackRound[], sealed: boolean): string[] {
+function headOf(rounds: readonly BackRound[], cleared: boolean): string[] {
   if (rounds.length === 0) return ["No review round is recorded."];
   const findings = rounds.flatMap((round) => round.findings.map((finding) => ({ round: round.round, finding })));
   if (findings.length === 0) return ["The review rounds caught nothing."];
   const reopened = new Set(findings.flatMap(({ finding }) => (finding.reopens === null ? [] : [`${String(finding.reopens.round)}#${String(finding.reopens.finding)}`])));
   const defects = findings.filter(({ round, finding }) => finding.close?.verdict === "fixed" && !reopened.has(`${String(round)}#${String(finding.number)}`)).length;
   const fixed = defects === 0 ? "no defect that was fixed" : `${counted(defects, "defect")} that ${defects === 1 ? "was" : "were"} fixed`;
-  const head = [`The review rounds caught ${fixed}${sealed ? " before the seal" : ""}.`];
+  const head = [`The review rounds caught ${fixed}${cleared ? " before the inspection" : ""}.`];
   const rejected = findings.filter(({ finding }) => finding.close?.verdict === "rejected").length;
   const deferred = findings.filter(({ finding }) => finding.close?.verdict === "deferred").length;
   const open = findings.filter(({ finding }) => finding.close === null).length;
@@ -231,7 +231,7 @@ function headOf(rounds: readonly BackRound[], sealed: boolean): string[] {
 }
 
 /** One line for each stage that was refused a call, in the order of the stages' first rows, with the count for each rule. */
-function refusedOf(refusals: SealRecords["refusals"]): string[] {
+function refusedOf(refusals: BackRecords["refusals"]): string[] {
   const stages = new Map<string, Map<string, number>>();
   for (const { kind, round, rule } of refusals) {
     const name = STAGE_NAMES[kind](round);
@@ -246,23 +246,23 @@ function refusedOf(refusals: SealRecords["refusals"]): string[] {
 }
 
 /**
- * The back of a seal from what the records say, the ledger's entries of the
+ * The inspection sheet from what the records say, the ledger's entries of the
  * work item in the order their stages ended, and the count of the ledger's
  * lines that were not read. An entry whose `chain` is null is a session
  * outside the chain, whatever its pair, and enters no round and no sum of
  * the chain.
  */
-export function composeBack(records: SealRecords, entries: readonly LedgerEntry[], unreadLedger: number): Back {
+export function composeBack(records: BackRecords, entries: readonly LedgerEntry[], unreadLedger: number): Back {
   const chained = entries.filter((entry): entry is LedgerEntry & { chain: NonNullable<LedgerEntry["chain"]> } => entry.chain !== null);
   const byRound = new Map<number, StageLine[]>();
   const after: StageLine[] = [];
-  const sealed = new Set<number>();
+  const cleared = new Set<number>();
   for (const entry of chained) {
     const { kind, round } = entry.chain;
     const line = stageLine(entry, kind, round);
-    if (ROUND_KINDS.includes(kind) && !(kind === "ruling" && sealed.has(round))) byRound.set(round, [...(byRound.get(round) ?? []), line]);
+    if (ROUND_KINDS.includes(kind) && !(kind === "ruling" && cleared.has(round))) byRound.set(round, [...(byRound.get(round) ?? []), line]);
     else after.push(line);
-    if (kind === "inspection") sealed.add(round);
+    if (kind === "inspection") cleared.add(round);
   }
   const recorded = new Map(records.rounds.map((round) => [round.round, round]));
   const numbers = [...new Set([...recorded.keys(), ...byRound.keys()])].sort((a, b) => a - b);
@@ -291,7 +291,7 @@ export function composeBack(records: SealRecords, entries: readonly LedgerEntry[
           ...(record.gate === null ? [] : [{ label: "Gate", value: `\`${shown(record.gate)}\`` }]),
           { label: "Rounds", value: String(record.rounds) },
           ...(record.builtBy.length === 0 ? [] : [{ label: "Built by", value: record.builtBy.join(", ") }]),
-          ...(record.judgedBy === null ? [] : [{ label: "Judged by", value: record.judgedBy }]),
+          ...(record.inspectedBy === null ? [] : [{ label: "Inspected by", value: record.inspectedBy }]),
           ...(record.model === null ? [] : [{ label: "Model", value: record.model }]),
           ...(record.rules === null ? [] : [{ label: "Rules", value: record.rules }]),
         ];
@@ -314,7 +314,7 @@ export function composeBack(records: SealRecords, entries: readonly LedgerEntry[
   ];
   return {
     record: rows,
-    brokenBy: records.brokenBy === null ? null : { says: `Broken by \`${shown(records.brokenBy.commit)}\``, subject: records.brokenBy.subject },
+    lapsedBy: records.lapsedBy === null ? null : { says: `Lapsed by \`${shown(records.lapsedBy.commit)}\``, subject: records.lapsedBy.subject },
     head: headOf(records.rounds, record !== null),
     rounds,
     after,

@@ -3,7 +3,7 @@
 // registers the repository through the form, and drives the dialog through
 // Electron's debugging port: what it says before anything is written, the
 // commit its button makes, and what it shows of a repository that holds
-// every part, with how an administrator makes the seal check required in
+// every part, with how an administrator makes the inspection check required in
 // both. It then registers a second temporary repository whose committed
 // workflow fetches the check of an older Owlery, presses the button its row
 // holds, and makes the move the dialog shows. Each commit lands in its
@@ -21,8 +21,8 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
   let pinned: ReturnType<typeof temporaryRepository> | undefined;
 
   const WORKFLOW = ".github/workflows/owlery-inspection.yml";
-  /** What the dialog says of the seal check Owlery's workflow posts, and how an administrator makes it required. */
-  const REQUIRED = "The workflow posts its verdict as the check `seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
+  /** What the dialog says of the inspection check Owlery's workflow posts, and how an administrator makes it required. */
+  const REQUIRED = "The workflow posts its verdict as the check `inspection` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires `inspection` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `inspection` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
   const value = <T>(expression: string): Promise<T> => app.evaluate<T>(expression);
   const text = (id: string): Promise<string> => value(`document.getElementById(${JSON.stringify(id)}).textContent`);
   const dialogOpen = (id: string): Promise<void> => app.until(`document.getElementById(${JSON.stringify(id)}).open`, `the dialog ${id}`);

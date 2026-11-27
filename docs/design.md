@@ -70,7 +70,7 @@ What the names say.
 - `--state-*`, `--added`, `--removed`: a state's colour, which its mark and its words take, with the fill of the mark of a wait and of a failure, and the counts of lines added and removed.
 - `--terminal-*`: the terminal's ground and ink, and the label of the tab in front.
 - `--tab-green`, `--tab-blue` and `--tab-pink`: the colours a person marks a pane's tab with, in the order of its menu's row, which the tab's bar and the row's swatches are drawn in.
-- `--seal-*`: the tones of the seal's blank place, the light on a seal, and the light on a broken seal, which takes the wax's red out. No other token holds a red.
+- `--inspection-*`: the tones of the blank place of the inspection's mark, the light on a cleared inspection, and the light on a lapsed inspection, which takes the wax's red out. No other token holds a red.
 - `--radius-*`: the corners of a card, a control, a line, a chip, what an agent says and a search's mark.
 - `--card-edge`, `--said-*`, `--backdrop`, `--dialog-shadow`, `--field-edge`, `--tab-edge`, `--dot-edge`, `--on-edge`: the edges the page draws as a shadow, the edge of an icon's button that is on, the ground and edges of what an agent says, and what stands behind and under a dialog.
 - `--approval-*`: the approval line's rule that joins a role's name to the next place, the edge of its block and the edge between two of its places.
@@ -128,9 +128,9 @@ No theme changes these. They stand in the page's `:root`.
 | `--link-card-width` | `480px` |
 | `--tab-width` | `240px` |
 | `--dot` | `6px` |
-| `--seal-size-line` | `18px` |
-| `--seal-size` | `64px` |
-| `--seal-size-large` | `112px` |
+| `--inspection-size-line` | `18px` |
+| `--inspection-size` | `64px` |
+| `--inspection-size-large` | `112px` |
 | `--motion` | `120ms` |
 
 ### Night watch
@@ -191,15 +191,15 @@ No theme changes these. They stand in the page's `:root`.
 | `--terminal-ground` | `#070708` | `#0f0f10` |
 | `--terminal-ink` | `#cfccc4` | `#cfccc4` |
 | `--terminal-strong` | `#f3efe6` | `#f3efe6` |
-| `--seal-blank` | `#1b1b1d` | `#ebe7dd` |
-| `--seal-blank-deep` | `#151516` | `#e4e0d5` |
-| `--seal-blank-ring` | `#242426` | `#f6f3ec` |
-| `--seal-blank-owl` | `#2c2c2f` | `#d6d1c4` |
-| `--seal-blank-ground` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` |
-| `--seal-blank-edge` | `inset 0 0 0 1px var(--seal-blank-ring)` | `inset 0 0 0 1px var(--seal-blank-ring)` |
-| `--seal-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
-| `--seal-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
-| `--seal-broken-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-blank` | `#1b1b1d` | `#ebe7dd` |
+| `--inspection-blank-deep` | `#151516` | `#e4e0d5` |
+| `--inspection-blank-ring` | `#242426` | `#f6f3ec` |
+| `--inspection-blank-owl` | `#2c2c2f` | `#d6d1c4` |
+| `--inspection-blank-ground` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` |
+| `--inspection-blank-edge` | `inset 0 0 0 1px var(--inspection-blank-ring)` | `inset 0 0 0 1px var(--inspection-blank-ring)` |
+| `--inspection-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
+| `--inspection-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-lapsed-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
 | `--radius-card` | `8px` | `8px` |
 | `--radius-control` | `6px` | `6px` |
 | `--radius-line` | `6px` | `6px` |
@@ -294,15 +294,15 @@ No theme changes these. They stand in the page's `:root`.
 | `--terminal-ground` | `#151312` | `#1c1815` |
 | `--terminal-ink` | `#d6cfc1` | `#d8cfbd` |
 | `--terminal-strong` | `#f6ecd8` | `#f6ecd8` |
-| `--seal-blank` | `#292624` | `#ebe2ce` |
-| `--seal-blank-deep` | `#23201e` | `#e6dcc6` |
-| `--seal-blank-ring` | `#312d2a` | `#f4eddd` |
-| `--seal-blank-owl` | `#3b3632` | `#d9ccb2` |
-| `--seal-blank-ground` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` |
-| `--seal-blank-edge` | `inset 0 0 0 1px var(--seal-blank-ring)` | `inset 0 0 0 1px var(--seal-blank-ring)` |
-| `--seal-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
-| `--seal-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
-| `--seal-broken-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-blank` | `#292624` | `#ebe2ce` |
+| `--inspection-blank-deep` | `#23201e` | `#e6dcc6` |
+| `--inspection-blank-ring` | `#312d2a` | `#f4eddd` |
+| `--inspection-blank-owl` | `#3b3632` | `#d9ccb2` |
+| `--inspection-blank-ground` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` |
+| `--inspection-blank-edge` | `inset 0 0 0 1px var(--inspection-blank-ring)` | `inset 0 0 0 1px var(--inspection-blank-ring)` |
+| `--inspection-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
+| `--inspection-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-lapsed-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
 | `--radius-card` | `2px` | `2px` |
 | `--radius-control` | `2px` | `2px` |
 | `--radius-line` | `0` | `0` |
@@ -397,15 +397,15 @@ No theme changes these. They stand in the page's `:root`.
 | `--terminal-ground` | `#151312` | `#1c1815` |
 | `--terminal-ink` | `#d6cfc1` | `#d8cfbd` |
 | `--terminal-strong` | `#f6ecd8` | `#f6ecd8` |
-| `--seal-blank` | `#292624` | `#ebe2ce` |
-| `--seal-blank-deep` | `#23201e` | `#e6dcc6` |
-| `--seal-blank-ring` | `#312d2a` | `#f4eddd` |
-| `--seal-blank-owl` | `#3b3632` | `#d9ccb2` |
-| `--seal-blank-ground` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep))` |
-| `--seal-blank-edge` | `inset 0 0 0 1px var(--seal-blank-ring)` | `inset 0 0 0 1px var(--seal-blank-ring)` |
-| `--seal-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
-| `--seal-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
-| `--seal-broken-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-blank` | `#292624` | `#ebe2ce` |
+| `--inspection-blank-deep` | `#23201e` | `#e6dcc6` |
+| `--inspection-blank-ring` | `#312d2a` | `#f4eddd` |
+| `--inspection-blank-owl` | `#3b3632` | `#d9ccb2` |
+| `--inspection-blank-ground` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` | `radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep))` |
+| `--inspection-blank-edge` | `inset 0 0 0 1px var(--inspection-blank-ring)` | `inset 0 0 0 1px var(--inspection-blank-ring)` |
+| `--inspection-blank-light` | `drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55))` | `drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4))` |
+| `--inspection-light` | `drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
+| `--inspection-lapsed-light` | `grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6))` | `grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35))` |
 | `--radius-card` | `8px` | `4px` |
 | `--radius-control` | `6px` | `5px` |
 | `--radius-line` | `6px` | `5px` |
@@ -467,7 +467,7 @@ Each part's form is the same in every theme, drawn with the theme's tokens. A gr
 | The letters a search matched | `--mark` under the letters, which are in `--ink-strong`, with `--mark-edge` and `--radius-mark`. | — | — | — | — | — |
 | A state's mark | The theme's shapes for the state, in the state's colour, 16px wide. The mark says its words to a pointer and to a screen reader. The part of the working mark that turns goes round once in 1.1s. | — | — | — | — | — |
 | What an agent says, and the questions a work item is parked with | `--said-ground` with `--said-edge` and `--radius-said`, the words in `--font-said` and `--ink-strong`. Where the work item needs the person the edge is `--said-edge-waiting`. A question's grounds and what an option implies are in `--ink-muted`. The choices an agent offers with its question stand under the question as a numbered list, each choice's label in `--ink-strong` and what it leads to in `--ink-muted`. Under a question that takes more than one choice stand the words "More than one may be chosen.", in `--size-caption` and `--ink-faint`. No choice is a button and the card holds no field, since the person answers in the agent's pane. | — | — | — | — | — |
-| The seal's place | Drawn from the seal the branch's head commit holds. Before a seal: on a line a disc of `--seal-blank-ground` with `--seal-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--seal-blank-light`. Sealed, where the seal holds at the head: the seal as it is drawn, under `--seal-light`. Broken, where a commit after the seal broke it: the same drawing parted in two along one slanted break, with a gap between its halves, under `--seal-broken-light`, which takes the wax's red out. The break is the page's own and the same in every theme. The place says its words to a pointer and to a screen reader, and the preview and the head of a view's foot show them beside it: "No seal yet", "Sealed at 3f2a9c1" or "Seal broken, sealed at 3f2a9c1", with the first seven characters of the sealed commit. At a view's foot a column of words stands beside the drawing: those words as its head, a note in `--ink-muted`, and the sentence of the daemon's chain in `--ink` where such a chain stands. The note and the chain's sentence are at `--size-second` and wrapped. Where the seal is broken, the seal's sentence, which says why it broke, stands in `--ink` on a line of its own under the head of a view's foot. The seal's place holds nothing to press: a seal comes from the chain a pane's session runs, or from the daemon's chain of a handed-over issue. | — | — | — | — | — |
+| The seal's place | Drawn from the seal the branch's head commit holds. Before a seal: on a line a disc of `--inspection-blank-ground` with `--inspection-blank-edge`, and in the preview and at a view's foot the seal's drawing pressed into the ground in the blank tones under `--inspection-blank-light`. Sealed, where the seal holds at the head: the seal as it is drawn, under `--inspection-light`. Broken, where a commit after the seal broke it: the same drawing parted in two along one slanted break, with a gap between its halves, under `--inspection-lapsed-light`, which takes the wax's red out. The break is the page's own and the same in every theme. The place says its words to a pointer and to a screen reader, and the preview and the head of a view's foot show them beside it: "No seal yet", "Sealed at 3f2a9c1" or "Seal broken, sealed at 3f2a9c1", with the first seven characters of the sealed commit. At a view's foot a column of words stands beside the drawing: those words as its head, a note in `--ink-muted`, and the sentence of the daemon's chain in `--ink` where such a chain stands. The note and the chain's sentence are at `--size-second` and wrapped. Where the seal is broken, the seal's sentence, which says why it broke, stands in `--ink` on a line of its own under the head of a view's foot. The seal's place holds nothing to press: a seal comes from the chain a pane's session runs, or from the daemon's chain of a handed-over issue. | — | — | — | — | — |
 | The back of the seal | In the stage's place, behind its own tab, on the window's ground and in its inks, and the person can select its text. From its top: the large seal with the words of its state, a broken seal's sentence in `--ink` and the line "Broken by" with the commit and its subject in `--ink-muted`; the seal's record as labels in `--ink-muted` beside their values; the head's sentences in `--ink-strong`; each round under its title in the caption's ink, with its findings, a round's sentence and its stages; the stages after the rounds; and the sums, the line of the sessions outside the chain, the sentence on a converted cost and the refused calls. Code in a text stands in the fixed-width face. A cost is in `--ink` and `--font-fact`, and its word "converted" in `--ink-muted`. How a stage that failed ended is in `--state-failed`, and so is a line not read. An open finding's close is in `--ink-strong` at the heavier weight, and a closed one's in `--ink-muted`. Nothing of the back is red but the seal. Until the records and the ledger have both answered, and where either was refused, the place holds one sentence in `--ink-muted`. | — | — | — | — | — |
 | The approval line | A section headed "Approval line", after what the agent says and before the decisions, in the preview and in a view's right column. The four roles in the order framer, crafter, proofer, sealer, in the form *The themes* gives for the theme, four places of one width. Each place holds the mark of how far its role came, the role's name with one capital in `--ink`, and under the name a note of two words at most in `--ink-muted`: "Not started" for a place not started, "Needs you" for one that waits on the person's answer, the stage the work item's chain runs for the role, or the stage the chain command handed a pane's session for it, "Round 2", "Fix pass" or "Judging", for a place at work, "Broad gate" for the sealer's place while the chain or a pane's chain command runs the repository's broad gate, "Failed" for one whose stage failed, "Gate failed" for the sealer's place where that broad gate failed, and otherwise how it ended, such as "Framed", "1 commit", "3 rounds", "Sealed", "Withheld" or "Undecided". A sealer's place not started where the gate's run is recorded says "Gate passed". A place not started takes the mark of a work item asleep, a place at work the mark of work, and one whose role failed the mark of a failure. The sealer's place where the broad gate failed takes the mark of a wait, since that failure is no failure of the sealer. The mark says the role's name and the place's whole words to a pointer and to a screen reader, with the commit a verdict names, the round a stage belongs to, and the age of a wait or of a stage that runs. The sealer's place holds the seal's place, drawn as on a line. The sealer's place says "Sealed" only where the seal holds at the branch's head commit. Where a later commit broke the seal, the place takes the mark of a wait and the note "Seal broken", and the seal's sentence, which says why it broke, stands under the places. Under the places stands one line of text for each place that has something to say, the role's name, a colon and the text: the question it waits on, why its stage failed, or the verdict's reason or question. The line is in `--ink-muted`, and in `--state-failed` for a place that failed. | — | — | — | — | — |
 | An account's name | The name in `--font-fact` and `--ink-faint`, after the facts of a line of the inbox and after a pane's label on its tab, only where the account differs from the one its repository or its work item gives. In the Accounts dialog an account is a row of a list of records, with the default said in words. Under its name stand its folder in `--font-fact` and `--ink-faint`, then the state of its sign-in, its usage with the time it arrived, its last refresh and the sentence on what a refresh spends, each in `--ink-muted` at `--size-caption` and wrapped. The name and these lines take the row's whole width, so a name breaks inside a word only where it is longer than the row. Under them, the default said in words and the row's buttons stand on a line of their own, and wrap where they do not fit. "Refresh usage" is a button of that row and not the main button. The form under the list holds no field: "Add an account" opens the sign-in pane at once, and the account's row appears, named from the login, when the sign-in ends signed in. The sign-in pane stands under the list. | — | — | A selected line draws the name in `--ink-muted`, as it draws its age. | — | While a sign-in this window started waits on the daemon or runs, "Add an account" and each row's "Sign in" are disabled, so no second sign-in replaces the pane the dialog draws. |

@@ -2,7 +2,7 @@
 // the cleared branch is pushed to with the person's git, the calls of the
 // person's `gh` that list, open, edit and read a pull request, the body
 // composed from the records the branch's head commit holds, which opens with
-// the inspection section and the back of the seal, and the pull request's checks
+// the inspection section and the inspection sheet, and the pull request's checks
 // read into three states.
 // This module reads no stored state and writes none: `Daemon#runPullRequest`
 // and `Daemon#readPullRequest` store what it gives, and the daemon arranges
@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { join } from "node:path";
 import type { PullRequest, PullRequestCheck } from "../shared/protocol";
-import { type Back, type FindingLine, STAGE_COLUMNS, type StageLine, costText } from "../shared/seal-back";
+import { type Back, type FindingLine, STAGE_COLUMNS, type StageLine, costText } from "../shared/inspection-sheet";
 import { ROUNDS_FOLDER, roundFile } from "./chain";
 import { readDecisionRecord } from "./decision-record";
 import { gfmLines } from "./record-blocks";
@@ -49,10 +49,10 @@ export const SECTION_OPEN = "<!-- owlery:inspection -->";
 /** The line that closes a body's inspection section, as `chain_check.py#SECTION_CLOSE` reads it. */
 export const SECTION_CLOSE = "<!-- /owlery:inspection -->";
 
-/** The line that opens the body's section of the back of the seal, below the inspection section. No check reads it. */
+/** The line that opens the body's section of the inspection sheet, below the inspection section. No check reads it. */
 export const BACK_OPEN = "<!-- owlery:back -->";
 
-/** The line that closes the body's section of the back of the seal. */
+/** The line that closes the body's section of the inspection sheet. */
 export const BACK_CLOSE = "<!-- /owlery:back -->";
 
 /** Every marker line Owlery writes into a body. */
@@ -412,8 +412,8 @@ function under(directory: string, path: string): string {
  * Reads what a pull request's body is composed from, at the commit given,
  * through the daemon's own readers. `directory` is the work item's directory
  * from the worktree's top. It throws where `inspection.md` holds no verdict
- * block there. The back of the seal is composed apart
- * (`../shared/seal-back#composeBack`), since it reads the ledger too.
+ * block there. The inspection sheet is composed apart
+ * (`../shared/inspection-sheet#composeBack`), since it reads the ledger too.
  */
 export async function bodyRecords(worktree: string, head: string, directory: string): Promise<BodyRecords> {
   const at = (path: string): Promise<string | null> => fileAt(worktree, head, under(directory, path));
@@ -482,7 +482,7 @@ function listedRounds(back: Back): number {
 export function backSection(back: Back, directory: string, held = 0): string {
   const listed = back.rounds.filter((round) => round.findings.length > 0);
   const given = new Set((held > 0 ? listed.slice(-held) : []).map((round) => round.round));
-  const blocks = [`${BACK_OPEN}\n## The back of the seal`, back.head.join(" ")];
+  const blocks = [`${BACK_OPEN}\n## Inspection sheet`, back.head.join(" ")];
   for (const round of back.rounds) {
     blocks.push(`### ${round.title}`);
     if (given.has(round.round)) blocks.push(`\`${under(directory, `${ROUNDS_FOLDER}/${roundFile(round.round)}`)}\` holds this round's findings.`);
@@ -541,7 +541,7 @@ interface Section {
 }
 
 const INSPECTION: Section = { open: SECTION_OPEN, close: SECTION_CLOSE, named: "inspection section" };
-const BACK: Section = { open: BACK_OPEN, close: BACK_CLOSE, named: "section of the back of the seal" };
+const BACK: Section = { open: BACK_OPEN, close: BACK_CLOSE, named: "section of the inspection sheet" };
 
 /**
  * A body with one of its sections replaced: the lines from the section's

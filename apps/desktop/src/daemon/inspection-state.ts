@@ -1,6 +1,5 @@
-// The inspection a work item's branch holds at its head commit, which the
-// protocol sends as a `Seal`: `sealed`, `broken` or none, read from git and
-// the committed records alone. The worktree gives one thing, the place of the work item's directory, which
+// The inspection a work item's branch holds at its head commit: `cleared`,
+// `lapsed` or none, read from git and the committed records alone. The worktree gives one thing, the place of the work item's directory, which
 // `decision-record.ts#workItemDirectory` finds by the `routing.md` it holds,
 // as every reader of the daemon finds it. Every record under that directory
 // is then read as the head commit holds it: the inspection here, and the
@@ -16,7 +15,7 @@
 // rule of its own on what may follow an inspection, and stores nothing; the daemon
 // reads it again each time a branch's head moves and when it starts.
 import { join, relative } from "node:path";
-import type { Seal, WorkItem } from "../shared/protocol";
+import type { Inspection, WorkItem } from "../shared/protocol";
 import { ChainStop, type Step, closingRecord, roundBase, stageName, standingOf, stepOwed } from "./chain";
 import { lastVerdict } from "./chain-records";
 import { workItemDirectory } from "./decision-record";
@@ -28,12 +27,12 @@ function shown(commit: string): string {
   return commit.slice(0, 7);
 }
 
-/** A broken seal of the commit, and why, whole: the daemon cuts the sentence where it sends it. */
-function broken(commit: string, why: string): Seal {
-  return { state: "broken", commit, why };
+/** A lapsed inspection of the commit, and why, whole: the daemon cuts the sentence where it sends it. */
+function lapsed(commit: string, why: string): Inspection {
+  return { state: "lapsed", commit, why };
 }
 
-/** The sentence of a broken seal where no path but a closing record differs from the cleared commit: which step the order owes. */
+/** The sentence of a lapsed inspection where no path but a closing record differs from the cleared commit: which step the order owes. */
 function owedSays(step: Exclude<Step, { is: "cleared" }>, commit: string): string {
   const after = `after the cleared commit \`${shown(commit)}\``;
   if (step.is === "parked") return `The work item waits for the answers to its open questions ${after}.`;
@@ -47,28 +46,28 @@ function owedSays(step: Exclude<Step, { is: "cleared" }>, commit: string): strin
  *
  * - The head holds no `inspection.md` in the directory, the reader refuses a
  *   line of it or finds no verdict block, or the newest block reads
- *   `withheld` or `undecided`: no seal, null.
+ *   `withheld` or `undecided`: no inspection, null.
  * - The repository holds no commit of the name the inspection gives, or the head
- *   does not hold it: broken, and the sentence says which.
+ *   does not hold it: lapsed, and the sentence says which.
  * - A record the head holds does not read (`standingOf` throws a
- *   `ChainStop`): broken, and the sentence says what the reader refuses.
+ *   `ChainStop`): lapsed, and the sentence says what the reader refuses.
  * - The order owes nothing at the head (`stepOwed` answers `cleared`):
- *   sealed.
- * - Otherwise broken, and the sentence names the first path that is no
+ *   cleared.
+ * - Otherwise lapsed, and the sentence names the first path that is no
  *   closing record and differs between the cleared commit and the head, or,
  *   where none does, the step the order owes.
  *
  * `base` is what round 1's target names the branch against (`roundBase`).
  * It throws what git throws other than through a `ChainStop`.
  */
-export async function inspectionAt(worktree: string, directory: string, head: string, base: string): Promise<Seal | null> {
+export async function inspectionAt(worktree: string, directory: string, head: string, base: string): Promise<Inspection | null> {
   const place = relative(worktree, directory);
   const text = await fileAt(worktree, head, join(place, INSPECTION_FILE));
   const verdict = text === null ? null : lastVerdict(text);
   if (verdict === null || verdict.is !== "cleared") return null;
   const whole = await commitNamed(worktree, verdict.commit);
-  if (whole === null) return broken(verdict.commit, `The repository holds no cleared commit \`${shown(verdict.commit)}\`.`);
-  if (!(await holdsCommit(worktree, head, whole))) return broken(whole, `The branch no longer holds the cleared commit \`${shown(whole)}\`.`);
+  if (whole === null) return lapsed(verdict.commit, `The repository holds no cleared commit \`${shown(verdict.commit)}\`.`);
+  if (!(await holdsCommit(worktree, head, whole))) return lapsed(whole, `The branch no longer holds the cleared commit \`${shown(whole)}\`.`);
   let step: Step;
   let read: string;
   try {
@@ -77,11 +76,11 @@ export async function inspectionAt(worktree: string, directory: string, head: st
     read = standing.directory;
   } catch (error) {
     if (!(error instanceof ChainStop)) throw error;
-    return broken(whole, `The records at the head do not read: ${error.message.replace(/\.+$/u, "")}.`);
+    return lapsed(whole, `The records at the head do not read: ${error.message.replace(/\.+$/u, "")}.`);
   }
-  if (step.is === "cleared") return { state: "sealed", commit: whole, why: null };
+  if (step.is === "cleared") return { state: "cleared", commit: whole, why: null };
   const changed = (await pathsBetween(worktree, whole, head)).find((path) => !closingRecord(path, read));
-  return broken(whole, changed === undefined ? owedSays(step, whole) : `\`${changed}\` changed after the cleared commit \`${shown(whole)}\`.`);
+  return lapsed(whole, changed === undefined ? owedSays(step, whole) : `\`${changed}\` changed after the cleared commit \`${shown(whole)}\`.`);
 }
 
 /**
@@ -90,7 +89,7 @@ export async function inspectionAt(worktree: string, directory: string, head: st
  * where the worktree holds no such directory or two, and for a work item
  * with no branch yet, whose directory no routing names.
  */
-export async function workItemInspection(item: Pick<WorkItem, "worktree" | "branch" | "baseBranch" | "baseCommit">, head: string): Promise<Seal | null> {
+export async function workItemInspection(item: Pick<WorkItem, "worktree" | "branch" | "baseBranch" | "baseCommit">, head: string): Promise<Inspection | null> {
   const directory = workItemDirectory(item.worktree, item.branch);
   if (directory === null) return null;
   return inspectionAt(item.worktree, directory, head, roundBase(item.baseBranch, item.baseCommit, head));

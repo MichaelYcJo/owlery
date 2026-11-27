@@ -1,22 +1,22 @@
 // The decisions made without asking, the questions a work item is parked
-// with and a seal given since the look, in the built app. No message of the
+// with and an inspection given since the look, in the built app. No message of the
 // protocol records a decision or parks a work item, so the case writes both
 // before the app starts. The daemon's run folder holds `repositories.json`
 // with four work items of a temporary repository, `record-times.json` with
 // the times the blocks were first read at, and `last-look.json` with what
 // the person has seen: one decision of the first work item, the answered
-// question of the third, and the fourth with no seal. Each of the first
+// question of the third, and the fourth with no inspection. Each of the first
 // three work items' worktrees holds its directory with its record: for the
 // first two decisions that stand, one a stage applied after its reversal
 // and a block the reader refuses; for the second the questions it is parked
 // with; for the third an answered question and a refused block alone. The
 // fourth records the commit its branch was cut at, so the daemon reads its
-// branch, and its branch holds the records of a seal, committed with git
+// branch, and its branch holds the records of an inspection, committed with git
 // before the app starts as a chain commits them. The daemon's first read of
-// that seal, the `git show` of its guarantee in the fourth's worktree, waits
+// that inspection, the `git show` of its guarantee in the fourth's worktree, waits
 // until the first case releases it, so `ready` goes out without the fourth's
-// seal and the seal joins the summary at the lists that follow. The last case
-// commits once more in its worktree, which breaks the seal. The login shell is a script
+// inspection and the inspection joins the summary at the lists that follow. The last case
+// commits once more in its worktree, which lapses the inspection. The login shell is a script
 // that names no CLI, and the case opens no pane. The last case archives the
 // second work item as a second client of the daemon.
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -40,8 +40,8 @@ const SETTLED = { asks: "May the build use the network?", grounds: "Only the per
 /** A block the record's reader refuses: a decision with no `decided:` line. */
 const REFUSED = "```iadd\ndecision: 9 scope\n```\n";
 const QUESTIONS = [
-  { asks: "Which base does the branch merge into?", grounds: "No document names the base of a hotfix.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
-  { asks: "Squash or merge?", grounds: "The repository's config names neither.", by: "sealer", options: [{ label: "squash", implies: "One commit reaches the base." }, { label: "merge", implies: "Every commit stays." }] },
+  { asks: "Which base does the branch merge into?", grounds: "No document names the base of a hotfix.", by: "inspector", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
+  { asks: "Squash or merge?", grounds: "The repository's config names neither.", by: "inspector", options: [{ label: "squash", implies: "One commit reaches the base." }, { label: "merge", implies: "Every commit stays." }] },
 ];
 const MESSAGE = "기본값 말고 release에서 시작해 주세요";
 const TYPED = "둘 다 아니고, rebase로";
@@ -49,10 +49,10 @@ const TYPED = "둘 다 아니고, rebase로";
 describe("the decisions and the questions in the built app", { timeout: 60_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
-  /** The commit the fourth work item's seal binds, once the case has committed its records. */
-  let sealedAt = "";
+  /** The commit the fourth work item's inspection binds, once the case has committed its records. */
+  let clearedAt = "";
   const cleanups: Cleanups = [];
-  /** The hold on the daemon's first read of the fourth work item's seal. */
+  /** The hold on the daemon's first read of the fourth work item's inspection. */
   let heldSeal: ReturnType<typeof heldGit>;
 
   /** The directory of the work item whose worktree and branch are named `name`. */
@@ -102,10 +102,10 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     const first = workItem(1, "Alpha", "alpha");
     const second = workItem(2, "Beta", "beta");
     const third = workItem(3, "Gamma", "gamma");
-    // The fourth is cut from the repository's one commit, which it records, and its branch is sealed by the records a chain commits: its routing, round 1, the broad gate's run and the sealer's verdict.
+    // The fourth is cut from the repository's one commit, which it records, and its branch is cleared by the records a chain commits: its routing, round 1, the broad gate's run and the inspector's verdict.
     const cutAt = git(made.repo, "rev-parse", "HEAD").trim();
     const fourth = { ...workItem(4, "Delta", "delta"), baseCommit: cutAt };
-    sealedAt = commitInspection(fourth.worktree, { workItem: "1-delta", branch: fourth.branch, base: cutAt });
+    clearedAt = commitInspection(fourth.worktree, { workItem: "1-delta", branch: fourth.branch, base: cutAt });
     writeFileSync(join(directoryOf("alpha"), RECORD_FILE), withDecision(withApplied(withReversal(withDecision(withDecision("", DECISION), APPLIED), 2, EARLIER_MESSAGE), 2, "abc1234"), LATER) + REFUSED);
     writeFileSync(join(directoryOf("beta"), RECORD_FILE), QUESTIONS.reduce(withQuestion, ""));
     writeFileSync(join(directoryOf("gamma"), RECORD_FILE), withAnswer(withQuestion("", SETTLED), 1, "yes") + REFUSED);
@@ -120,11 +120,11 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
         seen(first, { decisions: [{ id: 1, kind: "default", says: DECISION.decided, grounds: DECISION.grounds, by: "orchestrator", state: "decided", reversal: null, landed: null, since: null }, { id: 2, kind: "scope", says: APPLIED.decided, grounds: APPLIED.grounds, by: null, state: "applied", reversal: EARLIER_MESSAGE, landed: "abc1234", since: null }] }),
         seen(second, {}),
         seen(third, { questions: [{ id: 1, asks: SETTLED.asks, grounds: SETTLED.grounds, by: "crafter", options: [], default: null, answer: "yes", since: null }] }),
-        // The daemon had read the fourth's branch at the look, and its head held no seal.
-        seen(fourth, { seal: null }),
+        // The daemon had read the fourth's branch at the look, and its head held no inspection.
+        seen(fourth, { inspection: null }),
       ],
     };
-    // The app's daemon runs git from the path the app inherits, and reads a seal first with a `git show` of the guarantee in the work item's worktree (`inspection-state.ts#sealAt`). No other git command runs as `show` in the fourth's worktree before the release.
+    // The app's daemon runs git from the path the app inherits, and reads an inspection first with a `git show` of the guarantee in the work item's worktree (`inspection-state.ts#inspectionOf`). No other git command runs as `show` in the fourth's worktree before the release.
     heldSeal = heldGit(cleanups, made.base, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`);
     app = await BuiltApp.start(
       { SHELL: shell, OWLERY_WORKTREES: made.root },
@@ -152,8 +152,8 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
   afterEach(atRestAfterFailure(() => app));
 
-  it("opens on the summary with the lists that changed since the look while the daemon's read of a seal waits, joins that seal given since the look when the read ends, counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
-    // The look holds two of the first work item's three decisions, no question of the second and no seal of the fourth, so one decision is new, the parked work item changed and the fourth's seal was given. The daemon's read of the fourth's seal waits, so its `ready` went out without that seal: the summary opens on the two others, and the fourth has no line and no strong title in the sidebar.
+  it("opens on the summary with the lists that changed since the look while the daemon's read of an inspection waits, joins that inspection given since the look when the read ends, counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
+    // The look holds two of the first work item's three decisions, no question of the second and no inspection of the fourth, so one decision is new, the parked work item changed and the fourth's inspection was given. The daemon's read of the fourth's inspection waits, so its `ready` went out without that inspection: the summary opens on the two others, and the fourth has no line and no strong title in the sidebar.
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
     for (let waits = 0; waits < 100 && !heldSeal.waiting(); waits++) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(heldSeal.waiting()).toBe(true);
@@ -162,16 +162,16 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await texts("#summary-lines button .title")).toEqual(["Beta", "Alpha"]);
     expect(await text("#nav-summary-count")).toBe("2 new");
     expect(await deltaStrong()).toBe(false);
-    // The read goes on, and the lists that carry the seal join the fourth to the summary in front: its line first, its title strong and the sidebar's count one more.
+    // The read goes on, and the lists that carry the inspection join the fourth to the summary in front: its line first, its title strong and the sidebar's count one more.
     heldSeal.release();
-    await app.until(`document.getElementById("summary-sentence").textContent === "1 sealed, 1 needs you. 1 decision made without asking."`, "the summary's sentence with the seal given");
+    await app.until(`document.getElementById("summary-sentence").textContent === "1 cleared, 1 needs you. 1 decision made without asking."`, "the summary's sentence with the inspection given");
     expect(await app.evaluate(`document.getElementById("summary-screen").hidden`)).toBe(false);
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Beta", "Alpha"]);
     expect(await text("#nav-summary-count")).toBe("3 new");
     expect(await deltaStrong()).toBe(true);
     await app.click("#nav-inbox");
     await app.until(`document.querySelectorAll("#inbox-lines button[data-work-item]").length === 4`, "the four lines of the inbox");
-    // The parked work item waits for the person, so its line stands first, under the group's head, and says its first question. The sealed one has finished.
+    // The parked work item waits for the person, so its line stands first, under the group's head, and says its first question. The cleared one has finished.
     expect(await texts("#inbox-lines button[data-work-item] .first .title")).toEqual(["Beta", "Delta", "Alpha", "Gamma"]);
     expect(await text("#inbox-summary")).toBe("1 needs you, 1 finished");
     expect(await text(`#inbox-lines button[data-work-item="2"] .second .says`)).toBe("Which base does the branch merge into? (and 1 more question)");
@@ -219,7 +219,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await text("#questions-age")).toBe("Asked 5 min ago");
     expect(await app.evaluate(`document.getElementById("questions").classList.contains("waiting")`)).toBe(true);
     expect(await texts("#questions fieldset[data-question] legend")).toEqual(["Which base does the branch merge into?", "Squash or merge?"]);
-    expect(await texts("#questions fieldset[data-question] > .by, #questions fieldset[data-question] > .grounds")).toEqual(["Asked by sealer", "Grounds: No document names the base of a hotfix.", "Asked by sealer", "Grounds: The repository's config names neither."]);
+    expect(await texts("#questions fieldset[data-question] > .by, #questions fieldset[data-question] > .grounds")).toEqual(["Asked by inspector", "Grounds: No document names the base of a hotfix.", "Asked by inspector", "Grounds: The repository's config names neither."]);
     expect(await texts(`#questions fieldset[data-question="1"] label.option`)).toEqual(["mainIt waits for the next release.", "release/v0.0.2DefaultIt ships with this release.", "Another answer"]);
     const chosen = (): Promise<(string | null)[]> => app.evaluate(`[1, 2].map((id) => document.querySelector('#questions input[name="question-' + id + '"]:checked')?.value ?? null)`);
     expect(await chosen()).toEqual(["1", null]);
@@ -273,32 +273,32 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     }
   });
 
-  it("says the present of each line of the summary: the seal given since the look, then broken by a commit while the summary is in front, which draws its sentence, its line and the line's seal again and leaves the keyboard on the line it was on, and no line of a work item archived since, which the sidebar's count leaves out", async () => {
+  it("says the present of each line of the summary: the inspection given since the look, then lapsed by a commit while the summary is in front, which draws its sentence, its line and the line's inspection again and leaves the keyboard on the line it was on, and no line of a work item archived since, which the sidebar's count leaves out", async () => {
     const delta = `#summary-lines button[data-work-item="4"]`;
-    const at = sealedAt.slice(0, 7);
-    // The summary is one step away from the inbox the last case left in front, and the work items it lists are the load's and the one that joined after it: the sealed one first, then the two whose lists changed. The second one's questions are answered since, so it no longer needs the person: its line says its state alone and stands after the first's, in the daemon's order, and the sentence no longer counts it.
+    const at = clearedAt.slice(0, 7);
+    // The summary is one step away from the inbox the last case left in front, and the work items it lists are the load's and the one that joined after it: the cleared one first, then the two whose lists changed. The second one's questions are answered since, so it no longer needs the person: its line says its state alone and stands after the first's, in the daemon's order, and the sentence no longer counts it.
     await app.click("#nav-summary");
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
-    expect(await text("#summary-sentence")).toBe("1 sealed. 1 decision made without asking.");
+    expect(await text("#summary-sentence")).toBe("1 cleared. 1 decision made without asking.");
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Alpha", "Beta"]);
-    expect(await text(`${delta} .change`)).toBe(`Sealed at ${at} after 1 review round.`);
-    expect(await app.evaluate(`document.querySelector('${delta} .seal').dataset.seal`)).toBe("sealed");
-    // The keyboard on the sealed line, as a person's Tab puts it there.
+    expect(await text(`${delta} .change`)).toBe(`Cleared at ${at} after 1 review round.`);
+    expect(await app.evaluate(`document.querySelector('${delta} .mark').dataset.inspection`)).toBe("cleared");
+    // The keyboard on the cleared line, as a person's Tab puts it there.
     await app.evaluate(`document.querySelector('${delta}').focus()`);
 
-    // One more commit on the sealed branch, which the daemon reads as it moves the head.
+    // One more commit on the cleared branch, which the daemon reads as it moves the head.
     commitFile(join(made.root, "delta"), "delta.txt");
-    await app.until(`document.querySelector('${delta} .seal')?.dataset.seal === "broken"`, "the line's seal broken in the summary in front");
+    await app.until(`document.querySelector('${delta} .mark')?.dataset.inspection === "lapsed"`, "the line's inspection lapsed in the summary in front");
     expect(await app.evaluate(`document.getElementById("summary-screen").hidden`)).toBe(false);
-    expect(await text("#summary-sentence")).toBe("1 seal broken. 1 decision made without asking.");
+    expect(await text("#summary-sentence")).toBe("1 inspection lapsed. 1 decision made without asking.");
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Alpha", "Beta"]);
-    expect(await text(`${delta} .change`)).toBe(`Seal broken. \`delta.txt\` changed after the cleared commit \`${at}\`.`);
-    expect(await app.evaluate(`document.querySelector('${delta} .seal').getAttribute("aria-label")`)).toBe(`Seal broken, sealed at ${at}`);
+    expect(await text(`${delta} .change`)).toBe(`Inspection lapsed. \`delta.txt\` changed after the cleared commit \`${at}\`.`);
+    expect(await app.evaluate(`document.querySelector('${delta} .mark').getAttribute("aria-label")`)).toBe(`Inspection lapsed, cleared at ${at}`);
     expect(await app.evaluate(`document.activeElement === document.querySelector('${delta}')`)).toBe(true);
     // The sidebar counts the lines the summary draws.
     expect(await text("#nav-summary-count")).toBe("3 new");
 
-    // The third line's work item archived, by a second client of the daemon: the summary draws no line for it, the sidebar counts one line fewer, and the keyboard stays on the sealed line.
+    // The third line's work item archived, by a second client of the daemon: the summary draws no line for it, the sidebar counts one line fewer, and the keyboard stays on the cleared line.
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
     try {
@@ -316,7 +316,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     }
     await app.until(`document.querySelectorAll("#summary-lines button[data-work-item]").length === 2`, "the summary without the archived work item's line");
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Alpha"]);
-    expect(await text("#summary-sentence")).toBe("1 seal broken. 1 decision made without asking.");
+    expect(await text("#summary-sentence")).toBe("1 inspection lapsed. 1 decision made without asking.");
     expect(await text("#nav-summary-count")).toBe("2 new");
     expect(await app.evaluate(`document.activeElement === document.querySelector('${delta}')`)).toBe(true);
   });

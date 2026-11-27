@@ -56,9 +56,9 @@
         --link-card-width: 480px;
         --tab-width: 240px;
         --dot: 6px;
-        --seal-size-line: 18px;
-        --seal-size: 64px;
-        --seal-size-large: 112px;
+        --inspection-size-line: 18px;
+        --inspection-size: 64px;
+        --inspection-size-large: 112px;
         --motion: 120ms;
       }
       html { color-scheme: var(--scheme); }
@@ -130,26 +130,26 @@
       @keyframes turn { to { transform: rotate(360deg); } }
       .state-words { display: flex; align-items: center; gap: var(--space-3); font-size: var(--size-second); font-weight: 600; }
 
-      /* The seal's place, drawn from the seal the branch's head holds. Before a seal it is blank: a disc on a line, and in the preview and a view the seal's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
-      .seal { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--seal-size-line); height: var(--seal-size-line); border-radius: 50%; }
-      .seal[data-seal="none"] { background: var(--seal-blank-ground); box-shadow: var(--seal-blank-edge); }
-      .seal.drawn { width: var(--seal-size); height: var(--seal-size); border-radius: 0; }
-      .seal.drawn.large { width: var(--seal-size-large); height: var(--seal-size-large); }
-      .seal.drawn[data-seal="none"] { background: none; box-shadow: none; filter: var(--seal-blank-light); }
-      .seal.drawn[data-seal="none"]::before, .seal.drawn[data-seal="none"]::after { content: ""; position: absolute; inset: 0; -webkit-mask: url("./owl.svg") center / contain no-repeat; mask: url("./owl.svg") center / contain no-repeat; }
+      /* The inspection's place, drawn from the inspection the branch's head holds. Before an inspection it is blank: a disc on a line, and in the preview and a view the inspection's own drawing pressed into the ground in the theme's blank tones, with no wax on it. */
+      .mark { position: relative; flex: none; display: block; box-sizing: border-box; width: var(--inspection-size-line); height: var(--inspection-size-line); border-radius: 50%; }
+      .mark[data-inspection="none"] { background: var(--inspection-blank-ground); box-shadow: var(--inspection-blank-edge); }
+      .mark.drawn { width: var(--inspection-size); height: var(--inspection-size); border-radius: 0; }
+      .mark.drawn.large { width: var(--inspection-size-large); height: var(--inspection-size-large); }
+      .mark.drawn[data-inspection="none"] { background: none; box-shadow: none; filter: var(--inspection-blank-light); }
+      .mark.drawn[data-inspection="none"]::before, .mark.drawn[data-inspection="none"]::after { content: ""; position: absolute; inset: 0; -webkit-mask: url("./owl.svg") center / contain no-repeat; mask: url("./owl.svg") center / contain no-repeat; }
       /* The drawing's outline holds the blank's ground, and its light parts, read as a mask laid twice, the owl's tone. */
-      .seal.drawn[data-seal="none"]::before { background: var(--seal-blank-ground); }
-      .seal.drawn[data-seal="none"]::after { background: var(--seal-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
-      /* A sealed place shows the wax seal as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size, where the seal holds at the branch's head. */
-      .seal[data-seal="sealed"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--seal-light); }
-      .seal.drawn[data-seal="sealed"] { background-image: url("./owl.svg"); }
-      /* A broken place shows the same drawing parted in two along one slanted break, with a gap between its halves, the same in every theme: each half is the drawing clipped by the page's own break. The theme's light takes the wax's red out and lays its shadow. */
-      .seal[data-seal="broken"] { filter: var(--seal-broken-light); }
-      .seal[data-seal="broken"]::before, .seal[data-seal="broken"]::after { content: ""; position: absolute; inset: 0; background: url("./owl-icon-cream.svg") center / contain no-repeat; }
-      .seal.drawn[data-seal="broken"]::before, .seal.drawn[data-seal="broken"]::after { background-image: url("./owl.svg"); }
-      .seal[data-seal="broken"]::before { clip-path: polygon(0 0, 55% 0, 43% 100%, 0 100%); }
-      .seal[data-seal="broken"]::after { clip-path: polygon(63% 0, 100% 0, 100% 100%, 51% 100%); }
-      .seal-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
+      .mark.drawn[data-inspection="none"]::before { background: var(--inspection-blank-ground); }
+      .mark.drawn[data-inspection="none"]::after { background: var(--inspection-blank-owl); -webkit-mask-image: url("./owl.svg"), url("./owl.svg"); mask-image: url("./owl.svg"), url("./owl.svg"); mask-mode: luminance; }
+      /* A cleared place shows the wax inspection as it is drawn, lit as the theme has it, and on a line the small mark drawn for that size, where the inspection holds at the branch's head. */
+      .mark[data-inspection="cleared"] { background: url("./owl-icon-cream.svg") center / contain no-repeat; filter: var(--inspection-light); }
+      .mark.drawn[data-inspection="cleared"] { background-image: url("./owl.svg"); }
+      /* A lapsed place shows the same drawing parted in two along one slanted break, with a gap between its halves, the same in every theme: each half is the drawing clipped by the page's own break. The theme's light takes the wax's red out and lays its shadow. */
+      .mark[data-inspection="lapsed"] { filter: var(--inspection-lapsed-light); }
+      .mark[data-inspection="lapsed"]::before, .mark[data-inspection="lapsed"]::after { content: ""; position: absolute; inset: 0; background: url("./owl-icon-cream.svg") center / contain no-repeat; }
+      .mark.drawn[data-inspection="lapsed"]::before, .mark.drawn[data-inspection="lapsed"]::after { background-image: url("./owl.svg"); }
+      .mark[data-inspection="lapsed"]::before { clip-path: polygon(0 0, 55% 0, 43% 100%, 0 100%); }
+      .mark[data-inspection="lapsed"]::after { clip-path: polygon(63% 0, 100% 0, 100% 100%, 51% 100%); }
+      .mark-slot { flex: none; display: flex; flex-direction: column; align-items: center; gap: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
       /* What the preview and a view's right column say of a work item alike: what its agent says, the decisions made for it without asking, its commits, its changed files and its setup. */
       .detail { display: flex; flex-direction: column; gap: var(--space-6); }
@@ -162,14 +162,14 @@
       .detail .says.waiting { box-shadow: var(--said-edge-waiting); }
       .detail .says h3 { margin: 0; padding: 0; border: 0; font-size: var(--size-second); font-weight: 500; }
       .said { max-height: var(--said-height); margin-top: var(--space-4); padding-bottom: var(--space-2); overflow-x: hidden; overflow-y: auto; font-family: var(--font-said); font-size: var(--size-said); font-weight: var(--weight-said); line-height: 1.35; letter-spacing: var(--tracking-title); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. After each name but the sealer's stands the rule that joins it to the next place, in the form the theme gives it, and the sealer's place holds the seal's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
+      /* The approval line: four places of one width side by side, each its mark and the role's name on a row and the note under the name. After each name but the inspector's stands the rule that joins it to the next place, in the form the theme gives it, and the inspector's place holds the inspection's place there. Where the theme draws the line as boxes, the block and each place after the first carry the theme's edges. Under the places stands each place's line of text, plain and with its line breaks kept, in the colour of a failure for a place that failed. */
       .approval .places { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: var(--space-2) 0 0; padding: 0; list-style: none; box-shadow: var(--approval-edge); }
       .place { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; padding: var(--space-3); box-shadow: var(--approval-box-edge); }
       .place:first-child { box-shadow: none; }
       .place .row { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
       .place .name { flex: none; font-size: var(--size-text); font-weight: 500; color: var(--ink); white-space: nowrap; }
       .place .join { flex: 1; min-width: 0; height: 1px; background: var(--approval-rule); }
-      .place .seal { margin-left: auto; }
+      .place .mark { margin-left: auto; }
       .place .note { padding-left: calc(var(--icon) + var(--space-3)); font-size: var(--size-caption); color: var(--ink-muted); white-space: nowrap; }
       .approval .under { padding-top: var(--space-3); font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .approval .under.failed { color: var(--state-failed); }
@@ -289,7 +289,7 @@
       #summary-sentence { font-family: var(--font-said); font-size: var(--size-sentence); font-weight: var(--weight-said); line-height: 1.15; letter-spacing: var(--tracking-title); color: var(--ink-strong); }
       #summary-last-here { font-size: var(--size-second); color: var(--ink-muted); }
       #summary-lines { display: flex; flex-direction: column; margin-top: var(--space-8); border-top: 1px solid var(--rule); }
-      #summary-lines button { display: grid; grid-template-columns: var(--icon) minmax(0, var(--summary-title)) minmax(0, 1fr) auto var(--seal-size-line); column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--rule-soft); text-align: left; }
+      #summary-lines button { display: grid; grid-template-columns: var(--icon) minmax(0, var(--summary-title)) minmax(0, 1fr) auto var(--inspection-size-line); column-gap: var(--space-5); align-items: center; box-sizing: border-box; width: 100%; height: var(--summary-line-height); padding: 0 var(--space-4); border-bottom: 1px solid var(--rule-soft); text-align: left; }
       #summary-lines button:hover { background: var(--hover); transition: background-color var(--motion); }
       #summary-lines button:active { background: var(--pressed); }
       #summary-lines .title { color: var(--ink-strong); font-weight: var(--weight-changed); }
@@ -309,7 +309,7 @@
       .lines h2 .word { color: var(--ink-muted); }
       .lines h2 .count { font-weight: 500; }
       .lines ul { display: flex; flex-direction: column; padding: 0 var(--space-4); }
-      /* A line is two rows: the state's icon, the title and the state's age, and under them one text, the badge and the seal's place. Its edge is the theme's, a whole shadow at rest and another where it is selected. */
+      /* A line is two rows: the state's icon, the title and the state's age, and under them one text, the badge and the inspection's place. Its edge is the theme's, a whole shadow at rest and another where it is selected. */
       .line { display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; width: 100%; height: var(--line-height); padding: 0 10px; border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
       /* The pointer over a line gives it a ground and selects nothing. */
       .line:hover { background: var(--hover); transition: background-color var(--motion); }
@@ -422,15 +422,15 @@
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
       .pane { position: absolute; inset: var(--space-5) 18px 10px; }
-      /* The back of the seal: in the stage's place, on the window's ground and in its inks, from its top the large seal with its words, the seal's record, the head's sentences, each round with its findings and its stages, the stages after the rounds, and the lines of its foot. A text's code stands in the fixed-width face. Red stands on the seal alone: a cost stands in the ink of a fact, a failed stage's ending in the failure's colour, and an open finding's close in the strong ink. */
+      /* The inspection sheet: in the stage's place, on the window's ground and in its inks, from its top the large inspection with its words, the inspection's record, the head's sentences, each round with its findings and its stages, the stages after the rounds, and the lines of its foot. A text's code stands in the fixed-width face. Red stands on the inspection alone: a cost stands in the ink of a fact, a failed stage's ending in the failure's colour, and an open finding's close in the strong ink. */
       #back { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; box-sizing: border-box; padding: var(--space-8) var(--space-9) var(--space-10); font-size: var(--size-second); line-height: 1.4; color: var(--ink); user-select: text; }
       #back p, #back h2, #back h3 { margin: 0; }
       #back code { font-family: var(--font-mono); font-size: var(--size-caption); overflow-wrap: anywhere; }
       #back .back-waits { color: var(--ink-muted); }
       #back .back-head { display: flex; align-items: center; gap: 14px; }
       #back .back-head .words { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-      #back .why, #back .broken-by { overflow-wrap: anywhere; }
-      #back .broken-by .subject { color: var(--ink-muted); }
+      #back .why, #back .lapsed-by { overflow-wrap: anywhere; }
+      #back .lapsed-by .subject { color: var(--ink-muted); }
       #back .back-record { display: grid; grid-template-columns: var(--fact-label) minmax(0, 1fr); gap: var(--space-2) var(--space-5); margin: var(--space-7) 0 0; }
       #back .back-record dt { color: var(--ink-muted); }
       #back .back-record dd { margin: 0; overflow-wrap: anywhere; }
@@ -474,7 +474,7 @@
       #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
       #strip-size, #strip-state { flex: none; }
       #strip-worktree { flex: 1; color: var(--ink-faint); }
-      /* The right column: what it says of the work item scrolls, and the list of the daemon's chain and the seal's place stay at its foot. */
+      /* The right column: what it says of the work item scrolls, and the list of the daemon's chain and the inspection's place stay at its foot. */
       #view-facts { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-left: 1px solid var(--rule); background: var(--texture), var(--ground-column); }
       #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
       #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -511,16 +511,16 @@
       #questions .answer { color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       #questions .refusal { color: var(--state-failed); overflow-wrap: anywhere; }
       #questions .refusal:empty { display: none; }
-      #view-seal { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
-      #view-seal .words { display: flex; flex-direction: column; gap: var(--space-1); }
-      #view-seal .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
-      /* Where the seal is broken, the seal's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
-      #view-seal .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
-      #view-seal .why:empty { display: none; }
-      /* The sentence of the work item's chain stands under the seal's words, and takes no room where no chain ran. */
-      #view-seal .says { margin-top: var(--space-3); font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; color: var(--ink); }
-      #view-seal .says:empty { display: none; }
-      /* The work item's pull request, under the seal's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
+      #view-inspection { flex: none; display: flex; align-items: center; gap: 14px; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
+      #view-inspection .words { display: flex; flex-direction: column; gap: var(--space-1); }
+      #view-inspection .note { font-size: var(--size-second); line-height: 1.4; color: var(--ink-muted); }
+      /* Where the inspection lapsed, the inspection's sentence, which says why, stands under the head in the ink of the text, and takes no room otherwise. */
+      #view-inspection .why { font-size: var(--size-second); line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
+      #view-inspection .why:empty { display: none; }
+      /* The sentence of the work item's chain stands under the inspection's words, and takes no room where no chain ran. */
+      #view-inspection .says { margin-top: var(--space-3); font-size: var(--size-second); line-height: 1.4; overflow-wrap: anywhere; color: var(--ink); }
+      #view-inspection .says:empty { display: none; }
+      /* The work item's pull request, under the inspection's place, as GitHub last answered: rows of a list of records. The first row is its number and its state, and opens it; then the result of its checks, then one row for each check with its mark, its name and its state's word, which opens the check where GitHub gave it an address. How many more checks GitHub listed, and why the last read failed, stand under the rows. A long list scrolls inside the section. */
       #view-pull-request { flex: none; display: flex; flex-direction: column; box-sizing: border-box; max-height: 30%; overflow: auto; padding: var(--space-3) var(--space-6) var(--space-5); border-top: 1px solid var(--rule); font-size: var(--size-second); }
       #view-pull-request .row { display: flex; align-items: center; gap: var(--space-3); box-sizing: border-box; width: 100%; min-height: var(--detail-line); padding: var(--space-1) var(--space-2); border-radius: var(--radius-line); box-shadow: var(--line-edge); text-align: left; }
       #view-pull-request button.row:hover { background: var(--hover); transition: background-color var(--motion); }
@@ -534,7 +534,7 @@
       #pull-request-failure { padding: var(--space-3) var(--space-2) 0; color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
       #pull-request-more:empty, #pull-request-failure:empty { display: none; }
 
-      /* The list of the daemon's chain, above the seal's place, with no heading of its own: the line of the broad gate the work item's chain ran last, then a line for each headless session the daemon lists for the work item, each a row of a list of records. It scrolls past 40% of the column, and is hidden while it holds no line. */
+      /* The list of the daemon's chain, above the inspection's place, with no heading of its own: the line of the broad gate the work item's chain ran last, then a line for each headless session the daemon lists for the work item, each a row of a list of records. It scrolls past 40% of the column, and is hidden while it holds no line. */
       #view-chain { flex: none; box-sizing: border-box; min-height: 0; max-height: 40%; overflow: auto; padding: var(--space-3) var(--space-6); border-top: 1px solid var(--rule); font-size: var(--size-second); }
       #view-chain li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
       #view-chain li:last-child { border-bottom: 0; }
@@ -770,7 +770,7 @@
                   <span data-part="preview-repo"></span>
                 </p>
               </div>
-              <span class="seal-slot"><span data-part="preview-seal"></span><span data-part="preview-seal-words"></span></span>
+              <span class="mark-slot"><span data-part="preview-mark"></span><span data-part="preview-mark-words"></span></span>
             </div>
             <div data-part="preview-detail" class="detail"></div>
           </div>
@@ -806,7 +806,7 @@
               <button id="find-close" class="icon-button" type="button" aria-label="Close" title="Close"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
             </div>
           </div>
-          <section id="back" aria-label="Back of the seal" hidden></section>
+          <section id="back" aria-label="Inspection sheet" hidden></section>
           <p id="view-strip" class="hint">
             <span id="strip-size"></span>
             <span id="strip-worktree" class="path"></span>
@@ -835,13 +835,13 @@
         </div>
         <!-- Hidden while it holds no line (./view.ts, `chainList`). -->
         <ul id="view-chain" aria-label="The daemon's chain" hidden></ul>
-        <section id="view-seal">
-          <span id="view-seal-place"></span>
+        <section id="view-inspection">
+          <span id="view-inspection-place"></span>
           <span class="words">
-            <span id="view-seal-head" class="name head"></span>
-            <span id="view-seal-why" class="why"></span>
-            <span class="note">A seal binds to one commit and breaks if another lands after it.</span>
-            <span id="seal-says" class="says"></span>
+            <span id="view-inspection-head" class="name head"></span>
+            <span id="view-inspection-why" class="why"></span>
+            <span class="note">An inspection binds to one commit and lapses if another lands after it.</span>
+            <span id="inspection-says" class="says"></span>
           </span>
         </section>
         <section id="view-pull-request" aria-label="Pull request" hidden>
@@ -948,7 +948,7 @@
     <dialog id="chain-dialog">
       <form id="chain-form">
         <h2 class="head">Choose the chain of this repository's Claude Code panes</h2>
-        <p class="says">This repository's check is Owlery's, and your Claude Code enables the AgenticSeal plugin here. One chain seals a repository, so a pane runs one of the two.</p>
+        <p class="says">This repository's check is Owlery's, and your Claude Code enables the AgenticSeal plugin here. One chain inspections a repository, so a pane runs one of the two.</p>
         <label class="check"><input type="radio" name="chain" id="chain-owlery" value="owlery" />The owl chain: the pane carries Owlery's roles, and the AgenticSeal plugin is off in that pane alone.</label>
         <label class="check"><input type="radio" name="chain" id="chain-plugin" value="plugin" />The AgenticSeal plugin: the pane is Claude Code as you set it up, with nothing of Owlery's.</label>
         <p class="says">Owlery asks once for a repository and changes none of your settings files. The repository's settings change the answer.</p>

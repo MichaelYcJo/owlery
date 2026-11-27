@@ -83,7 +83,7 @@ export interface Verdict {
 }
 
 /** What an inspection holds: its verdicts in the file's order, the newest last, and each line the reader refuses. Nothing is decided on a notice. */
-export interface Inspection {
+export interface InspectionFile {
   verdicts: Verdict[];
   refusals: RefusedLine[];
   notices: Notice[];
@@ -133,7 +133,7 @@ function verdictOf(block: Block): Verdict {
 }
 
 /** Reads an inspection's text. */
-export function readInspection(text: string): Inspection {
+export function readInspection(text: string): InspectionFile {
   const got = read(text, [VERDICT_BLOCK]);
   return { verdicts: got.blocks.map(verdictOf), refusals: got.refusals.map(({ line, why }) => ({ line, why })), notices: got.notices };
 }

@@ -7,8 +7,8 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
-import { composeBack } from "../shared/seal-back";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Inspection, type BackRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { composeBack } from "../shared/inspection-sheet";
 import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -98,14 +98,14 @@ import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage
 import { repositoryFileText } from "./repository-file";
 import { grantOf, verdictOn } from "./role-grants";
 import type { Verdict } from "./inspection-records";
-import { noSealRecords, sealRecords } from "./seal-back-records";
+import { noBackRecords, backRecords } from "./inspection-sheet-records";
 import { refusedAt, workItemInspection } from "./inspection-state";
 import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, gitFolderOf, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
-/** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
+/** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a lapsed inspection's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
 
 /** The text of a session's state where the person interrupted its turn. */
@@ -274,13 +274,13 @@ interface WordTries {
   head: string | null;
 }
 
-/** What the records say for the back of a seal as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
-function sealRecordsOf(records: SealRecords): SealRecords {
-  const { record, brokenBy } = records;
+/** What the records say for the inspection sheet as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
+function backRecordsOf(records: BackRecords): BackRecords {
+  const { record, lapsedBy } = records;
   return {
     head: records.head,
-    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), judgedBy: cutText(record.judgedBy), model: cutText(record.model), rules: cutText(record.rules) },
-    brokenBy: brokenBy === null ? null : { commit: brokenBy.commit, subject: cutText(brokenBy.subject) },
+    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), inspectedBy: cutText(record.inspectedBy), model: cutText(record.model), rules: cutText(record.rules) },
+    lapsedBy: lapsedBy === null ? null : { commit: lapsedBy.commit, subject: cutText(lapsedBy.subject) },
     rounds: records.rounds.map((round) => ({
       ...round,
       findings: round.findings.map((finding) => ({
@@ -581,8 +581,8 @@ export class Daemon {
   private readonly wordRunning = new Set<number>();
   // The pass over the owed words, which runs while a work item that is not archived owes one.
   private wordTimer: NodeJS.Timeout | undefined;
-  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits, the changes and the seal read there.
-  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; seal: Seal | null }>();
+  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits, the changes and the inspection read there.
+  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; inspection: Inspection | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
   private readonly records = new Map<number, RecordsPlace>();
   /** Which chain each repository's Claude Code panes would run, as `readRecords` last read it, by the repository's id. */
@@ -1105,9 +1105,9 @@ export class Daemon {
               // The worktree was checked out at its base commit a moment ago, so it holds nothing new and git is not asked.
               this.commitCounts.set(stored.item.id, 0);
               if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
-              this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
+              this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, inspection: null });
             } else {
-              // A branch the person picked holds whatever commits it holds, so git is asked, for its seal too.
+              // A branch the person picked holds whatever commits it holds, so git is asked, for its inspection too.
               await this.readBranch(stored);
             }
             // The setup pane starts first, and the answer carries the pane the creation named. A worktree whose setup runs no pane is measured now, and one whose setup runs at that pane's exit.
@@ -1735,19 +1735,19 @@ export class Daemon {
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
       }
-      case "readSealRecords": {
+      case "readBackRecords": {
         const answer = async (): Promise<void> => {
           try {
             const held = this.store.workItem(message.workItemId);
             if (!held) throw new Error(`no work item ${String(message.workItemId)}`);
             const { item } = held;
-            // A work item with no branch yet is read at its worktree's `HEAD`, and no routing names its directory, so it holds no records of a seal.
+            // A work item with no branch yet is read at its worktree's `HEAD`, and no routing names its directory, so it holds no records of an inspection.
             const head = item.branch === null ? await worktreeHead(item.worktree).catch(() => null) : await branchHead(held.repository.folder, item.branch);
             if (head === null) throw new Error(item.branch === null ? `Owlery cannot read the head of the worktree ${item.worktree}.` : `Owlery cannot read the head of the branch ${item.branch}.`);
             const directory = workItemDirectory(item.worktree, item.branch);
-            // The seal the records are read with is the one the head holds, read again, so the commit that broke it is named for that head.
-            const records = directory === null ? noSealRecords(head) : await sealRecords(item.worktree, directory, head, await workItemInspection(item, head));
-            this.send(socket, { type: "sealRecords", requestId: message.requestId, workItemId: item.id, records: sealRecordsOf(records) });
+            // The inspection the records are read with is the one the head holds, read again, so the commit that lapsed it is named for that head.
+            const records = directory === null ? noBackRecords(head) : await backRecords(item.worktree, directory, head, await workItemInspection(item, head));
+            this.send(socket, { type: "backRecords", requestId: message.requestId, workItemId: item.id, records: backRecordsOf(records) });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -3161,7 +3161,7 @@ export class Daemon {
     return this.store.workItems().find(({ item }) => realPathOf(item.worktree) === real)?.item.worktree ?? folder;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the inspection its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `inspection`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     // The size of its worktree is the daemon's, which a plan carries as what the repository's next worktree needs.
@@ -3176,7 +3176,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
-      ...(read === undefined ? {} : { seal: read.seal }),
+      ...(read === undefined ? {} : { inspection: read.inspection }),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
       machineWait: this.turns.waitOf(item.worktree),
       wordOwed: this.wordOwedOf(item),
@@ -3738,7 +3738,7 @@ export class Daemon {
    * open question, and `rested` where they owe no stage, the step `cleared`. Before it rests
    * `rested` it runs the pull request stage where that is owed
    * (`runPullRequest`), and rests with that stage's sentence once it ended
-   * well. No state of the chain says whether a seal holds: `WorkItem.seal`
+   * well. No state of the chain says whether an inspection holds: `WorkItem.inspection`
    * does, read from the branch's head. An inspector's `withheld` verdict stops
    * the chain with its reason.
    * Before a fix pass it reads what the chain owes first
@@ -3752,7 +3752,7 @@ export class Daemon {
    * daemon that closes ends the run at its next step and stores nothing, so
    * the chain stays stored `running`, which the next daemon reads as stopped.
    * A chain that rests or stops asks for the read of its branch
-   * (`readBranchNow`), so the seal its stages committed reaches the window
+   * (`readBranchNow`), so the inspection its stages committed reaches the window
    * without a wait of one interval.
    * `byPerson` says that a person's word started the run.
    */
@@ -4274,9 +4274,9 @@ export class Daemon {
    * stage, in the form of `runGate`.
    *
    * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
-   * composes the back of the seal from what those records say for it and the
-   * ledger's entries of the work item as they stand then, as `readSealRecords`
-   * and `readLedger` give them to the window (`../shared/seal-back`), pushes
+   * composes the inspection sheet from what those records say for it and the
+   * ledger's entries of the work item as they stand then, as `readBackRecords`
+   * and `readLedger` give them to the window (`../shared/inspection-sheet`), pushes
    * that head commit, by its id, to the branch on the remote
    * `github.ts#pushTarget` names with the person's git and writes the
    * branch's upstream, then asks the person's `gh` for the branch's open pull
@@ -4334,9 +4334,9 @@ export class Daemon {
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, base.branch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
-      // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
+      // The stage runs at an inspection that holds at the head, so no commit lapsed it, and the reader is handed no inspection: the body names no breaking commit.
       const { entries, unread } = this.ledger.read(item.id, item.createdAt);
-      const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
+      const back = composeBack(await backRecords(worktree, directory, head, null), entries, unread);
       const named = await pullRequestTitle(worktree, title, base.commit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
@@ -4834,14 +4834,14 @@ export class Daemon {
    * changed or its branch's head moved. How far a branch is ahead of its
    * base branch and behind it is counted at every read, since the base moves
    * by itself, and a base that moved while the head stayed is a change. The
-   * commits, the changed files and the seal the head holds
+   * commits, the changed files and the inspection the head holds
    * (`inspection-state.ts#workItemInspection`) are read only where the head is another
    * commit than the one they were last read at, and so once for each branch
-   * after the daemon starts. The seal is kept in memory alone, and the copy a
+   * after the daemon starts. The inspection is kept in memory alone, and the copy a
    * look keeps of the lists is never read for it: a daemon that starts reads
    * it again from git. A work item with no branch yet is read at the commit
    * its worktree's `HEAD` stands at, as its branch's head would be, and its
-   * head holds no seal, since no routing names its directory. Where that
+   * head holds no inspection, since no routing names its directory. Where that
    * `HEAD` names a branch or holds a commit made in the worktree, the work
    * item is then given its branch (`branchUp`).
    */
@@ -4874,8 +4874,8 @@ export class Daemon {
       return true;
     }
     // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-    const [commits, changes, seal] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.sealAt(item, head)]);
-    this.branches.set(item.id, { head, commits, changes, seal });
+    const [commits, changes, inspection] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.inspectionOf(item, head)]);
+    this.branches.set(item.id, { head, commits, changes, inspection });
     return true;
   }
 
@@ -4914,13 +4914,13 @@ export class Daemon {
     this.changing = this.changing.then(up);
   }
 
-  /** The seal a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */
-  private async sealAt(item: Held["item"], head: string): Promise<Seal | null> {
+  /** The inspection a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */
+  private async inspectionOf(item: Held["item"], head: string): Promise<Inspection | null> {
     try {
-      const seal = await workItemInspection(item, head);
-      return seal?.why ? { ...seal, why: cutText(seal.why) } : seal;
+      const inspection = await workItemInspection(item, head);
+      return inspection?.why ? { ...inspection, why: cutText(inspection.why) } : inspection;
     } catch (error) {
-      console.error(`the seal of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`the inspection of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -4928,7 +4928,7 @@ export class Daemon {
   /**
    * Reads the work item's branch now, after the read of every branch that is
    * under way, and tells every client where it moved: a chain that rested or
-   * stopped has committed the records of its stages, and the seal they hold
+   * stopped has committed the records of its stages, and the inspection they hold
    * is read without a wait of one interval. A read that began before the
    * chain's last commit ends first, so it does not put an earlier head's
    * reading back over this one.

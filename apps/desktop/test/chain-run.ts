@@ -467,11 +467,11 @@ export function inspectionWith(before: string | null, workItem: string, run: num
  * of its own as a chain commits them: the routing that names the branch,
  * round 1 with no finding on the commit of that routing, the broad gate's
  * run on the commit of round 1's record against `base`, and a seal of that
- * commit. Gives the sealed commit. `seal: false` leaves the guarantee out,
+ * commit. Gives the sealed commit. `inspection: false` leaves the inspection out,
  * `verdict` is the verdict's word, and `target` the commit the verdict
  * names, the sealed commit where none is given.
  */
-export function commitInspection(folder: string, given: { workItem: string; branch: string; base: string; seal?: boolean; verdict?: string; target?: string }): string {
+export function commitInspection(folder: string, given: { workItem: string; branch: string; base: string; inspection?: boolean; verdict?: string; target?: string }): string {
   const directory = `iadd/threads/${given.workItem}`;
   write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
   const routed = commitAll(folder, "chore: declare the work item's routing");
@@ -479,7 +479,7 @@ export function commitInspection(folder: string, given: { workItem: string; bran
   const gate = commitAll(folder, "chore: record review round 1");
   write(folder, `${directory}/trail/gate.md`, gateText(null, given.workItem, { head: gate, base: given.base }));
   commitAll(folder, "chore: record the broad gate's run");
-  if (given.seal !== false) {
+  if (given.inspection !== false) {
     write(folder, `${directory}/inspection.md`, inspectionWith(null, given.workItem, 1, `${given.target ?? gate} against main`, given.verdict));
     commitAll(folder, "chore: record the inspector's verdict");
   }

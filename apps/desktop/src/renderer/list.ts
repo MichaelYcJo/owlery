@@ -2,7 +2,7 @@
 // inbox screen, the history screen over the work items whose agent
 // finished, and the archived screen over the archived work items of one
 // repository. Each is a copy of the page's `list-screen` template.
-import { byId, changedSince, detail, drawSeal, entries, held, lineMarkIcons, marked, part, sealPlace, showState, stateIcon, titleClass } from "./shared";
+import { byId, changedSince, detail, drawMark, entries, held, lineMarkIcons, marked, part, markPlace, showState, stateIcon, titleClass } from "./shared";
 import {
   ageOf,
   ahead,
@@ -29,7 +29,7 @@ import {
   moveSelection,
   pinnedFirst,
   repoNameOf,
-  sealShown,
+  inspectionShown,
   selectedLine,
   setupMark,
   wordOwedMark,
@@ -80,14 +80,14 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
   const previewAhead = piece("preview-ahead");
   const previewRepo = piece("preview-repo");
   const previewDetail = piece("preview-detail");
-  const previewSealWords = piece("preview-seal-words");
-  // The seal's place is made once, and drawn again for each work item the preview shows.
-  const previewSeal = sealPlace("preview", null);
+  const previewMarkWords = piece("preview-mark-words");
+  // The inspection's place is made once, and drawn again for each work item the preview shows.
+  const previewMark = markPlace("preview", null);
   // The work items in the order their lines are displayed, and the one whose line is selected: the preview shows it, and J, K and Enter act on it.
   let displayed: number[] = [];
   let selected: number | undefined;
 
-  piece("preview-seal").replaceWith(previewSeal);
+  piece("preview-mark").replaceWith(previewMark);
   piece("preview-keys").replaceChildren(...keyHints(name, mac).map((keys) => part("key", keys)));
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
@@ -123,8 +123,8 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     previewBranch.classList.toggle("none", branch.none);
     previewAhead.textContent = ahead(entry.workItem).sentence;
     previewRepo.textContent = repoNameOf(entry.workItem);
-    drawSeal(previewSeal, entry.workItem.seal);
-    previewSealWords.textContent = sealShown(entry.workItem.seal).words;
+    drawMark(previewMark, entry.workItem.inspection);
+    previewMarkWords.textContent = inspectionShown(entry.workItem.inspection).words;
     // The commits the branch gained since the look carry a dot.
     previewDetail.replaceChildren(...detail(entry, gainedSince(entry.workItem, held.lastLook)));
   }
@@ -161,7 +161,7 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
       part("decided", [decisionMark(workItem, held.lastLook), wordOwedMark(workItem)].filter((words) => words !== "").join(", ")),
       part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
       part("badge", lineBadge(workItem, held.lastLook)),
-      sealPlace("line", workItem.seal),
+      markPlace("line", workItem.inspection),
     );
     button.append(first, second);
     // A line of the archived screen opens no view: its press selects it.

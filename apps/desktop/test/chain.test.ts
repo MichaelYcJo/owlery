@@ -59,7 +59,7 @@ import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { readRoundRecord } from "../src/daemon/round-record";
 import type { Verdict } from "../src/daemon/inspection-records";
 import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
-import { composeBack } from "../src/shared/seal-back";
+import { composeBack } from "../src/shared/inspection-sheet";
 import { untilGone } from "./built-app";
 import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenInspection, inspectionRecord, head, noted, proofs, roles, roundRecord, rulingBlock, runSection, withOwleryLines, standing, status, write } from "./chain-run";
 import { interruptToolCall, sessionLog } from "./interrupted-turn";
@@ -3207,13 +3207,13 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     // The hello's read gives the head no seal; a `ready` sent before that read ended carries no `seal`, and the inbox after it carries the null.
     expect(await c.until(() => {
       const item = c.workItem(a.id);
-      return item !== undefined && "seal" in item ? item.seal : undefined;
+      return item !== undefined && "inspection" in item ? item.inspection : undefined;
     })).toBeNull();
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    expect(await c.until(() => c.workItem(a.id)?.seal ?? undefined)).toEqual({ state: "sealed", commit: gate, why: null });
+    expect(await c.until(() => c.workItem(a.id)?.inspection ?? undefined)).toEqual({ state: "cleared", commit: gate, why: null });
   });
 
   /** The chain once it rests with as many stages as given, read from the newest lists, so a list sent before the start is passed over. */
@@ -3236,7 +3236,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     // A commit of a source file the branch did not change before the seal breaks it.
     write(a.worktree, "later.txt", "Said later\n");
     const broke = commitAll(a.worktree, "feat: say more");
-    expect(await c.until(() => (c.workItem(a.id)?.seal?.state === "broken" ? c.workItem(a.id)?.seal : undefined))).toMatchObject({ commit: sealed });
+    expect(await c.until(() => (c.workItem(a.id)?.inspection?.state === "lapsed" ? c.workItem(a.id)?.inspection : undefined))).toMatchObject({ commit: sealed });
 
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await restedWith(c, a.id, 8);
@@ -3260,7 +3260,7 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(guaranteeAt(a.worktree)).toContain(`\n## Run 2\n`);
     expect(guaranteeAt(a.worktree)).toContain(`\ntarget: ${gate} against ${base}\nVerdict: cleared\n`);
     expect(chain.says).toBe(`Pull request #1 carries the inspection at ${gate.slice(0, 7)}.`);
-    expect(await c.until(() => (c.workItem(a.id)?.seal?.commit === gate ? c.workItem(a.id)?.seal : undefined))).toEqual({ state: "sealed", commit: gate, why: null });
+    expect(await c.until(() => (c.workItem(a.id)?.inspection?.commit === gate ? c.workItem(a.id)?.inspection : undefined))).toEqual({ state: "cleared", commit: gate, why: null });
   });
 
   it("hands the sealer the whole branch since its base where the commit the newest seal names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the sealed commit off the branch, in a work item whose routing stops before the pull request", async () => {
@@ -3409,18 +3409,18 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     const body = gh.bodies()[gh.calls().findIndex((call) => call[1] === "create")] ?? "";
-    const records = await c.asked({ type: "readSealRecords", requestId: 2, workItemId: a.id });
+    const records = await c.asked({ type: "readBackRecords", requestId: 2, workItemId: a.id });
     const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
-    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    if (records.type !== "backRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
     const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
     expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\n`)).toBe(true);
     expect(body.split("\n").filter((line) => line === BACK_OPEN || line === BACK_CLOSE)).toEqual([BACK_OPEN, BACK_CLOSE]);
     // The back the body holds says the chain's two rounds, the fix of round 1's finding, and each stage that ran with its cost.
     const fix = git(a.worktree, "log", "--format=%H", "--grep=^fix: ", "-1").trim().slice(0, 7);
     expect(back).toContain(`\n- 1. The greeting of line 1 misses its full stop. \`feature.txt:1\`. must. Fixed in \`${fix}\`.\n`);
-    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the seal. Findings by round: 1, 0.\n");
-    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Sealer"]);
-    expect(back).toContain("\n| Sealer | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
+    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the inspection. Findings by round: 1, 0.\n");
+    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Inspector"]);
+    expect(back).toContain("\n| Inspector | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
     expect(back).toContain("\nThe chain's stages cost $1.00 converted. A converted cost is the usage priced at API prices, and it is not a charge.\n");
   });
 
@@ -3450,9 +3450,9 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const file = gh.calls()[before + 1]?.at(-1) ?? "";
     expect(gh.calls()[before + 1]).toEqual(["pr", "edit", PULL_REQUEST_URL, "--body-file", file]);
     const body = gh.bodies()[before + 1] ?? "";
-    const records = await c.asked({ type: "readSealRecords", requestId: 3, workItemId: a.id });
+    const records = await c.asked({ type: "readBackRecords", requestId: 3, workItemId: a.id });
     const ledger = await c.asked({ type: "readLedger", requestId: 4, workItemId: a.id });
-    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    if (records.type !== "backRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
     const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
     expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\nA person's line below.\n`);
     // The new back holds the round run after the first seal.
@@ -3592,7 +3592,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
     const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- owlery:inspection -->\n<!-- /owlery:inspection -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:inspection -->` lines, and Owlery replaces one inspection section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
-    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- /owlery:inspection -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
+    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- /owlery:inspection -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the inspection sheet\.$/u);
     expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);
   });
 

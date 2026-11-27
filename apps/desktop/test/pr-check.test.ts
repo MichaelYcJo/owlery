@@ -355,7 +355,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     await c.chain(a.id, "rested");
     const created = gh.calls().findIndex((call) => call[1] === "create");
     const body = gh.bodies()[created] ?? "";
-    expect(body).toContain("\n<!-- /owlery:inspection -->\n\n<!-- owlery:back -->\n## The back of the seal\n");
+    expect(body).toContain("\n<!-- /owlery:inspection -->\n\n<!-- owlery:back -->\n## Inspection sheet\n");
     expect(body).toContain("\n| Round 1 | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
     const passed = await run({ base: join(a.worktree, ".."), repo: a.worktree }, { body });
     expect(passed.exit, passed.output).toBe(0);
@@ -751,33 +751,33 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       if (edit) write(repo, "x", "x, edited in the merge\n");
       commitAll(repo, "Merge branch 'main' into feature");
     };
-    const histories: [string, (made: ReturnType<typeof history>) => void, "sealed" | "broken" | null, { seal?: boolean; verdict?: string; target?: string }?, ((made: ReturnType<typeof history>) => string)?][] = [
-      ["the sealed head", () => undefined, "sealed"],
+    const histories: [string, (made: ReturnType<typeof history>) => void, "cleared" | "lapsed" | null, { inspection?: boolean; verdict?: string; target?: string }?, ((made: ReturnType<typeof history>) => string)?][] = [
+      ["the sealed head", () => undefined, "cleared"],
       ["a commit that changes the guarantee below its block", ({ repo }) => {
         write(repo, GUARANTEE_AT, `${git(repo, "show", `HEAD:${GUARANTEE_AT}`)}\nThe sealer's notes end here.\n`);
         commitAll(repo, "docs: note below the verdict");
-      }, "sealed"],
+      }, "cleared"],
       ["a commit of the refused calls", ({ repo }) => {
         write(repo, "iadd/threads/1-x/trail/refusals.md", REFUSED_CALLS);
         commitAll(repo, "chore: record the refusals");
-      }, "sealed"],
+      }, "cleared"],
       ["a commit that changes a source file", ({ repo }) => {
         write(repo, "x", "x, changed\n");
         commitAll(repo, "fix: x");
-      }, "broken"],
+      }, "lapsed"],
       ["a commit that changes decisions.md", ({ repo }) => {
         write(repo, "iadd/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
         commitAll(repo, "chore: record a decision");
-      }, "broken"],
+      }, "lapsed"],
       ["a commit that adds a round record", ({ repo }) => {
         const at = git(repo, "rev-parse", "HEAD").trim();
         write(repo, "iadd/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
         commitAll(repo, "chore: record review round 2");
-      }, "broken"],
-      ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "broken"],
-      ["a merge commit that itself changes a source file", ({ repo }) => merge(repo, true), "broken"],
-      ["a merge of a base that committed the file the branch committed before the seal", ({ repo }) => mergeAsSealed(repo, "same file"), "broken", undefined, ({ gate }) => BROUGHT("x", gate)],
-      ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "broken", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
+      }, "lapsed"],
+      ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "lapsed"],
+      ["a merge commit that itself changes a source file", ({ repo }) => merge(repo, true), "lapsed"],
+      ["a merge of a base that committed the file the branch committed before the seal", ({ repo }) => mergeAsSealed(repo, "same file"), "lapsed", undefined, ({ gate }) => BROUGHT("x", gate)],
+      ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "lapsed", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
       ["a merge of a base whose commits add and take back a file of the work item's directory alone", ({ repo }) => {
         git(repo, "checkout", "--quiet", "main");
         write(repo, "iadd/threads/1-x/notes.md", "notes\n");
@@ -786,14 +786,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         git(repo, "commit", "--quiet", "-m", "revert: notes");
         git(repo, "checkout", "--quiet", "feature");
         git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
-      }, "sealed"],
+      }, "cleared"],
       ["two commits of which the second takes the first back", ({ repo }) => {
         write(repo, "x", "x, changed\n");
         commitAll(repo, "fix: x");
         write(repo, "x", "x\n");
         commitAll(repo, "revert: x");
-      }, "broken"],
-      ["a head with no guarantee", () => undefined, null, { seal: false }],
+      }, "lapsed"],
+      ["a head with no guarantee", () => undefined, null, { inspection: false }],
       ["a newest verdict block that reads withheld", () => undefined, null, { verdict: "withheld reason: x" }],
       ["a newest verdict block that reads undecided", () => undefined, null, { verdict: "undecided question: May it?" }],
       ["a seal followed by a withheld verdict", ({ repo, gate }) => {
@@ -813,8 +813,8 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         git(repo, "checkout", "--quiet", "feature");
         write(repo, GUARANTEE_AT, inspectionWith(null, "1-x", 1, `${aside} against main`));
         commitAll(repo, "chore: record the inspector's verdict");
-      }, "broken", { seal: false }],
-      ["a seal of no commit of the repository", () => undefined, "broken", { target: "d".repeat(40) }],
+      }, "lapsed", { inspection: false }],
+      ["a seal of no commit of the repository", () => undefined, "lapsed", { target: "d".repeat(40) }],
     ];
     const answers = [];
     for (const [name, make, state, given, says] of histories) {
@@ -825,7 +825,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       answers.push([name, seal?.state ?? null, checked.exit]);
       if (says) expect(checked.output, name).toContain(says(made));
     }
-    expect(answers).toEqual(histories.map(([name, , state]) => [name, state, state === "sealed" ? 0 : 1]));
+    expect(answers).toEqual(histories.map(([name, , state]) => [name, state, state === "cleared" ? 0 : 1]));
   }, 120_000);
 
   it("refuses a verdict block whose judge is one of its builders, at the inspected-by line, and reads the newest block alone: a judge that built none of the work passes, and so does a block that names no builder", () => {

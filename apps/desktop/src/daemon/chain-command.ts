@@ -33,7 +33,7 @@ import { constants } from "node:os";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RoleStage } from "../shared/protocol";
-import { composeBack } from "../shared/seal-back";
+import { composeBack } from "../shared/inspection-sheet";
 import { agentOf, rulesFileName, rulesText } from "./adapters/claude-roles";
 import { BASE_RECORDED, type ChainBase, ChainStop, ROUNDS_CEILING, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, earlierRunSays, endedWith, gateBefore, gateNotRunSays, inFolder, promptText, recordedBase, roundNumber, stageName, standingOf, stepOwed, stoppedSays, twiceFailedWhy, whyNoBase } from "./chain";
 import { ROUTING_FILE, routingAnswer, workItemDirectories } from "./decision-record";
@@ -44,7 +44,7 @@ import { BROAD_GATE_NAME, type TurnPlace } from "./machine-turns";
 import { ROUND_BASE, THE_SESSION, isSessionId, listed } from "./record-blocks";
 import { readHeavyCommands, readRecordsPlace, rootOf } from "./records-place";
 import { repositoryFileText } from "./repository-file";
-import { sealRecords } from "./seal-back-records";
+import { backRecords } from "./inspection-sheet-records";
 import { watchMemory } from "./heavy-runs";
 import { type Ran, type RunEnd, type StageLine, TURN_SOCKET, type TurnRequest, takeTurn, tellStage } from "./turn-socket";
 import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, inspectionStage } from "./stage-records";
@@ -554,7 +554,7 @@ async function body(context: CommandContext, args: readonly string[]): Promise<o
   } catch (error) {
     throw new Refusal(`${(error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "")}, so the body has no inspection to carry.`);
   }
-  const back = composeBack(await sealRecords(at.worktree, at.directory, at.head, null), [], 0);
+  const back = composeBack(await backRecords(at.worktree, at.directory, at.head, null), [], 0);
   const file = join(stageFolder(context, basename(at.directory)), "pull-request-body.md");
   writeWholeFile(file, `${inspectionSection(records)}\n\n${backSection(back, records.directory)}\n`);
   return { body: file, head: at.head };

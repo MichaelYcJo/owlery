@@ -1231,7 +1231,7 @@ export function isChain(value: unknown): value is WrittenChain {
  * `reviewed` or `sealed` is no chain of this build, and is read as none.
  * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
  * that the branch was sealed, and stayed so after a later commit broke the
- * seal, which `WorkItem.seal` now says from the branch's head. The next
+ * seal, which `WorkItem.inspection` now says from the branch's head. The next
  * start reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {

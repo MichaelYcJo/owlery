@@ -319,8 +319,8 @@ export interface WorkItem {
   unread: Unread[];
   /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
   recorded?: Recorded;
-  /** The seal its branch's head commit holds, as the daemon read it from git and the committed records. Null where the daemon read the head commit and found no seal there, which is also what it sends where git failed at that read. Absent where the daemon holds no reading of the branch: one it has not read since it started, one with no base commit recorded, and one that is gone. A daemon of an earlier build sends no such field. A client reads an absent `seal` as no seal where it draws the seal's place. The look keeps the field as the lists carried it, a null as null and an absent one absent. */
-  seal?: Seal | null;
+  /** The inspection its branch's head commit holds, as the daemon read it from git and the committed records. Null where the daemon read the head commit and found no inspection there, which is also what it sends where git failed at that read. Absent where the daemon holds no reading of the branch: one it has not read since it started, one with no base commit recorded, and one that is gone. A daemon of an earlier build sends no such field, and one before the rename to IADD sends it under its earlier name, which a client reads as nothing. A client reads an absent `inspection` as no inspection where it draws the inspection's mark. The look keeps the field as the lists carried it, a null as null and an absent one absent. */
+  inspection?: Inspection | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
   /** Its chain: where the run the daemon started for it stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as no chain. */
@@ -523,7 +523,7 @@ export interface ChainStage {
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where an inspector's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `inspection.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `inspection.md` reads `cleared` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether a seal holds, since a commit after the run can break it while the chain rests: `WorkItem.seal` says that, read from the branch's head. */
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where an inspector's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `inspection.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `inspection.md` reads `cleared` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether an inspection holds, since a commit after the run can lapse it while the chain rests: `WorkItem.inspection` says that, read from the branch's head. */
   state: "running" | "parked" | "stopped" | "rested";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;
@@ -545,13 +545,13 @@ export interface Recorded {
   verdict: { is: "cleared" | "withheld" | "undecided"; commit: string; says: string | null } | null;
 }
 
-/** The seal the branch's head commit holds, as the daemon read it from git and the committed records. */
-export interface Seal {
-  /** `sealed` where the seal holds at the head. `broken` where the head holds a seal that a later commit broke. */
-  state: "sealed" | "broken";
-  /** The sealed commit: the commit the newest verdict block's `target:` names, whole as git names it, or as the block writes it where the repository holds no commit of that name. */
+/** The inspection the branch's head commit holds, as the daemon read it from git and the committed records. */
+export interface Inspection {
+  /** `cleared` where the inspection holds at the head. `lapsed` where the head holds an inspection that a later commit lapsed. */
+  state: "cleared" | "lapsed";
+  /** The cleared commit: the commit the newest verdict block's `target:` names, whole as git names it, or as the block writes it where the repository holds no commit of that name. */
   commit: string;
-  /** Why the seal is broken, as a sentence the window shows as it is, 2,000 characters of it at most. Null where it holds. */
+  /** Why the inspection lapsed, as a sentence the window shows as it is, 2,000 characters of it at most. Null where it holds. */
   why: string | null;
 }
 
@@ -711,8 +711,8 @@ export interface BackRound {
   unread: number;
 }
 
-/** The seal's record: the fields of `docs/product.md` *The seal*, with who built and who judged. */
-export interface SealRecord {
+/** The inspection's record: the fields `docs/product.md` gives it, with who built and who inspected. */
+export interface InspectionRecord {
   commit: string;
   branch: string | null;
   base: string;
@@ -720,19 +720,19 @@ export interface SealRecord {
   gate: string | null;
   rounds: number;
   builtBy: string[];
-  judgedBy: string | null;
+  inspectedBy: string | null;
   model: string | null;
   rules: string | null;
 }
 
-/** What the committed records of a work item say for the back of its seal, read at the branch's head commit. The daemon sends each string cut at 2,000 characters. */
-export interface SealRecords {
+/** What the committed records of a work item say for its inspection sheet, read at the branch's head commit. The daemon sends each string cut at 2,000 characters. */
+export interface BackRecords {
   /** The head commit the records were read at. */
   head: string;
-  /** The seal's record, or null where the newest verdict block is no seal. */
-  record: SealRecord | null;
-  /** The commit that broke the seal, or null where the seal is not broken or no commit is named. */
-  brokenBy: { commit: string; subject: string } | null;
+  /** The inspection's record, or null where the newest verdict block clears nothing. */
+  record: InspectionRecord | null;
+  /** The commit that lapsed the inspection, or null where the inspection did not lapse or no commit is named. */
+  lapsedBy: { commit: string; subject: string } | null;
   /** The rounds, the first first. */
   rounds: BackRound[];
   /** One for each call a stage's role was refused: the stage's kind and round, read from the row of `trail/refusals.md` that names it, as in `ruling 2`, and the rule's name. */
@@ -968,8 +968,8 @@ export type ClientMessage =
   | { type: "stopHeadless"; requestId: number; id: number }
   // Asks for the cost ledger of one work item, archived or not: the entries of the stages that ended in it since its `createdAt`. The daemon answers with a `ledger`, and with an `error` for an id it lists no work item under, as a deleted work item's.
   | { type: "readLedger"; requestId: number; workItemId: number }
-  // Asks for what the committed records of one work item, archived or not, say for the back of its seal, read at its branch's head commit, and at its worktree's `HEAD` for a work item with no branch yet. The daemon answers with a `sealRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, a work item with no branch among them, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
-  | { type: "readSealRecords"; requestId: number; workItemId: number }
+  // Asks for what the committed records of one work item, archived or not, say for its inspection sheet, read at its branch's head commit, and at its worktree's `HEAD` for a work item with no branch yet. The daemon answers with a `backRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, a work item with no branch among them, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
+  | { type: "readBackRecords"; requestId: number; workItemId: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
@@ -1003,8 +1003,8 @@ export type ServerMessage =
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
   // Answers a `readLedger`: the work item's entries in the order their stages ended, and how many lines of the ledger's file the daemon could not read as an entry, of any work item. A daemon of an earlier build answers a `readLedger` with nothing.
   | { type: "ledger"; requestId: number; workItemId: number; entries: LedgerEntry[]; unread: number }
-  // Answers a `readSealRecords`. A daemon of an earlier build answers a `readSealRecords` with nothing.
-  | { type: "sealRecords"; requestId: number; workItemId: number; records: SealRecords }
+  // Answers a `readBackRecords`. A daemon of an earlier build answers a `readBackRecords` with nothing.
+  | { type: "backRecords"; requestId: number; workItemId: number; records: BackRecords }
   // Answers a `readGateOutput`: the last characters of what the command of the work item's newest broad gate printed on its two streams, in the order they arrived, as many as the daemon keeps at most (`GATE_OUTPUT_CHARS` of `src/daemon/gate.ts`). `cut` says that the text is as long as that bound, so the command printed that many characters or more and the text may open after the output's start. The daemon keeps the text in its run folder, so a daemon started later answers the same. A daemon of an earlier build answers a `readGateOutput` with nothing.
   | { type: "gateOutput"; requestId: number; workItemId: number; text: string; cut: boolean }
   // Answers a `planRecords` with what a setup of the repository `id` would do.

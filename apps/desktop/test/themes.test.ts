@@ -6,7 +6,7 @@ import { TAB_COLOURS } from "../src/shared/protocol";
 
 // The rules of the page's look that hold as text: a theme in an appearance is
 // one block of src/renderer/themes.css, each theme the window can draw in has
-// one for each appearance, red stands on the seal alone, a theme changes no
+// one for each appearance, red stands on the inspection alone, a theme changes no
 // measure, a block holds a mark for every state and the page draws a mark
 // from the block's shapes, the words, the marks and the ring of the keyboard's
 // focus stand apart from the ground under them, and the page names no colour,
@@ -71,7 +71,7 @@ function colours(value: string): [number, number, number][] {
 
 // The reds of AgenticSeal's wax, as the drawings and the mockups hold them.
 const SEAL_REDS = ["c41a1e", "9e1016", "e8463c", "d83a31", "b3211f", "c92c27", "8e0c12", "e8302c"];
-// A colour is a red where its red exceeds its green and its blue by more than this, of 255. The themes' ochre for a failure exceeds its green by 54 and 66, and the faintest red of the seal's light by 105.
+// A colour is a red where its red exceeds its green and its blue by more than this, of 255. The themes' ochre for a failure exceeds its green by 54 and 66, and the faintest red of the inspection's light by 105.
 const RED_MARGIN = 80;
 
 function isRed(value: string): boolean {
@@ -279,11 +279,11 @@ describe("themes.css", () => {
     expect(withoutComments(themes).replace(BLOCK, "").trim()).toBe("");
   });
 
-  it("holds a red in no property but the seal's", () => {
+  it("holds a red in no property but the inspection's", () => {
     const reds = themeBlocks().flatMap(({ theme, properties }) => properties.filter(([, value]) => isRed(value)).map(([name]) => `${theme} ${name}`));
-    // The seal's light is a red in every block, so the reading finds one where there is one.
-    for (const pair of PAIRS) expect(reds).toContain(`${pair} --seal-light`);
-    expect(reds.filter((name) => !name.includes(" --seal-"))).toEqual([]);
+    // The inspection's light is a red in every block, so the reading finds one where there is one.
+    for (const pair of PAIRS) expect(reds).toContain(`${pair} --inspection-light`);
+    expect(reds.filter((name) => !name.includes(" --inspection-"))).toEqual([]);
   });
 
   it("defines the same names in every block", () => {

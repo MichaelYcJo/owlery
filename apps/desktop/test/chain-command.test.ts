@@ -102,7 +102,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(commitsAfterMain(on.repo).slice(1).map(({ body }) => body)).toEqual(Array.from({ length: 4 }, () => "IADD-Routing: 1795388700-greet"));
     expect(read(join(on.repo, DIRECTORY, "inspection.md"))).toContain(["Verdict: cleared", "built-by: the session", "inspected-by: agent-inspector", "model: owl-large", `rules: owlery ${VERSION}`, "workflow: owl-chain", "inspector: owl-chain", "```"].join("\n"));
     expect(await on.said(["owed"])).toEqual({ step: "cleared", round: 1, commit: gate.head });
-    expect(await workItemInspection({ worktree: on.repo, branch: BRANCH, baseBranch: "main", baseCommit: on.main }, head(on.repo))).toEqual({ state: "sealed", commit: gate.head, why: null });
+    expect(await workItemInspection({ worktree: on.repo, branch: BRANCH, baseBranch: "main", baseCommit: on.main }, head(on.repo))).toEqual({ state: "cleared", commit: gate.head, why: null });
     expect(status(on.repo)).toEqual([]);
   });
 
@@ -136,7 +136,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const text = read(body);
     expect(text.startsWith(`${SECTION_OPEN}\n## Inspection\n`)).toBe(true);
     expect(text).toContain(`target: ${sealed} against main`);
-    expect(text).toContain(`${BACK_OPEN}\n## The back of the seal`);
+    expect(text).toContain(`${BACK_OPEN}\n## Inspection sheet`);
     expect(text).toContain("ran outside Owlery's daemon");
   });
 

@@ -8,10 +8,10 @@ The Owlery and AgenticSeal names, the owl emblem and its drawings are not
 licensed under the Apache License 2.0. All rights reserved. The drawings in
 this repository are:
 
-- [`apps/desktop/assets/seals/owl.svg`](apps/desktop/assets/seals/owl.svg),
+- [`apps/desktop/assets/marks/owl.svg`](apps/desktop/assets/marks/owl.svg),
   the red wax seal with a raised owl, which the app draws a seal's place
   from.
-- [`apps/desktop/assets/seals/owl-icon-cream.svg`](apps/desktop/assets/seals/owl-icon-cream.svg),
+- [`apps/desktop/assets/marks/owl-icon-cream.svg`](apps/desktop/assets/marks/owl-icon-cream.svg),
   the little owl on a wax seal drawn for a small size, which the app shows on
   the line of a sealed work item.
 - [`apps/desktop/assets/icon/app-icon.svg`](apps/desktop/assets/icon/app-icon.svg),

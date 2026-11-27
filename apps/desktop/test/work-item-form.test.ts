@@ -183,13 +183,13 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(sans).not.toBe(await face("--font-mono"));
     expect(await app.evaluate<(string | boolean)[]>(`[document.getElementById("view-branch").textContent, document.getElementById("view-branch").classList.contains("none")]`)).toEqual(["No branch yet", true]);
     expect(await faceOf("#view-branch")).toBe(sans);
-    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector("#view-seal [data-seal]").dataset.seal, document.getElementById("view-seal-head").textContent, document.getElementById("view-pull-request").hidden]`)).toEqual(["none", "No seal yet", true]);
+    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector("#view-inspection [data-inspection]").dataset.inspection, document.getElementById("view-inspection-head").textContent, document.getElementById("view-pull-request").hidden]`)).toEqual(["none", "No inspection yet", true]);
     await app.click("#nav-inbox");
     const PREVIEW_BRANCH = '#inbox-screen [data-part="preview-branch"]';
     await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(generated)}`, `the preview of ${generated}`);
     expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).textContent, document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).classList.contains("none")]`)).toEqual(["No branch yet", true]);
     expect(await faceOf(PREVIEW_BRANCH)).toBe(sans);
-    expect(await app.evaluate<string>(`document.querySelector('#inbox-screen .seal-slot [data-seal]').dataset.seal`)).toBe("none");
+    expect(await app.evaluate<string>(`document.querySelector('#inbox-screen .mark-slot [data-inspection]').dataset.inspection`)).toBe("none");
   });
 
   it("checks out a local branch the person picked, says so under the name and adds no branch, and offers that branch disabled with the worktree's folder at the next opening", async () => {

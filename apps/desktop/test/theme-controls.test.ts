@@ -436,7 +436,7 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
   it("opens the rename field of an account whose Rename button is pressed while another client adds an account, and draws the added account after the release", async () => {
     await app.click("#accounts-button");
     await app.until(`document.getElementById("accounts-dialog").open && document.querySelector('#accounts-list li[data-account="1"]') !== null`, "the Accounts dialog with the account the login named");
-    // The window's own socket is found from outside, as in seal-back-view.test.ts, and notes the `accounts` message that lists the account Home.
+    // The window's own socket is found from outside, as in inspection-sheet-view.test.ts, and notes the `accounts` message that lists the account Home.
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const prototype = await app.cdp<{ result: { objectId: string } }>("Runtime.evaluate", { expression: "WebSocket.prototype" });
     const found = await app.cdp<{ objects: { objectId: string } }>("Runtime.queryObjects", { prototypeObjectId: prototype.result.objectId });

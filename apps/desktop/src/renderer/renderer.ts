@@ -65,7 +65,7 @@ import {
   chainNotifications,
   notificationFor,
   parkNotifications,
-  sealNotifications,
+  lapseNotifications,
   pullRequestNotifications,
   notificationOpens,
   PLAN_AWAITED,
@@ -110,7 +110,7 @@ import {
   type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeBackRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -1373,7 +1373,7 @@ function deleteNamed(): void {
  * `recordsDialog`: what is out of scope, the versions of a move, the
  * commit, each file with its text, the work items whose records the
  * daemon's readers refuse or did not read, the field of the broad gate command, how an
- * administrator makes the seal check required, and the buttons. It closes
+ * administrator makes the inspection check required, and the buttons. It closes
  * the dialog where the window's lists no longer hold the repository.
  */
 function showRecords(): void {
@@ -1667,13 +1667,13 @@ function drawMachineDialog(): void {
   if (MACHINE.dialog.open) showMachine();
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each chain that stopped, of each inspection that lapsed and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
   held.sessions = next.sessions;
   held.workItems = next.workItems;
-  // A seal the daemon read after `ready` joins the changed set once, where it was given or broke since the look. No other change after `ready` joins it.
+  // An inspection the daemon read after `ready` joins the changed set once, where it cleared or lapsed since the look. No other change after `ready` joins it.
   if (held.lastLook) held.changed = changedSetAfter(held.lastLook, held.changed, held.workItems);
   takeRepositories(next);
   for (const session of held.sessions) {
@@ -1683,9 +1683,9 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     notifier.raise(notification.title, notification.body).onclick = () => onNotificationClick(session);
   }
-  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions are answered and its chain is started again, where the lists still hold it.
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a stopped chain's, on a lapsed inspection's or on a pull request's brings the window forward and opens the work item's view, where its questions are answered and its chain is started again, where the lists still hold it.
   const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
-  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...lapseNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
     notifier.raise(told.title, told.body).onclick = () => {
       void window.owlery.comeForward();
       if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
@@ -2079,9 +2079,9 @@ function onMessage(message: ServerMessage): void {
       // What a broad gate's command printed, for the line whose "Show output" asked.
       takeGateOutput(message.requestId, { text: message.text, cut: message.cut });
       return;
-    case "sealRecords":
-      // The records of the seal of the view's work item, which its back asked for. An answer to an earlier ask is let go.
-      takeSealRecords(message.requestId, message.records);
+    case "backRecords":
+      // The records of the inspection of the view's work item, which its back asked for. An answer to an earlier ask is let go.
+      takeBackRecords(message.requestId, message.records);
       return;
     case "ledger":
       // So is the ledger's part of that work item.

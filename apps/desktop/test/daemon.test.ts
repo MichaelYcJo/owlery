@@ -41,7 +41,7 @@ const NO_MARKS = { name: null, colour: null };
 /** What a work item just made holds since its base. */
 const NOTHING_NEW = { aheadOfBase: 0, behindBase: 0, newCommits: 0, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] } };
 const SESSION_FIELDS = ["accountId", "alive", "colour", "id", "kind", "name", "signsIn", "state", "stateQuestions", "stateSince", "stateText", "stateTool", "workItemId"];
-const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "machineWait", "muted", "newCommits", "ownsBranch", "paneStage", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "seal", "setup", "title", "unread", "wordOwed", "worktree"];
+const WORK_ITEM_FIELDS = ["accountId", "aheadOfBase", "archivedAt", "baseBranch", "baseCommit", "behindBase", "branch", "chain", "changes", "commits", "createdAt", "decisions", "groupId", "id", "inspection", "machineWait", "muted", "newCommits", "ownsBranch", "paneStage", "pinned", "pullRequest", "questions", "recorded", "repo", "repoId", "repoName", "setup", "title", "unread", "wordOwed", "worktree"];
 const SETUP_FIELDS = ["command", "copied", "copiedCount", "endedAt", "exitCode", "failedCopies", "failure", "paneId", "startedAt", "state"];
 /** What a work item holds of the fields set after its creation, by a person, by its setup, by its chain or by its pull request stage, before any is set. */
 const UNSET = { pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null };
@@ -561,7 +561,7 @@ describe("work items", () => {
     const worktree = join(root, "project", "fix-the-login-bug");
     const baseCommit = git(repo, "rev-parse", "HEAD").trim();
     // The repository's HEAD is on `main`, and its folder is named `project`. No branch was picked, so the creation made none.
-    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, wordOwed: null, paneStage: null, ...NO_RECORD, recorded: NOTHING_RECORDED, seal: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
+    expect(created.workItem).toEqual({ id: 1, title: "Fix the login bug", repoId: 1, repo, repoName: "project", ...UNSET, accountId: null, machineWait: null, wordOwed: null, paneStage: null, ...NO_RECORD, recorded: NOTHING_RECORDED, inspection: null, branch: null, ownsBranch: false, worktree, createdAt: 1234, baseCommit, baseBranch: "main", ...NOTHING_NEW });
     expect(created.session).toEqual({ id: created.session.id, kind: "claude", alive: true, workItemId: 1, accountId: 0, signsIn: null, ...NO_MARKS, ...NO_STATE });
     expect(git(repo, "worktree", "list", "--porcelain")).toContain(`worktree ${worktree}\nHEAD ${baseCommit}\ndetached\n`);
     expect([branches(), git(worktree, "branch", "--show-current").trim()]).toEqual([before, ""]);
@@ -1482,7 +1482,7 @@ describe("repositories", () => {
     ]);
     expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
     // The daemon reads no archived work item's branch, so one it has not read since it started carries no `seal`.
-    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS.filter((key) => key !== "seal"));
+    expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS.filter((key) => key !== "inspection"));
     // An inbox carries the same lists: a change to a work item sends one.
     c.send({ type: "setWorkItem", requestId: 1, id: 1, pinned: true });
     const inbox = await c.message("inbox");
@@ -2150,7 +2150,7 @@ describe("the records place of a repository", () => {
     const NAME = "1795696248-refused-records";
     const { made, c, workItems } = await standing(cleanups, ["Refused work", "Plain work"], { version: "1.2.3", commitPollMs: 50 });
     const [a] = workItems as [(typeof workItems)[number]];
-    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
     const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
     writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x"));
     git(a.worktree, "add", record);
@@ -2175,7 +2175,7 @@ describe("the records place of a repository", () => {
     const NAME = "1795696248-unreadable-records";
     const { made, c, workItems } = await standing(cleanups, ["Unreadable work"], { version: "1.2.3", commitPollMs: 50 });
     const [a] = workItems as [(typeof workItems)[number]];
-    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
     const head = git(a.worktree, "rev-parse", "HEAD").trim();
     await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
     // The worktree's link to its repository breaks after the daemon read the branch's head, so git cannot list the records at that head, though their directory stands on disk.
@@ -2197,7 +2197,7 @@ describe("the records place of a repository", () => {
     const NAME = "1795696248-records-of-a-gone-folder";
     const { made, c, workItems } = await standing(cleanups, ["Gone work"], { version: "1.2.3", commitPollMs: 50 });
     const [a] = workItems as [(typeof workItems)[number]];
-    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
     const head = git(a.worktree, "rev-parse", "HEAD").trim();
     await c.until(() => (head.startsWith(c.workItem(a.id)?.commits?.[0]?.hash ?? "-") ? true : undefined));
     // A person removes the worktree's folder by hand. The daemon reads the branch's head from the repository, so it still holds that head.
@@ -4038,16 +4038,16 @@ describe("the inbox", () => {
     git(repo, "worktree", "remove", "--force", workItem.worktree);
     git(repo, "branch", "--quiet", "-D", branchOf(workItem));
     const gone = await c.message("inbox", (m) => m.workItems[0]?.newCommits === null);
-    // Nor a seal: what was read of the branch went with it, so the work item carries no `seal`.
-    const { seal: _seal, ...read } = workItem;
+    // Nor an inspection: what was read of the branch went with it, so the work item carries no `inspection`.
+    const { inspection: _inspection, ...read } = workItem;
     expect(gone.workItems).toEqual([{ ...read, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }]);
-    expect("seal" in gone.workItems[0]!).toBe(false);
+    expect("inspection" in gone.workItems[0]!).toBe(false);
   });
 
   it("reads a work item with no branch yet at its worktree's HEAD: its commit there, which a tag holds, is one new commit, ahead of the base by one, with the file it changed and no seal, and no branch is made", async () => {
     const { c, worktree, lone, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
     const before = branches();
-    const read = await c.until(() => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).find((item) => item.newCommits === 1 && item.seal !== undefined));
+    const read = await c.until(() => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).find((item) => item.newCommits === 1 && item.inspection !== undefined));
     expect(read).toMatchObject({
       branch: null,
       ownsBranch: false,
@@ -4056,7 +4056,7 @@ describe("the inbox", () => {
       newCommits: 1,
       commits: [{ hash: git(worktree, "rev-parse", "--short", lone).trim(), subject: "add lone.txt" }],
       changes: { files: 1, added: 1, removed: 0, list: [{ path: "lone.txt", added: 1, removed: 0 }] },
-      seal: null,
+      inspection: null,
     });
     expect(branches()).toBe(before);
   });
@@ -4295,11 +4295,11 @@ describe("the inbox", () => {
     const c = await client(url);
     const ready = await c.message("ready");
     expect(ready.workItems.map((w) => [w.baseCommit, w.newCommits, w.commits?.length ?? null, w.changes?.files ?? null])).toEqual([[null, null, null, null], [after.baseCommit, 1, 1, 1]]);
-    expect(ready.workItems.map((w) => ("seal" in w ? w.seal : "none"))).toEqual(["none", null]);
+    expect(ready.workItems.map((w) => ("inspection" in w ? w.inspection : "none"))).toEqual(["none", null]);
     commit(after.worktree, "again.txt");
     const inbox = await c.message("inbox", (m) => m.workItems[1]?.newCommits === 2);
     expect(inbox.workItems[0]).toMatchObject({ id: 1, baseCommit: null, newCommits: null, commits: null, changes: null });
-    expect("seal" in inbox.workItems[0]!).toBe(false);
+    expect("inspection" in inbox.workItems[0]!).toBe(false);
   });
 });
 
@@ -5008,17 +5008,17 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const a = workItems[0]!;
     const gate = commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     // The case sends nothing from here on: what the lists carry, the daemon read by itself.
-    const seal = await c.until(() => (c.workItem(a.id)?.seal?.state === "sealed" ? c.workItem(a.id)?.seal : undefined));
-    expect(seal).toEqual({ state: "sealed", commit: gate, why: null });
+    const seal = await c.until(() => (c.workItem(a.id)?.inspection?.state === "cleared" ? c.workItem(a.id)?.inspection : undefined));
+    expect(seal).toEqual({ state: "cleared", commit: gate, why: null });
     return { made, c, a, gate };
   }
-  const broken = (c: Awaited<ReturnType<typeof sealed>>["c"], id: number) => c.until(() => (c.workItem(id)?.seal?.state === "broken" ? c.workItem(id)?.seal : undefined));
+  const broken = (c: Awaited<ReturnType<typeof sealed>>["c"], id: number) => c.until(() => (c.workItem(id)?.inspection?.state === "lapsed" ? c.workItem(id)?.inspection : undefined));
 
   it("turns a sealed work item broken within the read interval after a commit made with git in its worktree, and no message of a client asks for it", async () => {
     const { c, a, gate } = await sealed();
     writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
-    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
+    expect(await broken(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("turns it broken when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
@@ -5033,7 +5033,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const tree = spawnSync("git", ["write-tree"], { cwd: made.repo, env, encoding: "utf8" }).stdout.trim();
     const moved = spawnSync("git", ["commit-tree", tree, "-p", at, "-m", "fix: change the greeting elsewhere"], { cwd: made.repo, encoding: "utf8" }).stdout.trim();
     git(made.repo, "update-ref", `refs/heads/${a.branch}`, moved, at);
-    expect(await broken(c, a.id)).toEqual({ state: "broken", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
+    expect(await broken(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("sends a broken seal's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
@@ -5057,19 +5057,19 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     watchedGit(stood.made.base, 0.2);
     const c = await chainClient((await stood.start({ readyWaitMs: 50 })).url, cleanups);
     const ready = await c.message("ready");
-    expect(ready.workItems.map((w) => [w.id, "seal" in w])).toEqual([[a.id, false], [b.id, false]]);
+    expect(ready.workItems.map((w) => [w.id, "inspection" in w])).toEqual([[a.id, false], [b.id, false]]);
     const read = await c.until(() => {
       const [sealedItem, unsealedItem] = [c.workItem(a.id), c.workItem(b.id)];
-      return sealedItem?.seal?.state === "sealed" && unsealedItem !== undefined && "seal" in unsealedItem ? [sealedItem.seal, unsealedItem.seal] : undefined;
+      return sealedItem?.inspection?.state === "cleared" && unsealedItem !== undefined && "inspection" in unsealedItem ? [sealedItem.inspection, unsealedItem.inspection] : undefined;
     });
-    expect(read).toEqual([{ state: "sealed", commit: gate, why: null }, null]);
+    expect(read).toEqual([{ state: "cleared", commit: gate, why: null }, null]);
   });
 
   it("sends no seal for a work item whose head holds none, though a pane of it prints `Verdict: cleared` and its stored chain rests", async () => {
     const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: cleared\\n'; sleep 30"], env: {} }) });
     const a = stood.workItems[0]!;
     // The records of a chain that has a gate's run and no guarantee, and a stored chain that rests, which the store's file is given.
-    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, seal: false });
+    commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
     expect((await stood.c.asked({ type: "setWorkItem", requestId: 9, id: a.id, pinned: true })).type).toBe("done");
     await stood.d.close();
     const file = join(stood.runDir, "repositories.json");
@@ -5087,7 +5087,7 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
       return item?.commits?.some(({ subject }) => subject === "chore: record the broad gate's run") ? item : undefined;
     });
     expect(read.chain).toMatchObject({ state: "rested" });
-    expect(read.seal).toBeNull();
+    expect(read.inspection).toBeNull();
   });
 });
 
@@ -5254,28 +5254,28 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
   const NAME = "1795400730-sealed-work";
   const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
 
-  it("answers a `readSealRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
+  it("answers a `readBackRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
     const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
     const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
     const gate = commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
-    const sealed = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
-    expect(sealed).toMatchObject({ type: "sealRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, brokenBy: null, refusals: [], unreadRefusals: 0 } });
-    expect(sealed.type === "sealRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
-    expect(await c.asked({ type: "readSealRecords", requestId: 2, workItemId: b.id })).toEqual({
-      type: "sealRecords",
+    const sealed = await c.asked({ type: "readBackRecords", requestId: 1, workItemId: a.id });
+    expect(sealed).toMatchObject({ type: "backRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, lapsedBy: null, refusals: [], unreadRefusals: 0 } });
+    expect(sealed.type === "backRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
+    expect(await c.asked({ type: "readBackRecords", requestId: 2, workItemId: b.id })).toEqual({
+      type: "backRecords",
       requestId: 2,
       workItemId: b.id,
-      records: { head: headOf(b.worktree), record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 },
+      records: { head: headOf(b.worktree), record: null, lapsedBy: null, rounds: [], refusals: [], unreadRefusals: 0 },
     });
-    expect(await c.asked({ type: "readSealRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
+    expect(await c.asked({ type: "readBackRecords", requestId: 3, workItemId: 99 })).toEqual({ type: "error", requestId: 3, message: "no work item 99" });
     git(made.repo, "update-ref", "-d", `refs/heads/${gone.branch}`);
-    expect(await c.asked({ type: "readSealRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(branchOf(gone)) });
+    expect(await c.asked({ type: "readBackRecords", requestId: 4, workItemId: gone.id })).toMatchObject({ type: "error", requestId: 4, message: expect.stringContaining(branchOf(gone)) });
   });
 
-  it("answers a `readSealRecords` of a work item with no branch yet with the empty value, read at its worktree's HEAD", async () => {
+  it("answers a `readBackRecords` of a work item with no branch yet with the empty value, read at its worktree's HEAD", async () => {
     const { c, lone } = await daemonWithoutBranch();
-    c.send({ type: "readSealRecords", requestId: 1, workItemId: 1 });
-    expect(await c.message("sealRecords", (m) => m.requestId === 1)).toEqual({ type: "sealRecords", requestId: 1, workItemId: 1, records: { head: lone, record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 } });
+    c.send({ type: "readBackRecords", requestId: 1, workItemId: 1 });
+    expect(await c.message("backRecords", (m) => m.requestId === 1)).toEqual({ type: "backRecords", requestId: 1, workItemId: 1, records: { head: lone, record: null, lapsedBy: null, rounds: [], refusals: [], unreadRefusals: 0 } });
   });
 
   it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
@@ -5291,9 +5291,9 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}iadd`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}iadd`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
     git(a.worktree, "add", record);
     git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
-    const answer = await c.asked({ type: "readSealRecords", requestId: 1, workItemId: a.id });
-    expect(answer).toMatchObject({ type: "sealRecords", records: { brokenBy: { commit: broke, subject: "fix: change the greeting" } } });
-    const found = answer.type === "sealRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
+    const answer = await c.asked({ type: "readBackRecords", requestId: 1, workItemId: a.id });
+    expect(answer).toMatchObject({ type: "backRecords", records: { lapsedBy: { commit: broke, subject: "fix: change the greeting" } } });
+    const found = answer.type === "backRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
     expect([found?.says, found?.severity.length]).toEqual(["가".repeat(2000), 2000]);
   });
 });
@@ -6014,7 +6014,7 @@ describe("the last look", () => {
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
     // The look holds the work item as it is sent, the commit read at the hello among it, and the head read with no seal.
-    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null }] });
+    expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] }, inspection: null }] });
   });
 
   it("gives after a restart the look taken before it, from a file the user alone can read", async () => {
