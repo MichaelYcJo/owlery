@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   RECORD_FILE,
+  owedWords,
   readDecisionRecord,
   withAnswer,
   withApplied,
@@ -17,6 +18,7 @@ import {
   withDecision,
   withQuestion,
   withReversal,
+  workItemDirectories,
   workItemDirectory,
   writeRecord,
 } from "../src/daemon/decision-record";
@@ -442,6 +444,33 @@ describe("the writer of a work item's record", () => {
   });
 });
 
+describe("the person's words no commit holds", () => {
+  it("gives a decision the written record holds `reversed` and the committed one holds `decided`", () => {
+    const committed = `${HEAD}${ROUTE}${PUSH}`;
+    expect(owedWords(committed, withReversal(committed, 1, "No."))).toEqual({ reversed: [1], answered: [] });
+  });
+
+  it("gives a question the written record holds `answered` and the committed one holds `open`", () => {
+    const committed = `${HEAD}${ROUTE}${PUSH}`;
+    expect(owedWords(committed, withAnswer(committed, 2, "`yes`"))).toEqual({ reversed: [], answered: [2] });
+  });
+
+  it("gives nothing for a reversal and an answer the committed record holds in the same state, though its message differs", () => {
+    const committed = `${HEAD}${SCOPE}${TOKEN}`;
+    const written = committed.replace("reversal: Ask it: the team writes Korean.", "reversal: Ask it.").replace("answer: The one in the keychain item `owlery-release`.", "answer: Another.");
+    expect(owedWords(committed, written)).toEqual({ reversed: [], answered: [] });
+  });
+
+  it("gives every `reversed` decision and every `answered` question, in the order of the file, where no commit holds the record, and no decision that stands `applied` or `carried`", () => {
+    expect(owedWords(null, RECORD)).toEqual({ reversed: [3], answered: [6] });
+    expect(owedWords(null, `${HEAD}${TOKEN}${SCOPE}`)).toEqual({ reversed: [3], answered: [6] });
+  });
+
+  it("gives nothing for a record whose decisions stand `decided`, `applied` or `carried` and whose questions stand `open`, though no commit holds it", () => {
+    expect(owedWords(null, `${HEAD}${ROUTE}${PUSH}${DEFAULT}${ANSWERED}`)).toEqual({ reversed: [], answered: [] });
+  });
+});
+
 describe("a work item's directory", () => {
   const cleanups: (() => void)[] = [];
   afterEach(() => {
@@ -514,7 +543,7 @@ describe("a work item's directory", () => {
     expect(workItemDirectory(worktree({ "2-b/routing.md": declares("feature") }), "feature")).not.toBeNull();
   });
 
-  it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch", { timeout: 30_000 }, () => {
+  it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
@@ -525,6 +554,9 @@ describe("a work item's directory", () => {
 
     const rooted = worktree({ "2-b/routing.md": declares("") });
     expect(workItemDirectory(rooted, "")).toBeNull();
+    // The reader gives no branch for a routing with no `Branch` row, and none for one whose review it does not know.
+    const unnamed = worktree({ "2-b/routing.md": routing([["Review", "straight to the PR"], ["Destination", "open the pull request"]]), "3-c/routing.md": routing([["Review", "none"], ["Destination", "open the pull request"], ["Branch", "feature"]]) });
+    expect([workItemDirectories(unnamed, null), workItemDirectory(unnamed, null), workItemDirectory(rooted, null)]).toEqual([[], null, null]);
   });
 
   it("is found by a renamed branch once the `Branch` row names it: the row's name alone is rewritten, with the cell's own spaces, the cells after it, each line's end and every other line as they were, and the pull request check finds the directory by the new name", { timeout: 30_000 }, () => {

@@ -10,6 +10,23 @@ Owlery(아울러리)는 AgenticSeal의 작업 흐름을 바탕으로, 에이전�
 
 owlery는 올빼미가 사는 곳을 뜻합니다. 올빼미는 에이전트입니다. Owlery의 엠블럼은 밀랍 없는 올빼미이고, 밀랍 봉인 위의 올빼미는 AgenticSeal이 보증을 나타내는 표시로 남습니다. 자세한 것은 [docs/name.ko.md](docs/name.ko.md)에 있습니다.
 
+## 설치
+
+Owlery는 Apple 실리콘, 곧 M1 칩 이후의 칩을 쓰고 macOS 13 Ventura 이후를 쓰는 Mac에서 돌아갑니다. Intel Mac이나 그보다 이전의 macOS에서는 열리지 않습니다.
+
+1. 최신 릴리스에서 `Owlery-arm64.dmg`를 내려받습니다: <https://github.com/MichaelYcJo/owlery/releases/latest/download/Owlery-arm64.dmg>. 릴리스마다의 다운로드는 [릴리스 페이지](https://github.com/MichaelYcJo/owlery/releases)에 있습니다.
+2. `.dmg`를 열고 Owlery를 응용 프로그램 폴더로 끌어 놓습니다.
+3. 응용 프로그램 폴더에서 Owlery를 엽니다.
+
+빌드가 Apple의 Developer ID 인증서로 서명되기 전까지는 macOS가 처음 열기를 막습니다. 알림은 Apple이 이 앱에 악성 소프트웨어가 있는지 확인할 수 없다고 말하고, 앱을 여는 단추는 보여 주지 않습니다. 알림의 문구는 macOS 버전마다 다릅니다. 앱은 이렇게 엽니다.
+
+4. 시스템 설정을 열고, 개인정보 보호 및 보안을 누른 뒤, 아래로 내립니다.
+5. Owlery에 관한 줄 옆의 "그래도 열기"(영어 화면에서는 "Open Anyway")를 누르고, "열기"로 확인합니다.
+
+Owlery는 작업함에서 열립니다. Owlery는 로그인 셸을 거쳐 사용자의 `claude`, `git`, `gh`를 실행합니다. 그래서 셋 다 설치되어 있고, 로그인 셸이 정하는 `PATH`에 있어야 합니다.
+
+**Owlery는 아직 스스로 업데이트하지 않습니다.** 새 버전을 설치하려면 먼저 Owlery 메뉴에서 "Quit Owlery Completely…"를 고릅니다. 그러면 Owlery의 백그라운드 프로세스와 그 프로세스가 붙들고 있는 세션이 끝납니다. 그다음 새 `.dmg`를 내려받아 응용 프로그램 폴더의 앱을 바꿉니다.
+
 ## 실행
 
 릴리스 0.0.1은 여기까지 돕니다. 창은 작업함에서 열립니다. 작업마다 자기 브랜치와 자기 worktree가 생기고, 터미널 칸이 그 worktree에서 열리며, 헤드리스 Claude 세션에 질문 하나를 보낼 수 있습니다. 인장은 아직 없습니다. 리뷰 회차와 인장은 [로드맵](docs/roadmap.ko.md#마일스톤)의 마일스톤 2에서 들어옵니다.
@@ -46,8 +63,8 @@ pnpm --filter @owlery/desktop start
 | 문서 | 담은 것 |
 |---|---|
 | [docs/product.ko.md](docs/product.ko.md) | 약속, 누구를 위한 것인가, 인장을 보여 주는 세 자리, 성능 가설과 벤치마크 계획, 일부러 하지 않는 것, 첫 세션 |
-| [docs/architecture.ko.md](docs/architecture.ko.md) | 앱, 데몬, 에이전트 어댑터, AgenticSeal 프로세스의 관계, AgenticSeal에서 가져오는 것, 순서와 판단의 분담, 첫 마일스톤의 모양을 정하는 규칙과 v0.1 다음에 오는 것, 메모리 설계, 화면 프레임워크, 만들기 전에 잴 것 |
-| [docs/roadmap.ko.md](docs/roadmap.ko.md) | 버전마다 무엇을 어떤 순서로 만들고 언제 끝났다고 보는가. v0.1의 마일스톤 다섯, 그 순서의 근거, 완료 기준, 남겨 둔 결정 |
+| [docs/architecture.ko.md](docs/architecture.ko.md) | 앱, 데몬, 에이전트 어댑터, AgenticSeal 프로세스의 관계, AgenticSeal에서 가져오는 것, 순서와 판단의 분담, 첫 마일스톤의 모양을 정하는 규칙과 첫 버전 다음에 오는 것, 메모리 설계, 화면 프레임워크, 만들기 전에 잴 것 |
+| [docs/roadmap.ko.md](docs/roadmap.ko.md) | Owlery가 무엇을 어떤 순서로 만들고 언제 끝났다고 보는가. 첫 버전의 마일스톤 다섯, 그 순서의 근거, 완료 기준, 남겨 둔 결정 |
 | [docs/name.ko.md](docs/name.ko.md) | 이름의 뜻과 출처, 발음, 알고 가야 할 것, 엠블럼 |
 | [docs/design.ko.md](docs/design.ko.md) | 창이 어떻게 보이고 어떻게 말하는가. 원칙, 세 테마와 테마마다 그릴 때 쓰는 모든 값, 부분의 형태와 그 상태, 문구의 말투, 피하는 것, 창을 바꾸는 PR이 싣는 스크린샷 |
 

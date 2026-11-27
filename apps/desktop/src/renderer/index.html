@@ -97,7 +97,7 @@
       /* How many commits a branch gained since the person last looked. */
       .badge { flex: none; display: inline-flex; align-items: center; height: var(--space-6); padding: 0 5px; border-radius: var(--radius-chip); background: var(--badge); color: var(--badge-ink); font-size: var(--size-caption); font-weight: 600; }
       .badge:empty { display: none; }
-      /* On a line, how many decisions made without asking the person has not seen, and how many reversals wait for a stage. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
+      /* On a line, how many decisions made without asking the person has not seen, how many reversals wait for a stage, and that a word of the person's was not committed where its commit failed. The words are set in the face of the line's own text: in a fixed-width face they leave that text no room. */
       .line .decided { flex: none; font-size: var(--size-caption); color: var(--ink-faint); white-space: nowrap; }
       .line .decided:empty { display: none; }
       /* On a selected line the count is in the muted ink, as the line's age is: the faint ink does not stand apart from a selected ground. */
@@ -105,13 +105,14 @@
       .icon-button { position: relative; flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; box-sizing: border-box; min-width: var(--icon-button); height: var(--icon-button); padding: 0 var(--space-2); border-radius: var(--radius-control); color: var(--ink-muted); }
       .icon-button:hover { background: var(--hover); color: var(--ink); transition: background-color var(--motion), color var(--motion); }
       .icon-button:active { background: var(--pressed); }
-      .icon-button.on { color: var(--ink-strong); }
+      /* On is a shape as well as an ink, so it is not told by colour alone. */
+      .icon-button.on { color: var(--ink-strong); box-shadow: var(--on-edge); }
       /* An icon is a line of 1.5 pixels in the colour of the words beside it. */
       svg.icon, .state-icon svg { flex: none; display: block; width: var(--icon); height: var(--icon); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
       /* The sidebar's filter and the foot's three controls are each an icon, with the choices laid over it unseen, so a press on the icon opens them. */
       .icon-button select { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; opacity: 0; }
       .icon-button:has(select:focus-visible) { outline: 2px solid var(--focus); outline-offset: -2px; }
-      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines, the text of a call a session asks to make and the terminal, and a fact where the theme sets its facts in it. */
+      /* The fixed-width typeface draws a branch, a commit's hash, a path, a count of lines and the terminal, and a fact where the theme sets its facts in it. */
       .branch { font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); overflow-wrap: anywhere; }
       /* A state's colour, which its icon and its words take, and the shapes of its mark, which are the theme's: a line, a filled part, and for work the faint track and the part that turns. The fill of a wait and of a failure is a colour the theme names beside the state's. */
       .state.waiting { --state: var(--state-waiting); --part-line: var(--shape-waiting); --part-fill: var(--shape-waiting-fill); --part-fill-colour: var(--state-waiting-fill); }
@@ -189,6 +190,9 @@
       .decision .age { flex: 1; }
       /* A line of the work item's record that was not read, under the decisions: a fault of the record, in the colour of a failure. */
       .decisions .unread { padding: var(--space-2) 0; font-size: var(--size-second); color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
+      /* Above the decisions, a word of the person's that no commit holds yet: in the muted ink while it waits for a session, in the colour of a failure where its commit failed. Git's reason is plain text the person can select. */
+      .detail .word-owed { font-size: var(--size-second); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      .detail .word-owed.failed { color: var(--state-failed); }
       .decision .what, .decision .grounds, .decision .message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       .decision .grounds, .decision .reversal { color: var(--ink-muted); }
       .decision .reversal { margin-top: var(--space-2); font-size: var(--size-caption); }
@@ -247,6 +251,8 @@
       .line-mark svg.icon { width: var(--line-mark); height: var(--line-mark); }
       #repositories-head { flex: none; display: flex; align-items: center; gap: 1px; height: 32px; margin-top: 9px; padding: 3px 10px 0 18px; border-top: 1px solid var(--rule); }
       #repositories-head h2 { flex: 1; color: var(--ink-faint); }
+      /* While the refresh's answer is on its way, its arrows go round once in 1.1s, as the working mark's part does. */
+      #refresh-lists[aria-busy="true"] svg { animation: turn 1.1s linear infinite; }
       #bell-count { font-weight: 600; color: var(--ink); }
       #bell-count:empty { display: none; }
       /* The dot on the bell where a work item waits, in the strong ink. */
@@ -261,6 +267,9 @@
       .repository-icon { flex: none; }
       /* The button under the repositories that says how many are hidden. */
       #hidden-repositories { flex: none; color: var(--ink-faint); font-size: var(--size-second); }
+      /* What the sidebar says where a search or a filter leaves no repository, and the button under it that shows them all again. */
+      #sidebar-empty { flex: none; margin: 0; padding: var(--space-3) var(--space-4) 0; font-size: var(--size-second); color: var(--ink-muted); overflow-wrap: anywhere; }
+      #show-every { align-self: flex-start; margin: var(--space-2) var(--space-4); }
       .repository li .side-item { padding-left: 26px; }
       /* A group's heading, under a repository's ungrouped work items: the group's name, and how many work items stand under it. */
       .group-head { display: flex; align-items: flex-end; gap: var(--space-3); box-sizing: border-box; height: var(--sidebar-line); padding: 0 var(--space-4) var(--space-2) 26px; font-size: var(--size-caption); font-weight: 600; color: var(--ink-muted); }
@@ -312,10 +321,11 @@
       .line .account, #tabs .tab .account { flex: none; max-width: var(--tab-width); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
       #tabs .tab .account { align-self: center; padding-right: var(--space-2); }
       .line.selected .account { color: var(--ink-muted); }
-      /* A row of the Accounts dialog: the name with its folder and its sign-in under it, the default said in words, and the row's buttons. */
+      /* A row of the Accounts dialog: its record, the name with its folder, its sign-in and its usage under it, takes the row's whole width, so a name breaks only where it is longer than the row. Under the record the default said in words and the row's buttons stand on a line of their own, and wrap where they do not fit. A row being renamed or asked to be removed stands the same way: its field or its question, then its two buttons. */
+      #accounts-list li { flex-direction: column; align-items: stretch; gap: var(--space-2); padding: var(--space-3) 0; }
       #accounts-list li .account-name { display: flex; flex-direction: column; min-width: 0; }
       #accounts-list li .account-folder { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-faint); }
-      #accounts-list li .account-acts { flex: none; display: flex; align-items: center; gap: var(--space-2); }
+      #accounts-list li .account-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
       #accounts-list li .is-default { color: var(--ink-muted); }
       #accounts-list li .account-sign-in { font-size: var(--size-caption); color: var(--ink-muted); }
       /* A limit value, the last refresh and what a refresh spends are sentences, so they wrap where a folder is cut. */
@@ -339,7 +349,7 @@
       .line .first { height: 18px; }
       .line .second { height: 17px; padding-left: calc(var(--icon) + var(--space-4)); }
       .line .title { flex: 1; }
-      /* The second row's text is a question the work item is parked with, a call a session asks to make, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
+      /* The second row's text is a question the work item is parked with, the sentence of a chain that stopped, the agent's, a commit's subject or, in the fixed-width typeface, the branch. */
       .line .says { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink-muted); }
       .line .says.branch { font-size: var(--size-caption); }
       /* The setup's words after the text, in the failure's colour where it failed. */
@@ -356,9 +366,11 @@
       .preview-title { font-family: var(--font-title); font-size: var(--size-title); font-weight: var(--weight-title); line-height: 1.2; letter-spacing: var(--tracking-title); color: var(--ink-strong); overflow-wrap: anywhere; }
       .preview-facts { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) 14px; font-size: var(--size-second); color: var(--ink-muted); }
       .preview-facts .branch { color: var(--ink); }
+      /* The place of a work item with no branch says so in the sans, muted, where a branch's name stands in the fixed-width typeface. */
+      .branch.none { font-family: var(--font-ui); color: var(--ink-muted); }
       /* In the preview the commits and the changed files stand side by side where both fit. */
       .preview .detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px var(--space-9); }
-      .preview .detail .says, .preview .detail .approval, .preview .detail .decisions { grid-column: 1 / -1; }
+      .preview .detail .says, .preview .detail .approval, .preview .detail .word-owed, .preview .detail .decisions { grid-column: 1 / -1; }
       .preview-foot { flex: none; display: flex; align-items: center; gap: var(--space-4); box-sizing: border-box; min-height: var(--head-height); padding: var(--space-4) var(--space-9); border-top: 1px solid var(--rule); }
       .keys { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-1) 14px; margin-left: auto; }
 
@@ -379,7 +391,7 @@
       #pane-buttons button:active, #side-by-side:active, #side-by-side[aria-pressed="true"] { background: var(--pressed); }
       #side-by-side[aria-pressed="true"] { color: var(--ink-strong); }
       /* The tab of each pane on the stage stands on the terminal's ground. The tab in front, whose pane has the keyboard, has its edge and the strong ink as well. */
-      #tabs .tab { flex: none; display: flex; align-items: stretch; }
+      #tabs .tab { position: relative; flex: none; display: flex; align-items: stretch; }
       #tabs .tab:hover { background: var(--hover); transition: background-color var(--motion); }
       #tabs .tab.shown { background: var(--terminal-ground); }
       #tabs .tab.shown .label { color: var(--terminal-ink); }
@@ -398,6 +410,12 @@
       #tabs .tab.back .label { padding-right: var(--space-4); }
       #tabs .tab.back.active { background: var(--selected); box-shadow: var(--selected-edge); }
       #tabs .tab.back.active .label { color: var(--ink-strong); }
+      /* A colour a person marked a tab with, which the tab's bar and the swatch of the tab's menu are drawn in. */
+      [data-colour="green"] { --colour: var(--tab-green); }
+      [data-colour="blue"] { --colour: var(--tab-blue); }
+      [data-colour="pink"] { --colour: var(--tab-pink); }
+      /* A tab with a colour carries a bar of it 2px high along its bottom edge, across its width, the same shape for every colour, and its tooltip and its name to a screen reader say the colour's word. */
+      #tabs .tab[data-colour]::after { content: ""; position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--colour); pointer-events: none; }
       #no-panes { padding: var(--space-7) 18px; color: var(--ink-muted); }
       /* The stage keeps its terminals' own levels to itself: a terminal stacks some of its layers above its text, and without this they stand over a menu that opens across the stage and take the press meant for its item. */
       #stage { position: relative; isolation: isolate; flex: 1; min-width: 0; min-height: 0; overflow: hidden; background: var(--terminal-ground); }
@@ -454,7 +472,7 @@
       #view-strip { flex: none; display: flex; align-items: center; gap: var(--space-6); box-sizing: border-box; height: var(--strip-height); padding: 0 14px; border-top: 1px solid var(--rule); }
       #strip-size, #strip-state { flex: none; }
       #strip-worktree { flex: 1; color: var(--ink-faint); }
-      /* The right column: what it says of the work item scrolls, and the "Ask" section and the seal's place stay at its foot. */
+      /* The right column: what it says of the work item scrolls, and the list of the daemon's chain and the seal's place stay at its foot. */
       #view-facts { display: flex; flex-direction: column; box-sizing: border-box; min-height: 0; border-left: 1px solid var(--rule); background: var(--texture), var(--ground-column); }
       #view-scroll { flex: 1; display: flex; flex-direction: column; gap: var(--space-6); min-height: 0; overflow: auto; padding: var(--space-6); }
       #view-head { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -514,29 +532,19 @@
       #pull-request-failure { padding: var(--space-3) var(--space-2) 0; color: var(--state-failed); overflow-wrap: anywhere; user-select: text; }
       #pull-request-more:empty, #pull-request-failure:empty { display: none; }
 
-      #ask { flex: none; display: flex; flex-direction: column; gap: var(--space-4); box-sizing: border-box; min-height: 0; max-height: 40%; padding: var(--space-5) var(--space-6); border-top: 1px solid var(--rule); }
-      #ask-form { flex: none; display: flex; gap: var(--space-3); }
-      #ask-form input { flex: 1; min-width: 0; }
-      /* The account a new headless session runs under, beside the field: its first choice is the work item's, and it keeps the prefix and about 18 characters of a name while the field gives up the width. */
-      #ask-account { flex: none; max-width: var(--tab-width); height: var(--control-height); font-size: var(--size-second); }
-      #headless { min-height: 0; overflow: auto; font-size: var(--size-second); }
-      #headless li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
-      #headless li:last-child { border-bottom: 0; }
-      #headless .row { display: flex; gap: var(--space-3); align-items: center; }
-      #headless .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-      #headless .state { font-size: var(--size-caption); }
-      #headless .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      /* A call the session asks the person to allow, in the form of what an agent says with the edge of what needs the person: its head names the tool, the call's text stands whole in the fixed-width face, and "Allow" and "Refuse" stand at its right foot, neither of them the main button. */
-      #headless .permission { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-5) var(--space-6); border-radius: var(--radius-said); background: var(--said-ground); box-shadow: var(--said-edge-waiting); }
-      #headless .permission h3 { font-weight: 500; color: var(--ink); }
-      #headless .call { font-family: var(--font-mono); font-size: var(--size-second); color: var(--ink-strong); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
-      #headless .answers { display: flex; justify-content: flex-end; gap: var(--space-3); }
+      /* The list of the daemon's chain, above the seal's place, with no heading of its own: the line of the broad gate the work item's chain ran last, then a line for each headless session the daemon lists for the work item, each a row of a list of records. It scrolls past 40% of the column, and is hidden while it holds no line. */
+      #view-chain { flex: none; box-sizing: border-box; min-height: 0; max-height: 40%; overflow: auto; padding: var(--space-3) var(--space-6); border-top: 1px solid var(--rule); font-size: var(--size-second); }
+      #view-chain li { padding: var(--space-3) 0; border-bottom: 1px solid var(--rule-soft); }
+      #view-chain li:last-child { border-bottom: 0; }
+      #view-chain .row { display: flex; gap: var(--space-3); align-items: center; }
+      #view-chain .prompt { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+      #view-chain .state { font-size: var(--size-caption); }
+      #view-chain .answer { display: block; margin-top: var(--space-2); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       /* What a failed session's process printed on its error stream, under its error, as the process printed it. */
-      #headless .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+      #view-chain .error-output { display: block; margin-top: var(--space-2); font-family: var(--font-mono); font-size: var(--size-caption); color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
       /* The broad gate's line: its command in the fixed-width face after the words "Broad gate", and, above what its command printed, which is drawn as a failed session's error output is, a note where the daemon kept the end alone. */
-      #headless .gate .command { font-family: var(--font-mono); color: var(--ink-strong); }
-      #headless .output-note { display: block; margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
-      #headless:empty::after { content: "Nothing asked yet"; font-size: var(--size-caption); color: var(--ink-faint); }
+      #view-chain .gate .command { font-family: var(--font-mono); color: var(--ink-strong); }
+      #view-chain .output-note { display: block; margin-top: var(--space-2); font-size: var(--size-caption); color: var(--ink-faint); }
 
       input, select { box-sizing: border-box; height: var(--control-height); padding: 0 var(--space-4); border: 0; border-radius: var(--radius-control); background: var(--ground-sunken); box-shadow: var(--field-edge); color: var(--ink-strong); font: inherit; }
       input::placeholder { color: var(--ink-faint); }
@@ -559,14 +567,22 @@
       #rename-error, dialog .refusal { min-height: 1.4em; margin-bottom: var(--space-4); color: var(--state-failed); overflow-wrap: anywhere; }
       /* What a dialog says before it asks, and the things it names: each on a line, a long one cut at the dialog's edge. */
       dialog .says { margin-bottom: var(--space-5); color: var(--ink-muted); }
+      /* The delete dialog's first sentence says what the delete does or would lose, so it is the dialog's lead, in the ink of what is read, and not a note. */
+      #delete-says { font-size: var(--size-text); color: var(--ink); }
       dialog section { margin-bottom: var(--space-5); }
       dialog section h3 { margin-bottom: var(--space-2); }
       dialog .named { max-height: var(--said-height); margin-bottom: var(--space-5); overflow: auto; }
       dialog section .named { margin-bottom: 0; }
       dialog .named li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); min-height: var(--control-height); }
       dialog .named li > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-      /* What a delete would remove is read whole: a long path or subject takes the lines it needs. */
+      /* The Accounts list and what the records place holds, in the records dialog, are read whole: a long name or path takes the lines it needs. */
       dialog .named.whole li > span { overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+      /* A list of what a delete would remove or lose: each entry on one row of one height, with no gap between rows. A commit's short hash stands in a column as wide as the list's widest hash, then its subject cut to one line; a path stands in the fixed-width face, cut to one line. Each row's tooltip holds the whole text. Ten rows show at once, and a longer list scrolls and comes to rest on whole rows. */
+      dialog .loss { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-auto-rows: var(--detail-line); column-gap: var(--space-4); max-height: calc(10 * var(--detail-line)); overflow-x: hidden; overflow-y: auto; scroll-snap-type: y mandatory; }
+      dialog .loss li { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center; scroll-snap-align: start; }
+      dialog .loss .hash { color: var(--ink-muted); }
+      dialog .loss .subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--size-second); color: var(--ink); }
+      dialog .loss .path { grid-column: 1 / -1; color: var(--ink); }
       dialog .more { margin-top: var(--space-2); font-size: var(--size-second); color: var(--ink-faint); }
       dialog h3.work-item { margin-bottom: var(--space-3); }
       /* The dialog of the records place: a file the setup would write is read whole, in the letters a file is read in, and a long one scrolls inside its own box. */
@@ -589,6 +605,14 @@
       .menu [aria-haspopup="menu"]::after { content: ""; flex: none; box-sizing: border-box; width: var(--space-3); height: var(--space-3); border-top: 1px solid var(--ink-faint); border-right: 1px solid var(--ink-faint); transform: rotate(45deg); }
       .menu [aria-haspopup="menu"][aria-expanded="true"] { background: var(--hover); }
       .menu [role="separator"] { flex: none; height: 1px; margin: var(--space-2) var(--space-4); background: var(--rule); }
+      /* A row of a menu holds its items side by side, each as high as an item and as wide, drawing the mark its press gives a tab and no words: a bar in its colour, or for no colour the same bar outlined in the faint ink. The item that holds has an edge in the muted ink. */
+      .menu .swatches { flex: none; display: flex; gap: var(--space-2); padding: 0 var(--space-3); }
+      .menu [role="menuitemradio"] { flex: none; display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: var(--sidebar-line); height: var(--sidebar-line); border: 1px solid transparent; border-radius: var(--radius-line); }
+      .menu [role="menuitemradio"]:hover, .menu [role="menuitemradio"]:focus { background: var(--hover); }
+      .menu [role="menuitemradio"]:active { background: var(--pressed); }
+      .menu [role="menuitemradio"][aria-checked="true"] { border-color: var(--ink-muted); }
+      .menu [role="menuitemradio"]::before { content: ""; box-sizing: border-box; width: 14px; height: 4px; background: var(--colour); }
+      .menu [role="menuitemradio"]:not([data-colour])::before { border: 1px solid var(--ink-faint); background: none; }
       #close-pane-sentence { margin: 0 0 var(--space-6); overflow-wrap: anywhere; }
       #close-pane-dialog .row { display: flex; justify-content: flex-end; gap: var(--space-4); }
       /* The card of the link under the pointer, in a pane. Its place is the window's own, set where it shows. */
@@ -602,9 +626,17 @@
       #pane-menu button:not(:disabled):hover, #pane-menu button:focus { background: var(--hover); outline: 0; transition: background-color var(--motion); }
       #pane-menu .keys { color: var(--ink-faint); }
       #pane-menu [role="separator"] { height: 1px; margin: var(--space-2) 0; background: var(--rule); }
+      /* A pane's find bar: a card over the top right corner of the pane's screen, above the terminal's own layers, its scroll bar among them. Its field is a field, its other controls are icons' buttons, and its count is a fact in the muted ink. A choice that is on, "Match case" or "Regular expression", draws its icon in the strong ink. */
+      #find-bar { position: absolute; top: 0; right: 0; z-index: 12; display: flex; align-items: center; gap: var(--space-1); box-sizing: border-box; padding: var(--space-2); border-radius: var(--radius-card); background: var(--ground-raised); box-shadow: var(--card-edge), var(--dialog-shadow); }
+      #find-field { width: 200px; height: var(--icon-button); margin-right: var(--space-2); padding: 0 var(--space-3); font-size: var(--size-second); }
+      #find-bar .glyph { display: block; min-width: var(--icon); font-family: var(--font-mono); font-size: var(--size-caption); font-weight: 600; line-height: var(--icon); text-align: center; }
+      #find-bar [aria-pressed="true"] { color: var(--ink-strong); }
+      #find-count { flex: none; min-width: 11ch; padding: 0 var(--space-3); font-family: var(--font-fact); font-size: var(--size-caption); color: var(--ink-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
       #work-item-plan { display: grid; gap: var(--space-1); min-height: 2.9em; margin: calc(-1 * var(--space-3)) 0 var(--space-5); font-size: var(--size-second); overflow-wrap: anywhere; }
-      #work-item-branch { font-family: var(--font-mono); color: var(--ink); }
-      #work-item-plan.failed #work-item-branch { font-family: inherit; color: var(--state-failed); }
+      /* What the creation does of the branch, in words, with each branch's name in the face of a fact. */
+      #work-item-branch { color: var(--ink); }
+      #work-item-branch .fact { font-family: var(--font-fact); }
+      #work-item-plan.failed #work-item-branch { color: var(--state-failed); }
       #work-item-worktree { color: var(--ink-faint); }
       /* The setup the repository names: its command is plain text, with its line breaks kept. */
       #work-item-setup { color: var(--ink-muted); white-space: pre-wrap; }
@@ -649,6 +681,9 @@
         <button id="bell" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 11V7.5a4 4 0 0 1 8 0V11l1.2 1.5H2.8z" /><path d="M6.8 14h2.4" /></svg>
           <span id="bell-count" class="count"></span>
+        </button>
+        <button id="refresh-lists" class="icon-button" type="button">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8a4.5 4.5 0 0 1 4.5-4.5 4.9 4.9 0 0 1 3.37 1.37L12.5 6" /><path d="M12.5 3.5V6H10" /><path d="M12.5 8a4.5 4.5 0 0 1-4.5 4.5 4.9 4.9 0 0 1-3.37-1.37L3.5 10" /><path d="M6 10H3.5v2.5" /></svg>
         </button>
         <label id="sidebar-filter-control" class="icon-button">
           <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" /></svg>
@@ -750,7 +785,18 @@
             <div id="pane-buttons"></div>
           </div>
           <p id="no-panes" hidden>No pane is open in this work item.</p>
-          <div id="stage"></div>
+          <div id="stage">
+            <!-- The find bar stands in the screen of the pane it searches while it is open (./work-item-view.ts, `openFind`). -->
+            <div id="find-bar" role="search" aria-label="Find in the pane's output" hidden>
+              <input id="find-field" autocomplete="off" spellcheck="false" placeholder="Find" aria-label="Find in the pane's output" />
+              <button id="find-case" class="icon-button" type="button" aria-pressed="false" aria-label="Match case" title="Match case"><span class="glyph" aria-hidden="true">Aa</span></button>
+              <button id="find-regex" class="icon-button" type="button" aria-pressed="false" aria-label="Regular expression" title="Regular expression"><span class="glyph" aria-hidden="true">.*</span></button>
+              <span id="find-count" aria-live="polite"></span>
+              <button id="find-next" class="icon-button" type="button" aria-label="Next match" title="Next match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 12.5v-9M4 7.5l4-4 4 4" /></svg></button>
+              <button id="find-previous" class="icon-button" type="button" aria-label="Previous match" title="Previous match" disabled><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3.5v9M4 8.5l4 4 4-4" /></svg></button>
+              <button id="find-close" class="icon-button" type="button" aria-label="Close" title="Close"><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
+            </div>
+          </div>
           <section id="back" aria-label="Back of the seal" hidden></section>
           <p id="view-strip" class="hint">
             <span id="strip-size"></span>
@@ -778,16 +824,8 @@
           <dl id="view-fact-list"></dl>
           <div id="view-detail" class="detail"></div>
         </div>
-        <section id="ask">
-          <h2 class="caption">Ask</h2>
-          <form id="ask-form">
-            <input id="ask-prompt" autocomplete="off" aria-label="What to ask in this work item" />
-            <!-- Hidden where the daemon keeps no account beside System default. -->
-            <select id="ask-account" aria-label="Account of the session" hidden></select>
-            <button type="submit" id="ask-submit" class="quiet">Ask</button>
-          </form>
-          <ul id="headless"></ul>
-        </section>
+        <!-- Hidden while it holds no line (./view.ts, `chainList`). -->
+        <ul id="view-chain" aria-label="The daemon's chain" hidden></ul>
         <section id="view-seal">
           <span id="view-seal-place"></span>
           <span class="words">
@@ -829,6 +867,13 @@
           </span>
         </label>
         <p id="work-item-base-state" aria-live="polite"></p>
+        <!-- Hidden where the daemon's plan names no held branches, as a daemon of an earlier build's, which cuts a branch at the creation. -->
+        <label id="work-item-branch-field">
+          Branch
+          <span class="row">
+            <select id="work-item-branch-menu" disabled></select>
+          </span>
+        </label>
         <label>
           Open
           <span class="row">
@@ -954,7 +999,7 @@
       <h2 class="head">Accounts</h2>
       <p class="says">Each account is a Claude Code config folder with a login of its own. A session runs under the account its own setting names, else its work item's, else its repository's, else the default.</p>
       <ul id="accounts-list" class="named whole"></ul>
-      <!-- Hidden until this window starts a sign-in, and again once its pane is closed. -->
+      <!-- Hidden until this window starts a sign-in, the one its "Add an account" starts among them, and again once its pane is closed. -->
       <section id="accounts-sign-in" hidden>
         <h3 id="accounts-sign-in-head" class="caption"></h3>
         <p class="says">Claude Code signs the account in through your browser. Owlery sees no password and keeps no key.</p>
@@ -965,16 +1010,30 @@
       </section>
       <form id="accounts-form">
         <h3 class="caption">Add an account</h3>
-        <label>
-          Name
-          <span class="row"><input id="accounts-name" autocomplete="off" /></span>
-        </label>
-        <p class="says">Owlery makes a folder for the account that shares your skills, plugins, settings and conversations, and you sign it in. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
+        <p class="says">Add an account opens Claude Code's sign-in, and the account is named from the login. Owlery makes its folder, which shares your skills, plugins, settings and conversations. Or choose a config folder that holds a login of yours: Owlery makes nothing in it and never removes it.</p>
         <p id="accounts-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="accounts-folder" class="quiet">Use an existing folder…</button>
           <button type="submit" id="accounts-add" class="quiet">Add an account</button>
           <button type="button" id="accounts-close" class="primary">Done</button>
+        </div>
+      </form>
+    </dialog>
+    <!-- The app's own Settings, which the application menu opens, as against a repository's above. -->
+    <dialog id="app-settings-dialog">
+      <form id="app-settings-form">
+        <h2 class="head">Settings</h2>
+        <label>
+          Open files in
+          <span class="row">
+            <select id="app-settings-editor"></select>
+          </span>
+        </label>
+        <p class="says">A ⌘ click on a file a pane printed opens it here, at the line the pane named. ⇧ ⌘ click shows it in Finder.</p>
+        <p id="app-settings-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="app-settings-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="app-settings-submit" class="primary">Save</button>
         </div>
       </form>
     </dialog>
@@ -1003,10 +1062,7 @@
       <form id="sessions-form">
         <h2 id="sessions-head" class="head"></h2>
         <p id="sessions-says" class="says">An archive ends the work item's running sessions. Its folder and its branch stay where they are, and a restore brings the work item back.</p>
-        <section id="sessions-list" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="sessions-list" hidden></div>
         <p id="sessions-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="sessions-cancel" class="quiet">Cancel</button>
@@ -1018,10 +1074,7 @@
       <form id="daemon-form">
         <h2 id="daemon-head" class="head"></h2>
         <p id="daemon-says" class="says"></p>
-        <section id="daemon-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="daemon-sessions" hidden></div>
         <p id="daemon-error" class="refusal" role="alert"></p>
         <div class="row end">
           <button type="button" id="daemon-cancel" class="quiet">Cancel</button>
@@ -1034,10 +1087,7 @@
         <h2 id="delete-head" class="head"></h2>
         <p id="delete-says" class="says"></p>
         <div id="delete-loss"></div>
-        <section id="delete-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
+        <div id="delete-sessions" hidden></div>
         <p id="delete-remote" class="says">Nothing on a remote is removed.</p>
         <label id="delete-force-label" class="check" hidden><input type="checkbox" id="delete-force" />Force delete</label>
         <p id="delete-error" class="refusal" role="alert"></p>
@@ -1055,11 +1105,8 @@
           <h3 class="caption">Work items that leave the lists</h3>
           <ul class="named"></ul>
         </section>
-        <section id="remove-sessions" hidden>
-          <h3 class="caption">Running sessions that end</h3>
-          <ul class="named"></ul>
-        </section>
-        <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees and local branches</label>
+        <div id="remove-sessions" hidden></div>
+        <label id="remove-delete-label" class="check" hidden><input type="checkbox" id="remove-delete" />Also delete the work items' worktrees, and the local branches Owlery made</label>
         <div id="remove-losses" hidden></div>
         <label id="remove-force-label" class="check" hidden><input type="checkbox" id="remove-force" />Force delete</label>
         <label id="remove-trash-label" class="check"><input type="checkbox" id="remove-trash" />Also move the repository's folder to the Trash</label>
@@ -1127,8 +1174,22 @@
       <p id="close-pane-sentence"></p>
       <div class="row">
         <button type="button" id="close-pane-cancel" class="quiet">Cancel</button>
-        <button type="button" id="close-pane-confirm" class="primary">Close pane</button>
+        <button type="button" id="close-pane-confirm" class="primary"></button>
       </div>
+    </dialog>
+    <dialog id="pane-name-dialog">
+      <form id="pane-name-form">
+        <h2 id="pane-name-head" class="head"></h2>
+        <label>
+          <span class="row"><input id="pane-name-field" aria-label="Name" autocomplete="off" spellcheck="false" /></span>
+        </label>
+        <p class="says">An empty name names the pane by its kind again.</p>
+        <p id="pane-name-error" class="refusal" role="alert"></p>
+        <div class="row end">
+          <button type="button" id="pane-name-cancel" class="quiet">Cancel</button>
+          <button type="submit" id="pane-name-submit" class="primary">Save</button>
+        </div>
+      </form>
     </dialog>
     <div id="link-card" hidden></div>
     <script src="./renderer.js"></script>

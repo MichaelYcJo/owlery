@@ -45,13 +45,14 @@ import { writeRecordFile } from "./record-writer";
 import { readRecordsPlace, rootOf } from "./records-place";
 import { repositoryFileText } from "./repository-file";
 import { GATE_FILE, GUARANTEE_FILE, type Verdict, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
-import { commitPaths, diffBetween, fileAt, holdsCommit, slugFor, trailerValues, uncommittedPaths, worktreeHead } from "./worktrees";
+import { type CommitBounds, commitPaths, diffBetween, fileAt, holdsCommit, slugFor, trailerValues, uncommittedPaths, worktreeHead } from "./worktrees";
 
-/** Where a work item's records are written: its worktree, the branch the worktree is on, and the work item's directory, a folder of the worktree. */
+/** Where a work item's records are written: its worktree, the branch the worktree is on, and the work item's directory, a folder of the worktree; and the bounds of each commit made there (`worktrees.ts#commitPaths`), the default limit and no signal where none are given. */
 export interface Place {
   worktree: string;
   branch: string;
   directory: string;
+  bounds?: CommitBounds;
 }
 
 /**
@@ -70,14 +71,14 @@ const AT_ONCE: InTurn = (act) => act();
  * rule refused (`chain.ts#refusalsText`), then commits the files given, each
  * a file of the work item's directory, with the work item's record of
  * decisions and its refusals where each stands, together and nothing else
- * (`worktrees.ts#commitPaths`), with the subject given, the trailer
+ * (`worktrees.ts#commitPaths`) under the place's bounds, with the subject given, the trailer
  * `Seal-Routing:` that names the directory, and below it each trailer the
  * stage gives. It throws a `ChainStop` with what a write refused, or with
  * git's first words where the commit failed, a hook's refusal among them:
  * the files then stand written and not committed.
  */
 export function commitRecords(place: Place, files: readonly [string, ...string[]], subject: string, stage: { write?: () => void; refused?: StageRefusals; trailers?: readonly string[] } = {}, inTurn: InTurn = AT_ONCE): Promise<void> {
-  const { worktree, branch, directory } = place;
+  const { worktree, branch, directory, bounds } = place;
   return inTurn(async () => {
     const record = join(directory, RECORD_FILE);
     const refusals = join(directory, REFUSALS_FILE);
@@ -89,7 +90,7 @@ export function commitRecords(place: Place, files: readonly [string, ...string[]
     }
     const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
     try {
-      await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])]);
+      await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])], bounds);
     } catch (error) {
       const [said] = (error instanceof Error ? error.message : String(error)).split("\n");
       throw new ChainStop(`${relative(worktree, files[0])} was written and not committed: ${said ?? ""}`);
@@ -122,14 +123,14 @@ export async function looseOutside(worktree: string, directory: string): Promise
  * and the slug of the branch's last part, writes its `routing.md`
  * (`chain.ts#routingText`), with the `Automation` row where an answer is
  * given, through the writer of a work item's records and commits that file
- * alone, so the first round's target holds it. It throws
+ * alone, under the bounds given, so the first round's target holds it. It throws
  * a `ChainStop` where two directories name the branch, where the worktree
  * holds no records root, where the new directory's name is taken, and what
  * the writer and the commit throw. A directory whose routing does not read
  * as naming the branch, as for a branch's name with a `|` in it, is found by
  * no later step, and the chain then stops on the taken name.
  */
-export async function declaredDirectory(worktree: string, branch: string, now: number, inTurn: InTurn = AT_ONCE, automation: "yes" | "no" | null = null): Promise<string> {
+export async function declaredDirectory(worktree: string, branch: string, now: number, inTurn: InTurn = AT_ONCE, automation: "yes" | "no" | null = null, bounds: CommitBounds = {}): Promise<string> {
   const directories = workItemDirectories(worktree, branch);
   const [found] = directories;
   if (directories.length > 1) throw new ChainStop(`two directories of the worktree's records name the branch ${branch}`);
@@ -143,7 +144,7 @@ export async function declaredDirectory(worktree: string, branch: string, now: n
   const at = new Date(now);
   // The day as the person's own clock has it, which is the day the chain first started.
   const text = routingText(name, branch, `${String(at.getFullYear())}-${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`, automation);
-  await commitRecords({ worktree, branch, directory }, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) }, inTurn);
+  await commitRecords({ worktree, branch, directory, bounds }, [file], "chore: declare the work item's routing", { write: () => writeRecordFile(worktree, file, text) }, inTurn);
   return directory;
 }
 
@@ -158,7 +159,7 @@ export async function declaredDirectory(worktree: string, branch: string, now: n
  */
 export async function roundStage(place: Place, standing: Standing, step: Extract<Step, { is: "round" }>, base: ChainBase): Promise<StagePrompt> {
   const { paths, text } = await diffBetween(place.worktree, step.from ?? base.reads, standing.head, step.from === null);
-  return roundPrompt({ round: step.round, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(place.directory, RECORD_FILE)), paths, diff: text });
+  return roundPrompt({ round: step.round, worktree: place.worktree, directory: standing.directory, target: step.target, earlier: standing.rounds.map(({ round }) => round), decisions: existsSync(join(place.directory, RECORD_FILE)), paths, diff: text });
 }
 
 /**
@@ -191,7 +192,7 @@ export async function recordRound(place: Place, standing: Standing, step: Extrac
 export async function fixPassStage(place: Place, standing: Standing, step: Extract<Step, { is: "fix-pass" }>): Promise<{ prompt: StagePrompt; committed: string }> {
   const file = join(place.directory, ROUNDS_FOLDER, roundFile(step.round));
   const committed = (await fileAt(place.worktree, standing.head, relative(place.worktree, file))) ?? "";
-  return { prompt: fixPassPrompt({ round: step.round, directory: standing.directory, open: step.open, reversals: step.reversals }), committed };
+  return { prompt: fixPassPrompt({ round: step.round, worktree: place.worktree, directory: standing.directory, open: step.open, reversals: step.reversals }), committed };
 }
 
 /**
@@ -305,7 +306,7 @@ export async function sealStage(place: Place, standing: Standing, step: Extract<
   const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
   const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base.reads, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
   const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-  const prompt = sealPrompt({ run: step.run, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
+  const prompt = sealPrompt({ run: step.run, worktree, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
   return { prompt, target };
 }
 

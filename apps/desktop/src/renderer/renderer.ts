@@ -13,19 +13,23 @@
 // application menu. How a menu is drawn is ./menu. The theme, the appearance
 // and their two controls are ./theme, and the choice of when the Mac is kept awake
 // with its control is ./keep-awake. Who raises a notification, the system or,
-// in an app started in the background, the page itself, is ./notifier. The sidebar, the list with its preview, a
+// in an app started in the background, the page itself, is ./notifier. Why a
+// daemon message's draw waits while the mouse's main button is held is ./press. The sidebar, the list with its preview, a
 // work item's view and the summary are a module each, and what each says and
 // decides is a function of ./view.
 import type { DaemonEnd, OwleryApi } from "../shared/ipc";
 import { generateName } from "../shared/names";
 import type { AgentState, ClientMessage, HeadlessInfo, PaneKind, Repository, ServerMessage, SessionInfo, WorkItem, WorkItemLoss } from "../shared/protocol";
 import { listScreen, type ListScreen } from "./list";
+import { initSettings, readEditorState } from "./app-settings";
 import { initKeepAwake, showKeepAwake } from "./keep-awake";
 import { initMachine, openMachine, showMachine, showMachineEntry } from "./machine";
 import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
-import { byId, connected, connectedBy, held, request, send } from "./shared";
-import { focusSearch, initSidebar, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
+import { holdDraws } from "./press";
+import { refresher } from "./refresh";
+import { byId, connected, connectedBy, held, request, send, waits, whenUnanswered } from "./shared";
+import { focusSearch, initSidebar, showRefresh, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
 import { initTheme } from "./theme";
@@ -39,12 +43,14 @@ import {
   baseKey,
   baseMenu,
   baseSays,
+  branchMenu,
   changedSet,
   changedSetAfter,
   commandKey,
   daemonEnding,
   daemonLists,
   daemonNotice,
+  refusalSays,
   decisionLines,
   deleteChoice,
   deleteSays,
@@ -59,7 +65,6 @@ import {
   chainNotifications,
   notificationFor,
   parkNotifications,
-  permissionNotifications,
   sealNotifications,
   pullRequestNotifications,
   notificationOpens,
@@ -76,6 +81,8 @@ import {
   renameChoice,
   repositoryMenu,
   runningSessions,
+  sameValues,
+  sessionSections,
   settingsBases,
   settingsChain,
   settingsFields,
@@ -91,15 +98,19 @@ import {
   unanswered,
   type BaseAnswer,
   type BaseChoice,
+  type BranchChoice,
+  type BranchOption,
   type FormPlan,
+  type LossRow,
   type MenuAction,
   type PlanAnswered,
   type RecordsPlanned,
   type Removal,
   type RenamePlanned,
+  type SessionsNamed,
   type StateFilter,
 } from "./view";
-import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, initView, leaveView, onStage, requestRefused, showPaneButtons, showTerminalColours, showView, startSize, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takeSealRecords, takeStarted, write } from "./work-item-view";
+import { closeFront, detachUnshown, dropClosed, dropHeadless, enterView, findable, finding, initView, leaveView, onStage, openFind, requestRefused, showPaneButtons, showScrollback, showTerminalColours, showView, startSize, stepFind, takeAccountChange, takeAnswers, takeBackRefusal, takeGateOutput, takeHeadless, takeLedger, takePaneName, takeSealRecords, takeStarted, write } from "./work-item-view";
 
 declare global {
   interface Window {
@@ -112,6 +123,26 @@ declare global {
 // Who raises the page's notifications: the system, or in an app started in the background the page itself, which keeps them (./notifier). Every notification the page raises goes through `notifier.raise`, and this is the page's one construction of the system's.
 const notifier = chooseNotifier(window.owlery.background, (title, body) => new Notification(title, { body }));
 if (window.owlery.background) window.__notifications = notifier.kept;
+
+// While the mouse's main button is held down in the window, what a daemon message changed in the lists waits to be drawn until the release (./press), so a click whose press and release fall on one line still reaches that line.
+const draws = holdDraws(window);
+
+// The sidebar's refresh button has the daemon read the work items again and send the lists back (./refresh). The answer's `inbox` is drawn through the hold, as every `inbox` is (`takeLists`), so the screen in front, the view's pane in front and the filter stay.
+const refreshing = refresher({
+  ready: () => held.ready,
+  request,
+  send,
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  show: showRefresh,
+  tell,
+  daemonNotice: () => held.daemonNotice,
+});
+
+// A request a daemon of an earlier build has not answered within its wait ends as the daemon's own refusal would end it, in the place where that request's refusal is shown (./view, `answerWaits`).
+whenUnanswered(onMessage);
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -130,6 +161,8 @@ let formPlan: FormPlan | null = null;
 const plansAsked = new Set<number>();
 // The base the person chose in the menu since the form opened.
 let baseChoice: BaseChoice | null = null;
+// The branch the person picked in the "Branch" menu since the form opened.
+let branchChoice: BranchChoice | null = null;
 let planTimer: ReturnType<typeof setTimeout> | undefined;
 // The bases the form asked the daemon to fetch since it opened, each under its `baseKey`: the base, the request, and what the form holds of the fetch, null once the wait for an answer has passed with none.
 const baseAnswers = new Map<string, { base: string; requestId: number; answer: BaseAnswer | null }>();
@@ -169,6 +202,8 @@ const warningPlace = byId("work-item-warning");
 const setupPlace = byId("work-item-setup");
 const baseField = byId<HTMLSelectElement>("work-item-base");
 const baseStatePlace = byId("work-item-base-state");
+const branchFieldPlace = byId("work-item-branch-field");
+const branchField = byId<HTMLSelectElement>("work-item-branch-menu");
 const kindField = byId<HTMLSelectElement>("work-item-kind");
 const formError = byId("work-item-error");
 const createButton = byId<HTMLButtonElement>("work-item-create");
@@ -189,7 +224,6 @@ const settingsAccountMenu = byId<HTMLSelectElement>("settings-account");
 const accountDialog = byId<HTMLDialogElement>("account-dialog");
 const accountMenu = byId<HTMLSelectElement>("account-menu");
 const accountsDialog = byId<HTMLDialogElement>("accounts-dialog");
-const accountsName = byId<HTMLInputElement>("accounts-name");
 const accountsError = byId("accounts-error");
 const accountsButton = byId<HTMLButtonElement>("accounts-button");
 const chainDialog = byId<HTMLDialogElement>("chain-dialog");
@@ -352,14 +386,17 @@ function dialogOpen(): boolean {
   return document.querySelector('dialog[open], [role="menu"]') !== null;
 }
 
-/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, and W closes the pane in front. The key is kept from the terminal whatever it did. */
+/** Acts on a key pressed with the Command key, on every screen: K puts the focus in the search field, N opens the "New work item" form, W closes the pane in front, F opens the find bar over the pane in front, and G with or without the Shift key goes to the previous or the next match while the bar is open (./view, `commandKey`). The key is kept from the terminal whatever it did. */
 function onCommandKey(event: KeyboardEvent): void {
-  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen() });
+  const key = commandKey({ code: event.code, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, shift: event.shiftKey }, { mac: MAC, dialogOpen: dialogOpen(), menuOpen: menuOpen(), paneInFront: findable(), finding: finding() });
   if (key === null) return;
   event.preventDefault();
   event.stopPropagation();
   if (key === "search") focusSearch();
   else if (key === "new") openWorkItemForm();
+  else if (key === "find") openFind();
+  else if (key === "findNext") stepFind(true);
+  else if (key === "findPrevious") stepFind(false);
   else closeFront();
 }
 
@@ -400,13 +437,15 @@ function forget(dialog: HTMLDialogElement): void {
   for (const [requestId, known] of asking) if (known.dialog === dialog) asking.delete(requestId);
 }
 
-/** Opens a dialog that waits on a request, with no refusal shown and its button on. Nothing opens over another dialog. */
+/** Opens a dialog that waits on a request, with no refusal shown, its button on and every list at its top. Nothing opens over another dialog. */
 function opened(of: Asking): boolean {
   if (dialogOpen()) return false;
   forget(of.dialog);
   of.error.textContent = "";
   of.button.disabled = false;
   of.dialog.showModal();
+  // A list a draw keeps is the element the last opening left, and Chromium gives it back the scroll it had then. So each opening starts every list at its top, once the dialog shows and the list has a box to scroll.
+  for (const list of of.dialog.querySelectorAll<HTMLElement>("ul")) list.scrollTop = 0;
   return true;
 }
 
@@ -446,26 +485,62 @@ function waiting(of: Asking): boolean {
 function namedLines(lines: readonly string[], whole = false): HTMLUListElement {
   const list = document.createElement("ul");
   list.className = whole ? "named whole" : "named";
-  list.append(
-    ...lines.map((line) => {
-      const item = document.createElement("li");
-      const words = document.createElement("span");
-      words.textContent = line;
-      item.append(words);
-      return item;
-    }),
-  );
+  list.append(...namedRows(lines));
   return list;
 }
 
-/** What a dialog draws of a loss: a section for each kind of thing it names, with its heading, its lines, each read whole, and how many more there are where the list is cut. */
+/** The rows of a list of named lines, each line whole in a row of its own. */
+function namedRows(lines: readonly string[]): HTMLLIElement[] {
+  return lines.map((line) => {
+    const item = document.createElement("li");
+    const words = document.createElement("span");
+    words.textContent = line;
+    item.append(words);
+    return item;
+  });
+}
+
+// What each kept part of a dialog was last drawn from. A draw of the daemon's lists leaves a part alone while those values are the same, so a list keeps its scroll and the row under the pointer keeps its tooltip. A part is kept across a close and an opening too, so `opened` starts every list at its top.
+const drawnFrom = new WeakMap<HTMLElement, readonly unknown[]>();
+
+/** Draws a part of a dialog anew only where the values it is drawn from are not ./view's `sameValues` as those it was last drawn from. `build` reads no value that `from` does not hold, so no value the drawing reads is left out of the comparison. */
+function drawWhereChanged(part: HTMLElement, from: readonly unknown[], build: () => Node[]): void {
+  const last = drawnFrom.get(part);
+  if (last !== undefined && sameValues(last, from)) return;
+  part.replaceChildren(...build());
+  drawnFrom.set(part, from);
+}
+
+/** A loss list's row: a commit's hash and its subject as two parts, or a path as one, with the whole subject or path in its tooltip. */
+function lossRow(row: LossRow): HTMLLIElement {
+  const item = document.createElement("li");
+  const part = (className: string, text: string): HTMLSpanElement => {
+    const span = document.createElement("span");
+    span.className = className;
+    span.textContent = text;
+    return span;
+  };
+  if ("hash" in row) {
+    item.title = row.subject;
+    item.append(part("hash", row.hash), part("subject", row.subject));
+  } else {
+    item.title = row.path;
+    item.append(part("path", row.path));
+  }
+  return item;
+}
+
+/** What a dialog draws of a loss: a section for each kind of thing it names, with its heading, a list of its rows, each on one line, and how many more there are where the daemon cut the list. */
 function lossParts(loss: WorkItemLoss): HTMLElement[] {
-  return lossSections(loss).map(({ caption, lines, more }) => {
+  return lossSections(loss).map(({ caption, rows, more }) => {
     const section = document.createElement("section");
     const head = document.createElement("h3");
     head.className = "caption";
     head.textContent = caption;
-    section.append(head, namedLines(lines, true));
+    const list = document.createElement("ul");
+    list.className = "loss";
+    list.append(...rows.map(lossRow));
+    section.append(head, list);
     if (more !== "") {
       const rest = document.createElement("p");
       rest.className = "more";
@@ -474,6 +549,26 @@ function lossParts(loss: WorkItemLoss): HTMLElement[] {
     }
     return section;
   });
+}
+
+/** Draws into a session dialog's container the sections ./view's `sessionSections` gives: the sessions that run, then those that wait for the machine, each section with its heading and a list of its lines. The container is hidden where no section stands. The sections are drawn anew only where a heading or a line changed: the lines are new arrays at each draw, so they are compared by their words. */
+function drawSessions(id: string, named: SessionsNamed): void {
+  const sections = sessionSections(named);
+  const container = byId(id);
+  container.hidden = sections.length === 0;
+  drawWhereChanged(
+    container,
+    sections.flatMap(({ caption, lines }) => [caption, lines.length, ...lines]),
+    () =>
+      sections.map(({ caption, lines }) => {
+        const section = document.createElement("section");
+        const head = document.createElement("h3");
+        head.className = "caption";
+        head.textContent = caption;
+        section.append(head, namedLines(lines));
+        return section;
+      }),
+  );
 }
 
 function repositoryOf(id: number | undefined): Repository | undefined {
@@ -620,11 +715,13 @@ function onMenuKey(event: KeyboardEvent): void {
   openWorkItemMenu(of.workItem, { x: box.left + box.height, y: box.bottom }, within);
 }
 
-/** Draws what the rename dialog holds of its plan: whether the branch can be renamed too, and the branch it would get or why it keeps its name. */
+/** Draws what the rename dialog holds of its plan: whether the branch can be renamed too, or stands to be made, and the branch it would get or why it keeps its name. The choice is checked only where the plan lets the rename run with it, so what `rename` sends is the box as it stands. */
 function showRenamePlan(): void {
-  const choice = renameChoice(renamePlan);
+  // A work item the lists no longer hold is read as one with a branch: its rename is refused either way.
+  const branched = held.workItems.find((known) => known.id === renaming)?.branch !== null;
+  const choice = renameChoice(renamePlan, branched);
   renameBranch.disabled = !choice.enabled;
-  if (!choice.enabled) renameBranch.checked = false;
+  renameBranch.checked = choice.makes || (choice.enabled && renameBranch.checked);
   renamePlanPlace.textContent = choice.says;
 }
 
@@ -669,14 +766,14 @@ function openRename(workItemId: number): void {
   askRenamePlan();
 }
 
-/** Sends the rename the dialog holds: the name typed, and whether the branch is renamed too. The daemon refuses an empty name. */
+/** Sends the rename the dialog holds: the name typed, and whether the branch is renamed too, or made where the work item has none. The daemon refuses an empty name. */
 function rename(): void {
   if (renaming === undefined) return;
   renameRequest = request();
   renameError.textContent = "";
   // One rename per answer: the button stays off until the daemon answers.
   renameButton.disabled = true;
-  send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked && !renameBranch.disabled });
+  send({ type: "renameWorkItem", requestId: renameRequest, id: renaming, title: renameField.value, branch: renameBranch.checked });
 }
 
 /**
@@ -827,7 +924,7 @@ function askAccounts(message: (requestId: number) => ClientMessage): number {
   return requestId;
 }
 
-/** Takes the daemon's answer to a request of the Accounts dialog: `done` empties the name typed to add an account and closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
+/** Takes the daemon's answer to a request of the Accounts dialog: `done` closes a row's rename field and its question of a removal, and a refusal is said in the dialog with what was typed kept. It answers whether the request was the dialog's. */
 function takeAccountsAnswer(requestId: number, refusal: string | null): boolean {
   if (!accountsAsked.delete(requestId)) return false;
   if (refusal !== null) {
@@ -836,7 +933,6 @@ function takeAccountsAnswer(requestId: number, refusal: string | null): boolean 
     return true;
   }
   accountsError.textContent = "";
-  accountsName.value = "";
   renamingAccount = undefined;
   removingAccount = undefined;
   // The `accounts` that carries a change draws the list again, and a request that changed nothing sends none.
@@ -854,7 +950,6 @@ function openAccounts(): void {
   if (held.accounts === null || dialogOpen()) return;
   renamingAccount = undefined;
   removingAccount = undefined;
-  accountsName.value = "";
   accountsError.textContent = "";
   showAccounts();
   accountsDialog.showModal();
@@ -872,7 +967,6 @@ function openAccounts(): void {
  * shown under the list.
  */
 function showAccounts(): void {
-  showSignIn();
   byId("accounts-list").replaceChildren(
     // Whether a session runs under an account is read as the dialog is drawn: a session that starts later is refused its refresh by the daemon, in words.
     ...accountRows(held.accounts, Date.now(), held.sessions, held.headless).map((row) => {
@@ -968,10 +1062,10 @@ function showAccounts(): void {
       }
       if (row.offersSignIn) {
         const id = row.id;
-        acts.append(
-          button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id)),
-          button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))),
-        );
+        const signIn = button("Sign in", () => askedSignIn(askAccounts((requestId) => ({ type: "signIn", requestId, id, ...SIGN_IN_SIZE })), id));
+        // `showSignIn` disables it while a sign-in this window started waits or runs.
+        signIn.dataset.signIn = "";
+        acts.append(signIn, button("Check sign-in", () => askAccounts((requestId) => ({ type: "readSignIn", requestId, id }))));
       }
       if (row.offersRefresh) {
         const id = row.id;
@@ -994,21 +1088,29 @@ function showAccounts(): void {
       return item;
     }),
   );
+  // After the rows, so the rows' "Sign in" buttons it disables stand.
+  showSignIn();
 }
 
-/** Adds an account whose folder the daemon makes, under the name typed. The person signs it in from its row. */
+/** Adds an account whose folder the daemon makes, with no name: the daemon opens its sign-in at once, drawn under the list, and names the account from the login once the sign-in ends with one. */
 function addMadeAccount(): void {
-  const name = accountsName.value;
-  askAccounts((requestId) => ({ type: "addAccount", requestId, name }));
+  askedSignIn(
+    askAccounts((requestId) => ({ type: "addAccount", requestId, ...SIGN_IN_SIZE })),
+    null,
+  );
 }
 
-/** Adds the account a person hands over: the folder chosen in the system's dialog, under the name typed. A dialog that chose no folder adds nothing. */
+/** Adds the account a person hands over: the folder chosen in the system's dialog, which the daemon names from the folder's login, or by its last name where it holds none. A dialog that chose no folder adds nothing. */
 function addAccount(): void {
-  const name = accountsName.value;
   void window.owlery.pickFolder().then((folder) => {
     if (folder === null || !accountsDialog.open) return;
-    askAccounts((requestId) => ({ type: "addAccount", requestId, name, folder }));
+    askAccounts((requestId) => ({ type: "addAccount", requestId, folder }));
   });
+}
+
+/** Takes the daemon's word on how this window's add ended: where no account named from a login came of it, the dialog says why in its refusal line. */
+function takeAddEnded(says: string | null): void {
+  if (says !== null && accountsDialog.open) accountsError.textContent = says;
 }
 
 /** Opens the dialog that takes a repository's icon, with the one it has selected in the field. */
@@ -1076,8 +1178,9 @@ function openHidden(): void {
 
 /**
  * Draws what the removal's dialog names, from the daemon's lists as they are
- * now: the repository, each work item it holds and each running session,
- * and its two choices as ./view's `removalChoice` has them. Where the
+ * now: the repository, each work item it holds, each session that runs and
+ * apart from them each that waits for the machine, and its two choices as
+ * ./view's `removalChoice` has them. Where the
  * choice to delete the work items is taken, it asks the daemon for the loss
  * of each work item it holds none of, and names each loss under its work
  * item. It closes the dialog where the daemon no longer keeps the
@@ -1091,21 +1194,12 @@ function showRemove(): void {
   }
   removal = removalOf(repository, held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
   byId("remove-head").textContent = `Remove ${repository.name} from Owlery`;
-  const list = (id: string, lines: readonly string[]): void => {
-    const section = byId(id);
-    section.hidden = lines.length === 0;
-    section.querySelector("ul")?.replaceChildren(
-      ...lines.map((line) => {
-        const item = document.createElement("li");
-        const words = document.createElement("span");
-        words.textContent = line;
-        item.append(words);
-        return item;
-      }),
-    );
-  };
-  list("remove-work-items", removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title)));
-  list("remove-sessions", removal.sessions);
+  const workItems = byId("remove-work-items");
+  workItems.hidden = removal.workItems.length === 0;
+  const listed = removal.workItems.map(({ title, archived }) => (archived ? `${title} (archived)` : title));
+  const list = workItems.querySelector("ul");
+  if (list) drawWhereChanged(list, listed, () => namedRows(listed));
+  drawSessions("remove-sessions", removal.sessions);
   const deletes = removeDelete.checked && removal.workItems.length > 0;
   if (deletes) {
     for (const { id } of removal.workItems) {
@@ -1126,17 +1220,24 @@ function showRemove(): void {
   REMOVE.button.disabled = !choice.enabled || waiting(REMOVE);
   const named = byId("remove-losses");
   named.hidden = !deletes;
-  named.replaceChildren(
-    ...(deletes ? removal.workItems : []).flatMap(({ id, title }) => {
-      const head = document.createElement("h3");
-      head.className = "work-item";
-      head.textContent = title;
-      const loss = removeLosses.get(id) ?? null;
-      const says = document.createElement("p");
-      says.className = "says";
-      says.textContent = deleteSays(loss);
-      return [head, says, ...(loss === null ? [] : lossParts(loss))];
-    }),
+  // Drawn from the choice to delete, which names no work item where it is not taken, and from each work item's id, title, loss and branch, with whether Owlery made the branch, so a check of "Force delete" or an `inbox` that changes none of them leaves the lists as they are.
+  const drawn = (deletes ? removal.workItems : []).map(({ id, title }) => {
+    const known = [...held.workItems, ...held.archived].find((workItem) => workItem.id === id);
+    return { id, title, loss: removeLosses.get(id) ?? null, branch: known?.branch, ownsBranch: known?.ownsBranch, known };
+  });
+  drawWhereChanged(
+    named,
+    drawn.flatMap(({ id, title, loss, branch, ownsBranch }) => [id, title, loss, branch, ownsBranch]),
+    () =>
+      drawn.flatMap(({ title, loss, known }) => {
+        const head = document.createElement("h3");
+        head.className = "work-item";
+        head.textContent = title;
+        const says = document.createElement("p");
+        says.className = "says";
+        says.textContent = deleteSays(loss, known);
+        return [head, says, ...(loss === null ? [] : lossParts(loss))];
+      }),
   );
 }
 
@@ -1200,8 +1301,9 @@ function remove(): void {
 /**
  * Draws the delete dialog, from the daemon's lists as they are now and from
  * the loss the daemon answered with: the work item, what ./view's
- * `deleteSays` says of the loss, each thing the loss names, each running
- * session, and the two controls as `deleteChoice` has them. It closes the
+ * `deleteSays` says of the loss, each thing the loss names, each session
+ * that runs and apart from them each that waits for the machine, and the
+ * two controls as `deleteChoice` has them. It closes the
  * dialog where the window's lists no longer hold the work item.
  */
 function showDelete(): void {
@@ -1212,11 +1314,11 @@ function showDelete(): void {
   }
   deletion = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("delete-head").textContent = `Delete ${workItem.title}`;
-  byId("delete-says").textContent = deleteSays(deleteLoss);
-  byId("delete-loss").replaceChildren(...(deleteLoss === null ? [] : lossParts(deleteLoss)));
-  const section = byId("delete-sessions");
-  section.hidden = deletion.sessions.length === 0;
-  section.querySelector("ul")?.replaceWith(namedLines(deletion.sessions));
+  byId("delete-says").textContent = deleteSays(deleteLoss, workItem);
+  // The loss is a new object at each read, so the lists are drawn anew at a read and are left as they are at an `inbox` or a check of "Force delete".
+  const loss = deleteLoss;
+  drawWhereChanged(byId("delete-loss"), [loss], () => (loss === null ? [] : lossParts(loss)));
+  drawSessions("delete-sessions", deletion.sessions);
   const choice = deleteChoice(deleteLoss, deleteForce.checked);
   byId("delete-force-label").hidden = !choice.forceShown;
   DELETE.button.disabled = !choice.enabled || waiting(DELETE);
@@ -1393,7 +1495,7 @@ function readAgain(): void {
   }
 }
 
-/** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, and each of its running sessions. It closes the dialog where the window's list no longer holds the work item. */
+/** Draws what the dialog before an archive names, from the daemon's lists as they are now: the work item, each of its sessions that run, and apart from them each that waits for the machine. It closes the dialog where the window's list no longer holds the work item. */
 function showArchive(): void {
   const workItem = held.workItems.find((known) => known.id === archiving);
   if (!workItem) {
@@ -1402,30 +1504,20 @@ function showArchive(): void {
   }
   archival = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
   byId("sessions-head").textContent = `Archive ${workItem.title}`;
-  const section = byId("sessions-list");
-  section.hidden = archival.sessions.length === 0;
-  section.querySelector("ul")?.replaceChildren(
-    ...archival.sessions.map((line) => {
-      const item = document.createElement("li");
-      const words = document.createElement("span");
-      words.textContent = line;
-      item.append(words);
-      return item;
-    }),
-  );
+  drawSessions("sessions-list", archival.sessions);
 }
 
 /**
  * Archives a work item, at the press of its menu's item. Where none of its
- * sessions runs, the archive is sent at once: a restore undoes it. Where one
- * does, a dialog names each first, with the keyboard on the button that
- * ends nothing.
+ * sessions runs or waits for the machine, the archive is sent at once: a
+ * restore undoes it. Where one does, a dialog names each first, with the
+ * keyboard on the button that ends nothing.
  */
 function archive(workItemId: number): void {
   const workItem = held.workItems.find((known) => known.id === workItemId);
   if (!workItem) return;
   const told = archivalOf(workItem, held.sessions, held.headless, held.paneKinds);
-  if (told.sessions.length === 0) {
+  if (sessionSections(told.sessions).length === 0) {
     send({ type: "archiveWorkItem", requestId: request(), id: workItemId, running: told.running });
     return;
   }
@@ -1435,7 +1527,7 @@ function archive(workItemId: number): void {
   byId("sessions-cancel").focus();
 }
 
-/** Sends the archive the dialog holds, with the running sessions it named, so the daemon ends the sessions the person read and no other. */
+/** Sends the archive the dialog holds, with the sessions it named, those that run and those that wait for the machine, so the daemon ends the sessions the person read and no other. */
 function archiveNamed(): void {
   const told = archival;
   const id = archiving;
@@ -1443,17 +1535,14 @@ function archiveNamed(): void {
   ask(SESSIONS, (requestId) => ({ type: "archiveWorkItem", requestId, id, running: told.running }));
 }
 
-/** Draws the dialog that asks before the daemon ends, from the daemon's lists as they are now: its words for a restart or for a complete quit, and every running session the window holds. The list is hidden where none runs. */
+/** Draws the dialog that asks before the daemon ends, from the daemon's lists as they are now: its words for a restart or for a complete quit, every session the window holds that runs, and apart from them every one that waits for the machine. The lists are hidden where none runs or waits. */
 function showDaemonEnding(): void {
   if (ending === undefined) return;
   const words = daemonEnding(ending);
   byId("daemon-head").textContent = words.head;
   byId("daemon-says").textContent = words.says;
   DAEMON.button.textContent = words.button;
-  const sessions = runningSessions(held.workItems, held.archived, held.sessions, held.headless, held.paneKinds);
-  const section = byId("daemon-sessions");
-  section.hidden = sessions.length === 0;
-  section.querySelector("ul")?.replaceWith(namedLines(sessions));
+  drawSessions("daemon-sessions", runningSessions(held.workItems, held.archived, held.sessions, held.headless, held.paneKinds));
 }
 
 /**
@@ -1497,8 +1586,8 @@ function restore(workItemId: number): void {
 }
 
 /** Takes a headless session the daemon sent, and names it in the removal's dialog, in the dialog before an archive, in the delete dialog and in the dialog that asks before the daemon ends, where one is open: a session that started or ended is one the dialog has to say. */
-function takeHeadlessSession(headless: HeadlessInfo, requestId?: number): void {
-  takeHeadless(headless, requestId);
+function takeHeadlessSession(headless: HeadlessInfo): void {
+  takeHeadless(headless);
   if (removeDialog.open) showRemove();
   if (sessionsDialog.open) showArchive();
   if (deleteDialog.open) showDelete();
@@ -1525,7 +1614,44 @@ function onNotificationClick(session: Pick<SessionInfo, "id" | "workItemId">): v
   if (opens) openView(opens.workItemId, opens.pane ?? undefined);
 }
 
-/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each call a headless session began to wait for the person to allow, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and redraws the sidebar and the screen in front. */
+/**
+ * Draws what the daemon's lists change: the sidebar, the screen in front,
+ * with the inbox in place of an archived screen whose repository the
+ * daemon no longer keeps, and each open dialog that names what the daemon
+ * lists. A daemon message that changes the lists takes them at once and
+ * draws through the hold, as `draws.draw(drawLists)`, so a press held in
+ * the window delays the drawing until its release and the click still
+ * reaches the line or the button that was pressed. A draw the person's own
+ * act asks for, such as the view a click opens, does not go through it.
+ */
+function drawLists(): void {
+  showSidebar();
+  // The archived screen lists the archived work items of a repository the daemon keeps.
+  if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
+  else listInFront()?.show();
+  if (front === "view") showView();
+  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
+  if (front === "summary") redrawSummary();
+  // A dialog that names what the daemon lists says the lists as they are now.
+  if (hiddenDialog.open) showHidden();
+  if (removeDialog.open) showRemove();
+  if (sessionsDialog.open) showArchive();
+  if (deleteDialog.open) showDelete();
+  if (daemonDialog.open) showDaemonEnding();
+  if (recordsPlaceDialog.open) showRecords();
+}
+
+/** Draws the Accounts dialog where it is open, at an `accounts` message, through the hold: its draw replaces each account's row with its buttons. One function, so the hold keeps it once per press. The answer to the person's own request draws it at once (`takeAccountsAnswer`). */
+function drawAccountsDialog(): void {
+  if (accountsDialog.open) showAccounts();
+}
+
+/** Draws the Machine dialog where it is open, through the hold: at a `machine` message, whose draw replaces the rows of its lists, and at an `inbox`, which carries the chain's stage that names a session that waits. One function, so the hold keeps it once per press. The `heavyRuns` answer to the person's opening of the dialog draws it at once. */
+function drawMachineDialog(): void {
+  if (MACHINE.dialog.open) showMachine();
+}
+
+/** Takes the daemon's lists at an `inbox`: notifies of each state that changed, of each work item that was parked with questions, of each chain that stopped, of each seal that broke and of each pull request whose checks made its work item's line wait or finish, with a notification that answers a click, drops the closed panes, and draws the sidebar and the screen in front through the hold. */
 function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repositories?: Repository[]; archived?: WorkItem[] }): void {
   const before = new Map<number, AgentState | null>(held.sessions.map((session) => [session.id, session.state]));
   const heldBefore = [...held.workItems, ...held.archived];
@@ -1541,29 +1667,18 @@ function takeLists(next: { sessions: SessionInfo[]; workItems: WorkItem[]; repos
     if (!notification) continue;
     notifier.raise(notification.title, notification.body).onclick = () => onNotificationClick(session);
   }
-  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a request's, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions and its requests are answered and its chain is started again, where the lists still hold it.
+  // A work item whose view is in front of a focused window is one the person is looking at. A click on a park's notification, on a stopped chain's, on a broken seal's or on a pull request's brings the window forward and opens the work item's view, where its questions are answered and its chain is started again, where the lists still hold it.
   const looking = front === "view" && document.hasFocus() ? held.viewing : undefined;
-  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...permissionNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
+  for (const told of [...parkNotifications(heldBefore, held.workItems, looking), ...chainNotifications(heldBefore, held.workItems, looking), ...sealNotifications(heldBefore, held.workItems, looking), ...pullRequestNotifications(heldBefore, held.workItems, held.sessions, held.paneKinds, looking)]) {
     notifier.raise(told.title, told.body).onclick = () => {
       void window.owlery.comeForward();
       if (held.workItems.some((workItem) => workItem.id === told.workItemId)) openView(told.workItemId);
     };
   }
   dropClosed(new Set(held.sessions.map((session) => session.id)));
-  showSidebar();
-  // The archived screen lists the archived work items of a repository the daemon keeps.
-  if (front === "archived" && !repositoryOf(held.archivedOf)) openList("inbox");
-  else listInFront()?.show();
-  if (front === "view") showView();
-  // The summary in front says each line as the lists now give it, and the keyboard stays where it was.
-  if (front === "summary") redrawSummary();
-  // A dialog that names what the daemon lists says the lists as they are now.
-  if (hiddenDialog.open) showHidden();
-  if (removeDialog.open) showRemove();
-  if (sessionsDialog.open) showArchive();
-  if (deleteDialog.open) showDelete();
-  if (daemonDialog.open) showDaemonEnding();
-  if (recordsPlaceDialog.open) showRecords();
+  draws.draw(drawLists);
+  // The Machine dialog names a session that waits by its chain's stage, which an `inbox` after the `machine` that queued it carries. It is its own draw, not a part of `drawLists`, since a `machine` message draws both.
+  draws.draw(drawMachineDialog);
   // The repository a registration added is in these lists, and not in the ones its answer found.
   const late = registeredLate;
   registeredLate = undefined;
@@ -1590,8 +1705,9 @@ function openWorkItemForm(folder?: string): void {
   titleField.value = "";
   formName = generateName();
   titleField.placeholder = formName;
-  // Each opening starts from the repository's default base and from no answer, and creates a work item.
+  // Each opening starts from the repository's default base, with no branch picked and from no answer, and creates a work item.
   baseChoice = null;
+  branchChoice = null;
   formPlan = null;
   forgetBases();
   formError.textContent = "";
@@ -1604,36 +1720,59 @@ function openWorkItemForm(folder?: string): void {
   askPlan();
 }
 
-/** Draws what the form holds of its plan: the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, and the menu of bases. Where the form registers a repository alone, it shows none of the plan and the menu is off. */
+/** A group of a menu of the form: its label over its options, or nothing where it holds none. */
+function optionGroup(label: string, options: readonly HTMLOptionElement[]): HTMLOptGroupElement[] {
+  if (options.length === 0) return [];
+  const element = document.createElement("optgroup");
+  element.label = label;
+  element.append(...options);
+  return [element];
+}
+
+/** Draws what the form holds of its plan: what the creation does of the branch, the folder, the setup and the warning of the room the worktree would take under the name, or the plan's error in their place, the menu of bases and the "Branch" menu. Where the form registers a repository alone, it shows none of the plan and both menus are off. */
 function showPlan(): void {
   if (registerOnly.checked) {
-    branchPlace.textContent = "";
+    branchPlace.replaceChildren();
     worktreePlace.textContent = "";
     setupPlace.textContent = "";
     warningPlace.textContent = "";
     planPlace.classList.remove("failed");
     baseField.disabled = true;
+    branchField.disabled = true;
     baseStatePlace.textContent = "";
     return;
   }
-  const line = planLine(formPlan, repoField.value);
-  branchPlace.textContent = line.branch;
+  const branches = branchMenu(formPlan, branchChoice, repoField.value);
+  const line = planLine(formPlan, repoField.value, branches.value);
+  // A branch's name is set apart from the words around it.
+  branchPlace.replaceChildren(
+    ...line.branch.map(({ text, fact }) => {
+      if (!fact) return text;
+      const name = document.createElement("span");
+      name.className = "fact";
+      name.textContent = text;
+      return name;
+    }),
+  );
   worktreePlace.textContent = line.worktree;
   setupPlace.textContent = line.setup;
   warningPlace.textContent = line.warning;
   planPlace.classList.toggle("failed", line.failed);
   const menu = baseMenu(formPlan, baseChoice, repoField.value);
   const options = (bases: readonly string[]): HTMLOptionElement[] => bases.map((base) => new Option(base, base));
-  const group = (label: string, bases: readonly string[]): HTMLOptGroupElement[] => {
-    if (bases.length === 0) return [];
-    const element = document.createElement("optgroup");
-    element.label = label;
-    element.append(...options(bases));
-    return [element];
-  };
-  baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...group("Local", menu.local), ...group("Remote", menu.remote));
+  baseField.replaceChildren(...options(menu.first === null ? [] : [menu.first]), ...optionGroup("Local", options(menu.local)), ...optionGroup("Remote", options(menu.remote)));
   baseField.disabled = menu.value === null;
   if (menu.value !== null) baseField.value = menu.value;
+  const offered = (listed: readonly BranchOption[]): HTMLOptionElement[] =>
+    listed.map(({ value, label, disabled }) => {
+      const option = new Option(label, value);
+      option.disabled = disabled;
+      return option;
+    });
+  branchFieldPlace.hidden = !branches.shown;
+  branchField.replaceChildren(new Option("No branch yet", ""), ...optionGroup("Local", offered(branches.local)), ...optionGroup("Remote", offered(branches.remote)));
+  branchField.disabled = branches.local.length === 0 && branches.remote.length === 0;
+  branchField.value = branches.value;
   showBase();
 }
 
@@ -1654,7 +1793,7 @@ function showBase(): void {
     baseAnswers.set(baseKey(repoField.value, base), asked);
     basesAsked.add(asked.requestId);
     send({ type: "fetchBase", requestId: asked.requestId, repo: repoField.value.trim(), base });
-    // A daemon of an earlier build ignores the message, so the form stops saying that it fetches. An answer that comes later is shown.
+    // Where no answer came by the daemon's own limit for a fetch and two seconds more, the form stops saying that it fetches. An answer that comes later is shown. A daemon of a build before the fetch ignores the message, and the window's wait (./view, `answerWaits`) ends that request first, with a refusal shown under the menu.
     const timer = setTimeout(() => {
       baseTimers.delete(timer);
       asked.answer = unanswered(asked.answer);
@@ -1681,7 +1820,7 @@ function takeBase(requestId: number, answer: BaseAnswer): boolean {
 function askPlan(): void {
   clearTimeout(planTimer);
   planTimer = undefined;
-  const fields = workItemFields(repoField.value, titleField.value, formName, null);
+  const fields = workItemFields(repoField.value, titleField.value, formName, null, null);
   if ("error" in fields) {
     planRequest = undefined;
     formPlan = null;
@@ -1712,7 +1851,7 @@ function takePlan(requestId: number, answered: PlanAnswered): boolean {
 }
 
 function createWorkItem(): void {
-  const fields = workItemFields(repoField.value, titleField.value, formName, baseMenu(formPlan, baseChoice, repoField.value).value);
+  const fields = workItemFields(repoField.value, titleField.value, formName, baseMenu(formPlan, baseChoice, repoField.value).value, branchMenu(formPlan, branchChoice, repoField.value).value || null);
   if ("error" in fields) {
     formError.textContent = fields.error;
     return;
@@ -1728,7 +1867,7 @@ function createWorkItem(): void {
   const requestId = request();
   formRequest = requestId;
   formError.textContent = "";
-  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon cuts the work item after that fetch, and the status line says what a failed one gave.
+  // The button did not wait for the base's fetch. Where its answer is still to come, the daemon makes the work item after that fetch, and the status line says what a failed one gave.
   createdBase = fields.base === undefined ? undefined : baseKey(fields.repo, fields.base);
   createdSays = "";
   // One creation per answer: the button stays off until the daemon answers.
@@ -1756,10 +1895,14 @@ function registerRepository(): void {
 }
 
 function onMessage(message: ServerMessage): void {
+  // An answer that names a request ends that request's wait (./view, `answerWaits`).
+  waits.answered(message);
   switch (message.type) {
     case "ready": {
       // The states as the window finds them, so no notification. Nothing is attached and nothing started.
       held.ready = true;
+      // A daemon of a build before `answersUnknown` leaves a request it does not know unanswered, so each request sent to it from now on but a creation has a wait (./view, `answerWaits`).
+      waits.ready(message);
       held.paneKinds = message.paneKinds;
       held.sessions = message.sessions;
       held.workItems = message.workItems;
@@ -1773,6 +1916,8 @@ function onMessage(message: ServerMessage): void {
       // A daemon of an earlier build, and one given no reader of the machine, send no machine, and the Machine button is then hidden.
       held.machine = message.machine ?? null;
       showMachineEntry();
+      // A window that connected again holds terminals made under what the daemon said before.
+      showScrollback();
       // A daemon of an earlier build sends no notice of its agent.
       held.agentNotice = message.agentNotice ?? null;
       // A daemon of an earlier build sends no accounts, and the window then shows no control of them.
@@ -1800,12 +1945,10 @@ function onMessage(message: ServerMessage): void {
       // An account was added, renamed or made the default, here or in another client: every name drawn of one is drawn again.
       held.accounts = heldAccounts(message);
       showAccountsEntry();
-      // What a person typed in the dialog stays: a change another client made closes no field of this one.
-      if (accountsDialog.open) showAccounts();
+      // What a person typed in the dialog stays: a change another client made closes no field of this one. The dialog's rows are drawn through the hold, as the lists are.
+      draws.draw(drawAccountsDialog);
       // The lists stand as they were: each screen draws the names again.
-      showSidebar();
-      listInFront()?.show();
-      if (front === "view") showView();
+      draws.draw(drawLists);
       return;
     case "keepAwake":
       // The daemon's choice changed, here or in another client, or its hold began or ended.
@@ -1822,23 +1965,26 @@ function onMessage(message: ServerMessage): void {
       // A cap changed, here or in another client, the count of agents or the queue of heavy commands changed, or the daemon read the machine again for this window.
       held.machine = message.machine;
       showMachineEntry();
-      if (MACHINE.dialog.open) showMachine();
+      showScrollback();
+      draws.draw(drawMachineDialog);
       // The queue moved, or the count against the cap: the status line, the lines that wait for the machine and the view's foot say it.
-      showSidebar();
-      listInFront()?.show();
-      if (front === "view") showView();
+      draws.draw(drawLists);
       return;
     case "agentNotice":
       // The adapter's notice changed: the daemon asked it at its start, or again as a window connected.
       held.agentNotice = message.notice;
       showStatus();
       return;
+    case "addEnded":
+      // This window's add ended: the `accounts` before it carries the account where one came of it.
+      takeAddEnded(message.says);
+      return;
     case "started":
       tell("");
       // A sign-in pane is drawn in the Accounts dialog, which keeps receiving its output.
       if (accountsAsked.delete(message.requestId)) {
         takeStarted(message.session);
-        takeSignInStarted(message.requestId, message.session.id);
+        takeSignInStarted(message.requestId, message.session);
         return;
       }
       takeStarted(message.session);
@@ -1862,8 +2008,8 @@ function onMessage(message: ServerMessage): void {
       return;
     }
     case "workItemPlan": {
-      // A daemon of an earlier build names no setup, and no disk.
-      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
+      // A daemon of an earlier build names no setup, no disk and no held branches.
+      const plan = { branch: message.branch, worktree: message.worktree, localBases: message.localBases, remoteBases: message.remoteBases, held: message.held ?? null, defaultBase: message.defaultBase, setupCommand: message.setupCommand ?? null, includes: message.includes ?? false, disk: message.disk ?? null };
       if (!takeSettingsPlan(message.requestId, plan)) takePlan(message.requestId, plan);
       return;
     }
@@ -1882,6 +2028,8 @@ function onMessage(message: ServerMessage): void {
     case "done":
       // What the request changed arrives in the `inbox` that follows.
       tell("");
+      // A refresh's `done` follows the `inbox` that answers it, which the window has drawn by now.
+      if (refreshing.answered(message.requestId)) return;
       if (trashing?.requestId === message.requestId) {
         // The daemon no longer keeps the repository, so its folder goes to the Trash now, as the person chose. A failure is said in the status line.
         const { folder } = trashing;
@@ -1900,14 +2048,11 @@ function onMessage(message: ServerMessage): void {
       if (answered(message.requestId, null)) return;
       if (takeAccountsAnswer(message.requestId, null)) return;
       // The answers a person sent to a parked work item's questions were taken.
-      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null)) return;
+      if (takeAnswers(message.requestId, null) || takeAccountChange(message.requestId, null) || takePaneName(message.requestId, null)) return;
       if (message.requestId === renameRequest) {
         renameRequest = undefined;
         if (renameDialog.open) renameDialog.close();
       }
-      return;
-    case "asked":
-      takeHeadlessSession(message.headless, message.requestId);
       return;
     case "headless":
       takeHeadlessSession(message.headless);
@@ -1928,48 +2073,52 @@ function onMessage(message: ServerMessage): void {
       // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
       dropHeadless(message.id);
       return;
-    case "error":
-      // Nothing was created or started.
+    case "error": {
+      // Nothing was created or started. Where the daemon does not know the request, each place below shows the window's sentence, which names "Restart Daemon…", in place of the daemon's (./view, `refusalSays`).
+      const said = refusalSays(message);
       requestRefused(message.requestId);
+      // A refresh's refusal is said in the status line, and the lists stand as they were.
+      if (refreshing.refused(message.requestId, said)) return;
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
-      if (takePlan(message.requestId, { error: message.message })) return;
+      if (takePlan(message.requestId, { error: said })) return;
       // The refusal of a base's fetch is the form's to show, under the menu.
-      if (takeBase(message.requestId, { error: message.message })) return;
+      if (takeBase(message.requestId, { error: said })) return;
       // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
-      if (takeRenamePlan(message.requestId, { error: message.message })) return;
+      if (takeRenamePlan(message.requestId, { error: said })) return;
       // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
-      if (takeSettingsPlan(message.requestId, { error: message.message })) return;
+      if (takeSettingsPlan(message.requestId, { error: said })) return;
       // A read of a loss that was refused is its dialog's to show.
-      if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
-      // The refusal of the answers to a parked work item's questions is its view's section's to show.
-      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message)) return;
+      if (takeDeleteLoss(message.requestId, { error: said }) || takeRemoveLoss(message.requestId, { error: said })) return;
+      // The refusal of the answers to a parked work item's questions is its view's section's to show, and the refusal of a pane's new name the rename dialog's.
+      if (takeAnswers(message.requestId, said) || takeAccountChange(message.requestId, said) || takePaneName(message.requestId, said)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
-      if (takeBackRefusal(message.requestId, message.message)) return;
+      if (takeBackRefusal(message.requestId, said)) return;
       // A refused plan of the records place is its dialog's to show.
-      if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      if (takeRecordsPlan(message.requestId, { error: said })) return;
       // A refused request of the Accounts dialog is said in it.
-      if (takeAccountsAnswer(message.requestId, message.message)) return;
+      if (takeAccountsAnswer(message.requestId, said)) return;
       if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
-      if (answered(message.requestId, message.message)) {
+      if (answered(message.requestId, said)) {
         readAgain();
         return;
       }
       if (message.requestId === renameRequest && renameDialog.open) {
         renameRequest = undefined;
-        renameError.textContent = message.message;
+        renameError.textContent = said;
         renameButton.disabled = false;
         return;
       }
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
-        formError.textContent = message.message;
+        formError.textContent = said;
         createButton.disabled = false;
       } else {
-        tell(message.message);
+        tell(said);
       }
       return;
+    }
     case "replay":
     case "output":
       write(message.id, message.type, message.data);
@@ -2028,11 +2177,18 @@ initSidebar(
       showNarrowed();
     },
     filter,
+    refresh: () => refreshing.press(),
     leaveSearch() {
       const list = listInFront();
       if (list) list.focusLine(list.selected());
       // Where no list is in front the keyboard leaves the field for the page.
       if (document.activeElement === byId("search-field")) byId("search-field").blur();
+    },
+    // The person's own press, so the sidebar and the list in front draw at once.
+    showEvery() {
+      held.query = "";
+      held.filter = "all";
+      showNarrowed();
     },
   },
   MAC,
@@ -2079,6 +2235,11 @@ titleField.addEventListener("input", askPlanSoon);
 baseField.addEventListener("change", () => {
   baseChoice = { repo: repoField.value.trim(), base: baseField.value };
   showBase();
+});
+// The place under the name says what the creation does of the branch picked.
+branchField.addEventListener("change", () => {
+  branchChoice = { repo: repoField.value.trim(), branch: branchField.value };
+  showPlan();
 });
 // A closed form asks for no plan, and waits for no answer to say that it fetches.
 workItemDialog.addEventListener("close", () => {
@@ -2159,6 +2320,9 @@ byId<HTMLFormElement>("accounts-form").addEventListener("submit", (event) => {
 byId("accounts-folder").addEventListener("click", addAccount);
 byId("accounts-sign-in-close").addEventListener("click", closeSignIn);
 window.owlery.onAccountsMenu(openAccounts);
+initSettings();
+// A link's card names the editor the person chose, read once the page loads and again at each Save (./app-settings).
+void readEditorState();
 byId("machine-button").addEventListener("click", () => {
   // Against a daemon that keeps no cap the button is hidden, and nothing opens over another dialog.
   if (held.machine === null || !opened(MACHINE)) return;

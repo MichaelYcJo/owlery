@@ -3,40 +3,46 @@
 // its own, and the strip under them, and its right column, which says what the
 // daemon sends of the work item, the questions it is parked with, which it
 // answers there, and the decisions made for it without asking among it,
-// above the "Ask" section, where the calls its headless sessions ask the
-// person to allow are answered, and the seal's place with the sentence of
-// the work item's chain, with the work item's pull request under it. The
-// pool of terminal screens the window holds lives here, and so
-// do the card of the link under the pointer and the menu of a pane.
+// above the list of the daemon's chain and the seal's place with the
+// sentence of the work item's chain, with the work item's pull request
+// under it. The pool of terminal screens the window holds lives here, and
+// so do the card of the link under the pointer, the menu of a pane and the
+// find bar over a pane's screen.
 import { FitAddon } from "@xterm/addon-fit";
+import { type ISearchOptions, SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
-import { type HeadlessInfo, type LedgerEntry, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { type HeadlessInfo, type LedgerEntry, PANE_NAME_CHARS, type PaneKind, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type WorkItem } from "../shared/protocol";
+import { editorOpener, openSettings } from "./app-settings";
 import { openMenu as openItemMenu } from "./menu";
 import { backParts, byId, detail, drawSeal, entries, headlessIcon, held, part, request, row, sealPlace, send, showState, stateClass } from "./shared";
+import { tell } from "./sidebar";
 import {
   answersFor,
-  askButton,
   askedSection,
   BACK_READING,
   BACK_TAB,
   backKey,
   backShown,
+  branchPlace,
   CARD_LEAVE_MS,
   CARD_SHOW_MS,
   cardStaysAt,
+  chainList,
   chainSays,
   closeAsks,
+  closeSays,
   droppedText,
+  FIND_LIMIT,
+  findCount,
+  findQuery,
   GATE_HEAD,
   GATE_OUTPUT_SHOWS,
   type GateLine,
   type GateOutput,
-  gateLine,
   hasBack,
   headlessKey,
-  headlessLines,
   type LinkAct,
   linkCard,
   linkClick,
@@ -44,6 +50,7 @@ import {
   lineSince,
   opensToBack,
   paneCap,
+  paneScrollback,
   PANE_KEY_BYTES,
   paneChoices,
   paneKey,
@@ -53,6 +60,7 @@ import {
   paneMenu,
   type PaneMenuAct,
   paneTabs,
+  pasteAct,
   pathCandidates,
   pullRequestFacts,
   pathTarget,
@@ -69,12 +77,13 @@ import {
   stageOf,
   stateWithAge,
   tabLabel,
+  tabMenu,
+  tabSays,
   tellsSize,
   viewFacts,
   webTarget,
   withHeadless,
   withoutHeadless,
-  accountChoices,
   offersAccounts,
   tabAccount,
   viewAccount,
@@ -87,6 +96,10 @@ interface Screen {
   element: HTMLElement;
   /** The pane on the screen, and the pane that what the terminal hands the window goes to. */
   turns: ScreenTurns;
+  /** The search add-on of the terminal, loaded at the screen's first find (`searchOf`). A screen nobody searched holds none. */
+  search?: SearchAddon;
+  /** What the add-on last said of its results on this screen (`searchOf`). */
+  results?: { resultIndex: number; resultCount: number };
 }
 
 // The size a pane's process starts at where no terminal is on screen to measure: xterm's own default.
@@ -104,14 +117,10 @@ let front: number | undefined;
 const recent = new Map<number, number[]>();
 // Whether "Side by side" is pressed: the window's own state, one for every view, off at each load.
 let sideBySide = false;
-// The work item whose view the "Ask" field's prompt was typed in.
-let askingIn: number | undefined;
-// The request the "Ask" field is waiting on: the field keeps its prompt until the daemon has taken it.
-let askRequest: number | undefined;
 // The key of the section of questions as it is drawn (./view, `askedSection`). The section is drawn again only where the key differs, so what a person chose and typed in it stays through the lists the daemon sends meanwhile.
 let questionsDrawn: string | undefined;
-// The key of the "Ask" section's lines as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
-let askDrawn: string | undefined;
+// The key of the lines of the list of the daemon's chain as they are drawn (./view, `headlessKey`). They are drawn again only where the key differs, so a button the keyboard is on stays through the lists the daemon sends meanwhile.
+let chainDrawn: string | undefined;
 // The request the section's answers are waiting on: "Send answers" stays off until the daemon answers.
 let answersRequest: number | undefined;
 // The address of the pull request the view shows, which a press of its row opens.
@@ -128,8 +137,8 @@ let backDrawn: string | undefined;
 let backAsked: { workItemId: number; key: string; recordsRequest: number; ledgerRequest: number; records: SealRecords | null; ledger: { entries: LedgerEntry[]; unread: number } | null; refusal: string | null } | undefined;
 // What the view does where its work item is no longer listed: another screen takes its place.
 let leave: () => void = () => {};
-// The pane the dialog that asks before a working pane closes asked about last. Nothing reads it once that dialog has closed.
-let asking: number | undefined;
+// The panes the dialog that asks before a close of panes asked about last, in the tabs' order, which its main button closes. Once that dialog has closed they decide nothing, since a close of a dialog that is not open does nothing.
+let asking: number[] = [];
 // Whether the keyboard is a Mac's, which has the Command key.
 let mac = false;
 // What puts a work item's view in front, for a click on a link that is another work item's worktree.
@@ -147,6 +156,9 @@ let cardLeaveTimer: ReturnType<typeof setTimeout> | undefined;
 // The menu of a pane, while it is open, and the terminal of the pane it is for, which takes the keyboard back when the menu closes.
 let paneMenuElement: HTMLElement | undefined;
 let paneMenuTerm: Terminal | undefined;
+// The screen the find bar searches, while the bar is open, and the selection its last search made in that screen's terminal.
+let findScreen: Screen | undefined;
+let findSelected: ReturnType<Terminal["getSelectionPosition"]>;
 
 const viewTitle = byId("view-title");
 const viewBranch = byId("view-branch");
@@ -164,11 +176,7 @@ const noPanes = byId("no-panes");
 const stage = byId("stage");
 const back = byId("back");
 const sideBySideButton = byId<HTMLButtonElement>("side-by-side");
-const askForm = byId<HTMLFormElement>("ask-form");
-const askField = byId<HTMLInputElement>("ask-prompt");
-const askSubmit = byId<HTMLButtonElement>("ask-submit");
-const askAccount = byId<HTMLSelectElement>("ask-account");
-const headlessList = byId<HTMLUListElement>("headless");
+const chainListElement = byId<HTMLUListElement>("view-chain");
 const questionsSection = byId("questions");
 const questionsHead = byId("questions-head");
 const questionsAge = byId("questions-age");
@@ -189,17 +197,26 @@ const paneAccountError = byId("pane-account-error");
 const paneAccountSubmit = byId<HTMLButtonElement>("pane-account-submit");
 /** The pane whose account the dialog changes, while it is open, and the request it sent, until the daemon answers it. */
 let accountChange: { pane: number; requestId: number | undefined } | undefined;
+const paneNameDialog = byId<HTMLDialogElement>("pane-name-dialog");
+const paneNameField = byId<HTMLInputElement>("pane-name-field");
+const paneNameError = byId("pane-name-error");
+const paneNameSubmit = byId<HTMLButtonElement>("pane-name-submit");
+/** The pane the rename dialog names, while it is open, and the request it sent, until the daemon answers it. */
+let paneNaming: { pane: number; requestId: number | undefined } | undefined;
 const closeSentence = byId("close-pane-sentence");
+const closeConfirm = byId("close-pane-confirm");
 const linkCardElement = byId("link-card");
+const findBar = byId("find-bar");
+const findField = byId<HTMLInputElement>("find-field");
+const findCase = byId<HTMLButtonElement>("find-case");
+const findRegex = byId<HTMLButtonElement>("find-regex");
+const findCountElement = byId("find-count");
+const findNextButton = byId<HTMLButtonElement>("find-next");
+const findPreviousButton = byId<HTMLButtonElement>("find-previous");
 
 /** The work item whose view is on screen, where the window holds it. */
 function viewed(): WorkItem | undefined {
   return held.workItems.find((item) => item.id === held.viewing);
-}
-
-/** The account a menu of a new session's account names, by its id, or nothing for its first choice, which leaves the session to its work item's. A hidden menu names none. */
-function chosenAccount(menu: HTMLSelectElement): { accountId?: number } {
-  return menu.hidden || menu.value === "" ? {} : { accountId: Number(menu.value) };
 }
 
 /** The account a work item gives its new sessions where they name none: its own, else its repository's, else the default. */
@@ -208,34 +225,12 @@ function givenAccount(workItem: WorkItem): number {
   return workItem.accountId ?? repository?.accountId ?? held.accounts?.defaultId ?? SYSTEM_DEFAULT_ID;
 }
 
-/**
- * Fills the menu of a new headless session's account beside the "Ask"
- * field for the work item, keeping the choice it held where that is still an
- * account, and hides it where there is no account to choose. Gives each
- * button that opens a pane the tooltip that says where it has a menu of
- * accounts (./view, `newPaneMenu`).
- */
-function showAccountMenus(workItem: WorkItem): void {
-  const accounts = held.accounts;
-  const offered = offersAccounts(accounts);
+/** Gives each button that opens a pane of the work item the tooltip that says where it has a menu of accounts (./view, `newPaneMenu`). */
+function showPaneButtonTitles(workItem: WorkItem): void {
   for (const button of paneButtons.querySelectorAll<HTMLButtonElement>("button[data-kind]")) {
     const kind = held.paneKinds.find((offeredKind) => offeredKind.kind === button.dataset.kind);
-    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, accounts, givenAccount(workItem)).length > 0);
+    button.title = paneButtonTitle(button.dataset.hint ?? null, newPaneMenu(kind, held.accounts, givenAccount(workItem)).length > 0);
   }
-  askAccount.hidden = !offered;
-  if (!accounts || !offered) {
-    askAccount.replaceChildren();
-    delete askAccount.dataset.choices;
-    return;
-  }
-  const kept = askAccount.value;
-  const choices = accountChoices(accounts, "The work item's", givenAccount(workItem));
-  // A menu whose choices stand as they were is left as it is, so a redraw closes none a person holds open.
-  const key = JSON.stringify([workItem.id, choices]);
-  if (askAccount.dataset.choices === key) return;
-  askAccount.dataset.choices = key;
-  askAccount.replaceChildren(...choices.map(({ value, label }) => new Option(label, value)));
-  askAccount.value = choices.some((choice) => choice.value === kept) ? kept : "";
 }
 
 /** A value of the page's look: a custom property of the theme in use or of the layout, which the terminal takes its colours, its typeface and its size from. */
@@ -263,12 +258,27 @@ function screenOf(pane: number | undefined): Screen | undefined {
   return pane === undefined ? undefined : pool.find((screen) => screen.turns.pane === pane);
 }
 
-/** Does with a link's target what a click or a row of the card chose (./view, `LinkAct`). The main process decides whether an address is one it opens, and reads the disk again before it shows a path. */
+/**
+ * Does with a link's target what a click or a row of the card chose (./view,
+ * `LinkAct`). The main process decides whether an address is one it opens,
+ * and reads the disk again before it shows a path or opens a file. A file
+ * opens in the editor the person chose, and where none was chosen the
+ * Settings dialog opens first, and a Save that names an editor opens the
+ * file (./app-settings). Why the editor opened nothing is said in the
+ * status line.
+ */
 function act(chosen: LinkAct, target: LinkTarget): void {
   if (chosen === "copy") void window.owlery.copyText(target.kind === "web" ? target.address : target.path);
   else if (target.kind === "web") void window.owlery.openLink(target.address);
   else if (chosen === "workItem" && target.kind === "workItem") openWorkItem(target.workItemId);
-  else void window.owlery.showInFinder(target.path);
+  else if (chosen === "editor" && target.kind === "file") {
+    const open = (): void =>
+      void window.owlery.openInEditor(target.path, target.line, target.column).then((failure) => {
+        if (failure !== null) tell(failure);
+      });
+    if (editorOpener() === "ask") void openSettings(open);
+    else open();
+  } else void window.owlery.showInFinder(target.path);
 }
 
 /** Answers a click on a link the terminal found as an address, printed as text or behind a name: it opens outside Owlery where the click held the key that opens one (./view, `linkClick`). An address that is no web address is handed on as it is, and the main process opens nothing for it. */
@@ -298,7 +308,7 @@ function cardLeaves(): void {
  * a button that does what it names and takes the card away.
  */
 function showCard(target: LinkTarget, term: Terminal): void {
-  const { title, rows } = linkCard(target, mac);
+  const { title, rows } = linkCard(target, mac, editorOpener());
   linkCardElement.replaceChildren(
     part("target", title),
     ...rows.map(({ text, keys, act: chosen }) => {
@@ -371,9 +381,11 @@ function wholeLine(term: Terminal, row: number): { text: string; cells: { x: num
  * link add-on finds. For the line under the pointer, the main process is
  * asked once what stands at each candidate of the line (./view,
  * `pathCandidates`), read from the worktree of the pane's work item, and a
- * candidate is a link only where a file or a folder stands there. Nothing
- * is kept between two requests. A click does what `linkClick` answers for
- * the path's target, and the pointer's rest on the link shows its card.
+ * candidate is a link only where a file or a folder stands there. A file's
+ * link carries the line and the column the pane printed after its path.
+ * Nothing is kept between two requests. A click does what `linkClick`
+ * answers for the path's target and for the editor the person chose, and
+ * the pointer's rest on the link shows its card.
  */
 function findsPaths(term: Terminal, turns: ScreenTurns): void {
   term.registerLinkProvider({
@@ -402,12 +414,12 @@ function findsPaths(term: Terminal, turns: ScreenTurns): void {
             const end = cells[candidate.end - 1];
             if (!stands || !start || !end) return;
             // What the path leads to is read from the window's lists at the moment it is asked for.
-            const target = (): LinkTarget => pathTarget(stands.path, held.workItems, held.viewing);
+            const target = (): LinkTarget => pathTarget(stands.path, held.workItems, held.viewing, stands.folder ? undefined : { line: candidate.line, column: candidate.column });
             links.push({
               range: { start: { x: start.x, y: start.y }, end: { x: end.x + end.width - 1, y: end.y } },
               text: candidate.text,
               activate(event) {
-                const chosen = linkClick(target().kind, { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac);
+                const chosen = linkClick(target().kind, { meta: event.metaKey, ctrl: event.ctrlKey, shift: event.shiftKey }, mac, editorOpener());
                 if (chosen !== null) act(chosen, target());
               },
               hover: () => overLink(target(), term),
@@ -433,7 +445,10 @@ function closeMenu(giveKeyboard = true): void {
  * Does what an item of a pane's menu names, for the pane a screen holds.
  * The clipboard is the main process's (src/main/clipboard.ts). A paste is
  * handed to the terminal as a dropped path is, so a program that asked for
- * pastes in brackets receives one, and an empty clipboard pastes nothing.
+ * pastes in brackets receives one. It is the clipboard's text, and where the
+ * clipboard holds none, the path of the image it holds, which the main
+ * process writes as a file (`pasteImage`). A clipboard that holds neither
+ * pastes nothing.
  * Before the terminal is cleared or reset the daemon is told to forget what
  * the pane printed: its replay draws the pane each time it comes onto the
  * stage, and would draw again what the person cleared. A clear asks the
@@ -442,22 +457,26 @@ function closeMenu(giveKeyboard = true): void {
  * as the cleared terminal has them now. A reset asks it to keep nothing,
  * since the reset ends those modes in the terminal.
  */
-function menuAct(chosen: PaneMenuAct, { term, turns }: Screen): void {
+function menuAct(chosen: PaneMenuAct, screen: Screen): void {
+  const { term, turns } = screen;
   const pane = turns.pane;
   if (pane === undefined) return;
   if (chosen === "copy") void window.owlery.copyText(term.getSelection());
   else if (chosen === "paste")
     void window.owlery.clipboardText().then((text) => {
       // The screen may have gone to another pane while the main process answered.
-      if (text !== "" && turns.pane === pane) term.paste(text);
+      if (turns.pane !== pane) return;
+      if (text === "") pasteImage(screen);
+      else term.paste(text);
     });
   else if (chosen === "selectAll") term.selectAll();
+  else if (chosen === "find") openFind(screen);
   else if (chosen === "account") {
     const session = held.sessions.find((listed) => listed.id === pane);
     if (session) openAccountChange(session);
   } else if (chosen === "close") {
     const session = held.sessions.find((listed) => listed.id === pane);
-    if (session) closePane(session);
+    if (session) closePanes([session]);
   } else if (chosen === "clear") {
     send({ type: "forget", id: pane, keepModes: true });
     term.clear();
@@ -528,6 +547,172 @@ function openMenu(screen: Screen, at: { x: number; y: number }): void {
 }
 
 /**
+ * The search add-on of a screen's terminal, loaded at the screen's first
+ * find. It counts one match past `FIND_LIMIT` (./view), so the bar can say
+ * that more matched, and each count it gives reaches the bar while the bar
+ * searches that screen.
+ */
+function searchOf(screen: Screen): SearchAddon {
+  if (screen.search) return screen.search;
+  const search = new SearchAddon({ highlightLimit: FIND_LIMIT + 1 });
+  search.onDidChangeResults((results) => {
+    screen.results = results;
+    if (findScreen !== screen) return;
+    findCountElement.textContent = findCount(results);
+    findNextButton.disabled = findPreviousButton.disabled = results.resultCount === 0;
+  });
+  screen.term.loadAddon(search);
+  screen.search = search;
+  return search;
+}
+
+/** The search options of what the bar's field holds: every match is outlined in the terminal's ink and the match in front in its strong ink, as the theme in use has them. The add-on asks for the colours of an overview ruler as well, which no terminal here draws, and they are the same inks. */
+function findOptions(query: { caseSensitive: boolean; regex: boolean }): ISearchOptions {
+  const ink = look("--terminal-ink");
+  const strong = look("--terminal-strong");
+  return { caseSensitive: query.caseSensitive, regex: query.regex, decorations: { matchBorder: ink, matchOverviewRuler: ink, activeMatchBorder: strong, activeMatchColorOverviewRuler: strong } };
+}
+
+/** Whether the terminal's selection is the one the bar's last search made. */
+function selectedByFind(term: Terminal): boolean {
+  const now = term.getSelectionPosition();
+  return now !== undefined && JSON.stringify(now) === JSON.stringify(findSelected);
+}
+
+/**
+ * Searches the terminal of the bar's screen for what the bar holds (./view,
+ * `findQuery`), from the newest output to the oldest: `fresh` from the end
+ * of the output, as where the field or a choice changed, so the match in
+ * front is the newest one, `older` to the next older match, which is what
+ * "Next match" goes to, and `newer` back toward the newest. Each wraps. The
+ * match in front is the terminal's selection, scrolled into view. Where the
+ * field is empty, or holds a pattern that is no regular expression, the
+ * marks and the selection go, and the count's place says the refusal or
+ * nothing.
+ */
+function find(step: "fresh" | "older" | "newer"): void {
+  const screen = findScreen;
+  if (!screen) return;
+  const query = findQuery({ text: findField.value, matchCase: findCase.getAttribute("aria-pressed") === "true", regex: findRegex.getAttribute("aria-pressed") === "true" });
+  const search = searchOf(screen);
+  // A fresh search drops the add-on's last term as well: the add-on keeps the options it is handed before it compares them with the last ones, so a choice changed over the same text would not mark the matches again.
+  if (step === "fresh" || query === null || "refusal" in query) {
+    screen.term.clearSelection();
+    search.clearDecorations();
+  }
+  if (query === null || "refusal" in query) {
+    findSelected = undefined;
+    findCountElement.textContent = query === null ? "" : query.refusal;
+    findNextButton.disabled = findPreviousButton.disabled = true;
+    return;
+  }
+  // The add-on's own next is toward the end of the output, which is this bar's previous.
+  if (step === "newer") search.findNext(query.term, findOptions(query));
+  else search.findPrevious(query.term, findOptions(query));
+  // The add-on counts its matches again only where the term or a choice changed, or 200 ms after the pane last printed. So a step is counted from the list it made before the pane's last lines: the match in front may be outside that list, and the matches printed since are left out of the count and carry no mark. After each step under the limit the match in front, the one the terminal holds selected, is searched for again with the term dropped, which finds that same match and counts and marks every match afresh in the same task, so the page never draws a stale count.
+  if (step !== "fresh" && (screen.results?.resultCount ?? 0) <= FIND_LIMIT) {
+    search.clearDecorations();
+    search.findPrevious(query.term, findOptions(query));
+  }
+  findSelected = screen.term.getSelectionPosition();
+}
+
+/**
+ * Opens the find bar over the screen of a pane, the pane in front where
+ * none is given, and puts the keyboard in the bar's field with what it
+ * holds selected. A bar open over another pane closes there first, and its
+ * marks go with it.
+ */
+export function openFind(screen = screenOf(front)): void {
+  if (!screen) return;
+  if (findScreen !== screen) {
+    closeFind(false);
+    findScreen = screen;
+    screen.element.append(findBar);
+    findBar.hidden = false;
+  }
+  findField.focus();
+  findField.select();
+}
+
+/**
+ * Closes the find bar: the marks of its search go, and so does the
+ * selection its last search made, where the terminal still holds that one,
+ * and the field's text is not kept. The pane's terminal takes the keyboard
+ * back, unless `giveKeyboard` is false, as where the pane leaves the stage.
+ */
+function closeFind(giveKeyboard = true): void {
+  const screen = findScreen;
+  if (!screen) return;
+  findScreen = undefined;
+  screen.search?.clearDecorations();
+  if (selectedByFind(screen.term)) screen.term.clearSelection();
+  findSelected = undefined;
+  findBar.hidden = true;
+  findField.value = "";
+  findCountElement.textContent = "";
+  findNextButton.disabled = findPreviousButton.disabled = true;
+  if (giveKeyboard) screen.term.focus();
+}
+
+/** Goes to the next older match, `older`, or back toward the newest, where the find bar is open, as ⌘G and ⇧⌘G do wherever the keyboard is in the view. */
+export function stepFind(older: boolean): void {
+  find(older ? "older" : "newer");
+}
+
+/** Whether the find bar is open. */
+export function finding(): boolean {
+  return findScreen !== undefined;
+}
+
+/** Whether a pane of the view on screen is in front, over whose screen ⌘F opens the find bar. */
+export function findable(): boolean {
+  return screenOf(front) !== undefined;
+}
+
+/** Has the main process write the image the clipboard holds as a file, and pastes its path into the pane the screen holds, as a dropped file's path, where the clipboard held an image and the screen still holds that pane. */
+function pasteImage({ term, turns }: Screen): void {
+  const pane = turns.pane;
+  void window.owlery.pastedImage().then((path) => {
+    const text = path === null ? "" : droppedText([path]);
+    if (text !== "" && turns.pane === pane) term.paste(text);
+  });
+}
+
+/**
+ * Has the screen read a paste into its terminal before the terminal does
+ * (./view, `pasteAct`): files that are on a disk are pasted as their paths,
+ * as dropped files are, a paste that holds text is left to the terminal,
+ * and an image with no text is pasted as the path of the file the main
+ * process writes from the clipboard (`pasteImage`). A paste that holds none
+ * of them pastes nothing, where the terminal would send an empty paste. A
+ * paste into the find bar's field is the field's.
+ */
+function takesPastes(screen: Screen): void {
+  const { element, term } = screen;
+  element.addEventListener(
+    "paste",
+    (event) => {
+      const data = event.clipboardData;
+      if (!data || !(event.target instanceof Node && term.element?.contains(event.target))) return;
+      const files = [...data.files];
+      const chosen = pasteAct({
+        paths: files.map((file) => window.owlery.pathOf(file)),
+        text: data.getData("text/plain") !== "",
+        image: [...data.items].some((item) => item.kind === "file" && item.type.startsWith("image/")),
+      });
+      if (chosen?.kind === "text") return;
+      // The terminal's own listener stands under this element, and reads the event after it.
+      event.preventDefault();
+      event.stopPropagation();
+      if (chosen?.kind === "paths") term.paste(chosen.text);
+      else if (chosen?.kind === "image") pasteImage(screen);
+    },
+    { capture: true },
+  );
+}
+
+/**
  * Has an element take the files a person drops on it, for the terminal of
  * the screen it holds: the terminal is handed the files' paths as a paste
  * (./view, `droppedText`), so a program that asked for pastes in brackets
@@ -553,12 +738,13 @@ function takesDrops(element: HTMLElement, term: Terminal): void {
 /**
  * Adds a screen to the pool, for a pane that comes onto the stage where no
  * screen is free. The view is on screen then, so the terminal opens in an
- * element that is displayed. Each size the screen takes goes to the pane
+ * element that is displayed. Its terminal holds as many lines of history as
+ * the scrollback the daemon said (`showScrollback`). Each size the screen takes goes to the pane
  * that holds it at that moment where that pane's process runs, and a free
  * screen sends nothing. What a person types and what the terminal answers
  * go where the screen's turns say (./view, `screenTurns`), and so do the
- * line feed of Shift+Enter, the bytes of the three editing keys and the
- * paths of dropped files. A press inside
+ * line feed of Shift+Enter, the bytes of the three editing keys, the
+ * paths of dropped files and what a paste hands the pane (`takesPastes`). A press inside
  * the screen gives its pane the keyboard, so that pane is in front. A link
  * the pane printed opens outside Owlery at a click with the Command key,
  * a path it printed is a link where something stands at it (`findsPaths`),
@@ -570,8 +756,7 @@ function newScreen(): Screen {
   element.className = "pane";
   stage.appendChild(element);
   const term = new Terminal({
-    // The UI keeps 1,000 lines; older output stays with the daemon (docs/architecture.md, Memory design).
-    scrollback: 1000,
+    scrollback: paneScrollback(held.machine),
     fontFamily: look("--font-terminal"),
     fontSize: Number.parseFloat(look("--size-terminal")),
     theme: terminalColours(),
@@ -611,6 +796,7 @@ function newScreen(): Screen {
     return false;
   });
   takesDrops(element, term);
+  takesPastes(screen);
   findsPaths(term, turns);
   // A press of the right button, and a press with the Control key, ask for a menu. The pane's own opens in place of the system's. The terminal has read the press by then: it took the keyboard, so the pane is the one in front, and on a Mac it selected the word under the pointer.
   element.addEventListener("contextmenu", (event) => {
@@ -622,9 +808,11 @@ function newScreen(): Screen {
     if (tellsSize(held.sessions, turns.pane)) send({ type: "resize", id: turns.pane, cols, rows });
     showSize();
   });
-  element.addEventListener("focusin", () => {
+  element.addEventListener("focusin", (event) => {
     if (turns.pane === undefined || turns.pane === front || held.viewing === undefined) return;
     broughtToFront(held.viewing, turns.pane);
+    // The find bar's field keeps the keyboard it took: the view puts in front the pane it holds, and would give that pane's terminal the keyboard.
+    if (event.target instanceof Node && findBar.contains(event.target)) front = turns.pane;
     showView();
   });
   pool.push(screen);
@@ -655,6 +843,8 @@ function giveBack(screen: Screen): void {
   if (screen.turns.pane === undefined) return;
   // A menu open for this pane closes as the pane leaves the stage: the screen goes to the next pane that comes, and the menu's items would act on that one. The terminal is not given the keyboard, since its pane is leaving.
   if (paneMenuTerm === screen.term) closeMenu(false);
+  // So does the find bar over it, with its marks and what was typed in it.
+  if (findScreen === screen) closeFind(false);
   send({ type: "detach", id: screen.turns.pane });
   screen.turns.giveBack();
   screen.element.hidden = true;
@@ -693,6 +883,12 @@ function stageShows(shown: readonly number[]): void {
   for (const { screen, pane } of taken) take(screen, pane);
 }
 
+/** Gives every terminal of the pool the scrollback the daemon last said (./view, `paneScrollback`). A smaller one drops the oldest lines a terminal holds. */
+export function showScrollback(): void {
+  const lines = paneScrollback(held.machine);
+  for (const { term } of pool) if (term.options.scrollback !== lines) term.options.scrollback = lines;
+}
+
 /** Whether a pane is on the stage of the view on screen. No pane is on another screen. */
 export function onStage(pane: number): boolean {
   return screenOf(pane) !== undefined;
@@ -706,9 +902,11 @@ export function dropClosed(listed: ReadonlySet<number>): void {
     if (front === pane) front = undefined;
     giveBack(screen);
   }
-  // The pane the dialog asks about was closed some other way, so nothing is left to ask. Closing a dialog that is not open does nothing.
-  if (asking !== undefined && !listed.has(asking)) closeDialog.close();
+  // A pane the dialog asks about was closed some other way, so the close it asks about is no longer the one the person chose, and the dialog closes having closed nothing. Closing a dialog that is not open does nothing.
+  if (asking.some((pane) => !listed.has(pane))) closeDialog.close();
   if (accountChange !== undefined && !listed.has(accountChange.pane)) paneAccountDialog.close();
+  // The pane the rename dialog names is gone, so the dialog closes and sends nothing.
+  if (paneNaming !== undefined && !listed.has(paneNaming.pane)) paneNameDialog.close();
   // The closed pane that was in front stays as the last in front, so the live pane with the highest id follows it, and with "Side by side" pressed the live one with the highest id of the first panes of the stage order, as many as the cap on panes side by side, which hold tabs never in front where fewer than the cap of the tabs were in front, or the one of those with the highest id where none of them runs (./view, `recentKept` and `stageOf`).
   for (const [workItemId, panes] of recent) recent.set(workItemId, recentKept(panes, listed));
   for (const pane of [...awaited.keys()]) if (!listed.has(pane)) awaited.delete(pane);
@@ -767,25 +965,7 @@ export function showPaneButtons(): void {
   );
 }
 
-/** Sets the "Ask" button for the view's work item and the field as they are now. */
-function showAsk(workItem: WorkItem): void {
-  const button = askButton(askField.value, workItem);
-  askSubmit.disabled = !button.enabled;
-  askSubmit.title = button.title;
-}
-
-/** One of the two buttons of a call a session asks the person to allow, which sends the person's answer to the request `id` of the work item. `data-answer` names the request and the answer, so a redraw finds the same button again. */
-function answerButton(workItemId: number, id: number, allow: boolean): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.className = "quiet";
-  button.textContent = allow ? "Allow" : "Refuse";
-  button.title = allow ? "Allow this one call" : "Refuse this call: the agent is told the person refused it";
-  button.dataset.answer = `${id}:${allow ? "allow" : "refuse"}`;
-  button.addEventListener("click", () => send({ type: "answerPermission", requestId: request(), workItemId, id, allow }));
-  return button;
-}
-
-/** The broad gate's line of the "Ask" section, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
+/** The broad gate's line of the list of the daemon's chain, in the form of a headless session's line: the mark and the word of its state, the words "Broad gate" with the command, "Stop" while the command runs, "Show output" where the daemon kept what it printed, the failure of a gate that failed, and what the window last read of this run's output. */
 function gateItem(workItemId: number, line: GateLine): HTMLLIElement {
   const item = document.createElement("li");
   item.className = "gate";
@@ -832,39 +1012,34 @@ export function takeGateOutput(requestId: number, output: { text: string; cut: b
   if (requestId !== gateRequest?.requestId) return false;
   gateRead = { workItemId: gateRequest.workItemId, startedAt: gateRequest.startedAt, ...output };
   gateRequest = undefined;
-  showAskSection();
+  showChainList();
   return true;
 }
 
 /**
- * Draws the "Ask" section of the view on screen: the button as the field
- * stands, the line of the work item's newest broad gate, first, and the
- * work item's headless sessions. The line of a working session offers
+ * Draws the list of the daemon's chain at the view's foot, above the seal's
+ * place (./view, `chainList`): the line of the work item's newest broad
+ * gate, first, and the work item's headless sessions, or no list where it
+ * holds no line. The line of a working session offers
  * "Stop", which asks the daemon to stop it; the daemon answers
- * `done`, and the `headless` that follows carries the session as failed. A
- * session that waits for the person to allow a call says "Needs you" with
- * the waiting mark, and shows each call it waits on as a card with "Allow"
- * and "Refuse"; the daemon answers `done`, and the `inbox` that follows
- * carries the work item without the request. The lines are drawn again only
- * where the section's key is another (./view, `headlessKey`), so every
- * `inbox` that changes nothing they show leaves them, and the keyboard, as
- * they are. Where they are drawn again while the keyboard is on a request's
- * button or on a button of the gate's line, the same button takes it back,
- * where it is still drawn.
+ * `done`, and the `headless` that follows carries the session as failed.
+ * The lines are drawn again only where the list's key is another (./view,
+ * `headlessKey`), so every `inbox` that changes nothing they show leaves
+ * them, and the keyboard, as they are. Where they are drawn again while the
+ * keyboard is on a button of the gate's line, the same button takes it
+ * back, where it is still drawn.
  */
-function showAskSection(): void {
+function showChainList(): void {
   const workItem = viewed();
   if (!workItem) return;
-  showAsk(workItem);
-  showAccountMenus(workItem);
-  const lines = headlessLines(held.headless, workItem);
-  const gate = gateLine(workItem, gateRead);
+  const { gate, lines, drawn } = chainList(held.headless, workItem, gateRead);
   const key = headlessKey(workItem.id, lines, gate);
-  if (key === askDrawn) return;
-  askDrawn = key;
+  if (key === chainDrawn) return;
+  chainDrawn = key;
+  chainListElement.hidden = !drawn;
   const focused = document.activeElement;
-  const kept = focused instanceof HTMLElement && headlessList.contains(focused) ? focused.dataset.answer : undefined;
-  headlessList.replaceChildren(
+  const kept = focused instanceof HTMLElement && chainListElement.contains(focused) ? focused.dataset.answer : undefined;
+  chainListElement.replaceChildren(
     ...(gate ? [gateItem(workItem.id, gate)] : []),
     ...lines.map((line) => {
       const item = document.createElement("li");
@@ -878,24 +1053,13 @@ function showAskSection(): void {
         head.append(stop);
       }
       item.append(head);
-      for (const ask of line.asks) {
-        const card = document.createElement("section");
-        card.className = "permission";
-        const asks = document.createElement("h3");
-        asks.textContent = ask.head;
-        const answers = part("answers", "");
-        answers.append(answerButton(workItem.id, ask.id, true), answerButton(workItem.id, ask.id, false));
-        // The call's text is plain text, never markup, whole, with its line breaks kept by the style.
-        card.append(asks, part("call", ask.text), answers);
-        item.append(card);
-      }
       // The answer and the error output are plain text, never markup, and their line breaks are kept by the style.
       item.append(part("answer", line.text));
       if (line.errorOutput) item.append(part("error-output", line.errorOutput));
       return item;
     }),
   );
-  if (kept !== undefined) headlessList.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
+  if (kept !== undefined) chainListElement.querySelector<HTMLElement>(`button[data-answer="${kept}"]`)?.focus();
 }
 
 /**
@@ -1076,20 +1240,29 @@ export function takeAnswers(requestId: number, refusal: string | null): boolean 
 }
 
 /**
- * Closes a pane, as a press of its tab's "×" asks. The daemon ends the
- * process and takes the session off its lists, and the tab goes at the
- * `inbox` that follows. A pane whose session is working (./view,
- * `closeAsks`) is not closed here: a dialog names it and asks, with the
- * keyboard on "Cancel", and only its "Close pane" sends the close.
+ * Closes panes of one work item, `sessions` in the tabs' order, as a press of
+ * a tab's "×", ⌘W, "Close Pane" of a pane's menu and each close item of a
+ * tab's menu ask. The daemon ends each process and takes its session off its
+ * lists, and each tab goes at the `inbox` that follows. Where the session of
+ * any of them is working (./view, `closeAsks`), none is closed here: one
+ * dialog names each working pane by its tab's label and says how many panes
+ * the close ends (./view, `closeSays`), with the keyboard on "Cancel", and
+ * only its main button sends the closes, one for each pane.
  */
-function closePane(session: SessionInfo): void {
-  if (!closeAsks(session)) {
-    send({ type: "close", id: session.id });
+function closePanes(sessions: readonly SessionInfo[]): void {
+  if (!sessions.some((session) => closeAsks(session))) {
+    for (const session of sessions) send({ type: "close", id: session.id });
     return;
   }
-  const workItem = held.workItems.find((item) => item.id === session.workItemId);
-  asking = session.id;
-  closeSentence.textContent = `${tabLabel(session, workItem ? paneTabs(workItem, held.sessions) : [session], held.paneKinds, workItem?.setup?.paneId ?? null)} is working. Closing the pane ends its session.`;
+  const workItem = held.workItems.find((item) => item.id === sessions[0]?.workItemId);
+  const tabs = workItem ? paneTabs(workItem, held.sessions) : sessions;
+  const { says, confirm } = closeSays(
+    sessions.filter((session) => closeAsks(session)).map((session) => tabLabel(session, tabs, held.paneKinds, workItem?.setup?.paneId ?? null)),
+    sessions.length,
+  );
+  asking = sessions.map((session) => session.id);
+  closeSentence.textContent = says;
+  closeConfirm.textContent = confirm;
   // The keyboard starts on "Cancel", the dialog's first button.
   closeDialog.showModal();
 }
@@ -1137,19 +1310,116 @@ export function takeAccountChange(requestId: number, refusal: string | null): bo
   return true;
 }
 
+/** Opens the dialog that renames a pane's tab, headed by its label, with the label in its field and all of it selected. */
+function openPaneName(session: SessionInfo): void {
+  const workItem = held.workItems.find((item) => item.id === session.workItemId);
+  if (!workItem || paneNameDialog.open) return;
+  const label = tabLabel(session, paneTabs(workItem, held.sessions), held.paneKinds, workItem.setup?.paneId ?? null);
+  paneNaming = { pane: session.id, requestId: undefined };
+  byId("pane-name-head").textContent = `Rename ${label}`;
+  paneNameField.value = label;
+  paneNameError.textContent = "";
+  paneNameSubmit.disabled = false;
+  paneNameDialog.showModal();
+  paneNameField.select();
+}
+
+/**
+ * Sends the name the dialog holds, which the daemon trims. An empty name
+ * takes the pane's name off, and so does the label the pane's kind gives it
+ * among its tabs (./view, `tabLabel` of the pane with no name), which the
+ * field holds at the opening of a pane with no name: a Save of the
+ * untouched field would otherwise keep that label as a name, and the number
+ * in it would stay when a pane before it closes. One request per answer:
+ * "Save" stays off until the daemon answers.
+ */
+function sendPaneName(): void {
+  if (!paneNaming || paneNaming.requestId !== undefined) return;
+  const pane = paneNaming.pane;
+  const session = held.sessions.find((listed) => listed.id === pane);
+  const workItem = held.workItems.find((item) => item.id === session?.workItemId);
+  const byKind = session && workItem ? tabLabel({ ...session, name: null }, paneTabs(workItem, held.sessions), held.paneKinds, workItem.setup?.paneId ?? null) : "";
+  const trimmed = paneNameField.value.trim();
+  const requestId = request();
+  paneNaming.requestId = requestId;
+  paneNameError.textContent = "";
+  paneNameSubmit.disabled = true;
+  send({ type: "setPane", requestId, id: pane, name: trimmed === "" || trimmed === byKind ? null : paneNameField.value });
+}
+
+/** Takes the daemon's answer to the rename dialog's name, `refusal` being its refusal or null for `done`, and answers whether the request was the dialog's: `done` closes it, and a refusal is shown in it under the field with "Save" on again. */
+export function takePaneName(requestId: number, refusal: string | null): boolean {
+  if (paneNaming === undefined || paneNaming.requestId !== requestId) return false;
+  paneNaming.requestId = undefined;
+  if (refusal === null) paneNameDialog.close();
+  else {
+    paneNameError.textContent = refusal;
+    paneNameSubmit.disabled = false;
+  }
+  return true;
+}
+
 /** Closes the pane in front, as a press of its tab's "×" does. Where no pane is in front, which is so on every screen but a work item's view and in a view whose back is in front, it does nothing. */
 export function closeFront(): void {
   const session = held.sessions.find((listed) => listed.id === front);
-  if (session) closePane(session);
+  if (session) closePanes([session]);
 }
 
-/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
+/**
+ * Opens the menu of a pane's tab with its corner at `at`, named to a screen
+ * reader for the tab's label (./view, `tabMenu`). Its items act on the panes
+ * the daemon lists at the press, by their ids, since the strip of tabs is
+ * drawn anew at each `inbox`. "Rename…" opens the rename dialog, and a
+ * swatch of the row sends the tab's colour, which the next `inbox` draws,
+ * leaving the keyboard on the pane in front; a refusal of it is told as the
+ * window tells a refusal no dialog shows. A close that asks nothing leaves
+ * the keyboard on the pane in front, and a close that takes that pane hands
+ * it to the pane that comes in front after it. Where the menu closes with no press,
+ * the keyboard returns to where it was when the menu opened, and to the pane
+ * in front where that element has been drawn anew.
+ */
+function openTabMenu(pane: number, at: { x: number; y: number }): void {
+  const workItem = viewed();
+  const session = held.sessions.find((listed) => listed.id === pane);
+  if (!workItem || !session) return;
+  const listed = paneTabs(workItem, held.sessions);
+  const label = tabLabel(session, listed, held.paneKinds, workItem.setup?.paneId ?? null);
+  openItemMenu(
+    `Menu of ${label}`,
+    tabMenu(session, listed),
+    at,
+    (action) => {
+      if (action.do === "renamePane") {
+        const named = held.sessions.find((known) => known.id === action.id);
+        if (named) openPaneName(named);
+        return;
+      }
+      if (action.do === "colourPane") {
+        if (held.sessions.some((known) => known.id === action.id)) send({ type: "setPane", requestId: request(), id: action.id, colour: action.colour });
+        screenOf(front)?.term.focus();
+        return;
+      }
+      if (action.do !== "closePanes") return;
+      closePanes(action.ids.flatMap((id) => held.sessions.filter((known) => known.id === id)));
+      if (!closeDialog.open) screenOf(front)?.term.focus();
+    },
+    () => screenOf(front)?.term.textarea ?? null,
+  );
+}
+
+/** A pane's tab among `listed`, its work item's tabs, marked where its pane is on the stage, `shown`, and where it is the one in front, `active`, and carrying the bar of the colour a person gave it, whose word its label's tooltip and its name to a screen reader end with. `setupPane` is the pane the work item's setup names, whose tab reads "Setup". */
 function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active: boolean, shown: boolean, setupPane: number | null): HTMLElement {
   const tab = document.createElement("span");
   tab.className = `tab${shown ? " shown" : ""}${active ? " active" : ""}`;
   const label = document.createElement("button");
   label.className = "label";
   label.textContent = tabLabel(session, listed, held.paneKinds, setupPane);
+  const colour = session.colour ?? null;
+  if (colour !== null) {
+    tab.dataset.colour = colour;
+    label.title = tabSays(label.textContent, colour);
+    label.setAttribute("aria-label", label.title);
+  }
   // The pane's account, where it is another than the one its work item gives, stands after its label.
   const workItem = held.workItems.find((item) => item.id === session.workItemId);
   const accountName = workItem ? tabAccount(session, workItem, held.repositories.find((listed) => listed.id === workItem.repoId), held.accounts) : "";
@@ -1165,7 +1435,12 @@ function tabElement(session: SessionInfo, listed: readonly SessionInfo[], active
     broughtToFront(held.viewing, session.id);
     showView();
   });
-  close.addEventListener("click", () => closePane(session));
+  close.addEventListener("click", () => closePanes([session]));
+  // A press of the right button anywhere on the tab opens the tab's menu, and not the system's.
+  tab.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    openTabMenu(session.id, { x: event.clientX, y: event.clientY });
+  });
   tab.append(label, ...(accountName === "" ? [] : [part("account", accountName)]), close);
   return tab;
 }
@@ -1182,6 +1457,8 @@ function backTab(active: boolean): HTMLElement {
     backFront = true;
     showView();
   });
+  // The back has no pane, so a press of the right button on its tab opens no menu, and not the system's either.
+  tab.addEventListener("contextmenu", (event) => event.preventDefault());
   tab.append(label);
   return tab;
 }
@@ -1251,8 +1528,8 @@ export function takeBackRefusal(requestId: number, refusal: string): boolean {
 /**
  * Draws the view of the work item on screen: its header, its tabs, the
  * panes on the stage, each on a screen of the pool, with the strip under
- * them, its right column, the questions it is parked with among it, and its
- * "Ask" section. The stage holds the pane in
+ * them, its right column, the questions it is parked with among it, and the
+ * list of the daemon's chain at its foot. The stage holds the pane in
  * front, or as many panes as the cap on panes side by side as tiles where "Side by side" is pressed, and
  * gives way to the back of the seal while the back's tab is in front. It
  * starts no process.
@@ -1268,7 +1545,9 @@ export function showView(): void {
   const since = lineSince(workItem, entry.session);
   const state = stateWithAge(line.state, since, now);
   viewTitle.textContent = line.title;
-  viewBranch.textContent = line.branch;
+  const branch = branchPlace(line.branch);
+  viewBranch.textContent = branch.text;
+  viewBranch.classList.toggle("none", branch.none);
   viewRepo.textContent = repoNameOf(workItem);
   viewFactsTitle.textContent = line.title;
   showState(viewState, line.state, since);
@@ -1310,14 +1589,12 @@ export function showView(): void {
     }
   }
   showSize();
-  showAskSection();
+  showPaneButtonTitles(workItem);
+  showChainList();
 }
 
 /** Makes a work item the one whose view is drawn, before the view is put in front. Where `pane` is given, that pane is the one in front when the view is drawn, as after a press of its tab. */
 export function enterView(workItemId: number, pane?: number): void {
-  // A prompt typed for one work item is not asked in another.
-  if (askingIn !== workItemId) askField.value = "";
-  askingIn = workItemId;
   held.viewing = workItemId;
   front = undefined;
   // A view entered with no pane opens to the back where the work item holds a seal (./view, `opensToBack`).
@@ -1359,35 +1636,20 @@ function runSetup(workItemId: number, command: string | null): void {
   send({ type: "runSetup", requestId: request(), workItemId, ...startSize(), setupCommand: command });
 }
 
-/** Asks the field's prompt in the work item whose view is on screen. */
-function ask(): void {
-  const workItem = viewed();
-  // One ask per answer: a second press before the daemon has taken the first would ask the same prompt twice.
-  if (askRequest !== undefined || !workItem || !askButton(askField.value, workItem).enabled) return;
-  askRequest = request();
-  send({ type: "ask", requestId: askRequest, workItemId: workItem.id, prompt: askField.value, ...chosenAccount(askAccount) });
-}
-
-/** Takes a headless session the daemon sent, `requestId` being the request it answers where it answers one. */
-export function takeHeadless(headless: HeadlessInfo, requestId?: number): void {
-  // The daemon took the prompt, so the field is free for the next one, unless it now holds a prompt for another work item.
-  if (requestId !== undefined && requestId === askRequest) {
-    askRequest = undefined;
-    if (askingIn === headless.workItemId) askField.value = "";
-  }
+/** Takes a headless session the daemon sent into the window's sessions and the list of the daemon's chain. */
+export function takeHeadless(headless: HeadlessInfo): void {
   held.headless = withHeadless(held.headless, headless);
-  showAskSection();
+  showChainList();
 }
 
-/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the "Ask" section. */
+/** Takes a headless session the daemon took off its list, as its bound keeps the sessions that ended last, out of the window's sessions and the list of the daemon's chain. */
 export function dropHeadless(id: number): void {
   held.headless = withoutHeadless(held.headless, id);
-  showAskSection();
+  showChainList();
 }
 
-/** Takes the daemon's refusal of a request: where it was the "Ask" field's, the field may ask again, and where it was a press of "Show output", no answer is waited for. */
+/** Takes the daemon's refusal of a request: where it was a press of "Show output", no answer is waited for. */
 export function requestRefused(requestId: number): void {
-  if (requestId === askRequest) askRequest = undefined;
   if (requestId === gateRequest?.requestId) gateRequest = undefined;
 }
 
@@ -1453,17 +1715,34 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
     },
     { capture: true },
   );
+  // The find bar searches as it is typed in. In its field Enter is "Next match", Shift+Enter "Previous match" and Escape closes it, except while a composition is under way. A press on its buttons leaves the keyboard in the field.
+  findField.addEventListener("input", () => find("fresh"));
+  findField.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
+    if (event.key === "Escape") closeFind();
+    else if (event.key === "Enter") find(event.shiftKey ? "newer" : "older");
+    else return;
+    event.preventDefault();
+  });
+  for (const choice of [findCase, findRegex])
+    choice.addEventListener("click", () => {
+      choice.setAttribute("aria-pressed", String(choice.getAttribute("aria-pressed") !== "true"));
+      find("fresh");
+    });
+  findNextButton.addEventListener("click", () => find("older"));
+  findPreviousButton.addEventListener("click", () => find("newer"));
+  byId("find-close").addEventListener("click", () => closeFind());
+  findBar.addEventListener("mousedown", (event) => {
+    if (event.target !== findField) event.preventDefault();
+  });
+  // A press of the right button on the bar opens neither the pane's menu nor the system's.
+  findBar.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
   byId("view-seal-place").replaceWith(viewSeal);
   byId("pull-request-open").addEventListener("click", () => {
     if (pullRequestUrl !== undefined) void window.owlery.openLink(pullRequestUrl);
-  });
-  askField.addEventListener("input", () => {
-    const workItem = viewed();
-    if (workItem) showAsk(workItem);
-  });
-  askForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    ask();
   });
   byId<HTMLFormElement>("questions-form").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1471,7 +1750,7 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   byId("close-pane-cancel").addEventListener("click", () => closeDialog.close());
   byId("close-pane-confirm").addEventListener("click", () => {
-    if (asking !== undefined) send({ type: "close", id: asking });
+    for (const pane of asking) send({ type: "close", id: pane });
     closeDialog.close();
   });
   // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front.
@@ -1483,6 +1762,17 @@ export function initView(onLeave: () => void, isMac: boolean, openView: (workIte
   });
   paneAccountDialog.addEventListener("close", () => {
     accountChange = undefined;
+    screenOf(front)?.term.focus();
+  });
+  paneNameField.maxLength = PANE_NAME_CHARS;
+  byId("pane-name-cancel").addEventListener("click", () => paneNameDialog.close());
+  byId<HTMLFormElement>("pane-name-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    sendPaneName();
+  });
+  // However the dialog closed, by a button, by Escape or because its pane is gone, the keyboard goes back to the pane in front, and a later answer of the daemon is no longer the dialog's.
+  paneNameDialog.addEventListener("close", () => {
+    paneNaming = undefined;
     screenOf(front)?.term.focus();
   });
   sideBySideButton.addEventListener("click", () => {

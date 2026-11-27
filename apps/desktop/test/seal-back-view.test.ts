@@ -14,7 +14,10 @@
 // second one's worktree it commits the records of a seal and one commit
 // after them, which breaks the seal. The third has no seal, no round and no
 // chain. The page's socket's `send` is wrapped, so the case counts the
-// messages the daemon receives from the page.
+// messages the daemon receives from the page. A second case presses a work
+// item's line of the sidebar and holds the button while the window takes an
+// `inbox`, which the second client asks for by pinning another work item,
+// and then releases at the same point.
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,7 +25,7 @@ import { MARKER } from "../src/daemon/records-place";
 import type { ServerMessage, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { chainEntry, commitSeal, commitSealedAfterAFix } from "./chain-run";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** The work items of the case, and the folder of each one's records. */
 const SEALED = { title: "Export the history", records: "1795400731-export-the-history" };
@@ -52,21 +55,13 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     return path;
   }
 
-  /**
-   * Opens a work item's view by a click on its line of the sidebar. The
-   * sidebar replaces its buttons each time it is drawn, so the click is made
-   * again until the view shows.
-   */
+  /** The expression that is true while the view of the work item named `title` is in front. */
+  const viewOf = (title: string): string => `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`;
+
+  /** Opens a work item's view by one click on its line of the sidebar. */
   const openView = async ({ id, title }: WorkItem): Promise<void> => {
-    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`;
-    for (const deadline = Date.now() + 15_000; ; ) {
-      await app.click(`#repositories button[data-work-item="${id}"]`);
-      try {
-        return await app.until(shown, `the view of ${title}`, 2_000);
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-      }
-    }
+    await app.click(`#repositories button[data-work-item="${id}"]`);
+    await app.until(viewOf(title), `the view of ${title}`);
   };
 
   /** How many of each message the page sent the daemon since its socket's `send` was wrapped. */
@@ -112,14 +107,30 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
         else resolve(created);
       });
     })) as [WorkItem, WorkItem, WorkItem];
+    // A rename gives each work item its branch, on which the records below are committed, as a person gives a work item with no branch yet its branch.
+    const branched = (item: WorkItem, requestId: number): Promise<WorkItem> =>
+      new Promise((resolve) => {
+        const listen = (event: MessageEvent): void => {
+          const message = JSON.parse(String(event.data)) as ServerMessage;
+          const found = message.type === "inbox" ? message.workItems.find((each) => each.id === item.id && each.branch !== null) : undefined;
+          if (found === undefined) return;
+          opened.removeEventListener("message", listen);
+          resolve(found);
+        };
+        opened.addEventListener("message", listen);
+        opened.send(JSON.stringify({ type: "renameWorkItem", requestId, id: item.id, title: item.title, branch: true }));
+      });
+    sealed = await branched(sealed, 11);
+    broken = await branched(broken, 12);
+    plain = await branched(plain, 13);
 
     const base = git(made.repo, "rev-parse", "HEAD").trim();
-    fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: sealed.branch, base, symptom: SYMPTOM });
+    fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: branchOf(sealed), base, symptom: SYMPTOM });
     // The ledger's lines of the sealed work item's chain, in the order its stages ended, each after the work item was made.
     const at = Date.now();
     const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["seal", 2]] as const;
     appendFileSync(join(app.userData, "run", "ledger.jsonl"), stages.map(([kind, round], place) => `${JSON.stringify(chainEntry(sealed, kind, round, at + place * 5 * 60_000))}\n`).join(""), { mode: 0o600 });
-    commitSeal(broken.worktree, { workItem: BROKEN.records, branch: broken.branch, base });
+    commitSeal(broken.worktree, { workItem: BROKEN.records, branch: branchOf(broken), base });
     brokenBy = commitFile(broken.worktree, "avatars.ts");
 
     // Each message the page sends from here on is counted by its type.
@@ -201,5 +212,40 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     await openView(plain);
     expect(await tabs()).toEqual([{ label: "Shell", active: true, closes: true }]);
     expect((await backShown()).shown).toBe(false);
+  });
+
+  it("opens the view of a work item whose sidebar line is pressed, while the button is held the window takes an `inbox` that pins another work item, and the release falls on the same point, and then draws the pin with no message after it", async () => {
+    // The window's own socket to the daemon is found from outside, and the case adds a listener of its own to it, which notes an `inbox` that lists the broken work item pinned. The page's listener was added first and runs first, so the window has taken that `inbox` when the note is made.
+    const { port } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number };
+    const prototype = await app.cdp<{ result: { objectId: string } }>("Runtime.evaluate", { expression: "WebSocket.prototype" });
+    const found = await app.cdp<{ objects: { objectId: string } }>("Runtime.queryObjects", { prototypeObjectId: prototype.result.objectId });
+    const listened = await app.cdp<{ result: { value: number } }>("Runtime.callFunctionOn", {
+      objectId: found.objects.objectId,
+      functionDeclaration: `function () {
+        const daemon = this.filter((socket) => socket.readyState === WebSocket.OPEN && socket.url === ${JSON.stringify(`ws://127.0.0.1:${String(port)}/`)});
+        window.tookPin = false;
+        for (const socket of daemon) socket.addEventListener("message", (event) => { const message = JSON.parse(event.data); if (message.type === "inbox" && message.workItems.some((workItem) => workItem.id === ${String(broken.id)} && workItem.pinned)) window.tookPin = true; });
+        return daemon.length;
+      }`,
+      returnByValue: true,
+    });
+    expect(listened.result.value).toBe(1);
+    const pinDrawn = `document.querySelector('#repositories button[data-work-item="${String(broken.id)}"] .line-mark.pinned') !== null`;
+    // The sealed work item's view is not in front, so its line's click opens it, and the broken work item has no pin yet.
+    expect(await app.evaluate<boolean>(viewOf(SEALED.title))).toBe(false);
+    expect(await app.evaluate<boolean>(pinDrawn)).toBe(false);
+
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#repositories button[data-work-item="${String(sealed.id)}"]').getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "left", buttons: 1, clickCount: 1 });
+    socket?.send(JSON.stringify({ type: "setWorkItem", requestId: 5, id: broken.id, pinned: true }));
+    await app.until("window.tookPin", "the window's socket taking the inbox that pins the broken work item");
+    // The window took the lists, and holds their drawing while the button is down.
+    const drawnWhilePressed = await app.evaluate<boolean>(pinDrawn);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
+
+    await app.until(viewOf(SEALED.title), "the view of the work item whose line was pressed");
+    expect(drawnWhilePressed).toBe(false);
+    // The release drew what the `inbox` carried, and no message came after it.
+    await app.until(pinDrawn, "the pin on the broken work item's sidebar line");
   });
 });

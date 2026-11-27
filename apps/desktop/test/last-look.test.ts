@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { AskedQuestion, Chain, Decision, Look, PermissionAsk, PullRequest, Question, Seal, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import type { AskedQuestion, Chain, Decision, Look, PullRequest, Question, Seal, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -23,7 +23,8 @@ const ASKED: AskedQuestion[] = [
 const SESSION: SessionInfo = { id: 4, kind: "claude", alive: true, workItemId: 1, state: "waiting", stateSince: 1200, stateText: "May I run the tests?", stateTool: "Bash", stateQuestions: ASKED };
 const COMMIT = { hash: "abc1234", subject: "add the form", at: 1100, added: 3, removed: 1 };
 const FILE = { path: "src/form.ts", added: 3, removed: 1 };
-const ASK: PermissionAsk = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1150 };
+/** A call a session with no role waited on for the person, as a daemon before release 0.0.5 wrote it under a work item's `permissions`. */
+const ASK = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x >> README.md", at: 1150 };
 const DECISION: Decision = { id: 3, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: "orchestrator", state: "decided", reversal: null, landed: null, since: 1150 };
 const REVERSED: Decision = { id: 5, kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", by: null, state: "applied", reversal: "Frame it first.", landed: "abc1234", since: null };
 const QUESTIONS: Question[] = [
@@ -60,7 +61,6 @@ const WORK_ITEM: WorkItem = {
   questions: QUESTIONS,
   unread: UNREAD,
   setup: SETUP,
-  permissions: [ASK],
   chain: CHAIN,
   pullRequest: PULL_REQUEST,
   seal: BROKEN,
@@ -100,8 +100,6 @@ describe("LastLook", () => {
     workItem.changes!.files = 9;
     workItem.changes!.list[0]!.added = 9;
     workItem.changes!.list.pop();
-    workItem.permissions[0]!.text = "changed";
-    workItem.permissions.push({ ...ASK, id: 4 });
     workItem.decisions[0]!.says = "changed";
     workItem.decisions[1]!.reversal = "changed";
     workItem.decisions.pop();
@@ -116,6 +114,13 @@ describe("LastLook", () => {
     workItem.seal!.why = "changed";
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
+  });
+
+  it("keeps nothing of what a work item's word of the person's waits for: a look recorded while the work item owes one holds no `wordOwed`, in memory and in its file", () => {
+    const dir = runDir();
+    new LastLook(dir).record(1234, [SESSION], [{ ...WORK_ITEM, wordOwed: { waits: "retry", why: "the hook says no" } }]);
+    expect(new LastLook(dir).get()).toEqual(LOOK);
+    expect(readFileSync(join(dir, "last-look.json"), "utf8")).not.toContain("wordOwed");
   });
 
   it("writes last-look.json in the run directory, readable by the user alone", () => {
@@ -133,12 +138,15 @@ describe("LastLook", () => {
     expect(new LastLook(dir).get()).toEqual(LOOK);
   });
 
-  it("reads a session with no work item, a session with no state and a work item with neither base commit, base branch, count, commits nor changes", () => {
+  it("reads a session with no work item, a session with no state, a work item with neither base commit, base branch, count, commits nor changes, and a work item with no branch yet", () => {
     const dir = runDir();
     const look: Look = {
       at: 1,
       sessions: [{ id: 2, kind: "shell", alive: false, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null }],
-      workItems: [{ ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null }],
+      workItems: [
+        { ...WORK_ITEM, baseCommit: null, baseBranch: null, aheadOfBase: null, behindBase: null, newCommits: null, commits: null, changes: null },
+        { ...WORK_ITEM, id: 4, branch: null },
+      ],
     };
     writeFileSync(join(dir, "last-look.json"), JSON.stringify(look));
     expect(new LastLook(dir).get()).toEqual(look);
@@ -149,7 +157,6 @@ describe("LastLook", () => {
     const workItem = {
       ...WORK_ITEM,
       note: "x",
-      permissions: [{ ...ASK, path: "/w/a.ts" }],
       commits: WORK_ITEM.commits!.map((commit) => ({ ...commit, author: "someone" })),
       changes: { ...WORK_ITEM.changes!, binary: 1, list: WORK_ITEM.changes!.list.map((file) => ({ ...file, mode: "100644" })) },
       decisions: [{ ...DECISION, model: "x" }, { ...REVERSED, at: 1160 }],
@@ -210,9 +217,6 @@ describe("LastLook", () => {
     for (const changes of [{ files: "2" }, { added: null }, { removed: null }, { list: {} }, { list: [null] }, { list: [{ ...FILE, path: 3 }] }, { list: [{ ...FILE, added: "3" }] }, { list: [{ ...FILE, removed: "1" }] }]) {
       expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, changes: { ...WORK_ITEM.changes, ...changes } }] }))).toBeNull();
     }
-    for (const permissions of ["none", {}, [null], ["Bash"], [{ ...ASK, id: "3" }], [{ ...ASK, headlessId: null }], [{ ...ASK, tool: 7 }], [{ ...ASK, action: "delete" }], [{ ...ASK, text: null }], [{ ...ASK, at: "1150" }], [{ ...ASK, at: undefined }]]) {
-      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions }] })), JSON.stringify(permissions)).toBeNull();
-    }
     const decisionFields = [{ id: "3" }, { kind: "guess" }, { says: 3 }, { grounds: null }, { by: 3 }, { by: undefined }, { state: "open" }, { state: undefined }, { reversal: 3 }, { reversal: undefined }, { landed: 3 }, { landed: undefined }, { since: "1150" }, { since: undefined }];
     for (const decisions of [null, "none", {}, [null], ...decisionFields.map((field) => [{ ...DECISION, ...field }])]) {
       expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, decisions }] })), JSON.stringify(decisions)).toBeNull();
@@ -266,17 +270,10 @@ describe("LastLook", () => {
     }
   });
 
-  it("reads a look a build before the permission requests wrote, whose work items hold no list of them, with none on each", () => {
+  it("reads a look a daemon before release 0.0.5 wrote, whose work items hold the calls that waited for the person, as before, less that field, whatever it holds", () => {
     const dir = runDir();
-    const file = join(dir, "last-look.json");
-    const { permissions: _permissions, ...before } = WORK_ITEM;
-    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before, { ...before, id: 2 }] }));
-    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...before, permissions: [] }, { ...before, id: 2, permissions: [] }] });
-    // Each kind of what a call does is read.
-    for (const action of ["read", "write", "run", "other"] as const) {
-      writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions: [{ ...ASK, action }] }] }));
-      expect(new LastLook(dir).get(), action).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions: [{ ...ASK, action }] }] });
-    }
+    writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, permissions: [ASK] }, { ...WORK_ITEM, id: 2, permissions: "none" }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [WORK_ITEM, { ...WORK_ITEM, id: 2 }] });
   });
 
   it("reads a look a build before the work item's record wrote, whose work items hold none of `decisions`, `questions` and `unread`, with no decision, no question and nothing unread on each, and holds in a look recorded now the three of each work item", () => {

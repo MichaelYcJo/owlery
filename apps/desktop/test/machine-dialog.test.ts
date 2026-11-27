@@ -1,10 +1,12 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { readDiscovery } from "../src/daemon/discovery";
+import { MARKER } from "../src/daemon/records-place";
 import { BuiltApp, buildApp } from "./built-app";
+import { parkedOnAQuestion } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 /** What the Machine dialog shows of each cap: its name, its field, its default's sentence, and whether "Use the default" is offered. */
@@ -14,9 +16,10 @@ type Shown = { cap: string; label: string; value: string; says: string; offersDe
 const AGENTS_SAYS = "The default is 6: the 6 performance cores, fewer than the 27 that half of 36 GB holds at 679 MB an agent (not measured on this Mac yet).";
 const WORKTREES_SAYS = "Nothing is proposed until a worktree is measured on this Mac.";
 const PANES_SAYS = "The default is 8, for 36 GB of memory: 4 under 16 GB, 6 from 16 GB and 8 from 32 GB.";
+const SCROLLBACK_SAYS = "The default is 5,000 lines for each pane. A pane on screen holds 12 bytes for each column of a line, about 6 MB at 5,000 lines of 100 columns, and the daemon keeps up to 256 characters of output for each line.";
 const HEAVY_SAYS = "The default is 1: one for each 8 cores gives 1, one for each 16 GB gives 2, and the fewer is taken.";
-/** The longest status line the screenshot run draws: the agents against their cap, a session that waits, and the Mac kept awake. */
-const LONGEST_STATUS = "Daemon running, 4 agents of 4, 1 waiting, keeping the Mac awake";
+/** The longest status line the screenshot run draws: the agents against their cap, a stage that waits, and the Mac kept awake. */
+const LONGEST_STATUS = "Daemon running, 3 agents of 3, 1 waiting, keeping the Mac awake";
 
 // One start of the app, in the background, with a user data folder of its own and the machine the harness gives every start in place of the one the suite runs on.
 describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built app", { timeout: 120_000 }, () => {
@@ -63,11 +66,31 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
       { cap: "agents", label: "Agents at once", value: "6", says: AGENTS_SAYS, offersDefault: false },
       { cap: "worktrees", label: "Worktrees", value: "", says: WORKTREES_SAYS, offersDefault: false },
       { cap: "panes", label: "Panes side by side", value: "8", says: PANES_SAYS, offersDefault: false },
+      { cap: "scrollback", label: "Scrollback lines", value: "5000", says: SCROLLBACK_SAYS, offersDefault: false },
       { cap: "heavyCommands", label: "Heavy commands at once", value: "1", says: HEAVY_SAYS, offersDefault: false },
     ]);
     // A Save that changes nothing sends nothing and closes the dialog.
     await save();
     expect(limits()).toBeNull();
+  });
+
+  it("keeps the scrollback a person types and saves, refuses one outside 1,000 to 50,000 lines in the daemon's sentence, and returns it to 5,000 at \"Use the default\" (scenario B2)", async () => {
+    await open();
+    await type("scrollback", "999");
+    await app.click("#machine-submit");
+    await app.until(`document.getElementById("machine-error").textContent !== ""`, "the refusal");
+    expect(await app.evaluate<string>(`document.getElementById("machine-error").textContent`)).toBe("The scrollback is a whole number from 1,000 to 50,000.");
+    expect(limits()).toBeNull();
+    await type("scrollback", "20000");
+    await save();
+    expect(limits()).toBe('{"scrollback":20000}');
+
+    await open();
+    expect((await shown())[3]).toEqual({ cap: "scrollback", label: "Scrollback lines", value: "20000", says: SCROLLBACK_SAYS, offersDefault: true });
+    await app.click('#machine-caps [data-cap="scrollback"] button');
+    expect((await shown())[3]?.value).toBe("5000");
+    await save();
+    expect(limits()).toBe("{}");
   });
 
   it("keeps a cap a person types and saves in the daemon's run folder, shows it at the next opening with the default offered, and follows the default again after \"Use the default\" (scenario 3)", async () => {
@@ -108,6 +131,7 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
         { value: "4", offersDefault: true },
         { value: "", offersDefault: false },
         { value: "12", offersDefault: true },
+        { value: "5000", offersDefault: false },
         { value: "1", offersDefault: false },
       ]);
       other.send(JSON.stringify({ type: "setCaps", requestId: 2, panes: null }));
@@ -284,17 +308,8 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
 
   it("lays out six panes in three columns where the cap on panes side by side is 6, five with the last spanning two columns where it is 5, and two where it is 2, the rest staying tabs (scenario 14)", async () => {
     await capPanes(6);
-    // The sidebar is drawn again at each message, so the click is made again until the view shows.
-    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`;
-    for (const deadline = Date.now() + 15_000; ; ) {
-      await app.click(`#repositories button[data-work-item="1"]`);
-      try {
-        await app.until(shown, "the view of Measured", 2_000);
-        break;
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-      }
-    }
+    await app.click(`#repositories button[data-work-item="1"]`);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === "Measured"`, "the view of Measured");
     const tabs = `document.querySelectorAll("#tabs .tab").length`;
     for (let count = 1; count <= 6; count += 1) {
       const button = (await app.evaluate<string[]>(`[...document.querySelectorAll("#pane-buttons button")].map((button) => button.textContent)`)).indexOf("+ Shell");
@@ -317,23 +332,24 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
   });
 });
 
-// A third start, whose login shell is the stand-in of the screenshot run, which names the stand-in for the CLI (fixtures/sample-pane.sh, fixtures/sample-cli.sh), so a session a person asks for runs no `claude` of the person's. The cap on agents is 1, set in the run folder before the start.
-describe.skipIf(process.platform !== "darwin")("the sessions that wait for the machine, in the Machine dialog of the built app", { timeout: 120_000 }, () => {
+// A third start, whose login shell is the stand-in of the screenshot run, which names the stand-in for the CLI (fixtures/sample-pane.sh, fixtures/sample-cli.sh), so a Claude Code pane and a chain's stage run no `claude` of the person's. The cap on agents is 1, set in the run folder before the start. The work item is stored parked on one question, whose answer has the daemon resume its chain at round 1, the proofer's.
+describe.skipIf(process.platform !== "darwin")("the sessions that wait for the machine, in the Machine dialog and the delete dialog of the built app", { timeout: 120_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
-  /** The prompt the stand-in for the CLI holds: it asks the person to allow a command and waits, so its session works until the app stops. */
-  const HELD = "Run the tests of the redirect.";
-  /** The prompt asked second, whose session waits for the machine and never starts. */
-  const WAITS = "Which keys does the settings file hold?";
+  let questionId = 0;
   const TITLE = "Rename the settings file";
 
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
-    const worktree = join(made.root, "settings");
-    git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/settings", worktree);
-    const stored = { id: 1, title: TITLE, branch: "owlery/settings", worktree, createdAt: Date.now() - 60_000, baseCommit: null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null };
-    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60_000, groups: [], workItems: [stored] };
+    mkdirSync(join(made.repo, "seal"));
+    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
+    git(made.repo, "add", "seal");
+    git(made.repo, "commit", "--quiet", "-m", "chore: the records place");
+    const parked = await parkedOnAQuestion({ repo: made.repo, root: made.root, id: 1, title: TITLE, workItem: "1795396353-rename-the-settings-file", asks: "Which keys does the settings file hold?", at: Date.now() - 60_000 });
+    questionId = parked.questionId;
+    const repository = { id: 1, folder: made.repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: Date.now() - 60_000, groups: [], workItems: [parked.stored] };
     app = await BuiltApp.start(
       { SHELL: join(__dirname, "fixtures", "sample-pane.sh"), OWLERY_WORKTREES: made.root },
       {
@@ -385,15 +401,35 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
         other.once("error", reject);
       });
       other.send(JSON.stringify({ type: "hello", token: discovery.token }));
-      other.send(JSON.stringify({ type: "ask", requestId: 1, workItemId: 1, prompt: HELD }));
-      await app.until(`document.getElementById("status")?.textContent.startsWith("Daemon running, 1 agent of 1")`, "the held session as the one agent");
-      other.send(JSON.stringify({ type: "ask", requestId: 2, workItemId: 1, prompt: WAITS }));
-      await app.until(`document.querySelectorAll("#machine-caps .cap-queue li").length === 1`, "the session that waits, in the dialog");
+      // A Claude Code pane of the work item is the one agent the cap allows: the stand-in prints a few lines and waits, and no hook says it works, so the chain's start is not refused.
+      other.send(JSON.stringify({ type: "start", requestId: 1, workItemId: 1, kind: "claude", cols: 80, rows: 24 }));
+      await app.until(`document.getElementById("status")?.textContent.startsWith("Daemon running, 1 agent of 1")`, "the pane as the one agent");
+      // The answer leaves the record with no open question, and the daemon resumes the chain, whose first stage waits for the machine and never starts.
+      other.send(JSON.stringify({ type: "answerQuestions", requestId: 2, workItemId: 1, answers: [{ questionId, answer: "The window's size and its theme." }] }));
+      // The machine's message names the session before the inbox carries the chain's stage that holds it, so the line is read once the stage names it.
+      await app.until(`[...document.querySelectorAll("#machine-caps .cap-queue li .detail")].map((detail) => detail.textContent).join() === "Proofer, round 1"`, "the stage that waits, in the dialog");
     } finally {
       other.close();
     }
-    expect(await queue()).toEqual({ label: "Waiting for the machine", entries: [{ name: TITLE, detail: `Asked: ${WAITS}`, under: true, aligned: true, muted: true }] });
+    expect(await queue()).toEqual({ label: "Waiting for the machine", entries: [{ name: TITLE, detail: "Proofer, round 1", under: true, aligned: true, muted: true }] });
     await app.click("#machine-cancel");
     await app.until(`!document.getElementById("machine-dialog").open`, "the Machine dialog closed");
+  });
+
+  it("names in the delete dialog the session that works under \"Running sessions that end\", and the session that waits for the machine apart from it under \"Sessions waiting for the machine that leave the queue\"", async () => {
+    // The case above left the work item a session of each kind: its Claude Code pane works in the one place, and the proofer's stage waits for it.
+    const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#repositories button[data-work-item="1"]').getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
+    await app.cdp("Input.dispatchMouseEvent", { type: "mousePressed", ...at, button: "right", clickCount: 1 });
+    await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "right", clickCount: 1 });
+    await app.until(`document.querySelector('[role="menu"]')`, "the work item's menu");
+    await app.evaluate(`(() => { for (const item of document.querySelectorAll('[role="menu"] [role="menuitem"]')) item.toggleAttribute("data-pressed-here", item.textContent === "Delete"); })()`);
+    await app.click(`[role="menu"] [role="menuitem"][data-pressed-here]`);
+    await app.until(`document.getElementById("delete-dialog").open && document.querySelectorAll("#delete-sessions li").length === 2`, "the delete dialog with the work item's two sessions");
+    expect(await app.evaluate<[string, string[]][]>(`[...document.querySelectorAll("#delete-sessions section")].map((section) => [section.querySelector("h3").textContent, [...section.querySelectorAll("li")].map((item) => item.textContent)])`)).toEqual([
+      ["Running sessions that end", ["Claude Code"]],
+      ["Sessions waiting for the machine that leave the queue", ["Proofer, round 1"]],
+    ]);
+    await app.click("#delete-cancel");
+    await app.until(`!document.getElementById("delete-dialog").open`, "the delete dialog closed");
   });
 });

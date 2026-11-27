@@ -60,24 +60,36 @@ async function branchExists(repo: string, branch: string): Promise<boolean> {
 export interface Worktree {
   /** The top-level folder of the repository's main checkout. */
   repo: string;
-  branch: string;
+  /** The local branch the worktree has checked out, or null where it stands detached at its base and has no branch yet. */
+  branch: string | null;
+  /** True where the creation made the branch, the local branch that tracks a remote's branch the person picked, and false where it made none. */
+  ownsBranch: boolean;
   /** The worktree's folder, `<root>/<repo name>/<slug>`. */
   worktree: string;
-  /** The commit the branch was cut at. */
+  /** The commit the work starts from: the base's commit where the worktree stands detached at it, and for a picked branch the commit it shares with the base, or the branch's tip where it shares none or there is no base. */
   baseCommit: string;
-  /** The base the branch was cut at, a local branch or a remote's, by its name, or null where the repository had no default base and the branch was cut at the checkout's commit. */
+  /** The base the work item starts from, a local branch or a remote's, by its name, or null where the repository had no default base and the worktree starts at the checkout's commit. */
   baseBranch: string | null;
+}
+
+/** A local branch a worktree of the repository has checked out, the main checkout among them, and that worktree's folder. */
+export interface HeldBranch {
+  branch: string;
+  folder: string;
 }
 
 /** What a creation in a repository would give, and the bases a person can choose among. */
 export interface WorktreePlan {
+  /** The branch Owlery would make for the work item if its first commit or a rename made it now (`branchName`). The creation itself makes none. */
   branch: string;
   worktree: string;
+  /** The local branches a creation cannot check out, since a worktree has each checked out. */
+  held: HeldBranch[];
   /** The local branches by name: the one the checkout stands on first, then the others, the newest commit first, without a local branch that names another ref, such as an alias `main` of `master`. */
   localBases: string[];
   /** The remotes' branches, named `<remote>/<branch>`, the newest commit first, without a remote's `HEAD` entry and without a name a local branch bears. */
   remoteBases: string[];
-  /** The base a creation without one is cut at, a name of one of the two lists, or null where the repository has none. */
+  /** The base a creation without one starts from, a name of one of the two lists, or null where the repository has none. */
   defaultBase: string | null;
 }
 
@@ -200,20 +212,17 @@ export function repositoryOfSync(folder: string): string | null {
 }
 
 /**
- * The branch and the folder a work item gets: `owlery/<name>` and
- * `<root>/<repository's folder name>/<name>`. The name is the first of these
- * that is not empty: the slug of the title, the slug of the name sent, a
- * generated name. Where the branch or the folder exists, -2, -3 and so on are
- * appended to both until neither does.
+ * The folder a work item gets: `<root>/<repository's folder name>/<name>`.
+ * The name is the first of these that is not empty: the slug of the title,
+ * the slug of the name sent, a generated name. Where the folder exists, -2,
+ * -3 and so on are appended until it does not.
  */
-async function placeFor(repo: string, root: string, naming: Naming): Promise<{ branch: string; worktree: string }> {
+function folderFor(repo: string, root: string, naming: Naming): string {
   const name = slugFor(naming.title) || slugFor(naming.name ?? "") || generateName(naming.random);
   const parent = join(root, basename(repo));
   for (let n = 1; ; n++) {
-    const numbered = n === 1 ? name : `${name}-${n}`;
-    const branch = `owlery/${numbered}`;
-    const worktree = join(parent, numbered);
-    if (!existsSync(worktree) && !(await branchExists(repo, branch))) return { branch, worktree };
+    const worktree = join(parent, n === 1 ? name : `${name}-${n}`);
+    if (!existsSync(worktree)) return worktree;
   }
 }
 
@@ -363,7 +372,7 @@ const noBase = (repo: string, base: string): Error => new Error(`${repo} has no 
 /** The fetch of a base that `baseRef` read as `ref`, as `fetchBase` states it. */
 async function fetchRef(repo: string, base: string, ref: string, options: { waitMs?: number; ended?: AbortSignal }): Promise<BaseFetch> {
   const commit = async (): Promise<string> => (await git(repo, ["rev-parse", "--verify", ref])).trim();
-  // A local branch is cut where it stands, and no command that asks a remote runs for it.
+  // A local branch is read where it stands, and no command that asks a remote runs for it.
   if (ref === `refs/heads/${base}`) return { base, commit: await commit(), fetch: "none", failure: null, since: null };
   const from = await remoteOf(repo, base);
   const failure = from === null ? `the clone has no remote for ${base}` : await askRemote(repo, from.remote, from.branch, options.waitMs ?? BASE_FETCH_MS, options.ended);
@@ -497,42 +506,104 @@ async function basesOf(repo: string, chosenBase?: ChosenBase): Promise<Pick<Work
  */
 export async function planWorktree(options: Naming & { folder: string; root: string; chosenBase?: ChosenBase }): Promise<WorktreePlan> {
   const repo = await repositoryOf(options.folder);
-  const [place, bases] = await Promise.all([placeFor(repo, options.root, options), basesOf(repo, options.chosenBase)]);
-  return { ...place, ...bases };
+  const worktree = folderFor(repo, options.root, options);
+  const [branch, bases, listed] = await Promise.all([branchName(repo, options.title, worktree), basesOf(repo, options.chosenBase), git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES)]);
+  return { branch, worktree, held: heldBranches(listed), ...bases };
+}
+
+/** Each local branch a worktree has checked out, among what `git worktree list --porcelain` printed, with that worktree's folder. */
+function heldBranches(listed: string): HeldBranch[] {
+  return listedWorktrees(listed).flatMap(({ branch, folder }) => (branch === null ? [] : [{ branch, folder }]));
+}
+
+/** The fetch of a base, or of a remote's branch a person picked, through the daemon's keeper where one is given, and by one fetch of its own otherwise. */
+async function fetchFor(repo: string, name: string, ref: string, fetches?: BaseFetches): Promise<void> {
+  await (fetches?.fetch(repo, name, { reuse: true }) ?? fetchRef(repo, name, ref, {}));
 }
 
 /**
- * Cuts the branch `placeFor` names at a base and checks it out in a new
- * worktree under `root`. The base is the one `base` names, read as `baseRef`
- * reads it, or the repository's default base where none is sent, which is
- * the base a person chose for the repository where it still lists it. Where the
- * repository has no default base, the branch is cut at the checkout's commit.
- * A remote's branch is fetched before the cut, so the branch starts at the
- * commit the remote holds: through `fetches` where the daemon's keeper is
- * given, which joins a fetch under way and reuses a fresh result, and by one
- * fetch of its own otherwise. Where the fetch fails, the branch is cut at the
- * commit the clone holds, and the creation is not refused. A local branch
- * asks no remote.
- * The new branch has no upstream, whatever its base and the person's
- * `branch.autoSetupMerge`. A folder that names no repository, as
- * `repositoryOf` reads it, and a `base` that is none of the repository's, is
- * refused before anything is created.
+ * The local branch a creation checks out for the branch a person picked,
+ * named as a base is (`baseRef`), and the remote's branch it is made to
+ * track, or null where it stands already. A local branch is checked out as
+ * it stands. A remote's branch is fetched first, as a base is, and is
+ * checked out as git's `git worktree add <folder> <name>` checks it out:
+ * the local branch of its name where one stands, and otherwise a local
+ * branch of that name made to track it. A name that is no branch of the
+ * repository is refused, and so is a local branch a worktree has checked
+ * out, naming that worktree's folder. Nothing is made.
  */
-export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; chosenBase?: ChosenBase; fetches?: BaseFetches }): Promise<Worktree> {
+async function pickedBranch(repo: string, name: string, fetches?: BaseFetches): Promise<{ local: string; tracks: string | null }> {
+  const ref = await baseRef(repo, name);
+  if (ref === null) throw new Error(`${repo} has no branch ${name} to check out`);
+  let local = name;
+  let tracks: string | null = null;
+  if (ref !== `refs/heads/${name}`) {
+    await fetchFor(repo, name, ref, fetches);
+    const from = await remoteOf(repo, name);
+    if (from === null) throw new Error(`${repo} has no remote for ${name}`);
+    local = from.branch;
+    if (!(await branchExists(repo, local))) tracks = ref;
+  }
+  const holder = heldBranches(await git(repo, MAIN_CHECKOUT, BRANCH_OUTPUT_BYTES)).find(({ branch }) => branch === local);
+  if (holder !== undefined) throw new Error(`The branch ${local} is checked out in ${holder.folder}, so a new work item cannot check it out.`);
+  return { local, tracks };
+}
+
+/**
+ * Makes a new worktree under `root`, in the folder `folderFor` names, for
+ * a work item that starts from a base. The base is the one `base` names,
+ * read as `baseRef` reads it, or the repository's default base where none
+ * is sent, which is the base a person chose for the repository where it
+ * still lists it. Where the repository has no default base, the work starts
+ * at the checkout's commit. A remote's branch is fetched first, so the work
+ * starts at the commit the remote holds: through `fetches` where the
+ * daemon's keeper is given, which joins a fetch under way and reuses a fresh
+ * result, and by one fetch of its own otherwise. Where the fetch fails, the
+ * work starts at the commit the clone holds, and the creation is not
+ * refused. A local branch asks no remote.
+ *
+ * Where no `branch` is sent, the worktree stands detached at the base, and
+ * the repository gains no branch: the work item's branch is made later, at
+ * its first commit or a rename (`makeBranch`). Where `branch` names one of
+ * the repository's branches, the worktree has it checked out, as
+ * `pickedBranch` states, and only a local branch made to track a remote's
+ * is Owlery's.
+ *
+ * A folder that names no repository, as `repositoryOf` reads it, a `base`
+ * that is none of the repository's, and a `branch` that `pickedBranch`
+ * refuses, are refused before anything is created.
+ */
+export async function createWorktree(options: Naming & { folder: string; root: string; base?: string; branch?: string; chosenBase?: ChosenBase; fetches?: BaseFetches }): Promise<Worktree> {
   const repo = await repositoryOf(options.folder);
   const baseBranch = options.base ?? (await basesOf(repo, options.chosenBase)).defaultBase;
   let start = "HEAD";
   if (baseBranch !== null) {
     const ref = await baseRef(repo, baseBranch);
     if (ref === null) throw noBase(repo, baseBranch);
-    await (options.fetches?.fetch(repo, baseBranch, { reuse: true }) ?? fetchRef(repo, baseBranch, ref, {}));
+    await fetchFor(repo, baseBranch, ref, options.fetches);
     start = ref;
   }
-  const { branch, worktree } = await placeFor(repo, options.root, options);
+  const picked = options.branch === undefined ? null : await pickedBranch(repo, options.branch, options.fetches);
+  const worktree = folderFor(repo, options.root, options);
   mkdirSync(dirname(worktree), { recursive: true });
-  await git(repo, ["worktree", "add", "--quiet", "--no-track", "-b", branch, worktree, start]);
-  const baseCommit = (await git(repo, ["rev-parse", "--verify", `refs/heads/${branch}`])).trim();
-  return { repo, branch, worktree, baseCommit, baseBranch };
+  if (picked === null) {
+    await git(repo, ["worktree", "add", "--quiet", "--detach", worktree, start]);
+    const baseCommit = (await git(worktree, ["rev-parse", "--verify", "HEAD"])).trim();
+    return { repo, branch: null, ownsBranch: false, worktree, baseCommit, baseBranch };
+  }
+  const { local, tracks } = picked;
+  if (tracks !== null) await git(repo, ["branch", "--quiet", "--track", local, tracks]);
+  try {
+    // A name a local branch bears is checked out as that branch, never read as another ref.
+    await git(repo, ["worktree", "add", "--quiet", worktree, local]);
+  } catch (error) {
+    // The branch made for this creation goes with it.
+    if (tracks !== null) await git(repo, ["branch", "--quiet", "-D", local]).catch(() => "");
+    throw error;
+  }
+  const tip = (await git(repo, ["rev-parse", "--verify", `refs/heads/${local}`])).trim();
+  const shared = baseBranch === null ? "" : await git(repo, ["merge-base", start, tip]).then((printed) => printed.trim(), () => "");
+  return { repo, branch: local, ownsBranch: tracks !== null, worktree, baseCommit: shared || tip, baseBranch };
 }
 
 /** What a rename of a work item's branch would give: the branch, or null where the name names none, and why the rename cannot run, or null where it can. */
@@ -541,24 +612,43 @@ export interface RenamePlan {
   blocked: string | null;
 }
 
+/** `owlery/<slug>`, with -2, -3 and so on appended while a local branch of the repository other than `own` bears the name. */
+async function numberedBranch(repo: string, slug: string, own: string | null): Promise<string> {
+  let named = `owlery/${slug}`;
+  for (let n = 2; named !== own && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  return named;
+}
+
+/**
+ * The branch Owlery makes for a work item with no branch yet, read in the
+ * repository: `owlery/<slug of the title>`, or `owlery/<slug of the
+ * worktree's folder name>` where the title leaves no slug, with -2, -3 and
+ * so on appended while a local branch bears the name. Nothing is made.
+ */
+export async function branchName(repo: string, title: string, folder: string): Promise<string> {
+  return numberedBranch(repo, slugFor(title) || slugFor(basename(folder)), null);
+}
+
 /**
  * What renaming `branch` after a work item's new name would give, read in the
  * repository. Nothing is renamed. The branch is `owlery/<slug of the name>`,
  * with -2, -3 and so on appended while another local branch bears the name.
- * The rename can run where the name leaves a slug, the branch exists, that
- * branch is not the one the name gives, it has no upstream, and no remote of
- * the clone holds a branch of its name: a branch that was pushed without an
- * upstream has none, and its rename would leave the remote's branch under the
- * old name. `blocked` says the first of these that does not hold. Nothing is
+ * The rename can run where the name leaves a slug, Owlery made the branch
+ * (`owned`), the branch exists, that branch is not the one the name gives,
+ * it has no upstream, and no remote of the clone holds a branch of its name:
+ * a branch that was pushed without an upstream has none, and its rename
+ * would leave the remote's branch under the old name. A branch the person
+ * picked, or one the worktree took up by itself, is theirs, and keeps its
+ * name. `blocked` says the first of these that does not hold. Nothing is
  * fetched: a remote's branches are read as the clone holds them.
  */
-export async function planBranchRename(repo: string, branch: string, title: string): Promise<RenamePlan> {
+export async function planBranchRename(repo: string, branch: string, title: string, owned: boolean): Promise<RenamePlan> {
   const slug = slugFor(title);
   if (slug === "") return { branch: null, blocked: "The name leaves no letter or digit to name a branch by." };
-  let named = `owlery/${slug}`;
   // The work item's own branch does not stand in the way of its own name.
-  for (let n = 2; named !== branch && (await branchExists(repo, named)); n++) named = `owlery/${slug}-${n}`;
+  const named = await numberedBranch(repo, slug, branch);
   const blocked = (sentence: string): RenamePlan => ({ branch: named, blocked: sentence });
+  if (!owned) return blocked(`The branch ${branch} is not one Owlery made, so it keeps its name.`);
   const local = `refs/heads/${branch}`;
   let refs: string[];
   let remotes: string[];
@@ -594,18 +684,112 @@ export async function renameBranch(repo: string, from: string, to: string): Prom
 }
 
 /**
+ * What the worktree of a work item with no branch yet holds for one: the
+ * branch its `HEAD` names, where it names one, which the work item takes up;
+ * the commit `HEAD` is detached at, where no local branch, no remote's branch
+ * and no tag holds it and it is not `baseCommit`, the commit the worktree was
+ * checked out at, which is a commit made in the worktree and the one Owlery
+ * makes the branch at; and null where `HEAD` stands at a commit one of those
+ * holds, where it stands at `baseCommit` though its base branch was deleted
+ * or rewritten since, and where git cannot say.
+ */
+export async function headStands(worktree: string, baseCommit: string | null): Promise<{ branch: string } | { commit: string } | null> {
+  const branch = await branchOfHead(worktree);
+  if (branch !== null) return { branch };
+  try {
+    // `rev-list -1 HEAD` prints HEAD itself where nothing named after `--not` holds it.
+    const unheld = (await git(worktree, ["rev-list", "-1", "HEAD", "--not", "--branches", "--remotes", "--tags", "--"])).trim();
+    return unheld === "" || unheld === baseCommit ? null : { commit: unheld };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Makes the branch `name` at the commit the worktree's `HEAD` is detached at,
+ * and puts the worktree on it, with `git switch --quiet -c` in the worktree:
+ * one command, which git refuses where a rebase, a merge, a cherry-pick, a
+ * revert or a `git am` is under way, and where a branch bears the name. It
+ * throws git's words then, and nothing is made. The worktree's files are
+ * untouched. Git's switch reads `HEAD`, makes the branch at it, and points
+ * `HEAD` at the branch without checking that `HEAD` still names the commit
+ * it read, so a commit made in the worktree in between is left off the
+ * branch, its files standing as changes staged on it, as git 2.54 does.
+ * `HEAD@{1}`, where `HEAD`'s reflog says it stood before the switch, then
+ * names that commit, so the branch is moved on to it where it descends from
+ * the commit the branch was made at and the branch still stands there. Where
+ * git keeps no reflog of `HEAD`, the branch stays where the switch made it.
+ */
+export async function makeBranch(worktree: string, name: string): Promise<void> {
+  await git(worktree, ["switch", "--quiet", "-c", name]);
+  const ref = `refs/heads/${name}`;
+  try {
+    const [made, before] = (await Promise.all([git(worktree, ["rev-parse", "--verify", ref]), git(worktree, ["rev-parse", "--verify", "HEAD@{1}"])])).map((line) => line.trim());
+    if (made === undefined || before === undefined || before === made || !(await holdsCommit(worktree, before, made))) return;
+    // The old value is checked, so a commit made on the branch since moves nothing back.
+    await git(worktree, ["update-ref", "-m", "owlery: take the commit made while the branch was made", ref, before, made]);
+  } catch {
+    // The branch stands, and the worktree is on it.
+  }
+}
+
+/**
+ * What a rename of a work item with no branch yet would make, read in the
+ * repository and its worktree: the branch `branchName` gives, and why none
+ * can be made now, or null where it can. None can where a rebase, a merge, a
+ * cherry-pick, a revert or a `git am` is under way in the worktree, and where
+ * the worktree's `HEAD` names a branch, which the work item takes up at the
+ * next read instead. Where git cannot read the worktree, its words are why.
+ * Nothing is made.
+ */
+export async function planBranchMaking(repo: string, worktree: string, title: string): Promise<RenamePlan> {
+  const named = await branchName(repo, title, worktree);
+  let under: string | null;
+  try {
+    under = await underWay(worktree);
+  } catch (error) {
+    return { branch: named, blocked: error instanceof Error ? error.message : String(error) };
+  }
+  if (under !== null) return { branch: named, blocked: `The branch cannot be made while ${under} is under way in the worktree.` };
+  const taken = await branchOfHead(worktree);
+  if (taken !== null) return { branch: named, blocked: `The worktree is on the branch ${taken}, which becomes the work item's at Owlery's next read.` };
+  return { branch: named, blocked: null };
+}
+
+/**
  * How many commits the branch holds after `baseCommit`, read in the
- * repository: every commit since the branch was cut, the base's own among
+ * repository: every commit since its base commit, the base's own among
  * them once the base was merged in. Null where git gives no count: the repository, the branch or the
  * commit is gone.
  */
 export async function newCommits(repo: string, branch: string, baseCommit: string): Promise<number | null> {
+  return commitsAfter(repo, baseCommit, `refs/heads/${branch}`);
+}
+
+/** How many commits `tip`, a commit or a ref, holds after `baseCommit`, read in the repository, or null where git gives no count. */
+async function commitsAfter(repo: string, baseCommit: string, tip: string): Promise<number | null> {
   try {
-    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..refs/heads/${branch}`, "--"]), 10);
+    const count = Number.parseInt(await git(repo, ["rev-list", "--count", `${baseCommit}..${tip}`, "--"]), 10);
     return Number.isInteger(count) ? count : null;
   } catch {
     return null;
   }
+}
+
+/**
+ * What `newCommits` and `branchHead` give of a branch, for a worktree whose
+ * work stands on no branch yet: the count after `baseCommit` and the commit,
+ * both read at the commit the worktree's `HEAD` stands at. Both null where
+ * git cannot read the worktree's `HEAD`: the folder is gone.
+ */
+export async function headCounts(repo: string, worktree: string, baseCommit: string): Promise<[count: number | null, head: string | null]> {
+  let head: string;
+  try {
+    head = await worktreeHead(worktree);
+  } catch {
+    return [null, null];
+  }
+  return [await commitsAfter(repo, baseCommit, head), head];
 }
 
 /**
@@ -763,8 +947,12 @@ function cut<T>(entries: T[]): { listed: T[]; count: number } {
  * worktree. Nothing is removed, nothing is fetched, and a remote's branches
  * are read as the clone holds them.
  *
- * The commits are those the branch or the worktree's `HEAD` holds and no
- * other local branch, no remote's branch and no tag holds. `--all` is not
+ * `branch` is the branch a delete would remove, or null where it removes
+ * none: the work item has no branch, or its branch is one Owlery did not
+ * make, which stays. The commits are those the branch or the worktree's
+ * `HEAD` holds and no other local branch, no remote's branch and no tag
+ * holds, so a branch that stays holds its own commits and they are no
+ * loss. `--all` is not
  * what they are read against: it takes the worktree's own `HEAD`, which
  * hides every one of them. The worktree's files are read only where git
  * lists a linked worktree at the folder and the folder stands: in any other
@@ -772,7 +960,7 @@ function cut<T>(entries: T[]): { listed: T[]; count: number } {
  * The untracked files are listed each by its own path, and the ignored ones
  * with a folder as one name, which takes two reads.
  */
-export async function readLoss(repo: string, branch: string, worktree: string): Promise<WorkItemLoss> {
+export async function readLoss(repo: string, branch: string | null, worktree: string): Promise<WorkItemLoss> {
   const nothing = { branch: null, worktree: null, commits: [], commitCount: 0, uncommitted: [], uncommittedCount: 0, untracked: [], untrackedCount: 0, ignored: [], ignoredCount: 0, blocked: null };
   let listed: string;
   try {
@@ -781,12 +969,12 @@ export async function readLoss(repo: string, branch: string, worktree: string): 
     return { ...nothing, unreachable: true, stamp: createHash("sha256").update("unreachable").digest("hex") };
   }
   const own = linkedAt(listed, worktree);
-  const tip = await branchHead(repo, branch);
-  const elsewhere = listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
+  const tip = branch === null ? null : await branchHead(repo, branch);
+  const elsewhere = branch === null ? undefined : listedWorktrees(listed).find((known) => known.branch === branch && known.folder !== own?.folder);
   const blocked = elsewhere ? `The branch ${branch} is checked out in ${elsewhere.folder}, so it cannot be deleted.` : own?.locked ? `The worktree ${own.folder} is locked, so git does not remove it.` : null;
   const tips = [...new Set([tip, own?.head ?? null].filter((commit): commit is string => commit !== null))];
   // Every commit is read, so the stamp differs for one the list leaves out. The names of the refs reach git as patterns under their kinds, and a branch's name holds none of a pattern's characters.
-  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", `--exclude=${branch}`, "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
+  const log = tips.length === 0 ? "" : await git(repo, ["log", "--format=%H%x1f%h%x1f%s", ...tips, "--not", ...(branch === null ? [] : [`--exclude=${branch}`]), "--branches", "--remotes", "--tags", "--"], BRANCH_OUTPUT_BYTES);
   let status = "";
   let others = "";
   if (own !== undefined && existsSync(own.folder)) {
@@ -844,11 +1032,138 @@ const UNDER_WAY: [marker: string, words: string][] = [
   ["REVERT_HEAD", "a revert"],
 ];
 
+/** The words `UNDER_WAY` gives for what is under way in a worktree, or null where nothing is. It throws git's words where git cannot say. */
+async function underWay(worktree: string): Promise<string | null> {
+  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
+  const markers = await gitIn(worktree, ["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
+  if (markers.failed || markers.printed.length !== UNDER_WAY.length) throw new Error(markers.said);
+  return UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")))?.[1] ?? null;
+}
+
 /** Runs git in a worktree, and gives whether it failed, its words, and the lines it printed. */
 function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; said: string; printed: string[] }> {
   return new Promise((done) => {
     execFile("git", args, { cwd: worktree, encoding: "utf8" }, (error, stdout, stderr) => done({ failed: error !== null, said: `${stderr}${stdout}`.trim() || (error?.message ?? ""), printed: stdout.split("\n").filter((line) => line !== "") }));
   });
+}
+
+/** How long, in milliseconds, the `git add` and the `git commit` of one commit of Owlery's may run together before the one under way is ended. */
+export const COMMIT_LIMIT_MS = 5 * 60_000;
+
+/** How long, in milliseconds, after the SIGTERM that ends a commit's git its group is sent SIGKILL, where git has not exited by then or the pipe it printed to is still open. */
+export const COMMIT_END_GRACE_MS = 2000;
+
+/** How much of what a commit's git printed is kept. */
+const COMMIT_PRINTED_CHARS = 64 * 1024;
+
+/** The bounds of one commit: how long its commands may run together, `COMMIT_LIMIT_MS` where none is given, and a signal that ends it. */
+export interface CommitBounds {
+  limitMs?: number;
+  ended?: AbortSignal;
+}
+
+/** What one git run under a commit's bounds gave: its exit code, null where a signal ended it or it was not started; what it printed; and why it was ended, or null where it was not. */
+export interface BoundedGit {
+  code: number | null;
+  said: string;
+  ended: string | null;
+}
+
+/**
+ * A runner of the git commands of one commit under its bounds, which
+ * starts each git in the folder given and gives what `BoundedGit` states.
+ * The limit is counted from the call that makes the runner, so the commands
+ * it runs share it.
+ *
+ * Each git is started as the leader of a process group of its own, with no
+ * input, so what the repository runs for it, a hook, a clean filter or a
+ * signer, is in that group and reads the end of its input at once. Where the
+ * limit passes or `ended` fires while git runs, the group is sent SIGTERM,
+ * and `COMMIT_END_GRACE_MS` later SIGKILL where git has not exited or the
+ * pipe git printed to is still open. The first signal is never SIGKILL,
+ * since a git killed by it in the middle of a commit leaves `index.lock`,
+ * and every later git that writes the index fails until a person removes
+ * it. The SIGKILL follows, since a hook that ignores SIGTERM outlives git
+ * and holds the pipe open. An ended git is over once it has exited and the
+ * SIGKILL was sent, since a process that left git's group, such as one in a
+ * session of its own, can hold the pipe open past both signals. A git whose
+ * turn comes after `ended` fired is not started, and one whose turn comes
+ * after the limit is ended as it starts. A git that is not ended is over
+ * when the pipe closes, which is when all it printed has arrived.
+ */
+export function commitRunner(bounds: CommitBounds = {}): (folder: string, args: string[]) => Promise<BoundedGit> {
+  const limitMs = bounds.limitMs ?? COMMIT_LIMIT_MS;
+  const until = Date.now() + limitMs;
+  const { ended } = bounds;
+  return (folder, args) =>
+    new Promise((resolve) => {
+      const overdue = `git ${args[0] ?? ""} did not end in ${String(limitMs / 1000)} seconds and was ended`;
+      if (ended?.aborted) {
+        resolve({ code: null, said: "", ended: "the commit was ended" });
+        return;
+      }
+      const child = spawn("git", args, { cwd: folder, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+      let stdout = "";
+      let stderr = "";
+      let why: string | null = null;
+      let code: number | null = null;
+      let exited = false;
+      let killed = false;
+      let settled = false;
+      let grace: NodeJS.Timeout | undefined;
+      child.stdout.setEncoding("utf8");
+      child.stderr.setEncoding("utf8");
+      child.stdout.on("data", (text: string) => {
+        if (stdout.length < COMMIT_PRINTED_CHARS) stdout += text;
+      });
+      child.stderr.on("data", (text: string) => {
+        if (stderr.length < COMMIT_PRINTED_CHARS) stderr += text;
+      });
+      const signal = (name: NodeJS.Signals): void => {
+        if (child.pid === undefined) return;
+        try {
+          // The negative id names the group git leads. While a process of the group runs, the id names no other group.
+          process.kill(-child.pid, name);
+        } catch {
+          // The group is gone already.
+        }
+      };
+      const settle = (): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        clearTimeout(grace);
+        ended?.removeEventListener("abort", onEnded);
+        resolve({ code, said: `${stderr}${stdout}`.trim(), ended: why });
+      };
+      const end = (reason: string): void => {
+        if (settled || why !== null) return;
+        why = reason;
+        signal("SIGTERM");
+        grace = setTimeout(() => {
+          killed = true;
+          signal("SIGKILL");
+          // Git has exited where only what it started holds the pipe, and that may be a process outside the group.
+          if (exited) settle();
+        }, COMMIT_END_GRACE_MS);
+      };
+      const timer = setTimeout(() => end(overdue), Math.max(0, until - Date.now()));
+      const onEnded = (): void => end("the commit was ended");
+      ended?.addEventListener("abort", onEnded, { once: true });
+      child.on("error", (error) => {
+        stderr = error.message;
+        settle();
+      });
+      child.on("exit", (exitCode) => {
+        exited = true;
+        code = exitCode;
+        if (killed) settle();
+      });
+      child.on("close", (exitCode) => {
+        code ??= exitCode;
+        settle();
+      });
+    });
 }
 
 /**
@@ -862,12 +1177,14 @@ function gitIn(worktree: string, args: string[]): Promise<{ failed: boolean; sai
  * commit made on a detached HEAD is on no branch.
  */
 export async function whyNoCommit(worktree: string, branch: string): Promise<string | null> {
-  // Git prints each marker's path in the worktree's own git folder, a line for each, relative to the worktree where it prints a relative one.
-  const markers = await gitIn(worktree, ["rev-parse", ...UNDER_WAY.flatMap(([marker]) => ["--git-path", marker])]);
-  if (markers.failed || markers.printed.length !== UNDER_WAY.length) return markers.said;
-  const under = UNDER_WAY.find((_, index) => existsSync(resolve(worktree, markers.printed[index] ?? "")));
+  let under: string | null;
+  try {
+    under = await underWay(worktree);
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
   // A rebase is read first, since HEAD is detached for its length and the reason then names the rebase.
-  if (under !== undefined) return `${under[1]} is under way in the worktree`;
+  if (under !== null) return `${under} is under way in the worktree`;
   const head = await gitIn(worktree, ["symbolic-ref", "--quiet", "HEAD"]);
   if (head.failed || head.printed[0] !== `refs/heads/${branch}`) return `the worktree is not on the branch ${branch}`;
   return null;
@@ -889,21 +1206,39 @@ export async function whyNoCommit(worktree: string, branch: string): Promise<str
  * either command fails it throws git's words, a hook's output among them,
  * for a path that names no file as well, and every path is first taken out
  * of the index again, so each file stands written and not staged.
+ *
+ * The `git add` and the `git commit` run under `bounds`, as `commitRunner`
+ * states: together they have `limitMs`, `COMMIT_LIMIT_MS` where none is
+ * given, and `ended` ends the one under way, or starts neither where it
+ * fired before. A command ended so fails as above, with the sentence that
+ * it did not end in the limit and was ended, or that the commit was ended.
+ * A `git commit` ended after it made the commit, in a hook that runs after
+ * it such as `post-commit`, leaves the index holding each path as the
+ * branch's newest commit does, and the commit stands: `commitPaths`
+ * returns as after a commit that ended by itself. No `index.lock` is ever
+ * removed.
  */
-export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailers: readonly [string, ...string[]]): Promise<void> {
+export async function commitPaths(worktree: string, branch: string, paths: readonly [string, ...string[]], subject: string, trailers: readonly [string, ...string[]], bounds: CommitBounds = {}): Promise<void> {
   const run = (args: string[]) => gitIn(worktree, args);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Error(why);
+  const bounded = commitRunner(bounds);
   const refused = async (said: string): Promise<never> => {
     await run(["reset", "--quiet", "--", ...paths]);
     throw new Error(said);
   };
-  const added = await run(["add", "--", ...paths]);
-  if (added.failed) return refused(added.said);
-  // Git exits 0 where the index holds each path as the branch's newest commit does: an earlier commit carried the files as they stand.
-  if (!(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed) return;
-  const committed = await run(["commit", "-m", subject, "-m", trailers.join("\n"), "--", ...paths]);
-  if (committed.failed) return refused(committed.said);
+  // Git exits 0 where the index holds each path as the branch's newest commit does: a commit carried the files as they stand.
+  const carried = async (): Promise<boolean> => !(await run(["diff", "--cached", "--quiet", "--", ...paths])).failed;
+  const added = await bounded(worktree, ["add", "--", ...paths]);
+  if (added.ended !== null) return refused(added.ended);
+  if (added.code !== 0) return refused(added.said || "git add failed");
+  if (await carried()) return;
+  const committed = await bounded(worktree, ["commit", "-m", subject, "-m", trailers.join("\n"), "--", ...paths]);
+  if (committed.ended !== null) {
+    if (await carried()) return;
+    return refused(committed.ended);
+  }
+  if (committed.code !== 0) return refused(committed.said || "git commit failed");
 }
 
 /** The commit a worktree's HEAD names, whole. It throws git's words where git cannot say. */

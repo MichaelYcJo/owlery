@@ -3,20 +3,23 @@
 // are the daemon's list from `ready`: nothing here names one.
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
-import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PermissionAsk, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
 import { type Back, composeBack, costWords } from "../shared/seal-back";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
- * order: "Setup" for `setupPane`, the pane the work item's setup record
- * names, and for any other pane its kind, as the daemon labels it, alone
- * where it is the one pane of its kind but the setup pane, and otherwise
- * followed by its place among those panes, from 1. The daemon's id of a pane
- * counts every pane it started, so it is no tab's to show. The work item's
- * title is the view's header's to say.
+ * order: the name a person gave the tab, where it has one; otherwise
+ * "Setup" for `setupPane`, the pane the work item's setup record names, and
+ * for any other pane its kind, as the daemon labels it, alone where it is
+ * the one pane of its kind but the setup pane, and otherwise followed by its
+ * place among those panes, from 1. A named pane keeps its place among them,
+ * so a name changes no other tab's number. The daemon's id of a pane counts
+ * every pane it started, so it is no tab's to show. The work item's title is
+ * the view's header's to say.
  */
 export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], setupPane: number | null = null): string {
+  if (typeof session.name === "string") return session.name;
   if (session.id === setupPane) return SETUP_HEAD;
   const kind = paneKinds.find((offered) => offered.kind === session.kind);
   const name = kind ? kind.label : session.kind;
@@ -26,6 +29,16 @@ export function tabLabel(session: SessionInfo, tabs: readonly SessionInfo[], pan
 
 /** The label of the pane a setup runs in, and the head of the section that says the setup. */
 export const SETUP_HEAD = "Setup";
+
+/** The word that names each colour of a tab, in its menu's row, in its tooltip and to a screen reader. */
+export const COLOUR_WORDS: Readonly<Record<TabColour, string>> = { green: "Green", blue: "Blue", pink: "Pink" };
+/** The word of the row's swatch that takes a tab's colour off. */
+export const NO_COLOUR = "No colour";
+
+/** What a pane's tab says to a pointer that rests on it and to a screen reader: its label, followed by its colour's word where it has a colour, as "Shell 2, Blue". */
+export function tabSays(label: string, colour: TabColour | null): string {
+  return colour === null ? label : `${label}, ${COLOUR_WORDS[colour]}`;
+}
 
 /** The words a work item's line carries of its setup, in its second row: "Setting up" while it runs, "Setup failed" where it failed, and nothing where it succeeded or the repository named none. */
 export function setupMark(workItem: WorkItem): string {
@@ -107,10 +120,19 @@ export function lineSession(workItem: WorkItem, sessions: readonly SessionInfo[]
   return livePanes(workItem, sessions).find((session) => paneKinds.some((offered) => offered.kind === session.kind && offered.reportsState));
 }
 
+/** What the place of a work item's branch says, and a line's last fact, where the work item has no branch yet. */
+const NO_BRANCH = "No branch yet";
+
+/** What the place of a work item's branch shows, in a line's preview and a view's head: the branch's name, or `NO_BRANCH` where it has none, which `none` says is drawn in the sans and not as a name. */
+export function branchPlace(branch: string | null): { text: string; none: boolean } {
+  return branch === null ? { text: NO_BRANCH, none: true } : { text: branch, none: false };
+}
+
 export interface InboxLine {
   title: string;
-  branch: string;
-  /** `waiting` for a work item parked with questions for the person, for one whose headless session waits for the person to allow a call, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its seal gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** The work item's branch, or null where it has none yet. */
+  branch: string | null;
+  /** `waiting` for a work item parked with questions for the person, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its seal gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -119,11 +141,6 @@ export interface InboxLine {
 /** The questions of a work item's record, in the order of the file: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
 function questionsOf(workItem: WorkItem): readonly Question[] {
   return (workItem.questions as Question[] | undefined) ?? [];
-}
-
-/** The calls a work item's headless sessions wait for the person to allow or refuse, the oldest first: the ones the daemon sends, or none for a daemon of an earlier build, which sends no such field. */
-function permissionsOf(workItem: WorkItem): readonly PermissionAsk[] {
-  return (workItem.permissions as PermissionAsk[] | undefined) ?? [];
 }
 
 /** A work item's chain: the one the daemon sends, null where no chain ran for the work item, and undefined for a daemon of an earlier build, which sends no such field. */
@@ -171,13 +188,12 @@ function pullRequestSays(pullRequest: PullRequest): { state: AgentState; text: s
 /**
  * Whether something says more on a work item's line than its seal and its
  * pull request, `pane` being the state of the pane the line reads: the work
- * item is parked with questions, a headless session of it waits for the
- * person to allow a call, its chain runs or stopped, or its pane works or
- * waits. A finished pane and a chain that rests say no more.
+ * item is parked with questions, its chain runs or stopped, or its pane
+ * works or waits. A finished pane and a chain that rests say no more.
  */
 function saysMoreThanTheBranch(workItem: WorkItem, pane: AgentState | null): boolean {
   const chain = chainOf(workItem)?.state;
-  return parkedWith(workItem) !== null || permissionsOf(workItem).length > 0 || chain === "running" || chain === "stopped" || pane === "working" || pane === "waiting";
+  return parkedWith(workItem) !== null || chain === "running" || chain === "stopped" || pane === "working" || pane === "waiting";
 }
 
 /**
@@ -239,10 +255,9 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
 /**
  * One line of the inbox: the work item, its state, and its new commits. A
  * work item parked with questions for the person waits, whatever its panes
- * say, and so does one whose headless session waits for the person to allow
- * a call, and one whose chain stopped, so each stands with the work items
- * that wait for the person. Otherwise the state is that of its most recent
- * live pane of a kind that reports state. An exited pane keeps its last
+ * say, and so does one whose chain stopped, so each stands with the work
+ * items that wait for the person. Otherwise the state is that of its most
+ * recent live pane of a kind that reports state. An exited pane keeps its last
  * state and is passed over, because nothing will change that state again.
  * A work item whose chain is running is at work whatever that pane says,
  * but where the pane waits for the person: the pane of the session that
@@ -259,20 +274,19 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
   return {
     title: workItem.title,
     branch: workItem.branch,
-    state: parkedWith(workItem) || permissionsOf(workItem).length > 0 || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : (branchLine(workItem, pane)?.state ?? pane),
+    state: parkedWith(workItem) || chain === "stopped" ? "waiting" : chain === "running" && pane !== "waiting" ? "working" : (branchLine(workItem, pane)?.state ?? pane),
     commits: count > 0 ? `${count} new ${count === 1 ? "commit" : "commits"}` : "",
   };
 }
 
 /**
  * Since when a line's state has lasted, which its age is counted from: for
- * a work item parked with questions, one whose headless session waits for
- * the person to allow a call, and one whose chain stopped, the earliest of
- * the times the daemon first read one of its open questions at, the times
- * its requests arrived at and the time the chain stopped at, all of them
- * the daemon's clock. Otherwise, where the work item's chain runs a stage
- * and the pane the line reads, `session`, does not wait for the person, the
- * time that stage started at. Otherwise the time of that pane's state. Null
+ * a work item parked with questions and one whose chain stopped, the
+ * earliest of the times the daemon first read one of its open questions at
+ * and the time the chain stopped at, all of them the daemon's clock.
+ * Otherwise, where the work item's chain runs a stage and the pane the line
+ * reads, `session`, does not wait for the person, the time that stage
+ * started at. Otherwise the time of that pane's state. Null
  * where none gives one, for a work item whose chain is between two stages
  * and alone says that it works, and for one whose pull request or seal
  * gives the line its state (`branchLine`): its pane's time is that of
@@ -282,9 +296,8 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
-  const asks = permissionsOf(workItem);
   const chain = chainOf(workItem);
-  if (parked.length === 0 && asks.length === 0 && chain?.state !== "stopped") {
+  if (parked.length === 0 && chain?.state !== "stopped") {
     if (branchLine(workItem, session?.state ?? null)) return null;
     if (chain?.state === "running" && session?.state !== "waiting") {
       const stage = runningStage(workItem);
@@ -294,7 +307,7 @@ export function lineSince(workItem: WorkItem, session: SessionInfo | undefined):
     return session?.stateSince ?? null;
   }
   const stopped = chain?.state === "stopped" ? chain.since : null;
-  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...asks.map(({ at }) => at), ...(stopped === null ? [] : [stopped])];
+  const times = [...parked.flatMap(({ since }) => (since === null ? [] : [since])), ...(stopped === null ? [] : [stopped])];
   return times.length > 0 ? Math.min(...times) : null;
 }
 
@@ -452,6 +465,28 @@ export function unreadLines(workItem: WorkItem): string[] {
   return ((workItem.unread as Unread[] | undefined) ?? []).map(({ line, why }) => `Line ${line} of decisions.md was not read: ${why}`);
 }
 
+/**
+ * What the preview and a work item's view say, above the decisions, of a
+ * word of the person's, a reversal or an answer, that the work item's
+ * record holds and no commit holds yet (`WorkItem.wordOwed`), and whether
+ * it is a failure. While the word waits for a session: why, and that
+ * Owlery commits it once that has ended. Where its commit failed: git's
+ * reason, and that Owlery tries again. Null where nothing is owed, and for
+ * a daemon of an earlier build, which sends no such field.
+ */
+export function wordOwedSays(workItem: WorkItem): { text: string; failed: boolean } | null {
+  const owed = workItem.wordOwed ?? null;
+  if (owed === null) return null;
+  return owed.waits === "retry"
+    ? { text: `The record holds a word of yours that was not committed: ${owed.why}. Owlery tries again.`, failed: true }
+    : { text: `The record holds a word of yours that no commit holds yet: ${owed.why}. Owlery commits it once that has ended.`, failed: false };
+}
+
+/** The words a work item's line carries after the count of its decisions where the commit of a word of the person's failed, and nothing otherwise: a word that waits for a working session is the usual case and marks no line. */
+export function wordOwedMark(workItem: WorkItem): string {
+  return workItem.wordOwed?.waits === "retry" ? "word not committed" : "";
+}
+
 /** The heading of the approval line's section in the preview and in a view's right column. */
 export const APPROVAL_HEAD = "Approval line";
 
@@ -479,7 +514,7 @@ export interface ApprovalPlace {
   under: string | null;
 }
 
-/** The words of the broad gate where the window names it: on the gate's line under "Ask", on the approval line, and on a line of the inbox while the gate runs. */
+/** The words of the broad gate where the window names it: on the gate's line at the view's foot, on the approval line, and on a line of the inbox while the gate runs. */
 export const GATE_HEAD = "Broad gate";
 
 /**
@@ -657,21 +692,39 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
 }
 
 /**
- * How far a role came by the newest stage of the work item's chain, or null
- * where that stage says nothing of the role: it is of another role's kind
- * or of the orchestrator's, it finished, or no chain ran. The role's place
- * failed where the stage failed, with the stage's failure as a sentence for
- * its text, and works where the chain runs the stage, with the stage's
- * start as the time its age counts from. A broad gate that failed is no
+ * How far a role came by the newest stage of the work item's chain, where
+ * that stage is in the state `state`, or null where it says nothing of the
+ * role: it is of another role's kind or of the orchestrator's, it is in
+ * the other state or finished, or no chain ran. The role's place works
+ * where the chain runs the stage, with the stage's start as the time its
+ * age counts from, and failed where the stage failed, with the stage's
+ * failure as a sentence for its text. A broad gate that failed is no
  * failure of the sealer: its place then waits, and reads "Gate failed".
  */
-function byChain(role: Role, workItem: WorkItem): Reached | null {
+function byChain(role: Role, workItem: WorkItem, state: "working" | "failed"): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
   const marks = newest === undefined ? null : STAGES[newest.kind].marks;
   if (newest === undefined || marks === null || marks.role !== role) return null;
-  if (newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
-  if (runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
+  if (state === "failed" && newest.state === "failed") return { ...(marks.failed ?? { state: "failed", note: "Failed", label: `${marks.label(newest.round)} failed` }), since: null, text: newest.failure === null ? null : asSentence(newest.failure) };
+  if (state === "working" && runningStage(workItem) === newest) return { state: "working", note: marks.note(newest.round), label: marks.label(newest.round), since: newest.startedAt, text: null };
   return null;
+}
+
+/**
+ * How far a role came by the stage a pane's session runs through the chain
+ * command (`WorkItem.paneStage`), or null where the work item carries none,
+ * the stage is of another role, or the daemon's chain runs a stage. The
+ * role's place works, with the note and the words of the stage's kind and
+ * the time the daemon was first told of it, or its broad gate asked for its
+ * turn, as the time its age counts from. The daemon's own broad gate asks
+ * for its turn as a pane's does, so while the daemon's chain runs a stage,
+ * that stage says the place and the pane's stage says none.
+ */
+function byPane(role: Role, workItem: WorkItem): Reached | null {
+  const stage = workItem.paneStage ?? null;
+  const marks = stage === null ? null : STAGES[stage.kind].marks;
+  if (stage === null || marks === null || marks.role !== role || runningStage(workItem) !== null) return null;
+  return { state: "working", note: marks.note(stage.round), label: marks.label(stage.round), since: stage.since, text: null };
 }
 
 /**
@@ -681,14 +734,16 @@ function byChain(role: Role, workItem: WorkItem): Reached | null {
  * place's state is the first of these that holds. It waits where an open
  * question of the work item names its role, exactly, as the asker, with
  * that question's text under the line. It works where the work item's chain
- * runs a stage of its role, and it failed where the chain's newest stage is
- * of its role and failed, with the stage's failure under the line. The
+ * runs a stage of its role, and where the daemon's chain runs no stage and
+ * the work item's `paneStage`, the stage a pane's session runs through the
+ * chain command, is of its role. It failed where the chain's newest stage
+ * is of its role and failed, with the stage's failure under the line. The
  * broad gate and the seal are the sealer's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
  * gate that failed. Otherwise the records say how far it came, and for the
  * sealer the seal the branch's head holds: finished where it holds, and
  * waiting, with "Seal broken" and the seal's sentence under the line, where
- * a later commit broke it. It reads the work item alone, so no pane's
+ * a later commit broke it. It reads the work item alone, so no pane's agent
  * state, no hook and no session changes it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
@@ -697,7 +752,7 @@ export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
   const open = parkedWith(workItem) ?? [];
   return ROLES.map((role) => {
     const asked = open.find(({ by }) => by === role);
-    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem) ?? byRecords(role, workItem, recorded));
+    const reached: Reached = asked ? { state: "waiting", note: "Needs you", label: "Needs you", since: asked.since, text: asked.asks } : (byChain(role, workItem, "working") ?? byPane(role, workItem) ?? byChain(role, workItem, "failed") ?? byRecords(role, workItem, recorded));
     const name = ROLE_NAME[role];
     const { text, ...shown } = reached;
     return { role, name, ...shown, under: text === null ? null : `${name}: ${text}` };
@@ -812,23 +867,6 @@ export function parkNotifications(before: readonly WorkItem[], workItems: readon
 }
 
 /**
- * The notifications for the calls headless sessions began to wait on since
- * the window's lists were `before`: one for each request of `workItems`
- * whose id none of `before`, the work items and the archived ones the
- * window held, held. It is titled with the work item's title and says what
- * a waiting pane's notification says. None is given for a work item whose
- * notifications are muted, nor for `inFront`, the work item whose view is
- * in front of a focused window. An archived work item is not among
- * `workItems`, so none is given for one.
- */
-export function permissionNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
-  const held = new Set(before.flatMap((workItem) => permissionsOf(workItem).map(({ id }) => id)));
-  return workItems
-    .filter((workItem) => !workItem.muted && workItem.id !== inFront)
-    .flatMap((workItem) => permissionsOf(workItem).flatMap(({ id }) => (held.has(id) ? [] : [{ workItemId: workItem.id, title: workItem.title, body: stateHeading("waiting") }])));
-}
-
-/**
  * The notifications for the chains that stopped since the window's lists
  * were `before`: one for each of `workItems` whose chain is stopped now and
  * that `before`, the work items and the archived ones the window held, did
@@ -905,6 +943,82 @@ export function daemonNotice(otherBuild: boolean): string {
   return otherBuild ? `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.` : "";
 }
 
+/** What the window shows where a request's refusal goes, in place of the daemon's sentence, where the daemon does not know the request. The daemon's own sentence names the request's type and no entry of a menu, since the phone speaks the same protocol. */
+export const UNKNOWN_REQUEST_SAYS = `Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`;
+/** What the window shows where a request's refusal goes, once the wait of `answerWaits` ended a request the daemon has not answered. */
+export const NOT_ANSWERED_SAYS = `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.`;
+/** How long the window waits for the answer to a request, against a daemon whose `ready` holds no `answersUnknown`. It is the time the daemon gives a silent pane before the window says it waits (src/daemon/daemon.ts, `SILENT_START_MS`). */
+export const ANSWER_WAIT_MS = 10_000;
+
+/** The sentence the window shows for a refusal: its own, which names "Restart Daemon…", where the daemon said it does not know the request (`unknown`), and the daemon's otherwise. */
+export function refusalSays(refusal: { message: string; unknown?: true }): string {
+  return refusal.unknown === true ? UNKNOWN_REQUEST_SAYS : refusal.message;
+}
+
+/** What the waits of `answerWaits` do in the window around them. */
+export interface AnswerWaitsWorld {
+  /** Runs `run` after `ms`, and gives what stops it. */
+  after(ms: number, run: () => void): () => void;
+  /** Takes the refusal a wait that ended made, which the window hands on as the daemon's own (src/renderer/renderer.ts, `onMessage`). */
+  refuse(error: Extract<ServerMessage, { type: "error" }>): void;
+}
+
+/** The waits on the daemon's answers, told of each request the window sends and of each message the daemon sends. */
+export interface AnswerWaits {
+  /** Takes the daemon's `ready`. Against one that holds no `answersUnknown`, each request sent from then on but a creation has a wait. */
+  ready(message: { answersUnknown?: true }): void;
+  /** Takes a message the window sent. A request is one that carries a numeric `requestId`. */
+  sent(message: ClientMessage): void;
+  /** Takes a message of the daemon. One that names a request with a wait ends that wait. */
+  answered(message: ServerMessage): void;
+}
+
+/**
+ * The waits that end a request a daemon of an earlier build leaves open. A
+ * daemon whose `ready` holds `answersUnknown` answers each request, a
+ * refusal among the answers, so against it no request has a wait. Against
+ * one whose `ready` holds none, each request but a creation has a wait of
+ * `ANSWER_WAIT_MS`: an answer that names the request before it is over
+ * ends it, and otherwise it ends the request as a refusal that says
+ * `NOT_ANSWERED_SAYS`, once. An answer that comes after it is the window's
+ * to take as an answer to a request it no longer waits for. A creation
+ * (`createWorkItem`) has no wait: every daemon from 0.0.2 on knows it and
+ * answers it by its id, after a fetch of the base and a copy of the included
+ * paths that can outlast the wait, and a refusal before that answer would
+ * turn the form's Create button back on while the daemon still creates, so
+ * a second press would make a second work item. Nothing is armed before
+ * the daemon's `ready`.
+ */
+export function answerWaits(world: AnswerWaitsWorld): AnswerWaits {
+  let armed = false;
+  /** What stops each wait under way, by its request's id. */
+  const open = new Map<number, () => void>();
+  const requestOf = (message: object): number | undefined => {
+    const { requestId } = message as { requestId?: unknown };
+    return typeof requestId === "number" ? requestId : undefined;
+  };
+  return {
+    ready(message) {
+      armed = message.answersUnknown !== true;
+    },
+    sent(message) {
+      const requestId = requestOf(message);
+      if (!armed || requestId === undefined || message.type === "createWorkItem" || open.has(requestId)) return;
+      const stop = world.after(ANSWER_WAIT_MS, () => {
+        if (!open.delete(requestId)) return;
+        world.refuse({ type: "error", requestId, message: NOT_ANSWERED_SAYS });
+      });
+      open.set(requestId, stop);
+    },
+    answered(message) {
+      const requestId = requestOf(message);
+      if (requestId === undefined) return;
+      open.get(requestId)?.();
+      open.delete(requestId);
+    },
+  };
+}
+
 /**
  * What the status line says in place of the daemon's state, or nothing: the
  * window's own notice first, then what there is to say of the daemon
@@ -979,30 +1093,59 @@ export function hiddenRepositories(repositories: readonly Repository[]): { says:
   return { says: hidden.length === 0 ? "" : hidden.length === 1 ? "1 hidden repository" : `${hidden.length} hidden repositories`, hidden };
 }
 
-/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the running sessions, each by a line of words and, in `running`, by its id. */
+/** The sessions a dialog names before an act that ends them: the lines of those that run, which end, and the lines of those that wait for the machine, which leave the queue. */
+export interface SessionsNamed {
+  running: string[];
+  queued: string[];
+}
+
+/** One section of a session dialog: its head and its lines. */
+export interface SessionSection {
+  caption: string;
+  lines: string[];
+}
+
+/** The sections a session dialog draws, the running sessions first, and none for a kind that holds no line. Each head stands here and nowhere else. */
+export function sessionSections(named: SessionsNamed): SessionSection[] {
+  return [
+    { caption: "Running sessions that end", lines: named.running },
+    { caption: "Sessions waiting for the machine that leave the queue", lines: named.queued },
+  ].filter(({ lines }) => lines.length > 0);
+}
+
+/** Whether two lists hold the same values in the same places, each pair compared by `Object.is`: a dialog's part drawn from one of them is drawn from the other too, so it needs no drawing anew. A list that holds the other and more is not the same. */
+export function sameValues(last: readonly unknown[], next: readonly unknown[]): boolean {
+  return last.length === next.length && last.every((value, at) => Object.is(value, next[at]));
+}
+
+/** What a repository's removal takes off Owlery's lists and ends, as its dialog names it: the work items, each by its title, and the sessions that run or wait for the machine, each by a line of words and, in `running`, by its id. */
 export interface Removal {
   workItems: { id: number; title: string; archived: boolean }[];
-  sessions: string[];
+  sessions: SessionsNamed;
   running: Running;
 }
 
 /**
  * What removing a repository takes with it: every work item the repository
- * holds, the archived after the others, and every running session of one of
- * them. A pane runs while its process is alive, and is named by its tab's
- * label and its work item. A headless session runs while it is working, and
- * is named by its prompt. `running` is what the removal sends the daemon, so
- * the daemon ends the sessions the person was told of and no other.
+ * holds, the archived after the others, and every session of one of them
+ * that runs or waits for the machine. A pane runs while its process is
+ * alive, and is named by its tab's label and its work item. A headless
+ * session runs while it is working and waits while it is queued, and is
+ * named by its stage (`sessionName`) and its work item among the sessions
+ * of its kind. `running` is what the removal sends the daemon, the ids of
+ * both kinds, so the daemon ends the sessions the person was told of and no
+ * other.
  */
 export function removalOf(repository: Repository, workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): Removal {
   const held = [...workItems, ...archived].filter((workItem) => workItem.repoId === repository.id);
   const running = held.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
   const panes = running.flatMap(({ workItem, panes }) => panes.map(({ id, label }) => ({ id, says: `${label} in ${workItem.title}` })));
-  const asked = running.flatMap(({ workItem, asked }) => asked.map(({ id, prompt }) => ({ id, says: `Asked in ${workItem.title}: ${prompt}` })));
+  const working = running.flatMap(({ workItem, working }) => working.map(({ id, name }) => ({ id, says: `${name} in ${workItem.title}` })));
+  const queued = running.flatMap(({ workItem, queued }) => queued.map(({ id, name }) => ({ id, says: `${name} in ${workItem.title}` })));
   return {
     workItems: held.map((workItem) => ({ id: workItem.id, title: workItem.title, archived: workItem.archivedAt !== null })),
-    sessions: [...panes, ...asked].map(({ says }) => says),
-    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+    sessions: { running: [...panes, ...working].map(({ says }) => says), queued: queued.map(({ says }) => says) },
+    running: { panes: panes.map(({ id }) => id), headless: [...working, ...queued].map(({ id }) => id) },
   };
 }
 
@@ -1011,27 +1154,50 @@ function headlessRuns(session: HeadlessInfo): boolean {
   return session.state === "working" || session.state === "queued";
 }
 
-/** The running sessions of one work item: its panes whose process is alive, each with its tab's label, and its headless sessions that are working or wait for the machine, each with its prompt. */
-function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; asked: { id: number; prompt: string }[] } {
+/** How a session of a role is named where no stage of its chain names it: the role and the stage `ROLE_STAGES` pairs it with. */
+const ROLE_STAGE_SAYS: Record<NonNullable<HeadlessInfo["role"]>["role"], string> = { proofer: "Proofer, round", crafter: "Crafter, fix pass", sealer: "Sealer, verdict", orchestrator: "Orchestrator, judgment" };
+
+/**
+ * The words that name a headless session of `workItem` where the window
+ * lists it outside the daemon's chain's own list: the stage of the work
+ * item's chain the session runs, as in "Proofer, round 2"; where the chain
+ * holds no stage of it, as between the `machine` that queues a stage and
+ * the `inbox` that carries it, its role and stage, as in "Proofer, round";
+ * and for a session with no role, which only a daemon before release 0.0.5
+ * started, its number, as in "Session 3". It is never the prompt, which is
+ * the stage's whole prompt.
+ */
+export function sessionName(info: HeadlessInfo, workItem: WorkItem | undefined): string {
+  const stage = workItem ? chainOf(workItem)?.stages.find((each) => each.headlessId === info.id) : undefined;
+  if (stage) return STAGES[stage.kind].short(stage.round);
+  return info.role ? ROLE_STAGE_SAYS[info.role.role] : `Session ${info.id}`;
+}
+
+/** The sessions of one work item that run or wait: its panes whose process is alive, each with its tab's label, its headless sessions that are working, and apart from them those that wait for the machine, each with its name (`sessionName`). */
+function runningIn(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { panes: { id: number; label: string }[]; working: { id: number; name: string }[]; queued: { id: number; name: string }[] } {
   const tabs = paneTabs(workItem, sessions);
+  const inState = (state: HeadlessInfo["state"]): { id: number; name: string }[] => headless.filter((session) => session.workItemId === workItem.id && session.state === state).map((session) => ({ id: session.id, name: sessionName(session, workItem) }));
   return {
     panes: tabs.filter((tab) => tab.alive).map((tab) => ({ id: tab.id, label: tabLabel(tab, tabs, paneKinds, workItem.setup?.paneId ?? null) })),
-    asked: headless.filter((session) => session.workItemId === workItem.id && headlessRuns(session)).map(({ id, prompt }) => ({ id, prompt })),
+    working: inState("working"),
+    queued: inState("queued"),
   };
 }
 
 /**
- * What archiving a work item ends: each of its running sessions, as the
- * dialog before the archive names it, a pane by its tab's label and a
- * headless session by its prompt. `running` is what the archive sends the
- * daemon, so the daemon ends the sessions the person was told of and no
- * other. Where it names none, the archive asks nothing first.
+ * What archiving a work item ends: each of its running sessions, and apart
+ * from them each of its sessions that wait for the machine, as the dialog
+ * before the archive names them, a pane by its tab's label and a headless
+ * session by its stage (`sessionName`). `running` is what the archive sends
+ * the daemon, the ids of both kinds, so the daemon ends the sessions the
+ * person was told of and no other. Where it names none, the archive asks
+ * nothing first.
  */
-export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: string[]; running: Running } {
-  const { panes, asked } = runningIn(workItem, sessions, headless, paneKinds);
+export function archivalOf(workItem: WorkItem, sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): { sessions: SessionsNamed; running: Running } {
+  const { panes, working, queued } = runningIn(workItem, sessions, headless, paneKinds);
   return {
-    sessions: [...panes.map(({ label }) => label), ...asked.map(({ prompt }) => `Asked: ${prompt}`)],
-    running: { panes: panes.map(({ id }) => id), headless: asked.map(({ id }) => id) },
+    sessions: { running: [...panes.map(({ label }) => label), ...working.map(({ name }) => name)], queued: queued.map(({ name }) => name) },
+    running: { panes: panes.map(({ id }) => id), headless: [...working, ...queued].map(({ id }) => id) },
   };
 }
 
@@ -1040,72 +1206,104 @@ export function daemonEnding(chosen: DaemonEnd): { head: string; says: string; b
   if (chosen === "restart") {
     return {
       head: "Restart the daemon",
-      says: "A restart ends every running session and starts Owlery's background process again, from this build. The panes' tabs and the answers to what was asked go with the old process. Work items, their folders and their branches stay as they are.",
+      says: "A restart ends every running session and starts Owlery's background process again, from this build. The panes' tabs and what the chain's sessions answered go with the old process. Work items, their folders and their branches stay as they are.",
       button: "Restart",
     };
   }
   return {
     head: "Quit Owlery completely",
-    says: "This ends every running session, stops Owlery's background process and quits Owlery. The panes' tabs and the answers to what was asked go with the process. Work items, their folders and their branches stay as they are.",
+    says: "This ends every running session, stops Owlery's background process and quits Owlery. The panes' tabs and what the chain's sessions answered go with the process. Work items, their folders and their branches stay as they are.",
     button: "Quit",
   };
 }
 
 /**
- * Every running session the window holds, as the dialog that asks before
- * the daemon ends names it: each live pane, then each headless session that
- * works or waits for the machine. A session of a work item the window lists, archived or not,
- * reads as a repository's removal names it (`removalOf`). A live pane of no
- * listed work item reads as its kind's label alone, after the others, and a
- * headless session of none that works or waits by its prompt alone. The daemon's end
- * carries no list: it ends what runs at that moment.
+ * Every session the window holds that runs or waits for the machine, as the
+ * dialog that asks before the daemon ends names it: each live pane, then
+ * each headless session that works, and apart from them each headless
+ * session that waits. A session of a work item the window lists, archived
+ * or not, reads as a repository's removal names it (`removalOf`). A live
+ * pane of no listed work item reads as its kind's label alone, after the
+ * others, and a headless session of none by its name alone (`sessionName`),
+ * after those of its kind. The daemon's end carries no list: it ends what
+ * runs at that moment.
  */
-export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): string[] {
+export function runningSessions(workItems: readonly WorkItem[], archived: readonly WorkItem[], sessions: readonly SessionInfo[], headless: readonly HeadlessInfo[], paneKinds: readonly PaneKindInfo[]): SessionsNamed {
   const listed = [...workItems, ...archived];
   const running = listed.map((workItem) => ({ workItem, ...runningIn(workItem, sessions, headless, paneKinds) }));
   const known = new Set(listed.map((workItem) => workItem.id));
-  return [
-    ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
-    ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
-    ...running.flatMap(({ workItem, asked }) => asked.map(({ prompt }) => `Asked in ${workItem.title}: ${prompt}`)),
-    ...headless.filter((session) => headlessRuns(session) && !known.has(session.workItemId)).map(({ prompt }) => `Asked: ${prompt}`),
-  ];
+  const unlisted = (state: HeadlessInfo["state"]): string[] => headless.filter((session) => session.state === state && !known.has(session.workItemId)).map((session) => sessionName(session, undefined));
+  return {
+    running: [
+      ...running.flatMap(({ workItem, panes }) => panes.map(({ label }) => `${label} in ${workItem.title}`)),
+      ...sessions.filter((session) => session.alive && (session.workItemId === null || !known.has(session.workItemId))).map((session) => tabLabel(session, [session], paneKinds)),
+      ...running.flatMap(({ workItem, working }) => working.map(({ name }) => `${name} in ${workItem.title}`)),
+      ...unlisted("working"),
+    ],
+    queued: [...running.flatMap(({ workItem, queued }) => queued.map(({ name }) => `${name} in ${workItem.title}`)), ...unlisted("queued")],
+  };
 }
 
-/** One kind of thing a loss names, as a dialog draws it: its heading, a line for each entry the loss carries, and how many more there are where the list is cut, or nothing. */
+/** One entry of a loss list: a commit by its short hash and its subject, or a path, the branch's name among them. */
+export type LossRow = { hash: string; subject: string } | { path: string };
+
+/** One kind of thing a loss names, as a dialog draws it: its heading with its count, a row for each entry the loss lists, and how many more there are where the daemon cut the list, or nothing. */
 export interface LossSection {
   caption: string;
-  lines: string[];
+  rows: LossRow[];
   more: string;
 }
 
 /**
  * What a dialog names of a loss, a section for each kind the loss holds
- * something of, in this order: the branch and the folder a delete removes;
- * the commits nothing else holds, each by its hash and its subject; the
- * tracked files with a change that is not committed; the untracked files;
- * and the ignored files and folders, which a removal of the folder takes
- * with it.
+ * something of, in this order: the branch and the folder a delete removes,
+ * which its heading names; the commits nothing else holds, each by its hash
+ * and its subject; the tracked files with a change that is not committed;
+ * the untracked files; and the ignored files and folders, which a removal
+ * of the folder takes with it. The heading of each of the four last kinds
+ * counts what the loss counts, the entries the daemon left out among them,
+ * and counts one in the singular.
  */
 export function lossSections(loss: WorkItemLoss): LossSection[] {
-  const section = (caption: string, lines: string[], count: number): LossSection[] => (lines.length === 0 ? [] : [{ caption, lines, more: count > lines.length ? `and ${count - lines.length} more` : "" }]);
-  const removed = [...(loss.branch === null ? [] : [`The branch ${loss.branch}`]), ...(loss.worktree === null ? [] : [`The folder ${loss.worktree}`])];
+  const section = (caption: string, rows: LossRow[], count: number): LossSection[] => (rows.length === 0 ? [] : [{ caption, rows, more: count > rows.length ? `and ${count - rows.length} more` : "" }]);
+  const paths = (listed: readonly string[]): LossRow[] => listed.map((path) => ({ path }));
+  const removed = paths([...(loss.branch === null ? [] : [loss.branch]), ...(loss.worktree === null ? [] : [loss.worktree])]);
+  const removedHead = loss.branch === null ? "The folder removed from disk" : loss.worktree === null ? "The branch removed from disk" : "The branch and the folder removed from disk";
   return [
-    ...section("Removed from disk", removed, removed.length),
-    ...section("Commits no other branch, no remote and no tag holds", loss.commits.map(({ hash, subject }) => `${hash} ${subject}`), loss.commitCount),
-    ...section("Files with changes that are not committed", loss.uncommitted, loss.uncommittedCount),
-    ...section("Untracked files", loss.untracked, loss.untrackedCount),
-    ...section("Ignored files and folders, which go with the folder", loss.ignored, loss.ignoredCount),
+    ...section(removedHead, removed, removed.length),
+    ...section(
+      counted(loss.commitCount, "commit no other branch, no remote and no tag holds", "commits no other branch, no remote and no tag holds"),
+      loss.commits.map(({ hash, subject }) => ({ hash, subject })),
+      loss.commitCount,
+    ),
+    ...section(counted(loss.uncommittedCount, "file with changes that are not committed", "files with changes that are not committed"), paths(loss.uncommitted), loss.uncommittedCount),
+    ...section(counted(loss.untrackedCount, "untracked file", "untracked files"), paths(loss.untracked), loss.untrackedCount),
+    ...section(counted(loss.ignoredCount, "ignored file or folder, which goes with the folder", "ignored files and folders, which go with the folder"), paths(loss.ignored), loss.ignoredCount),
   ];
 }
 
-/** What the delete dialog says before its lists, of the loss the daemon answered with, or of none while the answer is awaited: why the delete cannot run, that work would be lost, that the folder stays where git reads nothing in the repository's folder, or what the delete removes. */
-export function deleteSays(loss: WorkItemLoss | null): string {
+/**
+ * What the delete dialog says before its lists, of the loss the daemon
+ * answered with, or of none while the answer is awaited: why the delete
+ * cannot run, that work would be lost, that the folder stays where git reads
+ * nothing in the repository's folder, or what the delete removes, the local
+ * branch only where the loss names one. Where the delete can run, and the
+ * work item's branch is one Owlery did not make (`keptBranch`), it then says
+ * that the branch stays.
+ */
+export function deleteSays(loss: WorkItemLoss | null, workItem?: Pick<WorkItem, "branch" | "ownsBranch">): string {
   if (loss === null) return "Reading what a delete would remove.";
   if (loss.blocked !== null) return loss.blocked;
   if (loss.unreachable) return "Git reads nothing in the repository's folder. A delete takes the work item off Owlery's lists, and its folder stays on disk.";
-  if (losesWork(loss)) return "A delete would lose the work named below. It runs only with Force delete checked.";
-  return "A delete removes the work item's worktree and its local branch, and takes the work item off Owlery's lists.";
+  const kept = workItem === undefined ? null : keptBranch(workItem);
+  const stays = kept === null ? "" : ` The branch ${kept} stays, since Owlery did not make it.`;
+  if (losesWork(loss)) return `A delete would lose the work named below. It runs only with Force delete checked.${stays}`;
+  return `${loss.branch === null ? "A delete removes the work item's worktree" : "A delete removes the work item's worktree and its local branch"}, and takes the work item off Owlery's lists.${stays}`;
+}
+
+/** The work item's branch where a delete leaves it, since Owlery did not make it, or null where the work item has none or Owlery made it. A daemon of an earlier build sends no `ownsBranch`, and made every work item's branch. */
+function keptBranch(workItem: Pick<WorkItem, "branch" | "ownsBranch">): string | null {
+  return workItem.ownsBranch === false ? workItem.branch : null;
 }
 
 /**
@@ -1124,7 +1322,7 @@ export function deleteChoice(loss: WorkItemLoss | null, force: boolean): { force
 /**
  * The controls of a repository's removal dialog and what it says, for how
  * many work items the repository holds, for its two choices, "Also delete
- * the work items' worktrees and local branches" and "Also move the
+ * the work items' worktrees, and the local branches Owlery made" and "Also move the
  * repository's folder to the Trash", for the loss of each work item as far
  * as the daemon has answered, and for whether "Force delete" is checked.
  *
@@ -1143,8 +1341,8 @@ export function removalChoice(workItems: number, deletes: boolean, trash: boolea
   const lists = workItems === 0 ? "Owlery will no longer list the repository." : "Owlery will no longer list the repository or its work items.";
   const says = deletes
     ? trashes
-      ? `${lists} Each work item's worktree and local branch are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
-      : `${lists} Each work item's worktree and local branch are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
+      ? `${lists} Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below, and the repository's folder then moves to the Trash, whole. Nothing on a remote is removed.`
+      : `${lists} Each work item's worktree, and the local branch Owlery made for it, are deleted, as named below. The repository's folder stays, and nothing on a remote is removed.`
     : trashes
       ? `${lists} Its folder moves to the Trash, whole, and nothing in it is erased.`
       : "Owlery will no longer list the repository or its work items. Nothing on disk is removed: the repository's folder, each worktree's folder and each branch stay where they are.";
@@ -1216,6 +1414,21 @@ export function filterChoices(): { value: StateFilter; label: string }[] {
   return [{ value: "all", label: "All" }, ...[...STATES_BY_URGENCY, null].map((state) => ({ value: state ?? ("none" as const), label: stateHeading(state) })), { value: "decided", label: DECISIONS_HEAD }];
 }
 
+/** The label of a choice of the filter, as `filterChoices` names it. */
+function filterLabel(state: StateFilter): string {
+  return filterChoices().find((choice) => choice.value === state)?.label ?? state;
+}
+
+/**
+ * The sidebar's filter as its control marks it: on while a state other than
+ * All is chosen or a search is typed, and saying to a pointer the state it
+ * shows and what is typed.
+ */
+export function filterMark(query: string, state: StateFilter): { on: boolean; says: string } {
+  const says = `Showing: ${filterLabel(state)}`;
+  return { on: query !== "" || state !== "all", says: query === "" ? says : `${says}, matching "${query}"` };
+}
+
 /**
  * The work items a search and a filter leave, in the order given: those
  * whose title, branch or repository's name holds what is typed, and whose
@@ -1230,7 +1443,7 @@ export function matchWorkItems<E extends { workItem: WorkItem; line: InboxLine }
     if (state === "decided") {
       if (mergedWorkItem(workItem) || !decisionsOf(workItem).some((decision) => decision.state === "decided" || decision.state === "reversed")) return false;
     } else if (state !== "all" && (line.state ?? "none") !== state) return false;
-    return query === "" || [workItem.title, workItem.branch, repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
+    return query === "" || [workItem.title, ...(workItem.branch === null ? [] : [workItem.branch]), repoNameOf(workItem)].some((text) => markRanges(text, query).length > 0);
   });
 }
 
@@ -1253,6 +1466,23 @@ export function emptyList(screen: "inbox" | "history" | "archived", total: numbe
   if (shown > 0) return "";
   if (total > 0) return "No work item matches.";
   return { inbox: "No work items yet.", history: "Nothing has finished yet.", archived: "No work item of this repository is archived." }[screen];
+}
+
+/** The button under the sentence of the empty sidebar, which chooses All in the filter and empties the search field. */
+export const SHOW_EVERY_WORK_ITEM = "Show every work item";
+
+/**
+ * What the sidebar says in place of its repositories, `listed` being how
+ * many it lists: what narrows it, and how many repositories the daemon keeps
+ * that are not hidden. Nothing where nothing narrows it, where it lists a
+ * repository, and where every repository is hidden, which the button of the
+ * hidden repositories says.
+ */
+export function emptySidebar(repositories: readonly Repository[], listed: number, query: string, state: StateFilter): string {
+  const kept = repositories.filter((repository) => !repository.hidden).length;
+  if ((query === "" && state === "all") || listed > 0 || kept === 0) return "";
+  const what = query === "" ? `No work item stands under "${filterLabel(state)}"` : state === "all" ? `No work item matches "${query}"` : `No work item under "${filterLabel(state)}" matches "${query}"`;
+  return `${what}, ${kept === 1 ? "so the sidebar does not list its repository" : `so the sidebar lists none of its ${kept} repositories`}.`;
 }
 
 /** What changed of a work item's seal since the look: a seal was given, or a seal broke. */
@@ -1469,17 +1699,17 @@ export interface SummaryControls {
   hint: string;
 }
 
-/** Whether a line that waits waits on the person's answer: an open question, a call to allow, or a pane that waits, `session` being the pane the line reads. */
+/** Whether a line that waits waits on the person's answer: an open question, or a pane that waits, `session` being the pane the line reads. */
 function waitsOnAnAnswer(workItem: WorkItem, session: SessionInfo | undefined): boolean {
-  return parkedWith(workItem) !== null || permissionsOf(workItem).length > 0 || session?.state === "waiting";
+  return parkedWith(workItem) !== null || session?.state === "waiting";
 }
 
 /**
  * The summary screen's controls. Where a changed work item waits, the main
  * one opens a line and the inbox stands beside it: the first line, in the
- * order given, whose work item waits on an open question, a call to allow
- * or a pane that waits, as "Answer the first question", and where none
- * does, the first that waits for another reason, as a broken seal, a stopped
+ * order given, whose work item waits on an open question or a pane that
+ * waits, as "Answer the first question", and where none does, the first
+ * that waits for another reason, as a broken seal, a stopped
  * chain or a failed check, as "Open the first that needs you". The hint
  * names the line Enter opens, which may stand after a line that waits for
  * another reason. Otherwise the inbox is the main control and the only one.
@@ -1566,7 +1796,7 @@ export function heavyRanRows(ran: readonly HeavyRan[]): { title: string; detail:
   return ran.map((row) => ({ title: `${row.repoName} · ${row.name}`, detail: heavyRanSays(row, ageOf(0, row.longestMs)) }));
 }
 
-/** How many sessions go before the session of the stage a work item's running chain begins, in the daemon's queue, or null where that session does not wait for the machine, where the chain does not run, and against a daemon that keeps no cap. A session a person asked in the work item is not the chain's, and counts for nothing here. */
+/** How many sessions go before the session of the stage a work item's running chain begins, in the daemon's queue, or null where that session does not wait for the machine, where the chain does not run, and against a daemon that keeps no cap. A session of the work item that no stage of its chain names counts for nothing here. */
 export function stageAhead(workItem: WorkItem, machine: Machine | null): number | null {
   const chain = chainOf(workItem);
   const id = chain?.state === "running" ? chain.stages.at(-1)?.headlessId : undefined;
@@ -1574,13 +1804,12 @@ export function stageAhead(workItem: WorkItem, machine: Machine | null): number 
   return at < 0 ? null : at;
 }
 
-/** The sessions that wait for the machine, as the Machine dialog lists them under the agent row in the order they start: each by its work item's title and what it waits to run, a chain's stage by the stage's name and a person's question by its prompt. A session the window holds no line of is listed by its number. */
+/** The sessions that wait for the machine, as the Machine dialog lists them under the agent row in the order they start: each by its work item's title and what it waits to run, by its stage's name (`sessionName`). A session the window holds no line of is listed by its number. */
 export function machineQueue(machine: Machine | null, headless: readonly HeadlessInfo[], workItems: readonly WorkItem[]): { title: string; waits: string }[] {
   return (machine?.agents.queue ?? []).map((id) => {
     const info = headless.find((each) => each.id === id);
     const workItem = info ? workItems.find((item) => item.id === info.workItemId) : undefined;
-    const stage = workItem ? chainOf(workItem)?.stages.find((each) => each.headlessId === id) : undefined;
-    return { title: workItem?.title ?? "", waits: stage ? STAGES[stage.kind].short(stage.round) : info ? `Asked: ${info.prompt}` : `Session ${id}` };
+    return { title: workItem?.title ?? "", waits: info ? sessionName(info, workItem) : `Session ${id}` };
   });
 }
 
@@ -1608,17 +1837,24 @@ export interface CapRow {
 /**
  * What the Machine dialog shows: what the daemon read of the machine, in one
  * sentence, and a row for each cap, whose field holds the value a person set or
- * else the proposal. Nothing against a daemon that sent no `machine`, one of
- * an earlier build or one given no reader, and the Machine button is then
- * hidden.
+ * else the proposal. The scrollback's row stands after the panes', and not
+ * against a daemon of an earlier build, which sends no scrollback. Nothing
+ * against a daemon that sent no `machine`, one of an earlier build or one
+ * given no reader, and the Machine button is then hidden.
  */
 export function machineDialog(machine: Machine | null): { reading: string; rows: CapRow[] } | null {
   if (!machine) return null;
-  const { reading, agents, worktrees, panes, heavy } = machine;
+  const { reading, agents, worktrees, panes, heavy, scrollback } = machine;
   const row = (cap: Cap, set: number | null, proposed: number | null, says: string): CapRow => ({ cap, label: CAP_NAMES[cap].label, value: set ?? proposed, proposed, isDefault: set === null, says });
   return {
     reading: readingSays(reading),
-    rows: [row("agents", agents.set, agents.proposed, agentsSays(reading, agents)), row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)), row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)), row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy))],
+    rows: [
+      row("agents", agents.set, agents.proposed, agentsSays(reading, agents)),
+      row("worktrees", worktrees.set, worktrees.proposed, worktreesSays(reading, worktrees)),
+      row("panes", panes.set, panes.proposed, panesSays(reading, panes.proposed)),
+      ...(scrollback === undefined ? [] : [row("scrollback", scrollback.set, scrollback.proposed, scrollbackSays())]),
+      row("heavyCommands", heavy.set, heavy.proposed, heavySays(heavy)),
+    ],
   };
 }
 
@@ -1728,13 +1964,10 @@ export function choiceNote(question: AskedQuestion): string {
 }
 
 /**
- * The text of a line's second row, and which of the ten it is: for a work
+ * The text of a line's second row, and which kind of text it is: for a work
  * item parked with questions the first question, followed by how many more
- * it waits on, as in " (and 2 more questions)"; otherwise, where a headless
- * session of the work item waits for the person to allow a call, the oldest
- * request as the tool it asks to use and its text, followed by how many
- * more wait, as in " (and 1 more)"; otherwise, where the work item's chain
- * stopped, the chain's sentence, which says the stage and why, as the
+ * it waits on, as in " (and 2 more questions)"; otherwise, where the work
+ * item's chain stopped, the chain's sentence, which says the stage and why, as the
  * daemon wrote it; otherwise, where `ahead` says a headless session or a
  * heavy command of the work item waits for the machine (`machineAhead`),
  * "Waiting for the machine" and how many go before it, as in "Waiting for
@@ -1754,12 +1987,9 @@ export function choiceNote(question: AskedQuestion): string {
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean, ahead: number | null = null): { says: "question" | "permission" | "chain" | "machine" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean, ahead: number | null = null): { says: "question" | "chain" | "machine" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
-  const asks = searching ? [] : permissionsOf(workItem);
-  const oldest = asks[0];
-  if (oldest) return { says: "permission", text: `${asksToUse(oldest.tool)}: ${oldest.text}${asks.length > 1 ? ` (and ${asks.length - 1} more)` : ""}` };
   const chain = searching ? null : chainOf(workItem);
   if (chain?.state === "stopped") return { says: "chain", text: chain.says };
   if (!searching && ahead !== null) return { says: "machine", text: machineWaits(ahead) };
@@ -1773,7 +2003,7 @@ export function lineText(workItem: WorkItem, session: SessionInfo | undefined, s
   const said = searching ? null : saidBy(session);
   if (said !== null) return { says: "state", text: said };
   const newest = searching ? undefined : workItem.commits?.[0];
-  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch };
+  return newest ? { says: "commit", text: newest.subject } : { says: "branch", text: workItem.branch ?? NO_BRANCH };
 }
 
 /**
@@ -1801,7 +2031,7 @@ export function lineBadge(workItem: WorkItem, look: Look | null): string {
  * fact in a view, "main · 6 ahead · 2 behind". Ahead counts the commits the
  * base branch does not hold, and behind the commits the base holds that the
  * branch does not. Where no base branch is recorded it is left out with
- * behind, and the count is of the commits since the branch was cut. A count
+ * behind, and the count is of the commits since its base commit. A count
  * is left out where the daemon read none, and behind is left out where a
  * daemon of an earlier build sent no such field.
  */
@@ -1970,18 +2200,77 @@ export function inboxKey(
  * What a key pressed with the Command key does on every screen, or null
  * where the window leaves it alone: K puts the focus in the search field,
  * N opens the "New work item" form, and W closes the pane in front. The
- * Control key stands for the Command key where the keyboard has none. The
+ * Control key stands for the Command key where the keyboard has none. On a
+ * Mac keyboard alone, F opens the find bar over the pane in front where a
+ * pane is in front, `paneInFront`, and G goes to the next match while the
+ * bar is open, `finding`, and to the previous one with the Shift key as
+ * well. Control+F and Control+G stay the shell's on another keyboard. The
  * key is read by its place on the keyboard, and not while a dialog is open,
- * a menu is open or another modifier key is held as well. The application
- * menu binds none of these keys, since a menu takes its key before the page
- * sees it (src/main/menu.ts).
+ * a menu is open or another modifier key is held as well, the Shift key of
+ * G apart. The application menu binds none of these keys, since a menu
+ * takes its key before the page sees it (src/main/menu.ts).
  */
-export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean }, where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean }): "search" | "new" | "closePane" | null {
+export function commandKey(
+  key: { code: string; meta: boolean; ctrl: boolean; alt: boolean; shift: boolean },
+  where: { mac: boolean; dialogOpen: boolean; menuOpen: boolean; paneInFront: boolean; finding: boolean },
+): "search" | "new" | "closePane" | "find" | "findNext" | "findPrevious" | null {
   const command = where.mac ? key.meta && !key.ctrl : key.ctrl && !key.meta;
-  if (!command || key.alt || key.shift || where.dialogOpen || where.menuOpen) return null;
+  if (!command || key.alt || where.dialogOpen || where.menuOpen) return null;
+  if (where.mac && where.finding && key.code === "KeyG") return key.shift ? "findPrevious" : "findNext";
+  if (key.shift) return null;
   if (key.code === "KeyK") return "search";
   if (key.code === "KeyN") return "new";
+  if (where.mac && where.paneInFront && key.code === "KeyF") return "find";
   return key.code === "KeyW" ? "closePane" : null;
+}
+
+/** The most matches the find bar counts. The search add-on is let count one more, so the bar tells 1,000 matches from more (./work-item-view, `searchOf`). */
+export const FIND_LIMIT = 1000;
+
+/** What the find bar holds: the field's text, and whether "Match case" and "Regular expression" are on. */
+export interface FindBar {
+  text: string;
+  matchCase: boolean;
+  regex: boolean;
+}
+
+/**
+ * What the find bar searches for: the field's text, matched in its case
+ * only where "Match case" is on, and read as a regular expression only
+ * where "Regular expression" is on. Where the field is empty nothing is
+ * searched, and the answer is null. A regular expression is read with the
+ * flags the search add-on reads it with, and one that does not read is
+ * refused with the sentence the bar shows in its count's place, since the
+ * add-on would throw on it.
+ */
+export function findQuery(bar: FindBar): { term: string; caseSensitive: boolean; regex: boolean } | { refusal: string } | null {
+  if (bar.text === "") return null;
+  if (bar.regex) {
+    try {
+      new RegExp(bar.text, bar.matchCase ? "g" : "gi");
+    } catch {
+      return { refusal: "Not a regular expression" };
+    }
+  }
+  return { term: bar.text, caseSensitive: bar.matchCase, regex: bar.regex };
+}
+
+/**
+ * The words of the find bar's count, from what the search add-on says of
+ * its results: how many it found, which it orders from the oldest line, and
+ * the index among them of the match in front. The bar counts from the
+ * newest match, the one nearest the end of the output, which is 1: "3 of
+ * 17". Where it found none it says "No match". The add-on counts one past
+ * `FIND_LIMIT` at most, and names no match in front where that match is not
+ * among those it counted, past the limit or printed since it last counted.
+ * Past the limit the bar says "More than 1,000 matches". A match printed
+ * since is counted again before the page draws (./work-item-view, `find`),
+ * so the bar does not show these words for it.
+ */
+export function findCount(results: { resultIndex: number; resultCount: number }): string {
+  if (results.resultCount === 0) return "No match";
+  if (results.resultCount > FIND_LIMIT || results.resultIndex < 0) return `More than ${FIND_LIMIT.toLocaleString("en-US")} matches`;
+  return `${(results.resultCount - results.resultIndex).toLocaleString("en-US")} of ${results.resultCount.toLocaleString("en-US")}`;
 }
 
 /**
@@ -1993,6 +2282,20 @@ export function commandKey(key: { code: string; meta: boolean; ctrl: boolean; al
  */
 export function closeAsks(session: SessionInfo): boolean {
   return session.alive && session.state === "working";
+}
+
+/**
+ * What the dialog that asks before a close of panes says: a sentence that
+ * names each pane of the close whose session is working, `working` being
+ * their tabs' labels in the tabs' order, one at least, and says how many
+ * panes the close ends, `count`, and the words of the button that closes
+ * them. A close of one pane says what the dialog said before a close took
+ * several.
+ */
+export function closeSays(working: readonly string[], count: number): { says: string; confirm: string } {
+  const named = working.length > 1 ? `${working.slice(0, -1).join(", ")} and ${working.at(-1)} are` : `${working[0]} is`;
+  const closing = count === 1 ? "the pane" : `${count} panes`;
+  return { says: `${named} working. Closing ${closing} ends ${working.length > 1 ? "their sessions" : "its session"}.`, confirm: count === 1 ? "Close pane" : `Close ${count} panes` };
 }
 
 /**
@@ -2011,6 +2314,27 @@ export function droppedText(paths: readonly string[]): string {
     .filter((path) => path !== "" && !/[\u0000-\u001f\u007f]/.test(path))
     .map((path) => `${path.replace(/[ -~]/g, (character) => (/[A-Za-z0-9/._\-+=:,@%]/.test(character) ? character : `\\${character}`))} `)
     .join("");
+}
+
+/** What a paste into a pane hands the pane's program: the text of the paths of files, the paste's own text, which the terminal pastes itself, or the path of the image the main process writes from the clipboard. */
+export type PasteAct = { kind: "paths"; text: string } | { kind: "text" } | { kind: "image" } | null;
+
+/**
+ * What a paste into a pane hands the pane's program, from what the paste
+ * holds: `paths`, the path of each file it holds, empty for a file that is
+ * on no disk, whether it holds text, and whether it holds an image. Files
+ * that are on a disk, as after a copy in Finder, are handed as their paths,
+ * written as dropped files' paths are (`droppedText`). Otherwise a paste
+ * that holds text is the terminal's own, though an image stands beside the
+ * text. Otherwise an image is handed as the path of a file the main process
+ * writes from it (src/main/clipboard.ts), so the CLI of any agent reads it
+ * as a file. A paste that holds none of the three hands nothing.
+ */
+export function pasteAct(held: { paths: readonly string[]; text: boolean; image: boolean }): PasteAct {
+  const text = droppedText(held.paths);
+  if (text !== "") return { kind: "paths", text };
+  if (held.text) return { kind: "text" };
+  return held.image ? { kind: "image" } : null;
 }
 
 /** What a key of a pane that the window reads does: it sends a line feed, or one of the three bytes a shell reads as an editing key. */
@@ -2043,7 +2367,7 @@ export function paneKey(key: { key: string; shift: boolean; ctrl: boolean; alt: 
 }
 
 /** What an item of a pane's menu does. */
-export type PaneMenuAct = "copy" | "paste" | "selectAll" | "clear" | "reset" | "account" | "close";
+export type PaneMenuAct = "copy" | "paste" | "selectAll" | "find" | "clear" | "reset" | "account" | "close";
 
 /** An item of a pane's menu: its words, the keys that do the same, empty where no key of the window does, what it does, and whether it can be pressed. */
 export interface PaneMenuItem {
@@ -2055,23 +2379,26 @@ export interface PaneMenuItem {
 
 /**
  * The items of a pane's menu, in their order, with null where a rule stands
- * between two groups. On a Mac keyboard "Copy", "Paste" and "Close Pane"
- * show the keys that do the same, and no other item shows one, since no key
- * of the window does what it does. On another keyboard no item shows a key.
+ * between two groups. On a Mac keyboard "Copy", "Paste", "Find…" and
+ * "Close Pane" show the keys that do the same, and no other item shows one,
+ * since no key of the window does what it does. On another keyboard no item
+ * shows a key, and "Find…" is the one way to the find bar (`commandKey`).
  * "Copy" can be pressed only where the terminal holds a `selection`.
  * "Change Account…" stands before "Close Pane" only where the pane's account
  * can be changed (`paneAccountChange`), and shows no key.
  */
 export function paneMenu(mac: boolean, selection: boolean, changesAccount = false): (PaneMenuItem | null)[] {
   const item = (text: string, act: PaneMenuAct, keys = "", enabled = true): PaneMenuItem => ({ text, keys: mac ? keys : "", act, enabled });
-  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
+  return [item("Copy", "copy", "\u2318C", selection), item("Paste", "paste", "\u2318V"), item("Select All", "selectAll"), item("Find\u2026", "find", "\u2318F"), null, item("Clear Screen", "clear"), item("Reset Terminal", "reset"), null, ...(changesAccount ? [item("Change Account\u2026", "account")] : []), item("Close Pane", "close", "\u2318W")];
 }
 
-/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`. */
+/** A text of a pane's line that may name a path, with where it stands in the line's text: from `start` to before `end`, and the line and the column the pane printed after it, where it printed them. */
 export interface PathCandidate {
   text: string;
   start: number;
   end: number;
+  line?: number;
+  column?: number;
 }
 
 /**
@@ -2081,7 +2408,8 @@ export interface PathCandidate {
  * mark of an address, which the link add-on finds. Around it are cut the
  * quotes and the brackets a sentence puts there, the punctuation that
  * closes one, and a line number with its column, written as `:12` or
- * `:12:5`. A run that names nothing but its slashes, dots and tildes is no
+ * `:12:5`, which the candidate keeps beside its text and outside the range
+ * it stands at. A run that names nothing but its slashes, dots and tildes is no
  * candidate: `//` opens a comment on every other line of a program, and
  * would read as the root folder. A bare name is none either, since `docs`
  * is a word of a sentence and a folder of most worktrees.
@@ -2094,19 +2422,37 @@ export function pathCandidates(line: string): PathCandidate[] {
     let text = run[0].slice(start);
     // A path that ends in the folder above keeps its dots.
     while (/["'`)\]}>.,;:!?]$/.test(text) && !/\/\.\.?$/.test(text)) text = text.slice(0, -1);
-    text = text.replace(/:\d+(?::\d+)?$/, "");
+    const place = /:(\d+)(?::(\d+))?$/.exec(text);
+    if (place) text = text.slice(0, place.index);
     if (!text.includes("/") || /^[/.~]*$/.test(text)) continue;
     start += run.index;
-    found.push({ text, start, end: start + text.length });
+    found.push({ text, start, end: start + text.length, ...(place ? { line: Number(place[1]), ...(place[2] === undefined ? {} : { column: Number(place[2]) }) } : {}) });
   }
   return found;
 }
 
-/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, or any other path a file or a folder stands at. */
-export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "path"; path: string };
+/** What a link of a pane leads to: an address of the web, the worktree of another work item the window lists, a file, with the line and the column the pane printed after its path, or any other path a folder stands at. */
+export type LinkTarget = { kind: "web"; address: string } | { kind: "workItem"; path: string; workItemId: number } | { kind: "file"; path: string; line?: number; column?: number } | { kind: "path"; path: string };
 
-/** What a person does with a link: open its address in the browser, put its work item's view in front, show its path in Finder, or copy the address or the path. */
-export type LinkAct = "browser" | "workItem" | "finder" | "copy";
+/** What a person does with a link: open its address in the browser, put its work item's view in front, open its file in the editor, show its path in Finder, or copy the address or the path. */
+export type LinkAct = "browser" | "workItem" | "editor" | "finder" | "copy";
+
+/** Who opens a file a pane printed: the editor the person chose, Finder, which shows it in its folder, or nobody yet, where a click asks the person for an editor. */
+export type FileOpener = { editor: string } | "finder" | "ask";
+
+/**
+ * Who opens a file a pane printed, from the editor the main process keeps
+ * as the person's choice, `chosen`, and the editors of its list the Mac
+ * holds, `installed` (src/main/openers.ts). The chosen editor opens it where
+ * the Mac holds it, and Finder shows it where the person chose Finder or
+ * the chosen editor is gone. Where no choice was made a click asks, on a Mac
+ * that holds an editor of the list, and Finder shows the file on one that
+ * holds none, as it shows a folder.
+ */
+export function fileOpener(editor: { chosen: string | null; installed: readonly string[] }): FileOpener {
+  if (editor.chosen === null) return editor.installed.length > 0 ? "ask" : "finder";
+  return editor.chosen !== "finder" && editor.installed.includes(editor.chosen) ? { editor: editor.chosen } : "finder";
+}
 
 /** The target of a link the terminal found as an address: a web address, as the URL's parser writes it, where it is an `http` or `https` one, and none otherwise. The main process opens no other address (src/main/links.ts). */
 export function webTarget(address: string): LinkTarget | null {
@@ -2116,19 +2462,25 @@ export function webTarget(address: string): LinkTarget | null {
 }
 
 /**
- * The target of a path the main process found a file or a folder at, whole:
- * the worktree of a work item the window lists, where it is one, and
- * another path otherwise. The worktree of the work item whose view is on
- * screen, `viewing`, is another path, since a click that opened the view
- * already on screen would do nothing.
+ * The target of a path the main process found a file or a folder at, whole.
+ * Where `file` is given a file stands there, and the target is that file
+ * with the line and the column it holds. A folder is the worktree of a work
+ * item the window lists, where it is one, and another path otherwise. The
+ * worktree of the work item whose view is on screen, `viewing`, is another
+ * path, since a click that opened the view already on screen would do
+ * nothing.
  */
-export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined): LinkTarget {
+export function pathTarget(path: string, workItems: readonly WorkItem[], viewing: number | undefined, file?: { line?: number; column?: number }): LinkTarget {
+  if (file) return { kind: "file", path, ...(file.line === undefined ? {} : { line: file.line }), ...(file.column === undefined ? {} : { column: file.column }) };
   const workItem = workItems.find((listed) => listed.worktree === path && listed.id !== viewing);
   return workItem ? { kind: "workItem", path, workItemId: workItem.id } : { kind: "path", path };
 }
 
-// What a person can do with a link of each kind of target, in the order the card's rows stand in, and the click that does it: one with the key held, one with the key and the Shift key held, or none. `linkClick` and `linkCard` both read it, so a row never names a click that does something else.
-const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAct; click: "key" | "shiftKey" | null }[]> = {
+/** A row of a link's card: its words, what it does, and the click that does the same: one with the key held, one with the key and the Shift key held, or none. */
+type LinkRow = { text: string; act: LinkAct; click: "key" | "shiftKey" | null };
+
+// What a person can do with a link of each kind of target but a file, in the order the card's rows stand in. `linkRows` gives a file's.
+const LINK_ROWS: Record<Exclude<LinkTarget["kind"], "file">, readonly LinkRow[]> = {
   web: [
     { text: "Open in browser", act: "browser", click: "key" },
     { text: "Copy link", act: "copy", click: null },
@@ -2143,6 +2495,17 @@ const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAc
   ],
 };
 
+/** The rows of a link's card for a kind of target, and for a file the rows its opener gives: a path's where Finder shows it, and otherwise the editor's row on the click with the key and Finder's on the click with the Shift key as well. `linkClick` and `linkCard` both read them, so a row never names a click that does something else. */
+function linkRows(kind: LinkTarget["kind"], opener: FileOpener): readonly LinkRow[] {
+  if (kind !== "file") return LINK_ROWS[kind];
+  if (opener === "finder") return LINK_ROWS.path;
+  return [
+    { text: opener === "ask" ? "Open in an editor\u2026" : `Open in ${opener.editor}`, act: "editor", click: "key" },
+    { text: "Show in Finder", act: "finder", click: "shiftKey" },
+    { text: "Copy path", act: "copy", click: null },
+  ];
+}
+
 /**
  * What a click on a link in a pane does, from the kind of its target and
  * the keys held, or null where the click stays the terminal's, which
@@ -2150,11 +2513,12 @@ const LINK_ROWS: Record<LinkTarget["kind"], readonly { text: string; act: LinkAc
  * where the keyboard has none: on a Mac the Control key with a click is the
  * secondary click. With the Shift key held as well the click does what the
  * target's rows give that click, and what the click with the key alone does
- * where they give it nothing.
+ * where they give it nothing. A file's rows are its opener's (`linkRows`),
+ * and a file whose opener is not given is shown in Finder, as a path is.
  */
-export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean): LinkAct | null {
+export function linkClick(kind: LinkTarget["kind"], click: { meta: boolean; ctrl: boolean; shift: boolean }, mac: boolean, opener: FileOpener = "finder"): LinkAct | null {
   if (!(mac ? click.meta : click.ctrl)) return null;
-  const rows = LINK_ROWS[kind];
+  const rows = linkRows(kind, opener);
   const row = (click.shift ? rows.find((listed) => listed.click === "shiftKey") : undefined) ?? rows.find((listed) => listed.click === "key");
   return row ? row.act : null;
 }
@@ -2169,12 +2533,12 @@ export interface LinkCard {
 export const CARD_SHOW_MS = 300;
 export const CARD_LEAVE_MS = 200;
 
-/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not. A row that copies names no click. */
-export function linkCard(target: LinkTarget, mac: boolean): LinkCard {
+/** The card of a link: its target whole, the address or the path, and its rows, each with the click that does what it names, as `linkClick` answers that click on a keyboard that is a Mac's or is not, for a file with the same `opener`. A row that copies names no click. */
+export function linkCard(target: LinkTarget, mac: boolean, opener: FileOpener = "finder"): LinkCard {
   const keys = { key: mac ? "\u2318 Click" : "Ctrl Click", shiftKey: mac ? "\u21e7 \u2318 Click" : "Shift Ctrl Click" };
   return {
     title: target.kind === "web" ? target.address : target.path,
-    rows: LINK_ROWS[target.kind].map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
+    rows: linkRows(target.kind, opener).map(({ text, act, click }) => ({ text, keys: click === null ? "" : keys[click], act })),
   };
 }
 
@@ -2224,6 +2588,10 @@ export function menuTarget(on: { workItem?: number; repository?: number }, selec
  * work items, or, for `group`, opens the dialog of a new group. On both:
  * writes a text to the clipboard, or, from an item of the "Open in" submenu,
  * opens a folder in Finder, where `app` is null, or in an installed app.
+ * On a pane's tab's menu: opens the dialog that renames the pane `id`, sets
+ * its tab's colour, where `colour` null takes the colour off, or closes the
+ * panes `ids` names, in the tabs' order, after one dialog where the session
+ * of any of them is working.
  */
 export type MenuAction =
   | { do: "rename" | "account" | "archive" | "restore" | "delete"; id: number }
@@ -2231,7 +2599,10 @@ export type MenuAction =
   | { do: "copy"; text: string }
   | { do: "set"; id: number; pinned?: boolean; muted?: boolean; groupId?: number | null }
   | { do: "settings" | "icon" | "records" | "archived" | "group" | "hide" | "remove"; id: number }
-  | { do: "pane"; accountId: number | null };
+  | { do: "pane"; accountId: number | null }
+  | { do: "closePanes"; ids: number[] }
+  | { do: "renamePane"; id: number }
+  | { do: "colourPane"; id: number; colour: TabColour | null };
 
 /** One item of a menu or of a submenu, which a press acts on: its words, the sentence a pointer over it is told, what its press does, and whether a rule stands above it, where another part of the menu begins. */
 export interface MenuItem {
@@ -2251,8 +2622,27 @@ export interface Submenu {
   divides: boolean;
 }
 
-/** One entry of a menu: an item a press acts on, or one that opens a submenu. */
-export type MenuEntry = MenuItem | Submenu;
+/** One item of a row of a menu, which a press acts on: its words, which a screen reader is told in place of a label it draws, the sentence a pointer over it is told, what its press does, the colour of the mark it draws, or null for the mark of no colour, and whether it is the one of the row that holds. */
+export interface MenuRowItem {
+  label: string;
+  /** What a press does, opening with the item's words, since the item draws a mark and no words. */
+  description: string;
+  action: MenuAction;
+  colour: TabColour | null;
+  checked: boolean;
+}
+
+/** An entry of a menu that stands as a row of items, one of which holds, in place of one item: the row's words, which a screen reader is told, the sentence a pointer over the row is told, its items, and whether a rule stands above it. The arrow keys reach its items as they reach every other item of the menu. */
+export interface MenuRow {
+  label: string;
+  /** What the row's items choose, in other words than the label's. */
+  description: string;
+  row: readonly MenuRowItem[];
+  divides: boolean;
+}
+
+/** One entry of a menu: an item a press acts on, one that opens a submenu, or a row of items. */
+export type MenuEntry = MenuItem | Submenu | MenuRow;
 
 /**
  * Where a submenu stands, as the left and top of its box: its left edge at
@@ -2283,8 +2673,8 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 
 /**
  * A work item's menu, in its order: Rename; "Open in", whose submenu lists
- * Finder and each installed editor and terminal; Copy path and Copy branch
- * name; "Account…", after Rename, where `accounts` says the window offers a
+ * Finder and each installed editor and terminal; Copy path, and Copy
+ * branch name where the work item has a branch; "Account…", after Rename, where `accounts` says the window offers a
  * choice of account (`offersAccounts`); Pin or Unpin, and Mute notifications or Unmute notifications; "Move
  * to" for each of `groups`, the groups of its repository, but the one it
  * stands in, and "Move out of" that one; Archive and Delete. The menu of an
@@ -2294,11 +2684,16 @@ function openEntries(folder: string, whose: string, apps: readonly InstalledApp[
 export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], groups: readonly Group[], accounts = false): MenuEntry[] {
   const { id, worktree: folder } = workItem;
   const open = openEntries(folder, "the work item's", apps);
+  const { branch } = workItem;
   const copies: MenuItem[] = [
     { label: "Copy path", description: "Put the worktree folder's whole path on the clipboard.", action: { do: "copy", text: folder }, divides: true },
-    { label: "Copy branch name", description: `Put ${workItem.branch} on the clipboard.`, action: { do: "copy", text: workItem.branch }, divides: false },
+    ...(branch === null ? [] : [{ label: "Copy branch name", description: `Put ${branch} on the clipboard.`, action: { do: "copy" as const, text: branch }, divides: false }]),
   ];
-  const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: "Remove the work item's worktree and its local branch from disk, after a dialog names what would be lost. Nothing on a remote is removed.", action: { do: "delete", id }, divides });
+  // A delete removes the branch only where Owlery made it, which a daemon of an earlier build, sending no `ownsBranch`, did for every work item. A work item with no branch has none Owlery made.
+  const removes = workItem.ownsBranch !== false ? "Remove the work item's worktree and its local branch from disk" : "Remove the work item's worktree from disk";
+  const remove = (divides: boolean): MenuItem => ({ label: "Delete", description: `${removes}, after a dialog names what would be lost. Nothing on a remote is removed.`, action: { do: "delete", id }, divides });
+  // A rename makes the branch of a work item with no branch yet, and renames only a branch Owlery made (../shared/protocol, `renameWorkItem`).
+  const renames = branch === null ? "Give the work item another name, and make its branch from that name." : workItem.ownsBranch === false ? "Give the work item another name. Its branch keeps its name, since Owlery did not make it." : "Give the work item another name, and its branch too where the branch was never pushed.";
   const own = groups.find((group) => group.id === workItem.groupId);
   const moves: MenuItem[] = [
     ...groups.filter((group) => group !== own).map((group) => ({ label: `Move to ${group.name}`, description: `List the work item under the heading ${group.name} of its repository in the sidebar.`, action: { do: "set" as const, id, groupId: group.id }, divides: false })),
@@ -2306,7 +2701,7 @@ export function workItemMenu(workItem: WorkItem, apps: readonly InstalledApp[], 
   ].map((entry, at) => ({ ...entry, divides: at === 0 }));
   if (workItem.archivedAt !== null) return [{ label: "Restore", description: "Put the work item back among the repository's work items, with the panes it had.", action: { do: "restore", id }, divides: false }, open, ...copies, remove(true)];
   return [
-    { label: "Rename", description: "Give the work item another name, and its branch too where the branch was never pushed.", action: { do: "rename", id }, divides: false },
+    { label: "Rename", description: renames, action: { do: "rename", id }, divides: false },
     ...(accounts ? [{ label: "Account…", description: "Choose the account the work item's new sessions run under.", action: { do: "account" as const, id }, divides: false }] : []),
     open,
     ...copies,
@@ -2470,14 +2865,14 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
 }
 
 /** What a pointer over the "+" button at the sidebar's top is told: it creates a work item, and its form is where a repository is registered alone. */
-export const NEW_WORK_ITEM_SAYS = "Create a work item: a new branch and worktree in a repository. The form can also register a repository alone.";
+export const NEW_WORK_ITEM_SAYS = "Create a work item: a new worktree in a repository, on a branch picked in the form or made later. The form can also register a repository alone.";
 /** What a pointer over the form's choice "Register the repository only" is told. */
 export const REGISTER_ONLY_SAYS = "Add the repository to the sidebar without creating a work item, a branch or a worktree.";
 
 /** The two icon buttons of a repository's row: the name of each, which a screen reader is told, and what a pointer over it is told that a press does. */
 export function rowButtons(repositoryName: string): Record<"add" | "menu", { name: string; says: string }> {
   return {
-    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new branch and worktree.` },
+    add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new worktree.` },
     menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
   };
 }
@@ -2487,15 +2882,21 @@ export type RenamePlanned = { branch: string | null; blocked: string | null } | 
 
 /**
  * The rename dialog's choice "Rename the branch too", given the plan the
- * dialog holds for the name typed, or null until the daemon has answered:
- * whether it can be taken, and what the dialog says under it, the branch the
- * rename gives or why the branch keeps its name.
+ * dialog holds for the name typed, or null until the daemon has answered,
+ * and whether the work item has a branch: whether the person can take the
+ * choice, whether it stands taken and cannot be taken back (`makes`), and
+ * what the dialog says under it. For a work item with a branch it says the
+ * branch the rename gives, or why the branch keeps its name. For one with no
+ * branch yet, the rename makes its branch (../shared/protocol, `renameWorkItem`), so
+ * the choice stands taken where the plan names the branch it makes, and it
+ * says why none can be made where the plan is blocked.
  */
-export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; says: string } {
-  if (plan === null) return { enabled: false, says: "" };
-  if ("error" in plan) return { enabled: false, says: plan.error };
-  if (plan.blocked !== null || plan.branch === null) return { enabled: false, says: plan.blocked ?? "" };
-  return { enabled: true, says: `The branch becomes ${plan.branch}.` };
+export function renameChoice(plan: RenamePlanned | null, branched: boolean): { enabled: boolean; makes: boolean; says: string } {
+  if (plan === null) return { enabled: false, makes: false, says: "" };
+  if ("error" in plan) return { enabled: false, makes: false, says: plan.error };
+  if (plan.blocked !== null || plan.branch === null) return { enabled: false, makes: false, says: plan.blocked ?? "" };
+  if (!branched) return { enabled: false, makes: true, says: `The rename makes the branch ${plan.branch}.` };
+  return { enabled: true, makes: false, says: `The branch becomes ${plan.branch}.` };
 }
 
 /**
@@ -2505,6 +2906,52 @@ export function renameChoice(plan: RenamePlanned | null): { enabled: boolean; sa
  */
 export function paneTabs(workItem: WorkItem, sessions: readonly SessionInfo[]): SessionInfo[] {
   return sessions.filter((session) => session.workItemId === workItem.id).sort((a, b) => a.id - b.id);
+}
+
+/**
+ * The menu of a pane's tab, `session` being its pane and `tabs` the panes of
+ * its work item in the tabs' order (`paneTabs`), in its order: "Rename…",
+ * which opens the dialog that names the pane; the row of colours, Green,
+ * Blue, Pink and No colour, which checks the tab's colour, or No colour
+ * where it has none; and, under a rule, "Close Pane"; "Close Other Panes",
+ * which closes every other pane of the work item, exited ones among them,
+ * where the work item has another tab; and "Close Panes to the Right", which
+ * closes every pane whose tab stands after this one, where one does.
+ * "Rename…" and the row stand only where the session carries a `name`
+ * field, null or a name: a daemon of an earlier build sends none, keeps no
+ * name and no colour, and would answer no request to set one. An item that
+ * would close nothing is left out, since the form of a menu draws no item
+ * disabled. Each close item closes its panes through one close, which asks once
+ * where any of them is working (./work-item-view, `closePanes`).
+ */
+export function tabMenu(session: SessionInfo, tabs: readonly SessionInfo[]): MenuEntry[] {
+  const others = tabs.filter((tab) => tab.id !== session.id).map((tab) => tab.id);
+  const at = tabs.findIndex((tab) => tab.id === session.id);
+  const right = at === -1 ? [] : tabs.slice(at + 1).map((tab) => tab.id);
+  const marks = session.name !== undefined;
+  const close = (label: string, description: string, ids: number[], divides = false): MenuItem[] => (ids.length === 0 ? [] : [{ label, description, action: { do: "closePanes", ids }, divides }]);
+  const held = session.colour ?? null;
+  const swatch = (colour: TabColour | null, label: string, description: string): MenuRowItem => ({ label, description, action: { do: "colourPane", id: session.id, colour }, colour, checked: colour === held });
+  const named: MenuEntry[] = marks
+    ? [
+        { label: "Rename…", description: "Give this pane's tab a name of its own, which the window names the pane by everywhere.", action: { do: "renamePane", id: session.id }, divides: false },
+        {
+          label: "Colour",
+          description: "Mark this pane's tab with a colour, which its tooltip names.",
+          row: [
+            ...TAB_COLOURS.map((colour) => swatch(colour, COLOUR_WORDS[colour], `${COLOUR_WORDS[colour]} draws a ${colour} bar along the bottom of this pane's tab.`)),
+            swatch(null, NO_COLOUR, `${NO_COLOUR} takes the colour's bar off this pane's tab.`),
+          ],
+          divides: false,
+        },
+      ]
+    : [];
+  return [
+    ...named,
+    ...close("Close Pane", "End this pane's process and close its tab. Where its session is working, a dialog asks first.", [session.id], marks),
+    ...close("Close Other Panes", "End every other pane of the work item and close their tabs. Where a session among them is working, a dialog asks first.", others),
+    ...close("Close Panes to the Right", "End the panes whose tabs stand after this one and close their tabs. Where a session among them is working, a dialog asks first.", right),
+  ];
 }
 
 /**
@@ -2522,6 +2969,11 @@ export function paneInFront(tabs: readonly SessionInfo[], last: number | undefin
 /** The most panes a work item's view shows side by side: the cap a person set on panes, the proposal where none is set, and `PANES_WITHOUT_CAP` where the daemon keeps no cap. */
 export function paneCap(machine: Machine | null): number {
   return machine === null ? PANES_WITHOUT_CAP : (machine.panes.set ?? machine.panes.proposed);
+}
+
+/** The lines of history a pane's terminal holds: the scrollback a person set, its proposal where none is set, and `SCROLLBACK_WITHOUT_DAEMON` where the daemon sends no scrollback, as one of an earlier build or one given no reader of the machine. */
+export function paneScrollback(machine: Machine | null): number {
+  return machine?.scrollback === undefined ? SCROLLBACK_WITHOUT_DAEMON : (machine.scrollback.set ?? machine.scrollback.proposed);
 }
 
 /** The title of "Side by side", which names the cap on the panes it shows. */
@@ -2764,14 +3216,17 @@ export function notificationOpens(session: Pick<SessionInfo, "id" | "workItemId"
  * plan, or why it sends nothing. `name` is the name the window generated for
  * this opening of the form, and the title may be empty: the daemon then names
  * the work item by `name`. `base` is the menu's choice, and null where the
- * menu holds none or the request is a plan. An empty folder is refused here,
- * in the form's own words. The daemon refuses every folder that is not
- * absolute, since it would run git with one in the daemon's own folder.
+ * menu holds none or the request is a plan. `branch` is the branch picked to
+ * check out (`branchMenu`), and null where none is picked or the request is
+ * a plan: the daemon then makes the worktree with no branch. An empty folder
+ * is refused here, in the form's own words. The daemon refuses every folder
+ * that is not absolute, since it would run git with one in the daemon's own
+ * folder.
  */
-export function workItemFields(repo: string, title: string, name: string, base: string | null): { repo: string; title: string; name: string; base?: string } | { error: string } {
-  const fields = { repo: repo.trim(), title: title.trim(), name };
+export function workItemFields(repo: string, title: string, name: string, base: string | null, branch: string | null): { repo: string; title: string; name: string; base?: string; branch?: string } | { error: string } {
+  const fields = { repo: repo.trim(), title: title.trim(), name, ...(base === null ? {} : { base }), ...(branch === null ? {} : { branch }) };
   if (!fields.repo) return { error: "Choose the repository folder." };
-  return base === null ? fields : { ...fields, base };
+  return fields;
 }
 
 /** The folder the form registers a repository by, where "Register the repository only" is chosen: the repository field's text without the spaces around it. An empty one is refused here, in the words a creation's is. */
@@ -2780,8 +3235,14 @@ export function registerFields(repo: string): { folder: string } | { error: stri
   return folder ? { folder } : { error: "Choose the repository folder." };
 }
 
-/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, or the error it refused the plan with. */
-export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
+/** A local branch a worktree of the repository has checked out, and that worktree's folder, as a `workItemPlan` names it. */
+export interface HeldBranch {
+  branch: string;
+  folder: string;
+}
+
+/** What the daemon answered a plan with: what a `workItemPlan` carries, its `disk` null where it sent none, and its `held` null where it sent none, as a daemon of an earlier build, which cuts the plan's branch at the creation; or the error it refused the plan with. */
+export type PlanAnswered = { branch: string; worktree: string; localBases: string[]; remoteBases: string[]; held: HeldBranch[] | null; defaultBase: string | null; setupCommand: string | null; includes: boolean; disk: PlanDisk | null } | { error: string };
 
 /**
  * What the "New work item" form holds of its latest plan: the daemon's
@@ -2805,22 +3266,104 @@ function planOf(plan: FormPlan | null, repo: string): FormPlan | null {
   return plan !== null && plan.repo === repo.trim() ? plan : null;
 }
 
+/** A part of the words in the form's place of the branch: a branch's name, `fact`, which the form sets in `--font-fact`, or words around one. */
+export interface PlanPart {
+  text: string;
+  fact: boolean;
+}
+
 /**
- * What the form shows under the name: the branch and the folder the work item
- * will get, and the setup its repository names, before the person creates
- * it: the copy where `.worktreeinclude` stands, and the command
- * `.worktreesetup` holds; and the warning of the room the worktree would
- * take, where the daemon sent its disk (`shared/machine.ts#planWarning`).
- * Where the daemon refused the plan, `failed`, its
- * message stands in the branch's place. Nothing where the form holds no
- * answer for the repository field's text.
+ * The local branch a creation checks out for a remote's branch the form
+ * offers, such as `release` for `origin/release`: the name after the
+ * remote's, which the plan does not name apart, so the first slash is read
+ * as the end of it.
  */
-export function planLine(plan: FormPlan | null, repo: string): { branch: string; worktree: string; setup: string; warning: string; failed: boolean } {
+function localOf(remoteBranch: string): string {
+  return remoteBranch.slice(remoteBranch.indexOf("/") + 1);
+}
+
+/**
+ * What the place of the branch says of a creation (`planLine`), where the
+ * plan names the branches worktrees hold, given the branch picked in the
+ * form's "Branch" menu, or "" for none: that the first commit or a rename
+ * makes the branch the plan names, that a local branch is checked out, and
+ * that a remote's branch is checked out as a local branch of its name that
+ * tracks it, or as the local branch of that name where one stands, as the
+ * daemon does (../shared/protocol, `createWorkItem`).
+ */
+function branchParts(plan: { branch: string; localBases: string[] }, picked: string): PlanPart[] {
+  const words = (text: string): PlanPart => ({ text, fact: false });
+  const name = (text: string): PlanPart => ({ text, fact: true });
+  if (picked === "") return [words("No branch yet. The first commit or a rename makes "), name(plan.branch), words(".")];
+  if (plan.localBases.includes(picked)) return [words("Checks out "), name(picked), words(".")];
+  const local = localOf(picked);
+  if (plan.localBases.includes(local)) return [words("Checks out "), name(local), words(".")];
+  return [words("Checks out "), name(local), words(", tracking "), name(picked), words(".")];
+}
+
+/**
+ * What the form shows under the name: what the creation does of the branch,
+ * as `branchParts` says it for `picked`, the branch the "Branch" menu holds
+ * or "" for none, and the folder the work item will get, and the setup its
+ * repository names, before the person creates it: the copy where
+ * `.worktreeinclude` stands, and the command `.worktreesetup` holds; and the
+ * warning of the room the worktree would take, where the daemon sent its
+ * disk (`shared/machine.ts#planWarning`). Where the plan names no held
+ * branches, as a daemon of an earlier build's, which cuts the plan's branch
+ * at the creation, the place shows that branch's name alone. Where the
+ * daemon refused the plan, `failed`, its message stands in the branch's
+ * place. Nothing where the form holds no answer for the repository field's
+ * text.
+ */
+export function planLine(plan: FormPlan | null, repo: string, picked: string): { branch: PlanPart[]; worktree: string; setup: string; warning: string; failed: boolean } {
   const shown = planOf(plan, repo);
-  if (shown === null) return { branch: "", worktree: "", setup: "", warning: "", failed: false };
-  if ("error" in shown) return { branch: shown.error, worktree: "", setup: "", warning: "", failed: true };
+  if (shown === null) return { branch: [], worktree: "", setup: "", warning: "", failed: false };
+  if ("error" in shown) return { branch: [{ text: shown.error, fact: false }], worktree: "", setup: "", warning: "", failed: true };
   const setup = [shown.includes ? "Copies the ignored files .worktreeinclude names from the main checkout." : null, shown.setupCommand === null ? null : `Then runs: ${shown.setupCommand.trim()}`].filter((sentence) => sentence !== null).join(" ");
-  return { branch: shown.branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
+  const branch = shown.held === null ? [{ text: shown.branch, fact: true }] : branchParts(shown, picked);
+  return { branch, worktree: shown.worktree, setup, warning: shown.disk === null ? "" : planWarning(shown.disk), failed: false };
+}
+
+/** A branch the person picked in the form's "Branch" menu, and the repository field's text it was picked under. */
+export interface BranchChoice {
+  repo: string;
+  branch: string;
+}
+
+/** An option of the form's "Branch" menu: the branch, the words it shows, and whether it cannot be picked, as a branch a worktree has checked out. */
+export interface BranchOption {
+  value: string;
+  label: string;
+  disabled: boolean;
+}
+
+/**
+ * The form's "Branch" menu, under "Starts from": whether it is `shown`, the
+ * `local` branches and the `remote` ones, each as an option, and the `value`
+ * picked, "" for "No branch yet", which stands first and is chosen when the
+ * form opens. A branch a worktree has checked out, the main checkout among
+ * them, cannot be picked, and its label ends in that worktree's folder; so
+ * does a remote's branch whose local branch of its name is held, which the
+ * daemon would check out. The value is the person's choice while the
+ * repository field's text is the one it was made under and the menu offers
+ * it, and otherwise "". The menu is hidden where the plan names no held
+ * branches, as a daemon of an earlier build's, which picks no branch, and
+ * holds nothing where the form holds no answer for the field's text or the
+ * daemon refused the plan.
+ */
+export function branchMenu(plan: FormPlan | null, choice: BranchChoice | null, repo: string): { shown: boolean; local: BranchOption[]; remote: BranchOption[]; value: string } {
+  const shown = planOf(plan, repo);
+  if (shown === null || "error" in shown) return { shown: true, local: [], remote: [], value: "" };
+  if (shown.held === null) return { shown: false, local: [], remote: [], value: "" };
+  const held = shown.held;
+  const option = (value: string, local: string): BranchOption => {
+    const holder = held.find(({ branch }) => branch === local);
+    return holder === undefined ? { value, label: value, disabled: false } : { value, label: `${value}, checked out in ${holder.folder}`, disabled: true };
+  };
+  const local = shown.localBases.map((branch) => option(branch, branch));
+  const remote = shown.remoteBases.map((branch) => option(branch, localOf(branch)));
+  const kept = choice !== null && choice.repo === shown.repo && [...local, ...remote].some((offered) => offered.value === choice.branch && !offered.disabled) ? choice.branch : "";
+  return { shown: true, local, remote, value: kept };
 }
 
 /** What the form says where Create is pressed before it shows the plan of the repository field's text. */
@@ -2873,7 +3416,7 @@ export function baseMenu(plan: FormPlan | null, choice: BaseChoice | null, repo:
  */
 export type BaseAnswer = "awaited" | BaseFetch | { error: string };
 
-/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of an earlier build never answers. */
+/** How long, in milliseconds, the form says that it fetches a base with no answer: the daemon's own limit for a fetch and two seconds more. A daemon of a build before the fetch never answers, and against it `answerWaits` ends the request first, after `ANSWER_WAIT_MS`. */
 export const BASE_ANSWER_MS = BASE_FETCH_MS + 2_000;
 
 /** The name the form keeps the fetch of a base under: the repository field's text without the spaces around it, and the base. No branch's name holds a line break. */
@@ -3139,7 +3682,7 @@ export function accountChoices(held: HeldAccounts, first: string, gives: number)
 /**
  * The menu of a button that opens a pane of `kind`, opened at a secondary
  * click: its first item opens the pane under the account `gives`, the one
- * the work item gives, named as the Ask row's menu names it, and an item for
+ * the work item gives, named "The work item's" with that account's name, and an item for
  * each other account follows, in the daemon's order, below a rule. Each
  * opens that one pane under its account (`accountId`, null for the work
  * item's). None for a kind that takes no account, and none where no account
@@ -3226,24 +3769,14 @@ export function settingsChain(repository: Repository): { shown: boolean; value: 
 }
 
 /**
- * Whether the "Ask" button of a work item's view can be pressed, and its
- * title: where it asks, or why it cannot. The daemon refuses a prompt of
- * white space.
- */
-export function askButton(prompt: string, workItem: WorkItem): { enabled: boolean; title: string } {
-  if (!prompt.trim()) return { enabled: false, title: "Type what to ask." };
-  return { enabled: true, title: `Ask in ${workItem.title}` };
-}
-
-/**
  * The sentence of a work item's chain, which stands at its view's foot under
  * the seal's words: where the chain of the daemon stands. It is empty where
  * no chain ran for the work item, and for a daemon of an earlier build,
  * which sends no chain. Nothing in the window starts a chain, so the foot
  * holds nothing to press. While the session of the stage a running chain
  * begins waits for the machine, `ahead` counts the sessions before it
- * (`stageAhead`), and the foot says so; a session a person asked that waits
- * leaves the stage's sentence.
+ * (`stageAhead`), and the foot says so; a waiting session of the work item
+ * that no stage of its chain names leaves the stage's sentence.
  */
 export function chainSays(workItem: WorkItem, ahead: number | null = null): string {
   const chain = chainOf(workItem);
@@ -3260,8 +3793,8 @@ export function withoutHeadless(held: readonly HeadlessInfo[], id: number): Head
   return held.filter((info) => info.id !== id);
 }
 
-/** The mark a headless session's line is drawn with: its state, `waiting` while it waits for the person to allow a call, and `no-agent` while it waits for the machine, as it runs no process yet. */
-export type HeadlessMark = Exclude<HeadlessState, "queued"> | "waiting" | "no-agent";
+/** The mark a headless session's line is drawn with: its state, and `no-agent` while it waits for the machine, as it runs no process yet. */
+export type HeadlessMark = Exclude<HeadlessState, "queued"> | "no-agent";
 
 export interface HeadlessLine {
   id: number;
@@ -3269,7 +3802,7 @@ export interface HeadlessLine {
   state: HeadlessState;
   /** The mark the line is drawn with (`HeadlessMark`). */
   mark: HeadlessMark;
-  /** The state in words beside the mark: the state's own word, or "Needs you" while the session waits for the person to allow a call. */
+  /** The state in words beside the mark: the state's own word, or "Queued" while the session waits for the machine. */
   words: string;
   /** The answer as far as it has arrived, or the error of a session that failed. */
   text: string;
@@ -3277,30 +3810,25 @@ export interface HeadlessLine {
   errorOutput: string;
   /** Whether the line offers "Stop": a session that is working or waits for the machine can be stopped, and one that ended cannot. */
   stop: boolean;
-  /** The calls the session waits for the person to allow or refuse, the oldest first: each with its id, which an answer names, the head that names the tool it asks to use, and what a person reads of the call. */
-  asks: { id: number; head: string; text: string }[];
 }
 
-/** The lines of one work item's headless sessions, the most recent first, so the one just asked sits under the field, each with the calls it waits for the person to allow or refuse. */
+/** The lines of one work item's headless sessions, the most recent first. */
 export function headlessLines(held: readonly HeadlessInfo[], workItem: WorkItem): HeadlessLine[] {
-  const waiting = permissionsOf(workItem);
   return held
     .filter((info) => info.workItemId === workItem.id)
     .sort((a, b) => b.id - a.id)
-    .map((info): HeadlessLine => {
-      const asks = waiting.filter(({ headlessId }) => headlessId === info.id).map(({ id, tool, text }) => ({ id, head: asksToUse(tool), text }));
-      return {
+    .map(
+      (info): HeadlessLine => ({
         id: info.id,
         prompt: info.prompt,
         state: info.state,
-        mark: asks.length > 0 ? "waiting" : info.state === "queued" ? "no-agent" : info.state,
-        words: asks.length > 0 ? stateHeading("waiting") : info.state === "queued" ? "Queued" : info.state,
+        mark: info.state === "queued" ? "no-agent" : info.state,
+        words: info.state === "queued" ? "Queued" : info.state,
         text: info.state === "failed" ? (info.error ?? "") : info.answer,
         errorOutput: info.state === "failed" ? info.errorOutput : "",
         stop: info.state === "working" || info.state === "queued",
-        asks,
-      };
-    });
+      }),
+    );
 }
 
 /** The words of the button on the broad gate's line that shows what the gate's command printed. */
@@ -3314,7 +3842,7 @@ export interface GateOutput {
   cut: boolean;
 }
 
-/** The line of a work item's newest broad gate under "Ask", drawn in the form of a headless session's line. */
+/** The line of a work item's newest broad gate at its view's foot, drawn in the form of a headless session's line. */
 export interface GateLine {
   /** When the run started, by the daemon's clock, which tells one run of a work item's gate from the next. */
   startedAt: number;
@@ -3363,7 +3891,21 @@ export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine 
   };
 }
 
-/** What tells one drawing of a work item's "Ask" section from the next: it differs where the broad gate's line, a session's line or a request of it differs, and between two work items. The section is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the section shows. */
+/**
+ * The list at a work item's view's foot, above the seal's place, which a
+ * screen reader names "The daemon's chain": the line of the broad gate the
+ * work item's chain ran last (`gateLine`), the lines of the headless
+ * sessions the daemon lists for the work item (`headlessLines`), and
+ * whether the list is drawn. It is not drawn where it holds no line, and
+ * the foot then holds the seal's place alone.
+ */
+export function chainList(held: readonly HeadlessInfo[], workItem: WorkItem, read: GateOutput | null): { gate: GateLine | null; lines: HeadlessLine[]; drawn: boolean } {
+  const gate = gateLine(workItem, read);
+  const lines = headlessLines(held, workItem);
+  return { gate, lines, drawn: gate !== null || lines.length > 0 };
+}
+
+/** What tells one drawing of a work item's list of the daemon's chain from the next: it differs where the broad gate's line or a session's line differs, and between two work items. The list is drawn again only where it differs, so a button the keyboard is on stays through every `inbox` that changes nothing the list shows. */
 export function headlessKey(workItemId: number, lines: readonly HeadlessLine[], gate: GateLine | null = null): string {
   return JSON.stringify([workItemId, lines, gate]);
 }

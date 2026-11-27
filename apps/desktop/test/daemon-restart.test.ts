@@ -1,25 +1,31 @@
-// The menu's two entries that end the daemon, and the status line's sentence
-// for a daemon of another build, in the built app. The app is started
+// The menu's two entries that end the daemon, the status line's sentence
+// for a daemon of another build, and the load's replacement of one that
+// runs nothing, in the built app. The app is started
 // twice, in the background and with the main process's inspector, where the
 // built menu and its entries' clicks are: once for the sentence, the restart
-// that takes it away and the plain quit after it, and once for a complete
-// quit, since each quit ends the app. Each pane's process is the receiver of ./fixtures, so no
+// that takes it away, the replacement and the plain quit after it, and once for a complete
+// quit, since each quit ends the app. A third start attaches to a stand-in
+// for a daemon of an earlier build, which answers no request, for the wait
+// that ends a request it leaves open. Each pane's process is the receiver of ./fixtures, so no
 // shell of the person's and no agent starts. The cases signal only what
 // they started: the bystander daemon by the id its start gave, and the
-// app's own daemon through `BuiltApp.stop`. The seal a work item's head
+// app's own daemon through `BuiltApp.stop`. The lines the daemon's log
+// holds of how a daemon ended are read from the built daemon's script,
+// started by the case on a run folder of its own. The seal a work item's head
 // holds is read again by a daemon that starts on the same run folder, which
 // the last describe shows with two daemons of the suite's own process and
 // no built app.
 import { type ChildProcess, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
+import { alive, BuiltApp, buildApp, freePort, untilGone } from "./built-app";
 import { openReceiverPane, Received, RECEIVER } from "./korean-pane";
 import { type Cleanups, clean, client, commitSeal, roles, standing } from "./chain-run";
-import { git, temporaryRepository } from "./repositories";
+import { branchOf, git, temporaryRepository } from "./repositories";
 
 /** The title `openReceiverPane` gives the work item it creates. */
 const TITLE = "Korean input";
@@ -69,6 +75,10 @@ function choose(app: BuiltApp, id: string): Promise<boolean> {
 
 /** The sentence of a daemon of another build. */
 const OTHER_BUILD = `Owlery's background process is from another build. Choose "Restart Daemon…" from the menu to replace it.`;
+/** The sentence that ends a request a daemon of an earlier build has not answered. */
+const NOT_ANSWERED = `Owlery's background process is from another build and has not answered. Choose "Restart Daemon…" from the menu to replace it.`;
+/** The sentence the window shows where the daemon refused a request as one it does not know. */
+const UNKNOWN_REQUEST = `Owlery's background process is from another build and does not know this request. Choose "Restart Daemon…" from the menu to replace it.`;
 /** What the status line says, and whether it is drawn as a notice. */
 const STATUS = `({ text: document.getElementById("status").textContent, notice: document.getElementById("status").classList.contains("notice") })`;
 
@@ -156,6 +166,26 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     expect(named(bystanderDir)).toBe(bystander.pid);
   });
 
+  it("replaces at the window's load, without a question, a daemon whose daemon.json holds no build and that runs nothing: the earlier daemon is gone, the new one is of this build, the status line says nothing of another build, and the bystander daemon still runs", async () => {
+    const runDir = join(app.userData, "run");
+    const build = createHash("sha256").update(readFileSync(join(__dirname, "..", "dist", "daemon.js"))).digest("hex");
+    // The daemon the restart above started holds no live pane, no headless session and no running chain: the pane ended with the daemon before it.
+    const earlier = discovery(runDir);
+    writeFileSync(join(runDir, "daemon.json"), JSON.stringify({ port: earlier.port, token: earlier.token, pid: earlier.pid }));
+    await app.cdp("Page.reload");
+    expect(await untilGone([earlier.pid], 10_000), "the earlier daemon, still there").toEqual([]);
+    const next = await eventually(() => {
+      const pid = app.daemonPid();
+      return pid === earlier.pid ? undefined : pid;
+    }, "the daemon.json of the daemon the load started");
+    expect(discovery(runDir)).toMatchObject({ pid: next, build });
+    await app.until(`document.getElementById("status")?.textContent === "Daemon running, no agent"`, "the status line of a window attached to the daemon the load started");
+    expect(await app.evaluate(STATUS)).toEqual({ text: "Daemon running, no agent", notice: false });
+    expect(await app.evaluate(DIALOG_OPEN)).toBe(false);
+    expect(alive(bystander.pid as number)).toBe(true);
+    expect(named(bystanderDir)).toBe(bystander.pid);
+  });
+
   it("leaves the daemon and its sessions running at a plain Quit, and the harness then ends the daemon the run folder names", async () => {
     const daemon = app.daemonPid() as number;
     // A pane of the new daemon: the receiver writes its process id anew.
@@ -215,6 +245,148 @@ describe("a complete quit in the built app", { timeout: 60_000 }, () => {
   });
 });
 
+describe("a request a daemon of an earlier build leaves unanswered, in the built app", { timeout: 60_000 }, () => {
+  let app: BuiltApp | undefined;
+  /** The stand-in for a daemon of an earlier build, which the case started. */
+  let standIn: ChildProcess | undefined;
+  let standInDir: string | undefined;
+
+  beforeAll(() => buildApp(), 120_000);
+  afterAll(async () => {
+    await app?.stop();
+    if (standIn?.pid !== undefined && alive(standIn.pid)) {
+      standIn.kill("SIGTERM");
+      for (const pid of await untilGone([standIn.pid], 10_000)) process.kill(pid, "SIGKILL");
+    }
+    if (standInDir) rmSync(standInDir, { recursive: true, force: true });
+  }, 60_000);
+
+  it('ends within 15 seconds a press of the refresh button that a daemon without `answersUnknown` does not answer, with the sentence that names "Restart Daemon…" in the status line, and keeps that daemon, whose lists show a live pane; and a refusal that says the daemon does not know the request ends the wait of the press it answers, and shows the window\'s sentence for it', { timeout: 90_000 }, async () => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "owlery-earlier-daemon-")));
+    standInDir = dir;
+    // What a daemon of a build before `answersUnknown` sends at a hello: lists with one live pane, so the load keeps it. It answers the first `readLists` with nothing, refuses the second at once as a request it does not know, as a daemon of a later build would, and notes each message it receives in `received`.
+    const ready = { type: "ready", sessions: [{ id: 1, kind: "shell", alive: true, workItemId: null, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null }], repositories: [], workItems: [], archived: [], paneKinds: [{ kind: "shell", label: "Shell", reportsState: false, continues: false }], headless: [], lastLook: null, agentNotice: null };
+    const script = join(dir, "daemon.cjs");
+    writeFileSync(
+      script,
+      `const { WebSocketServer } = require(${JSON.stringify(createRequire(import.meta.url).resolve("ws"))});
+       const { appendFileSync, renameSync, writeFileSync } = require("node:fs");
+       const { join } = require("node:path");
+       const dir = ${JSON.stringify(dir)};
+       let reads = 0;
+       const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => {
+         writeFileSync(join(dir, "port.tmp"), String(server.address().port));
+         renameSync(join(dir, "port.tmp"), join(dir, "port"));
+       });
+       server.on("connection", (socket) => socket.on("message", (raw) => {
+         appendFileSync(join(dir, "received"), String(raw) + "\\n");
+         const message = JSON.parse(String(raw));
+         if (message.type === "hello") socket.send(${JSON.stringify(JSON.stringify(ready))});
+         if (message.type === "readLists" && ++reads === 2) socket.send(JSON.stringify({ type: "error", requestId: message.requestId, unknown: true, message: 'This daemon does not know the request "readLists".' }));
+       }));`,
+    );
+    standIn = spawn(process.execPath, [script], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "ignore" });
+    const pid = standIn.pid as number;
+    const port = await eventually(() => (existsSync(join(dir, "port")) ? Number(readFileSync(join(dir, "port"), "utf8")) : undefined), "the stand-in's port");
+    // Its daemon.json holds no build, as a daemon of an earlier build leaves it.
+    app = await BuiltApp.start({}, { writeRun: (runDir) => writeFileSync(join(runDir, "daemon.json"), JSON.stringify({ port, token: "t", pid })) });
+    await app.until(`document.getElementById("status")?.textContent === ${JSON.stringify(OTHER_BUILD)}`, "the status line's sentence for a daemon of another build");
+
+    const pressed = Date.now();
+    await app.click("#refresh-lists");
+    await app.until(`document.getElementById("refresh-lists").getAttribute("aria-busy") === "true"`, "the refresh button at work");
+    await app.until(`document.getElementById("status")?.textContent === ${JSON.stringify(NOT_ANSWERED)}`, "the status line's sentence for a request the daemon has not answered", 15_000);
+    // The window's wait ended the request, not the refresh's own longer one.
+    expect(Date.now() - pressed).toBeGreaterThanOrEqual(10_000);
+    expect(await app.evaluate(STATUS)).toEqual({ text: NOT_ANSWERED, notice: true });
+    expect(await app.evaluate(`document.getElementById("refresh-lists").hasAttribute("aria-busy")`)).toBe(false);
+    // The stand-in received the press's request, answered nothing, and was kept.
+    const received = readFileSync(join(dir, "received"), "utf8").trim().split("\n").map((line) => JSON.parse(line) as { type: string });
+    expect(received.filter(({ type }) => type === "readLists")).toHaveLength(1);
+    expect(alive(pid)).toBe(true);
+    expect(app.daemonPid()).toBe(pid);
+
+    // A second press is refused at once: the window says its own sentence, and the refusal ended that request's wait, so the wait's sentence does not follow it.
+    await app.click("#refresh-lists");
+    await app.until(`document.getElementById("status")?.textContent === ${JSON.stringify(UNKNOWN_REQUEST)}`, "the status line's sentence for a request the daemon does not know");
+    await sleep(10_500);
+    expect(await app.evaluate(STATUS)).toEqual({ text: UNKNOWN_REQUEST, notice: true });
+  });
+});
+
+describe("the daemon's log of how a daemon ended", { timeout: 60_000 }, () => {
+  /** The time `Date#toISOString` writes. */
+  const TIME = String.raw`(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)`;
+  const started: number[] = [];
+  const folders: string[] = [];
+
+  beforeAll(() => buildApp(), 120_000);
+  afterEach(async () => {
+    const pids = started.splice(0);
+    for (const pid of pids) if (alive(pid)) process.kill(pid, "SIGTERM");
+    for (const pid of await untilGone(pids, 10_000)) process.kill(pid, "SIGKILL");
+    for (const folder of folders.splice(0)) rmSync(folder, { recursive: true, force: true });
+  });
+
+  /** A run folder of the case's own, made new and empty. */
+  function runFolder(): string {
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-ended-")));
+    folders.push(folder);
+    return folder;
+  }
+
+  /** Starts the built daemon's script on the run folder, its output appended to the folder's `daemon.log` as the app opens it, and waits until it wrote its `daemon.json`. */
+  async function startDaemon(runDir: string): Promise<number> {
+    const log = openSync(join(runDir, "daemon.log"), "a", 0o600);
+    const child = spawn(process.execPath, [join(__dirname, "..", "dist", "daemon.js")], { env: { ...process.env, ELECTRON_RUN_AS_NODE: "1", OWLERY_RUN_DIR: runDir, SHELL: RECEIVER }, stdio: ["ignore", log, log] });
+    closeSync(log);
+    const pid = child.pid as number;
+    started.push(pid);
+    await eventually(() => (named(runDir) === pid ? true : undefined), "the started daemon's daemon.json");
+    return pid;
+  }
+
+  /** The lines of the run folder's log that hold the words. */
+  const logLines = (runDir: string, words: string): string[] => readFileSync(join(runDir, "daemon.log"), "utf8").split("\n").filter((line) => line.includes(words));
+
+  it.each(["SIGTERM", "SIGINT"] as const)("holds one line of a daemon that %s stopped, with its process id, the time, the signal, and no pane alive and no agent working", async (signal) => {
+    const runDir = runFolder();
+    const from = Date.now();
+    const pid = await startDaemon(runDir);
+    process.kill(pid, signal);
+    expect(await untilGone([pid], 10_000), "the daemon, still there").toEqual([]);
+    const lines = logLines(runDir, " stopped at ");
+    expect(lines).toHaveLength(1);
+    const [, at] = new RegExp(`^owlery daemon ${String(pid)} stopped at ${TIME}: signal ${signal}, panes alive 0, agents working 0$`).exec(lines[0] ?? "") ?? [];
+    expect(at, lines[0]).toBeDefined();
+    expect(Date.parse(at as string)).toBeGreaterThanOrEqual(from);
+    expect(Date.parse(at as string)).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("holds one line, written by the daemon that starts on the daemon.json of one that no longer answers, which names that one's process id as ended without stopping", async () => {
+    const runDir = runFolder();
+    // A daemon that was killed leaves its daemon.json, and nothing listens at its port. No process of macOS has the id, which is above the highest the system gives.
+    writeFileSync(join(runDir, "daemon.json"), JSON.stringify({ port: await freePort(), token: "gone", pid: 4_000_001 }), { mode: 0o600 });
+    const from = Date.now();
+    const pid = await startDaemon(runDir);
+    const lines = logLines(runDir, " ended without stopping");
+    expect(lines).toHaveLength(1);
+    const [, at] = new RegExp(`^owlery daemon ${String(pid)} started at ${TIME} after daemon 4000001 ended without stopping$`).exec(lines[0] ?? "") ?? [];
+    expect(at, lines[0]).toBeDefined();
+    expect(Date.parse(at as string)).toBeGreaterThanOrEqual(from);
+    expect(Date.parse(at as string)).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("holds no such line where the daemon starts on a run folder without a daemon.json, or on one whose daemon.json names a daemon that still answers", async () => {
+    const runDir = runFolder();
+    await startDaemon(runDir);
+    // The second start finds the first daemon's file, and the first daemon answers at its address.
+    await startDaemon(runDir);
+    expect(readFileSync(join(runDir, "daemon.log"), "utf8").split("\n").filter((line) => line.includes(" listening on 127.0.0.1:"))).toHaveLength(2);
+    expect(logLines(runDir, " ended without stopping")).toEqual([]);
+  });
+});
+
 describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
   const cleanups: Cleanups = [];
   afterEach(async () => {
@@ -234,7 +406,7 @@ describe("the seal after a restart of the daemon", { timeout: 60_000 }, () => {
     });
     expect(rests.says).toBe("Pull request #1 is open.");
     const sealedAt = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: b.branch, base: b.baseCommit });
+    const brokenAt = commitSeal(b.worktree, { workItem: "1795396352-second-work", branch: branchOf(b), base: b.baseCommit });
     writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the seal\n");
     git(b.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const seals = (c: typeof stood.c) => () => {

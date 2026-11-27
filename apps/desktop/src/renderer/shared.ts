@@ -3,9 +3,9 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, SessionInfo, WorkItem } from "../shared/protocol";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
 import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { type HeadlessMark, type HeldAccounts, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import { type HeadlessMark, type HeldAccounts, answerWaits, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -59,8 +59,27 @@ export function connected(): boolean {
   return socket?.readyState === WebSocket.OPEN;
 }
 
+/** What the window does with a request whose wait ended with no answer: ./renderer hands the refusal to its `onMessage`, as the daemon's own. */
+let unanswered: (error: Extract<ServerMessage, { type: "error" }>) => void = () => undefined;
+
+/** Takes what the window does with a request a daemon of an earlier build has not answered (`waits`). */
+export function whenUnanswered(take: typeof unanswered): void {
+  unanswered = take;
+}
+
+/** The waits on the daemon's answers (./view, `answerWaits`): `send` tells them of each request, and ./renderer of the daemon's `ready` and of each message the daemon sends. */
+export const waits = answerWaits({
+  after(ms, run) {
+    const timer = setTimeout(run, ms);
+    return () => clearTimeout(timer);
+  },
+  refuse: (error) => unanswered(error),
+});
+
 export function send(message: ClientMessage): void {
-  socket?.send(JSON.stringify(message));
+  if (!socket) return;
+  socket.send(JSON.stringify(message));
+  waits.sent(message);
 }
 
 /** The id of the window's next request to the daemon. */
@@ -257,7 +276,7 @@ export function stateIcon(state: AgentState | null, changed = false): HTMLElemen
   return iconOf(stateClass(state), changed ? `${stateHeading(state)}, changed since you were last here` : stateHeading(state));
 }
 
-/** The icon of a headless session's line, `mark` being its state or `waiting` while it waits for the person, named by `words`, the line's words for it. */
+/** The icon of a headless session's line, `mark` being its state, or `no-agent` while it waits for the machine, named by `words`, the line's words for it. */
 export function headlessIcon(mark: HeadlessMark, words: string): HTMLElement {
   return iconOf(mark, words);
 }
@@ -359,6 +378,9 @@ function askedPart(question: AskedQuestion): HTMLElement {
  * text, its approval line, the decisions made for it in place of asking,
  * its commits, its changed files and its setup, each left out where the
  * daemon sent none.
+ * Above the decisions stands the sentence of a word of the person's that no
+ * commit holds yet, while the work item owes one, in the colour of a
+ * failure where its commit failed.
  * Under the decisions stands a line for each line of the work item's record
  * that the daemon did not read, and the section is drawn for those lines
  * alone where the record gave no decision. The first `gained` commits carry
@@ -377,6 +399,9 @@ export function detail(entry: Entry, gained: number, { reverse, runSetup }: { re
   if (says) parts.push(section(says.waiting ? "says waiting" : "says", heading(says.head), ...(says.questions.length > 0 ? says.questions.map(askedPart) : [part("said", says.text)])));
   const approval = approvalSection(entry);
   if (approval) parts.push(approval);
+  // The sentence of a word of the person's that no commit holds stands above the decisions, and stands where the record gave no decision too, as for an answer alone. Git's reason in it is plain text, never markup.
+  const owed = wordOwedSays(entry.workItem);
+  if (owed) parts.push(part(owed.failed ? "word-owed failed" : "word-owed", owed.text));
   const decisions = decisionLines(entry.workItem, Date.now());
   const unread = unreadLines(entry.workItem);
   if (decisions.length > 0 || unread.length > 0) {

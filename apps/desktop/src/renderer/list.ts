@@ -6,6 +6,7 @@ import { byId, changedSince, detail, drawSeal, entries, held, lineMarkIcons, mar
 import {
   ageOf,
   ahead,
+  branchPlace,
   archivedHead,
   decisionMark,
   archivedIn,
@@ -31,6 +32,7 @@ import {
   sealShown,
   selectedLine,
   setupMark,
+  wordOwedMark,
   workItemEntries,
   type Entry,
   type StateFilter,
@@ -116,7 +118,9 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     if (!entry) return;
     showState(previewState, entry.line.state, lineSince(entry.workItem, entry.session));
     previewTitle.textContent = entry.line.title;
-    previewBranch.textContent = entry.line.branch;
+    const branch = branchPlace(entry.line.branch);
+    previewBranch.textContent = branch.text;
+    previewBranch.classList.toggle("none", branch.none);
     previewAhead.textContent = ahead(entry.workItem).sentence;
     previewRepo.textContent = repoNameOf(entry.workItem);
     drawSeal(previewSeal, entry.workItem.seal);
@@ -147,13 +151,14 @@ export function listScreen(name: "inbox" | "history" | "archived", actions: List
     // The account stands after the age where the work item's, or a running session's, is another than the one its repository gives.
     const account = lineAccount(workItem, held.repositories.find((repository) => repository.id === workItem.repoId), held.sessions, held.headless, held.accounts);
     first.append(stateIcon(line.state, changedSince(workItem.id)), marked(titleClass(workItem.id), line.title, markRanges(line.title, held.query)), ...lineMarkIcons(workItem), part("age", ageOf(lineSince(workItem, session), Date.now())), ...(account === "" ? [] : [part("account", account)]));
-    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the oldest call its headless sessions ask the person to allow, otherwise the sentence of its chain where the chain stopped, otherwise that a session of it waits for the machine, and otherwise the stage its chain runs, in short.
+    // The second row's text is the branch while a search is typed, with the letters that match marked. A parked work item's is its first question, otherwise the sentence of its chain where the chain stopped, otherwise that a session of it waits for the machine, and otherwise the stage its chain runs, in short.
     const said = lineText(workItem, session, held.query !== "", machineAhead(workItem, held.headless, held.machine));
     const second = part("second", "");
-    // After the text, how many decisions made without asking the person has not seen, the look not holding them, and how many reversals wait for a stage; then the setup's words while it runs and where it failed.
+    // After the text, how many decisions made without asking the person has not seen, the look not holding them, how many reversals wait for a stage, and where the commit of a word of the person's failed, that it is not committed; then the setup's words while it runs and where it failed.
     second.append(
-      marked(said.says === "branch" ? "says branch" : "says", said.text, said.says === "branch" ? markRanges(said.text, held.query) : []),
-      part("decided", decisionMark(workItem, held.lastLook)),
+      // A work item with no branch says so in the sans, and nothing of those words is marked: the search does not match them.
+      marked(said.says !== "branch" ? "says" : workItem.branch === null ? "says branch none" : "says branch", said.text, said.says === "branch" && workItem.branch !== null ? markRanges(said.text, held.query) : []),
+      part("decided", [decisionMark(workItem, held.lastLook), wordOwedMark(workItem)].filter((words) => words !== "").join(", ")),
       part(workItem.setup?.state === "failed" ? "setup failed" : "setup", setupMark(workItem)),
       part("badge", lineBadge(workItem, held.lastLook)),
       sealPlace("line", workItem.seal),

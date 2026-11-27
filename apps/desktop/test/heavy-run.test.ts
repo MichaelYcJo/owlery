@@ -1,21 +1,25 @@
 // The runner of heavy commands (`chain-command.ts#run`), which a session
 // starts through the launcher `OWLERY_RUN` names: it looks a name up in the
 // worktree's `Heavy commands`, asks the daemon for a turn on the turn socket
-// of the run folder (`turn-socket.ts`), and runs the command in its turn.
-// Each case runs the runner in its own process against a daemon of its own,
-// or against a run folder no daemon listens in. No case starts an agent.
+// of the run folder (`turn-socket.ts`), and runs the command in its turn;
+// and the socket's other lines, which tell the daemon the stage a pane's
+// session runs. Each case runs the runner in its own process against a
+// daemon of its own, or against a run folder no daemon listens in, or writes
+// a line to the socket itself. No case starts an agent.
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { createConnection, createServer, type Socket } from "node:net";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { routingText } from "../src/daemon/chain";
 import { type CommandEnd, RUN_REFUSED, USAGE, chainCommand, daemonEndedSays, noDaemonSays, waitingSays } from "../src/daemon/chain-command";
 import { type HeavyRun, readHeavyRuns } from "../src/daemon/heavy-runs";
 import { MachineTurns } from "../src/daemon/machine-turns";
 import { MARKER } from "../src/daemon/records-place";
-import { TURN_SOCKET, TurnServer, takeTurn } from "../src/daemon/turn-socket";
+import { inside } from "../src/daemon/hooks";
+import { type StageLine, TURN_SOCKET, TurnServer, takeTurn, tellStage, turnGiver } from "../src/daemon/turn-socket";
 import { type Cleanups, NOW, VERSION, commitAll, standing, until, write } from "./chain-run";
 import { BUNDLE, commandOn } from "./chain-command-run";
-import { temporaryRepository } from "./repositories";
+import { branchOf, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
 afterEach(async () => {
@@ -75,7 +79,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
     for (const [index, item] of [reviewed, built].entries()) {
       const directory = `seal/threads/${String(index + 1)}-work`;
-      write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, item.branch, "2026-11-25"));
+      write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, branchOf(item), "2026-11-25"));
       if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
       naming(item.worktree, { mark: appends });
     }
@@ -115,7 +119,8 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const [item] = stood.workItems as [(typeof stood.workItems)[number]];
     const out = stood.made.base;
     // The shell starts a child that holds 64 MiB until the case has seen a reading of the memory find it, so no reading's time decides the case. A case that fails before then removes `$OUT` at its cleanup, which ends the hold.
-    naming(item.worktree, { hold: `python3 -c "b = bytearray(64 * 1024 * 1024); import time; time.sleep(600)" & while [ -d "$OUT" ] && [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
+    // The 64 MiB are random and the child writes a byte of each page every 50 ms, so memory pressure finds them neither compressible nor idle, and the resident size the runner reads stays above 64 MiB. Zeroed pages left idle were compressed away within a second on such a machine (#245).
+    naming(item.worktree, { hold: `python3 -c "import os, time; b = bytearray(os.urandom(64 * 1024 * 1024)); n = len(b[::4096])\nwhile True: b[::4096] = os.urandom(n); time.sleep(0.05)" & while [ -d "$OUT" ] && [ ! -e "$OUT/hold.go" ]; do sleep 0.05; done; kill $!; exit 4` });
     const server = await TurnServer.listen(join(stood.runDir, TURN_SOCKET), stood.d.turnGiver());
     cleanups.push(() => server.close());
     const asked = Date.now();
@@ -236,5 +241,61 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     naming(on.repo, "pnpm test");
     expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of seal/config.json. It names none.\n');
     expect(existsSync(join(on.folder, "ran"))).toBe(false);
+  });
+});
+
+describe("the stage lines of the turn socket", { timeout: 60_000 }, () => {
+  /** Writes one line on a connection of its own to the socket, and gives what the daemon answered once it closed the connection. */
+  const wrote = (socketPath: string, line: string): Promise<string> =>
+    new Promise((resolve) => {
+      let connection!: ReturnType<typeof createConnection>;
+      inside(dirname(socketPath), () => {
+        connection = createConnection(basename(socketPath));
+      });
+      let answer = "";
+      connection.setEncoding("utf8");
+      connection.on("data", (chunk: string) => (answer += chunk));
+      connection.on("error", () => connection.destroy());
+      connection.on("close", () => resolve(answer));
+      connection.write(`${line}\n`);
+    });
+
+  it("hands the handler a `stage` and a `stage-ended` line and closes the connection with no answer, and hands it nothing for a line with a field missing or of another kind, whose connection it closes as it closes one whose line is no ask (issue #223)", async () => {
+    const on = commandOn(cleanups);
+    const socketPath = join(on.runDir, TURN_SOCKET);
+    const told: StageLine[] = [];
+    const server = await TurnServer.listen(socketPath, turnGiver(new MachineTurns({ limit: 1 }), { cores: null, load: () => null }), (line) => told.push(line));
+    cleanups.push(() => server.close());
+    const stage = { is: "stage", folder: on.repo, pane: 7, kind: "round", round: 1 };
+    expect(await wrote(socketPath, JSON.stringify(stage))).toBe("");
+    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "fix-pass", round: 2 }))).toBe("");
+    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "seal" }))).toBe("");
+    expect(await wrote(socketPath, JSON.stringify({ is: "stage-ended", folder: on.repo }))).toBe("");
+    expect(told).toEqual([stage, { ...stage, kind: "fix-pass", round: 2 }, { ...stage, kind: "seal" }, { is: "stage-ended", folder: on.repo }]);
+    told.length = 0;
+    const { folder: _folder, ...noFolder } = stage;
+    const { pane: _pane, ...noPane } = stage;
+    for (const line of [noFolder, noPane, { ...stage, folder: "" }, { ...stage, pane: "7" }, { ...stage, pane: 1.5 }, { ...stage, pane: -1 }, { ...stage, kind: "gate" }, { ...stage, round: 0 }, { ...stage, round: "1" }, { is: "stage-ended" }, { is: "stage-ended", folder: 3 }, { is: "staged", folder: on.repo }]) {
+      expect(await wrote(socketPath, JSON.stringify(line)), JSON.stringify(line)).toBe("");
+    }
+    expect(await wrote(socketPath, "not JSON")).toBe("");
+    expect(told).toEqual([]);
+  });
+
+  it("settles a stage line's tell at its wait where the daemon accepts the connection and never reads, so a chain command ends within its bound (issue #223)", async () => {
+    const on = commandOn(cleanups);
+    const socketPath = join(on.runDir, TURN_SOCKET);
+    const held: Socket[] = [];
+    const deaf = createServer({ pauseOnConnect: true }, (socket) => held.push(socket));
+    await new Promise<void>((resolve) => inside(dirname(socketPath), () => deaf.listen(basename(socketPath), resolve)));
+    cleanups.push(() => {
+      for (const socket of held) socket.destroy();
+      deaf.close();
+    });
+    // A line longer than the socket's buffers, which a daemon that never reads leaves unwritten, so only the wait settles the tell.
+    const started = Date.now();
+    const settled = await Promise.race([tellStage(socketPath, { is: "stage-ended", folder: "x".repeat(8_000_000) }, 300).then(() => true), new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 5_000))]);
+    expect(settled).toBe(true);
+    expect(Date.now() - started).toBeLessThan(1_500);
   });
 });

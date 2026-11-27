@@ -3,8 +3,9 @@
 // work items, the button that says how many repositories are hidden, and
 // the status line at its foot.
 import type { WorkItem } from "../shared/protocol";
+import { REFRESH_SAYS, REFRESHING_SAYS } from "./refresh";
 import { byId, changedSince, changes, CHEVRON, DOTS, entries, held, icon, lineMarkIcons, marked, narrowed, part, PLUS, stateIcon, titleClass } from "./shared";
-import { ageOf, bellSays, daemonStatus, filterChoices, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
+import { ageOf, bellSays, daemonStatus, emptySidebar, filterChoices, filterMark, hiddenRepositories, lineSince, matchCount, NEW_WORK_ITEM_SAYS, noticeWithout, rowButtons, SHOW_EVERY_WORK_ITEM, sidebarTree, statusNotice, summaryCount, type StateFilter } from "./view";
 
 /** The screen in front, or null before the daemon's `ready`. The sidebar's navigation opens three of them, and marks none while a work item's view or a repository's archived work items are in front. */
 export type Front = "summary" | "inbox" | "history" | "archived" | "view" | null;
@@ -21,8 +22,12 @@ export interface SidebarActions {
   /** Takes what the search field holds, as it is typed. */
   search(query: string): void;
   filter(state: StateFilter): void;
+  /** Has the daemon read the work items again and send the lists back, at a press of the refresh button. It sends nothing before the daemon's `ready`, nor while an answer is on its way (./refresh). */
+  refresh(): void;
   /** Returns the keyboard to the list, after Escape emptied the search field. */
   leaveSearch(): void;
+  /** Chooses All in the filter and takes the emptied search, and draws the sidebar and the list in front at once. */
+  showEvery(): void;
 }
 
 const searchField = byId<HTMLInputElement>("search-field");
@@ -33,6 +38,7 @@ const inboxCount = byId("nav-inbox-count");
 const summaryNew = byId("nav-summary-count");
 const bell = byId<HTMLButtonElement>("bell");
 const bellCount = byId("bell-count");
+const refreshButton = byId<HTMLButtonElement>("refresh-lists");
 const filterControl = byId("sidebar-filter-control");
 const filter = byId<HTMLSelectElement>("sidebar-filter");
 const repositories = byId("repositories");
@@ -59,7 +65,9 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
   filter.replaceChildren(...filterChoices().map(({ value, label }) => new Option(label, value)));
   filter.addEventListener("change", () => actions.filter(filter.value as StateFilter));
   bell.addEventListener("click", () => actions.filter("waiting"));
-  // The one button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
+  refreshButton.addEventListener("click", () => actions.refresh());
+  showRefresh(false);
+  // The "+" button of the sidebar's top makes a work item, and its form is where a repository is registered alone.
   byId("new-work-item").title = NEW_WORK_ITEM_SAYS;
   byId("new-work-item").addEventListener("click", () => actions.openForm());
   showStatus();
@@ -69,6 +77,15 @@ export function initSidebar(given: SidebarActions, mac: boolean): void {
 export function focusSearch(): void {
   searchField.focus();
   searchField.select();
+}
+
+/** Draws the refresh button at rest, or working while its answer is on its way: its arrows then turn, and it says so to a pointer and to a screen reader. */
+export function showRefresh(working: boolean): void {
+  const says = working ? REFRESHING_SAYS : REFRESH_SAYS;
+  refreshButton.title = says;
+  refreshButton.setAttribute("aria-label", says);
+  if (working) refreshButton.setAttribute("aria-busy", "true");
+  else refreshButton.removeAttribute("aria-busy");
 }
 
 /** Says `text` in the status line, or the daemon's state again where it is empty. */
@@ -124,9 +141,13 @@ function workItemElement(workItem: WorkItem, title: string, marks: readonly (rea
  * in each list. A repository's row holds the button that folds it,
  * with the repository's icon before its name where it has one, a "+" button
  * that opens the "New work item" form on its folder, and a "…" button that
- * opens its menu. Under the repositories a button says how many are hidden,
- * where any is, and opens their list. The search field is the person's and
- * is left as it is.
+ * opens its menu. Where a search or a filter leaves no repository, a
+ * sentence says so in their place, with a button that shows every work item
+ * again (./view, `emptySidebar`). Under the repositories a button says how
+ * many are hidden, where any is, and opens their list. The filter's control
+ * is on while a search or a filter narrows the sidebar (./view,
+ * `filterMark`). The search field is the person's: a draw leaves it as it
+ * is, and the press of the button that shows every work item empties it.
  */
 export function showSidebar(inFront: Front = front): void {
   front = inFront;
@@ -145,12 +166,13 @@ export function showSidebar(inFront: Front = front): void {
   bell.title = bellSays(waiting);
   bell.setAttribute("aria-label", bell.title);
   filter.value = held.filter;
-  const chosen = filterChoices().find((choice) => choice.value === held.filter);
-  filterControl.title = `Showing: ${chosen ? chosen.label : held.filter}`;
-  filterControl.classList.toggle("on", held.filter !== "all");
+  const mark = filterMark(held.query, held.filter);
+  filterControl.title = mark.says;
+  filterControl.classList.toggle("on", mark.on);
   searchCount.textContent = held.query === "" ? "" : matchCount(left.length, all.length);
+  const tree = sidebarTree(held.repositories, held.workItems, held.sessions, held.paneKinds, held.query, held.filter);
   repositories.replaceChildren(
-    ...sidebarTree(held.repositories, held.workItems, held.sessions, held.paneKinds, held.query, held.filter).map((repository) => {
+    ...tree.map((repository) => {
       const isFolded = folded.has(repository.id);
       const section = document.createElement("section");
       section.className = "repository";
@@ -199,6 +221,23 @@ export function showSidebar(inFront: Front = front): void {
       return section;
     }),
   );
+  const empty = emptySidebar(held.repositories, tree.length, held.query, held.filter);
+  if (empty !== "") {
+    const sentence = document.createElement("p");
+    sentence.id = "sidebar-empty";
+    sentence.textContent = empty;
+    const every = document.createElement("button");
+    every.id = "show-every";
+    every.className = "quiet";
+    every.textContent = SHOW_EVERY_WORK_ITEM;
+    every.addEventListener("click", () => {
+      searchField.value = "";
+      actions.showEvery();
+      // The button leaves the page with the draw, so the keyboard goes to the first thing the press brought back.
+      repositories.querySelector<HTMLElement>("button.fold")?.focus();
+    });
+    repositories.append(sentence, every);
+  }
   const { says } = hiddenRepositories(held.repositories);
   if (says !== "") {
     const hidden = document.createElement("button");

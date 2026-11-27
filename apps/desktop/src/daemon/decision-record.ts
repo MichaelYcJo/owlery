@@ -152,13 +152,16 @@ export function declaredBranch(text: string): string | null {
 /**
  * Every directory under a worktree's `<root>/threads/` whose `routing.md`
  * names the branch in its `Branch` row, in the order of their names. None
- * where the worktree holds no records root. It reads the working tree,
- * committed or not. A `routing.md` that is a link, that is no plain file, or
- * that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
+ * where the worktree holds no records root, and none where `branch` is null,
+ * for a work item with no branch yet: `declaredBranch` gives null for a
+ * routing it refuses, and such a routing is no work item's. It reads the
+ * working tree, committed or not. A `routing.md` that is a link, that is no
+ * plain file, or that holds more than `REPOSITORY_FILE_BYTES` names no branch here, though
  * the check reads it: the daemon reads each one in its pass, from a checkout
  * it did not write.
  */
-export function workItemDirectories(worktree: string, branch: string): string[] {
+export function workItemDirectories(worktree: string, branch: string | null): string[] {
+  if (branch === null) return [];
   const root = rootOf(worktree);
   if (root === null) return [];
   const threads = join(worktree, root, "threads");
@@ -182,7 +185,7 @@ export function workItemDirectories(worktree: string, branch: string): string[] 
  * worktree holds no records root, which is how the pull request check reads
  * it (`pr-check/lib/routing.py#item_dir`).
  */
-export function workItemDirectory(worktree: string, branch: string): string | null {
+export function workItemDirectory(worktree: string, branch: string | null): string | null {
   const naming = workItemDirectories(worktree, branch);
   const [only] = naming;
   return naming.length === 1 && only !== undefined ? only : null;
@@ -264,6 +267,36 @@ export function readDecisionRecord(text: string): DecisionRecord {
     questions: got.blocks.filter((block) => block.kind === QUESTION_BLOCK).map(questionOf),
     refusals: got.refusals.map(({ line, why }) => ({ line, why })),
     notices: got.notices,
+  };
+}
+
+/** The ids of the person's words a record holds that a commit of it does not: its reversals and its answers, each in the order of the file. */
+export interface OwedWords {
+  reversed: number[];
+  answered: number[];
+}
+
+/** Whether a record holds a word of the person's: a decision that stands `reversed`, or a question that stands `answered`. */
+export function holdsWords(record: Pick<DecisionRecord, "decisions" | "questions">): boolean {
+  return record.decisions.some((decision) => decision.state.is === "reversed") || record.questions.some((question) => question.state.is === "answered");
+}
+
+/**
+ * The person's words the written text of a record holds and its committed
+ * text does not: each decision that stands `reversed` in the written text
+ * and in no such state, or not at all, in the committed one, and each
+ * question that stands `answered` in the written text and in no such state,
+ * or not at all, in the committed one. A block is the same block in both
+ * where it bears the same id. `committed` is null where no commit holds the
+ * record. A word the commit holds in the same state is not owed, though its
+ * message differs.
+ */
+export function owedWords(committed: string | null, written: string): OwedWords {
+  const before = committed === null ? { decisions: [], questions: [] } : readDecisionRecord(committed);
+  const now = readDecisionRecord(written);
+  return {
+    reversed: now.decisions.filter((decision) => decision.state.is === "reversed" && before.decisions.find((held) => held.id === decision.id)?.state.is !== "reversed").map((decision) => decision.id),
+    answered: now.questions.filter((question) => question.state.is === "answered" && before.questions.find((held) => held.id === question.id)?.state.is !== "answered").map((question) => question.id),
   };
 }
 

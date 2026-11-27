@@ -1,29 +1,33 @@
 // The approval line in the built app. It starts the app once, in the
 // background, on a temporary repository that holds the place for work
 // records. The login shell is a script that names a script CLI, so no real
-// `claude` runs, and no session of the CLI is started: nothing in the window
-// starts a chain. A second client of the daemon makes a work item with a
-// shell's pane. In its worktree the file commits a file and writes the
-// records a stage would write there: the routing that names the branch, and
-// two round records. The daemon reads them at its next pass, and the view's
-// right column and the inbox's preview draw the line. A second work item,
-// made by a later case, has the records of a seal committed on its branch as
-// a chain commits them, and then one more commit, which breaks that seal.
-// One more work item stands in the run folder before the app starts, with a
-// chain a daemon stored as stopped, so the view's foot has a chain's sentence
-// to say.
+// `claude` runs, and nothing in the window starts a chain. A second client of
+// the daemon makes a work item with a shell's pane. In its worktree the file
+// commits a file and writes the records a stage would write there: the
+// routing that names the branch, and two round records. The daemon reads
+// them at its next pass, and the view's right column and the inbox's preview
+// draw the line. A second work item, made by a later case, has the records of
+// a seal committed on its branch as a chain commits them, and then one more
+// commit, which breaks that seal. One more work item stands in the run folder
+// before the app starts, with a chain a daemon stored as stopped, so the
+// view's foot has a chain's sentence to say. The last case makes one more
+// work item, whose branch commits Owlery's workflow, and opens a Claude Code
+// pane in it, which carries the owl chain: the login shell, asked for that
+// pane's command, stands in for its session, runs the built chain command's
+// `start` and `owed` with the pane's variables, which hand round 1, and stays
+// until the pane is closed.
 // In the background the page raises nothing of the system's and keeps each
 // notification in `window.__notifications` (src/renderer/notifier.ts), which
 // the cases read.
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MARKER } from "../src/daemon/records-place";
+import { MARKER, workflowText } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
-import type { ClientMessage, ServerMessage, WorkItem } from "../src/shared/protocol";
+import type { ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { commitSeal } from "./chain-run";
-import { commitFile, git, temporaryRepository } from "./repositories";
+import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** What a place of the line shows, as a person and a screen reader read it. */
 interface Shown {
@@ -54,8 +58,17 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   let made: ReturnType<typeof temporaryRepository>;
   /** The work item whose line the records fill. */
   let workItem: WorkItem;
-  /** The second client of the daemon: a work item of a title as the daemon last listed it, and a message it sends. */
-  let second: { item(title: string): WorkItem | undefined; send(message: ClientMessage): void; close(): void };
+  /** The second client of the daemon: a work item of a title as the daemon last listed it, the pane the daemon started at a request, and a message it sends. */
+  let second: { item(title: string): WorkItem | undefined; started(requestId: number): SessionInfo | undefined; send(message: ClientMessage): void; close(): void };
+  /** Gives a work item a creation made its branch by a rename to its own name, through the second client, as a person gives a work item with no branch yet its branch, and gives the work item once the lists carry the branch. */
+  const branched = async (item: WorkItem, requestId: number): Promise<WorkItem> => {
+    second.send({ type: "renameWorkItem", requestId, id: item.id, title: item.title, branch: true });
+    for (const deadline = Date.now() + 15_000; Date.now() < deadline; await new Promise((resolve) => setTimeout(resolve, 50))) {
+      const now = second.item(item.title);
+      if (now?.branch) return now;
+    }
+    throw new Error(`the work item ${item.title} was given no branch`);
+  };
 
   function script(name: string, body: string): string {
     const path = join(made.base, name);
@@ -83,22 +96,10 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   const choose = (control: "theme" | "appearance", choice: string): Promise<void> =>
     app.evaluate(`(() => { const choices = document.getElementById(${JSON.stringify(control)}); choices.value = ${JSON.stringify(choice)}; choices.dispatchEvent(new Event("change", { bubbles: true })); })()`);
 
-  /**
-   * Opens a work item's view by a click on its line of the sidebar. The
-   * sidebar replaces its buttons each time it is drawn, so a press and a
-   * release with a draw between them land on two buttons and make no click.
-   * The click is made again until the view shows.
-   */
+  /** Opens a work item's view by one click on its line of the sidebar. */
   const openView = async ({ id, title }: WorkItem): Promise<void> => {
-    const shown = `!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`;
-    for (const deadline = Date.now() + 15_000; ; ) {
-      await app.click(`#repositories button[data-work-item="${id}"]`);
-      try {
-        return await app.until(shown, `the view of ${title}`, 2_000);
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-      }
-    }
+    await app.click(`#repositories button[data-work-item="${id}"]`);
+    await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
   };
 
   beforeAll(async () => {
@@ -112,8 +113,11 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon runs the CLI at its start, to read its version: that run prints one and is no session, and no case of this file starts one.
     const cli = script("cli", `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi\nexit 1`);
-    // The login shell: it names the stand-in, and a pane it starts ends at once.
-    const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
+    // The login shell: it names the stand-in, and a shell's pane it starts ends at once. Asked for a Claude Code pane's command, it stands in for the pane's session: it runs the chain command the pane's environment names, against the base the last case writes, notes what each call printed, and stays.
+    const said = (name: string): string => `> '${join(made.base, name)}' 2>&1`;
+    const base = `--base "$(cat '${join(made.base, "stand-in-base")}')"`;
+    const session = `if [ "$3" = -c ] && [ "\${4#exec claude }" != "$4" ]; then "$OWLERY_CHAIN" start --automation yes ${base} ${said("stand-in-start")}; "$OWLERY_CHAIN" owed ${base} ${said("stand-in-owed")}; exec sleep 600; fi`;
+    const shell = script("shell", `${session}\nprintf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     // A work item of the run folder, as a daemon that ran its chain stored it: the chain stopped, with its sentence. Nothing in the window starts a chain, and one the daemon holds is still said.
     const storedWorktree = join(made.root, "stored");
     git(made.repo, "worktree", "add", "--quiet", "-b", "owlery/stored", storedWorktree);
@@ -129,10 +133,11 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const create = (requestId: number, title: string): void => socket.send(JSON.stringify({ type: "createWorkItem", requestId, repo: made.repo, title, kind: "shell", cols: 80, rows: 24 }));
     second = {
       item: (title) => messages.flatMap((message) => (message.type === "ready" || message.type === "inbox" ? message.workItems : [])).filter((item) => item.title === title).at(-1),
+      started: (requestId) => messages.flatMap((message) => (message.type === "started" && message.requestId === requestId ? [message.session] : [])).at(0),
       send: (message) => socket.send(JSON.stringify(message)),
       close: () => socket.close(),
     };
-    workItem = await new Promise<WorkItem>((resolve) => {
+    const created = await new Promise<WorkItem>((resolve) => {
       socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "hello", token })));
       socket.addEventListener("message", (event) => {
         const message = JSON.parse(String(event.data)) as ServerMessage;
@@ -141,6 +146,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         if (message.type === "workItemCreated") resolve(message.workItem);
       });
     });
+    workItem = await branched(created, 11);
 
     // One commit after the base, and the records a stage writes: the routing that names the branch, and two rounds.
     commitFile(workItem.worktree, "login.ts");
@@ -225,8 +231,8 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, with no sentence of a chain and nothing to press at the foot, and marks the sealer's place finished", async () => {
     second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
-    gamma = second.item("Gamma")!;
-    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: gamma.branch, base: gamma.baseCommit! });
+    gamma = await branched(second.item("Gamma")!, 12);
+    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
     for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });
     const words = `Sealed at ${sealedAt.slice(0, 7)}`;
@@ -287,5 +293,53 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     expect([foot.says, foot.buttons]).toEqual([STORED_SAYS, 0]);
     // The sentence stands in the foot, after the seal's words.
     expect(await app.evaluate(`(() => { const says = document.getElementById("seal-says"); return [document.getElementById("view-seal").contains(says), Boolean(document.getElementById("view-seal-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);
+  });
+
+  it('holds no "Ask" section in the view, and no list above the seal\'s place where the daemon lists no session of the work item and its chain holds no gate\'s run: the list of the daemon\'s chain stands between the column\'s text and the seal\'s place, hidden and taking no height', async () => {
+    // The stored work item's chain holds no stage, and the daemon started no session for it.
+    const stored = second.item("Stored")!;
+    await openView(stored);
+    await app.until(`document.getElementById("seal-says").textContent !== ""`, "the stored work item's view");
+    expect(
+      await app.evaluate(`(() => {
+        const list = document.getElementById("view-chain");
+        return {
+          section: ["ask", "ask-form", "ask-prompt", "ask-account", "ask-submit"].filter((id) => document.getElementById(id) !== null),
+          heading: [...document.querySelectorAll("#view-facts h2")].filter((head) => head.textContent === "Ask").length,
+          list: [list.tagName, list.getAttribute("aria-label"), list.hidden, list.childElementCount, list.getBoundingClientRect().height],
+          around: [list.previousElementSibling.id, list.nextElementSibling.id],
+        };
+      })()`),
+    ).toEqual({ section: [], heading: 0, list: ["UL", "The daemon's chain", true, 0, 0], around: ["view-scroll", "view-seal"] });
+  });
+
+  it("marks the proofer's place working with the note Round 1 and the stage's age while a Claude Code pane's session holds round 1 open through the built chain command, and leaves the place to the records once the pane is closed", async () => {
+    second.send({ type: "createWorkItem", requestId: 3, repo: made.repo, title: "Delta", kind: "shell", cols: 80, rows: 24 });
+    for (const deadline = Date.now() + 15_000; !second.item("Delta") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
+    const delta = await branched(second.item("Delta")!, 13);
+    // The branch puts the repository on the owl chain, with Owlery's workflow, so a Claude Code pane opened in its worktree carries the chain.
+    mkdirSync(join(delta.worktree, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-seal.yml"), workflowText("0.0.0"));
+    git(delta.worktree, "add", "--all");
+    git(delta.worktree, "commit", "--quiet", "-m", "ci: the check");
+    writeFileSync(join(made.base, "stand-in-base"), delta.baseCommit!);
+    // The pane's session runs `start` and `owed` through the launcher its environment names, and stays: round 1 is open.
+    second.send({ type: "start", kind: "claude", cols: 80, rows: 24, requestId: 14, workItemId: delta.id });
+    for (const deadline = Date.now() + 20_000; second.item("Delta")?.paneStage?.kind !== "round" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
+    const stood = (name: string): string => (existsSync(join(made.base, name)) ? readFileSync(join(made.base, name), "utf8") : "nothing");
+    expect(second.item("Delta")?.paneStage, `the stand-in's start printed ${stood("stand-in-start")} and its owed ${stood("stand-in-owed")}`).toMatchObject({ kind: "round", round: 1 });
+    expect(JSON.parse(stood("stand-in-owed").split("\n")[0] ?? "")).toMatchObject({ step: "round", round: 1 });
+    const proofer = `document.querySelector('#view-detail section.approval .place[data-role="proofer"]')`;
+    const place = `(() => { const place = ${proofer}; const mark = place.querySelector(".state-icon"); return [[...mark.classList].filter((name) => name !== "state-icon" && name !== "state"), place.querySelector(".note").textContent, mark.getAttribute("aria-label")]; })()`;
+    await openView(second.item("Delta")!);
+    await app.until(`${proofer}?.querySelector(".note").textContent === "Round 1"`, "the proofer's place at work on round 1", 20_000);
+    expect(await app.evaluate(place)).toEqual([["working"], "Round 1", "Proofer: Round 1, less than a minute"]);
+    // The pane is closed: the daemon drops its stage, and the records, which hold no round, say the place.
+    const pane = second.started(14);
+    expect(pane?.workItemId).toBe(delta.id);
+    second.send({ type: "close", id: pane!.id });
+    await app.until(`${proofer}?.querySelector(".note").textContent === "Not started"`, "the proofer's place as the records say", 20_000);
+    expect(await app.evaluate(place)).toEqual([["no-agent"], "Not started", "Proofer: Not started"]);
+    expect(second.item("Delta")?.paneStage).toBeNull();
   });
 });

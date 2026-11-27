@@ -1,9 +1,12 @@
 // What the cases of a work item's chain share: a daemon on a temporary
 // repository with the records root, a client, the round records a fake
 // proofer answers with, the fix a fake crafter makes, the blocks a fake
-// orchestrator answers with and the section a fake sealer answers with, and
-// the records of a sealed chain a case commits itself. No case starts an agent: every stage runs on
-// the fake adapter. The repository's broad gate is a stand-in command the
+// orchestrator answers with and the section a fake sealer answers with, the
+// records of a sealed chain a case commits itself, and a work item parked on
+// a question, which a built-app case stores and answers so that the built
+// daemon resumes its chain and launches a stand-in for the CLI. No case
+// starts an agent: every stage of the daemon this file starts runs on the
+// fake adapter. The repository's broad gate is a stand-in command the
 // case names, `true` where it names none, and it runs with the suite's own
 // `PATH`, so no case runs a repository's check or asks a login shell. The
 // repository's remote is a bare repository in the case's temporary folder,
@@ -13,14 +16,15 @@ import { dirname, join } from "node:path";
 import WebSocket from "ws";
 import type { RoleAdapter } from "../src/daemon/adapters/adapter";
 import { type FakeAdapterOptions, fakeAdapter } from "../src/daemon/adapters/fake";
-import { routingText } from "../src/daemon/chain";
+import { PARKED_SAYS, routingText } from "../src/daemon/chain";
+import { RECORD_FILE, readDecisionRecord, withQuestion } from "../src/daemon/decision-record";
 import { Daemon, type DaemonOptions } from "../src/daemon/daemon";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { MARKER } from "../src/daemon/records-place";
 import { gateText, guaranteeText } from "../src/daemon/seal-records";
 import { createWorktree } from "../src/daemon/worktrees";
 import type { Chain, ClientMessage, LedgerEntry, RoleStage, ServerMessage, WorkItem } from "../src/shared/protocol";
-import { git, temporaryRepository } from "./repositories";
+import { branchedWorktree, git, temporaryRepository, writeStore } from "./repositories";
 
 /** The token the cases' daemons take. */
 export const TOKEN = "t".repeat(64);
@@ -137,10 +141,11 @@ export function heldGit(cleanups: Cleanups, base: string, when: string): { relea
   return { release, waiting: () => existsSync(arrived) };
 }
 
-/** What the stand-in for `gh` answers one kind of call with: what it prints on each stream and its exit code, or that it never exits, and with `stubborn` that it also ignores the signal to end. */
+/** What the stand-in for `gh` answers one kind of call with: what it prints on each stream and its exit code, after `seconds` where given, or that it never exits, and with `stubborn` that it also ignores the signal to end. */
 export interface GhAnswer {
   out?: string;
   err?: string;
+  seconds?: number;
   exit?: number;
   hangs?: boolean;
   stubborn?: boolean;
@@ -199,6 +204,7 @@ export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
       'a="$d/answer-$2"',
       'if [ -e "$a.stubborn" ]; then trap "" TERM; exec sleep 30; fi',
       'if [ -e "$a.hangs" ]; then exec sleep 30; fi',
+      'if [ -e "$a.seconds" ]; then sleep "$(cat "$a.seconds")"; fi',
       'if [ -e "$a.err" ]; then cat "$a.err" >&2; fi',
       'if [ -e "$a.out" ]; then cat "$a.out"',
       'elif [ "$2" = list ]; then echo "[]"',
@@ -226,9 +232,10 @@ export function ghStandIn(cleanups: Cleanups, base: string): GhStandIn {
     bodies: () => Array.from({ length: count() }, (_, index) => (existsSync(join(folder, `body-${String(index + 1)}`)) ? readFileSync(join(folder, `body-${String(index + 1)}`), "utf8") : null)),
     answer: (call, answer) => {
       const at = join(folder, `answer-${call}`);
-      for (const end of ["out", "err", "exit", "hangs", "stubborn"]) rmSync(`${at}.${end}`, { force: true });
+      for (const end of ["out", "err", "seconds", "exit", "hangs", "stubborn"]) rmSync(`${at}.${end}`, { force: true });
       if (answer.out !== undefined) writeFileSync(`${at}.out`, answer.out);
       if (answer.err !== undefined) writeFileSync(`${at}.err`, answer.err);
+      if (answer.seconds !== undefined) writeFileSync(`${at}.seconds`, String(answer.seconds));
       if (answer.exit !== undefined) writeFileSync(`${at}.exit`, String(answer.exit));
       if (answer.hangs === true) writeFileSync(`${at}.hangs`, "");
       if (answer.stubborn === true) writeFileSync(`${at}.stubborn`, "");
@@ -289,10 +296,17 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * first has a repository of its own, made the same way with a remote of its
  * own, and `made` is the first title's. With `linked: true` the daemon is
  * given each worktree by a link beside its repository's folder, as a person
- * may give a folder, while git names it by its real path.
+ * may give a folder, while git names it by its real path. With
+ * `branchless: true` each work item has no branch yet: its worktree's `HEAD`
+ * is detached at its commit, as a creation with no branch picked leaves it, a
+ * tag `held-<id>` holds the commit, so no read takes it for a commit made in
+ * the worktree and makes the work item's branch, and the store the daemon
+ * reads holds no branch for it. Without it each work item's branch is the one
+ * Owlery makes at a first commit or a rename (`branchedWorktree`), made
+ * before the commit.
  */
-export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean } = {}) {
-  const { root = true, gate = "true", apart = false, linked = false, ...daemonOptions } = options;
+export async function standing(cleanups: Cleanups, titles: string[], options: Partial<DaemonOptions> & { root?: boolean; gate?: string | null; apart?: boolean; linked?: boolean; branchless?: boolean } = {}) {
+  const { root = true, gate = "true", apart = false, linked = false, branchless = false, ...daemonOptions } = options;
   const repository = (): ReturnType<typeof temporaryRepository> => {
     const repo = temporaryRepository();
     cleanups.push(repo.remove);
@@ -309,15 +323,18 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
   const workItems = [];
   for (const [index, title] of titles.entries()) {
     const own = apart && index > 0 ? repository() : made;
-    const place = await createWorktree({ folder: own.repo, title, root: own.root });
+    const place = branchless ? await createWorktree({ folder: own.repo, title, root: own.root }) : await branchedWorktree({ folder: own.repo, title, root: own.root });
     write(place.worktree, "feature.txt", "A greeting\n");
     commitAll(place.worktree, "feat: greet");
     const link = join(own.base, `linked-${String(index + 1)}`);
     if (linked) symlinkSync(place.worktree, link);
+    // The tag keeps a read from making the branch of a work item with no branch yet at its commit.
+    if (branchless) git(place.worktree, "tag", `held-${String(index + 1)}`);
     workItems.push({ id: index + 1, title, createdAt: 1, ...place, worktree: linked ? link : place.worktree });
     if (own !== made) bareRemote(own.base, own.repo);
   }
-  writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
+  if (branchless) writeStore(runDir, made.repo, workItems);
+  else writeFileSync(join(runDir, "work-items.json"), JSON.stringify(workItems));
   const remote = bareRemote(made.base, made.repo);
   const gh = ghStandIn(cleanups, made.base);
   const start = async (more: Partial<DaemonOptions> = {}) => {
@@ -500,6 +517,32 @@ export function commitSealedAfterAFix(folder: string, given: { workItem: string;
   write(folder, `${directory}/guarantee.md`, guaranteeWith(null, given.workItem, 1, `${gate} against main`));
   commitAll(folder, "chore: record the sealer's verdict");
   return fix;
+}
+
+/**
+ * A work item a built-app case stores in the daemon's run folder before the
+ * app starts, parked on one open question: its worktree is made from `main`
+ * of a repository whose `main` holds the records root with a broad gate
+ * command, on the branch Owlery makes at a first commit (`branchedWorktree`),
+ * since a chain resumes only on a branch, and holds the routing that names its branch and a record of one
+ * open question, each in a commit of its own. Once a client answers the
+ * question (`answerQuestions`), the daemon resumes the chain
+ * (`daemon.ts#resumeChain`), and the records owe round 1, a proofer's
+ * session. Gives the work item as the run folder's `repositories.json`
+ * holds one, and the question's id.
+ */
+export async function parkedOnAQuestion(given: { repo: string; root: string; id: number; title: string; workItem: string; asks: string; at: number }): Promise<{ stored: { id: number; title: string; branch: string; worktree: string; createdAt: number; baseCommit: string | null; baseBranch: string | null; pinned: false; muted: false; groupId: null; archivedAt: null; chain: Chain }; questionId: number }> {
+  const at = await branchedWorktree({ folder: given.repo, title: given.title, root: given.root });
+  const directory = `seal/threads/${given.workItem}`;
+  write(at.worktree, `${directory}/routing.md`, routingText(given.workItem, at.branch, TODAY));
+  commitAll(at.worktree, "chore: declare the work item's routing");
+  const record = withQuestion("", { asks: given.asks, grounds: "No document of the repository answers it.", by: "proofer" });
+  write(at.worktree, `${directory}/${RECORD_FILE}`, record);
+  commitAll(at.worktree, "chore: record the question the chain parks on");
+  const questionId = readDecisionRecord(record).questions[0]?.id;
+  if (questionId === undefined) throw new Error("the record holds no question");
+  const chain: Chain = { state: "parked", says: PARKED_SAYS, since: given.at, stages: [] };
+  return { stored: { id: given.id, title: given.title, branch: at.branch, worktree: at.worktree, createdAt: given.at, baseCommit: at.baseCommit, baseBranch: at.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null, chain }, questionId };
 }
 
 /** One entry of the daemon's ledger for a stage of a work item's chain, which reported a converted cost of $0.28 where it is an agent's turn. A built-app case appends such lines to `ledger.jsonl` of the run folder, which the daemon reads at each `readLedger`. */

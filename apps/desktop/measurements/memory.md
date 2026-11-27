@@ -1,6 +1,6 @@
 # Memory: the app itself with four terminals on screen
 
-**Four terminals side by side read 503.4 MB at the highest sample of three runs.** The samples of the three runs lie between 491.1 and 503.4 MB, and two of the three runs hold a sample over 500 MB. This is the reference scene of `docs/architecture.md` *Memory design*, which publishes what a scene costs as a measurement and holds no feature to its number. The numbers are of an agent's start of the app, described under *The kind of start*. Nobody has measured a start a person makes.
+**Four terminals side by side read 503.4 MB at the highest sample of three runs on 2026-11-19, and 543.0 MB on 2026-11-26, once each pane held 5,000 lines of history in place of 1,000.** On 2026-11-19 the samples of the three runs lie between 491.1 and 503.4 MB, and two of the three runs hold a sample over 500 MB. The later measurement stands under *2026-11-26: the scene `four` at a scrollback of 5,000 lines*. This is the reference scene of `docs/architecture.md` *Memory design*, which publishes what a scene costs as a measurement and holds no feature to its number. The numbers are of an agent's start of the app, described under *The kind of start*. Nobody has measured a start a person makes.
 
 ## What was measured
 
@@ -98,3 +98,37 @@ A start `agent` is made under `OWLERY_BACKGROUND=1`, with the page told that it 
 - The DOM renderer read higher than WebGL at this rate of output, 537.3 to 547.6 MB at the highest sample of each run. The GPU process holds about as much, and the renderer process about 30 MB more.
 - Panes that are not on the stage hold no terminal in the window. Eight panes each shown once read 480.3 MB, with one terminal in the page. Four tiles after eight panes read 512.6 to 519.4 MB, 9 to 16 MB over the highest sample of `four`: the daemon holds about 18 MB more, which is the output it keeps for eight panes.
 - With the inbox in front after four tiles, the page still holds the four terminals, hidden, and the app reads 257.8 MB against 156.4 MB before any view was opened.
+
+## 2026-11-26: the scene `four` at a scrollback of 5,000 lines
+
+**Four terminals side by side read 532.0 to 543.0 MB at the highest sample of each of three runs, against 499.0 to 503.4 MB on 2026-11-19.** Each pane's terminal now holds 5,000 lines of history, the default of the Machine dialog's row "Scrollback lines", where it held 1,000. The daemon keeps 256 characters of each pane's output for each of those lines, 1,280,000 characters in all, where it kept 262,144.
+
+| | |
+|---|---|
+| Date | 2026-11-26 |
+| Commit | `6f1111f9`, with nothing under `apps/desktop` that the commit does not hold |
+| Machine, displays, versions, window, stage and tiles | as under *What was measured*: macOS 26.5, Electron 45.3.3, xterm.js 6.0.0, a window of 1440 by 900 px, and four tiles of 358 by 380.4 px, 49 columns by 27 rows |
+| Scrollback | none set, so each pane holds the default of 5,000 lines |
+
+The method is the one under *What was measured* and *The kind of start*: three launches, each an agent's start, sampled 20, 25 and 30 seconds after the scenario's last step. The command was run from `apps/desktop`:
+
+```
+OWLERY_BACKGROUND=1 OWLERY_MEMORY_SCENARIOS=four pnpm run measure:memory
+```
+
+| Scenario | Run | Start | App itself, MB, at 20 s / 25 s / 30 s | Highest, MB | Panes' processes, MB | Terminals | Displayed | Canvases | Frames a second |
+|---|---|---|---|---|---|---|---|---|---|
+| four | 1 | agent | 541.9 / 543.0 / 541.9 | 543.0 | 5.4 / 5.4 / 8.8 | 4 / 4 / 4 | 4 / 4 / 4 | 9 / 9 / 9 | 60 / 60 / 60 |
+| four | 2 | agent | 538.5 / 540.3 / 538.7 | 540.3 | 5.4 / 8.8 / 8.8 | 4 / 4 / 4 | 4 / 4 / 4 | 9 / 9 / 9 | 60 / 60 / 61 |
+| four | 3 | agent | 531.2 / 530.2 / 532.0 | 532.0 | 5.4 / 8.7 / 8.7 | 4 / 4 / 4 | 4 / 4 / 4 | 9 / 9 / 9 | 59 / 60 / 61 |
+
+| Scenario | Run | Main | Renderer | GPU | Utility | Daemon | Other | App itself, MB, at 30 s |
+|---|---|---|---|---|---|---|---|---|
+| four | 1 | 64.8 | 116.4 | 330.4 | 7.5 | 22.8 | 0.0 | 541.9 |
+| four | 2 | 64.7 | 120.1 | 324.4 | 7.5 | 22.0 | 0.0 | 538.7 |
+| four | 3 | 64.6 | 116.5 | 321.4 | 7.4 | 22.0 | 0.0 | 532.0 |
+
+- The renderer process holds 116.4 to 120.1 MB at 30 s, where it held 82.7 to 86.9 MB, so about 33 MB more. Each terminal holds 4,000 lines more than it held then, and at 49 columns and 12 bytes a cell they come to about 2.4 MB for each terminal and 9.4 MB for four. These tables do not say what holds the rest.
+- The daemon holds 22.0 to 22.8 MB, where it held 18.3 to 18.9 MB, so about 3.5 MB more. Four buffers of 1,280,000 characters in place of 262,144 should come to about 4 MB at one byte a character.
+- The GPU process holds 321.4 to 330.4 MB, about as much as before.
+- `docs/architecture.md` *Memory design* publishes what a scene costs as a measurement and holds no feature to its number, so this is the scene's number at the default, and not a limit.

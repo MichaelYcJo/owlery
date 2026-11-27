@@ -136,7 +136,7 @@ describe("Ledger", () => {
     expect(lines(runDir)).toEqual([JSON.stringify(added), ""]);
   });
 
-  it("reads as an entry only a line with every field in its type, a stage a pair the protocol lists, the gate or none, a chain's stage a kind the protocol lists with a whole round or none, a usage with its mark, and an account with a whole id and a name or none, and reads a line an earlier build wrote with no chain's stage as one that names none", () => {
+  it("reads as an entry only a line with every field in its type, a branch a name or none for a work item with no branch yet, a stage a pair the protocol lists, the gate or none, a chain's stage a kind the protocol lists with a whole round or none, a usage with its mark, and an account with a whole id and a name or none, and reads a line an earlier build wrote with no chain's stage as one that names none", () => {
     const runDir = runFolder();
     const good = entry(1000);
     const model = good.usage!.models[0]!;
@@ -189,6 +189,8 @@ describe("Ledger", () => {
       entry(1008, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "ruling", round: 2 } }),
       entry(1009, { stage: { role: "orchestrator", stage: "judgment" }, chain: { kind: "judgment", round: 2 } }),
       entry(1010, { stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 0 }, usage: null, account: null }),
+      // A stage of a work item that had no branch yet.
+      entry(1012, { branch: null }),
     ];
     // A field the protocol does not name is not given with the entry.
     const more = { ...entry(1005), vendor: "x", stage: { role: "proofer", stage: "round", more: "x" }, chain: { kind: "round", round: 1, more: "x" }, usage: { ...good.usage, raw: "x", models: [{ ...model, raw: "x" }] }, account: { id: 0, name: "System default", folder: "x" } };
