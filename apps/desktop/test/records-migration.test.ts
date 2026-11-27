@@ -369,6 +369,10 @@ describe("the move of the records from the earlier form", () => {
       "This work item's directory iadd/threads/1-x/ holds records in the form the AgenticSeal plugin wrote, which a merge of a base that moved put there. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.",
     );
     expect(earlierRecordsSays(repo, "other")).toBeNull();
+    // The guarantee alone names the directory, with the round written in IADD's form for a moment.
+    writeFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), round2.replace(`${F}seal`, `${F}iadd`));
+    expect(earlierRecordsSays(repo, "feature")).toMatch(/^This work item's directory iadd\/threads\/1-x\/ holds records in the form the AgenticSeal plugin wrote/u);
+    writeFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), round2);
     const plan = await planMigration(repo, VERSION);
     // The base's round, which IADD's form already holds, is not part of the move.
     expect([plan.from, plan.blocked, plan.moves, plan.removes, plan.writes]).toEqual([
@@ -397,6 +401,27 @@ describe("the move of the records from the earlier form", () => {
     expect(readInspection(readFileSync(join(repo, "iadd/threads/1-x/inspection.md"), "utf8")).verdicts.map((verdict) => verdict.is)).toEqual(["withheld", "cleared"]);
     expect(earlierRecordsSays(repo, "feature")).toBeNull();
     expect((await planMigration(repo, VERSION)).blocked).toBe("The commit this checkout stands at holds no work records in the form the AgenticSeal plugin wrote, so there is nothing to move.");
+  });
+
+  it("rewrites where it stands a round the branch added in the earlier form under IADD's root, with nothing to remove, and names the directory by that round alone", async () => {
+    const repo = earlier();
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    const round2 = ROUND.replace("round 1", "round 2");
+    write(repo, "seal/threads/1-x/trail/rounds/round-2.md", round2);
+    commitAll(repo, "chore: record review round 2");
+    git(repo, "checkout", "--quiet", "main");
+    const base = await planMigration(repo, VERSION);
+    await migrateRecords(repo, VERSION, base.stamp);
+    git(repo, "checkout", "--quiet", "feature");
+    git(repo, "-c", "merge.directoryRenames=true", "merge", "--quiet", "--no-edit", "main");
+    expect(earlierRecordsSays(repo, "feature")).toMatch(/^This work item's directory iadd\/threads\/1-x\/ holds records in the form the AgenticSeal plugin wrote/u);
+    const plan = await planMigration(repo, VERSION);
+    expect([plan.blocked, plan.moves, plan.removes]).toEqual([null, [{ from: "iadd/threads/1-x/trail/rounds/round-2.md", to: "iadd/threads/1-x/trail/rounds/round-2.md", rewritten: true }], []]);
+    await migrateRecords(repo, VERSION, plan.stamp);
+    expect(status(repo)).toBe("");
+    expect(git(repo, "show", "--name-status", "--format=", "HEAD").trim()).toBe("M\tiadd/threads/1-x/trail/rounds/round-2.md");
+    expect(readFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), "utf8")).toBe(round2.replace(`${F}seal`, `${F}iadd`));
+    expect(earlierRecordsSays(repo, "feature")).toBeNull();
   });
 
   it("names a worktree whose records stand in an earlier root alone, and reads the heavy commands of that root's config.json and nothing else of it", () => {
