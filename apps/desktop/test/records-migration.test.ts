@@ -480,6 +480,11 @@ describe("the move of the records from the earlier form", () => {
     expect(earlierRecordsSays(repo, "feature")).toBeNull();
     const plan = await planMigration(repo, VERSION);
     expect([plan.blocked, plan.moves]).toEqual(["The commit this checkout stands at holds no work records in the form the AgenticSeal plugin wrote, so there is nothing to move.", []]);
+    // A round that holds no block IADD's grammar reads is the earlier form's, and a line the earlier grammar refuses in it blocks the plan with its file and its line.
+    write(repo, "iadd/threads/1-x/trail/rounds/round-3.md", ROUND.replace("round 1", "round 3").replace(`target: ${A} against main`, "target: no commit"));
+    commitAll(repo, "chore: record review round 3");
+    expect(earlierRecordsSays(repo, "feature")).toMatch(/^This work item's directory iadd\/threads\/1-x\/ holds records in the form the AgenticSeal plugin wrote/u);
+    expect((await planMigration(repo, VERSION)).blocked).toContain("`iadd/threads/1-x/trail/rounds/round-3.md:4`: ");
   });
 
   it("names a worktree whose records stand in an earlier root alone, and reads the heavy commands of that root's config.json and nothing else of it", () => {
