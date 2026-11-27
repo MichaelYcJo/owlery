@@ -21,7 +21,7 @@ Five runs of `gitFolderOf` in the same process took 11.1 to 12.7 ms. `stopCounts
 
 **Mutation: the case now pins the headless half of the count.** After the commit, `seal mutate` replaced `+ headless.length }` with `+ 0 }` in `Daemon#stopCounts` and ran the case: red, on the same assertion with `agentsWorking: 1`. `seal mutate` restored the file from the bytes it held, and `git diff --quiet HEAD -- apps/desktop/src` exited 0 afterwards.
 
-**Census of the prompt comparisons in `apps/desktop/test`, a sample.** It was built from the names of the fake adapter's options that are given the prompt (`FakeAdapterOptions` in `apps/desktop/src/daemon/adapters/fake.ts`: `pieces`, `asks`, `work`, `usage`, `limits`, `session`) and from the spellings of a comparison, by two commands at the phase's commit:
+**Census of the prompt comparisons in `apps/desktop/test`, a sample.** It was built from the names of the fake adapter's options that are given the prompt (`FakeAdapterOptions` in `apps/desktop/src/daemon/adapters/fake.ts`: `pieces`, `asks`, `work`, `usage`, `limits`, `session`) and from the spellings of a comparison, by two commands at `76f33b84`, the commit of the case's change:
 
 ```
 git grep -n -E 'prompt (===|!==) |prompt\.(startsWith|includes|endsWith)\(|options\.prompt' -- apps/desktop/test
