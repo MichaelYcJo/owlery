@@ -33,13 +33,20 @@
 // file, commits it, appends to a file of the case's folder outside the
 // worktree, and then writes the worktree's `.git` file and the `commondir`
 // of the worktree's own git folder to name the case's folder; and every
-// role's command then reads the run folder's `daemon.json`. The system
+// role's command then reads the run folder's `daemon.json` and makes a
+// symbolic link to it in the place the role's commands write. The system
 // refuses each write after the first two of a proofer and a sealer, each
-// after the first two of a crafter, and the read of every role. The case
-// reads the stream for the session's tools and the request, the case's
-// config folder for the session's conversation, what the stand-in was told
-// the command printed, and the files and the worktree's commits for what
-// was written.
+// after the first two of a crafter, and the read of every role. The
+// stand-in then makes the file tools' reads of the run folder, one a turn
+// (`fileReads`): a `Read` of `daemon.json` by its path and one through the
+// link, a `Grep` and a `Glob`. A file tool reads in Claude Code's own
+// process, which no sandbox holds, so what keeps the token from it is that
+// Claude Code asks the daemon before each of those reads, the run folder
+// standing outside the session's folders, and the daemon refuses each by
+// the role's rule. The case reads the stream for the
+// session's tools and the requests, the case's config folder for the
+// session's conversation, what the stand-in was told each call gave, and
+// the files and the worktree's commits for what was written.
 import { execFile } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -54,7 +61,7 @@ import { PANE_KINDS } from "../src/daemon/pane-kinds";
 import { terminalEnv } from "../src/daemon/pty";
 import type { HeadlessInfo, RoleStage, ServerMessage } from "../src/shared/protocol";
 import { buildApp } from "./built-app";
-import { startModelStandIn, toolResults } from "./model-stand-in";
+import { type StandInCall, startModelStandIn, toolResults } from "./model-stand-in";
 import { git, temporaryRepository } from "./repositories";
 
 /** The run, started by `pnpm run role:run`. */
@@ -82,12 +89,17 @@ const TOKEN = "r".repeat(64);
 /** The run folder the case gives the daemon, in the case's own folder `kept`. */
 const runFolderIn = (kept: string): string => join(kept, "run");
 
+/** The place the pair's commands write, for its work item's worktree and the case's own folder `kept`: a crafter's worktree, and a proofer's and a sealer's scratch folder, which the CLI was given last after `--add-dir` and the case's script kept in `args`. */
+const placeOf = (pair: RoleStage, worktree: string, kept: string): string => (pair.role === "crafter" ? worktree : (readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? ""));
+
+/** The symbolic link to the run folder's `daemon.json` that the stand-in's command makes in `place`. */
+const linkIn = (place: string): string => join(place, "daemon-link");
+
 /**
- * The command of the stand-in model's call in the second session, for the
+ * The command of the stand-in model's first call in the second session, for the
  * pair, its work item's worktree and the case's own folder `kept`. None of
  * them is one Claude Code runs unasked. A proofer's and a sealer's clones the
- * worktree into the scratch folder, which the CLI was given last after
- * `--add-dir` and the case's script kept in `args`, appends a byte to the
+ * worktree into the scratch folder (`placeOf`), appends a byte to the
  * clone's `README.md` and prints it, then makes the branch `probe` in the
  * repository's git folder, and then, whatever that did, appends a byte to
  * the worktree's `README.md`. A crafter's appends a byte to the worktree's
@@ -96,14 +108,32 @@ const runFolderIn = (kept: string): string => join(kept, "run");
  * did, points git at `kept` twice: through the worktree's `.git` file, and
  * through `commondir` of the worktree's own git folder, both inside the
  * places a crafter writes. Every role's then, whatever the steps before
- * did, prints the run folder's `daemon.json`. The paths of the case hold no
- * quote.
+ * did, makes the link `linkIn` to the run folder's `daemon.json` in the
+ * place its commands write, for the stand-in's `Read` through it, and
+ * last prints that file, so the command fails where the read is refused.
+ * The paths of the case hold no quote.
  */
 function standInCommand(pair: RoleStage, worktree: string, kept: string): string {
-  const discovery = `cat '${join(runFolderIn(kept), "daemon.json")}'`;
+  const daemonFile = join(runFolderIn(kept), "daemon.json");
+  const place = placeOf(pair, worktree, kept);
+  const discovery = `ln -s '${daemonFile}' '${linkIn(place)}'; cat '${daemonFile}'`;
   if (pair.role === "crafter") return `printf x >> '${worktree}/README.md' && git -C '${worktree}' commit -qam probe && printf x >> '${kept}/outside.txt'; printf 'gitdir: %s\\n' '${kept}' > '${worktree}/.git'; printf '%s\\n' '${kept}' > "$(git -C '${worktree}' rev-parse --path-format=absolute --git-dir)/commondir"; ${discovery}`;
-  const scratch = readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? "";
-  return `git clone -q --no-local '${worktree}' '${scratch}/clone' && printf x >> '${scratch}/clone/README.md' && cat '${scratch}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }; ${discovery}`;
+  return `git clone -q --no-local '${worktree}' '${place}/clone' && printf x >> '${place}/clone/README.md' && cat '${place}/clone/README.md' && { git -C '${worktree}' branch probe; printf x >> '${worktree}/README.md'; }; ${discovery}`;
+}
+
+/**
+ * The stand-in's calls after the command, one a turn, each a file tool's read of the run folder, which every role
+ * holds: a `Read` of `daemon.json` by its path, a `Read` through the link the command made, a `Grep` of the run folder
+ * for the token's key, and a `Glob` of its JSON files.
+ */
+function fileReads(pair: RoleStage, worktree: string, kept: string): StandInCall[] {
+  const run = runFolderIn(kept);
+  return [
+    { name: "Read", input: { file_path: join(run, "daemon.json") } },
+    { name: "Read", input: { file_path: linkIn(placeOf(pair, worktree, kept)) } },
+    { name: "Grep", input: { pattern: "token", path: run, output_mode: "content" } },
+    { name: "Glob", input: { pattern: "*.json", path: run } },
+  ];
 }
 
 /** A sentence that the system refused a write to or a read of `file`, in the words of either shell and of `cat`: zsh's "operation not permitted: <file>", and bash's and `cat`'s "<file>: Operation not permitted". */
@@ -241,10 +271,13 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     const pair = REFUSED ?? PROOFER;
     let places: { worktree: string; kept: string } | undefined;
     let command = "";
-    const model = await startModelStandIn(() => {
-      command = places === undefined ? "exit 1" : standInCommand(pair, places.worktree, places.kept);
-      return command;
-    });
+    const model = await startModelStandIn(
+      () => {
+        command = places === undefined ? "exit 1" : standInCommand(pair, places.worktree, places.kept);
+        return command;
+      },
+      () => (places === undefined ? [] : fileReads(pair, places.worktree, places.kept)),
+    );
     let ended: Awaited<ReturnType<typeof launched>>;
     try {
       ended = await launched(pair.role === "crafter" ? "Make the fix pass." : "Review the round.", pair, model.url, (worktree, kept) => {
@@ -287,12 +320,23 @@ describe.skipIf(!RUN && !REFUSAL)("a role session of the person's own claude: a 
     const asked = model.received.filter((request) => request.method === "POST" && new URL(request.path, "http://stand-in").pathname === "/v1/messages");
     expect(asked.length, "the CLI did not reach the stand-in model").toBeGreaterThan(0);
     // The stand-in's call reached the daemon as a request, on the session's output stream.
-    const requests = lines.filter((line) => line.type === "control_request").map((line) => line.request as { subtype?: string; tool_name?: string; input?: { command?: string } });
+    const requests = lines.filter((line) => line.type === "control_request").map((line) => line.request as { subtype?: string; tool_name?: string; input?: { command?: unknown } });
     expect(command).not.toBe("exit 1");
     expect(requests.filter((request) => request.subtype === "can_use_tool").map((request) => ({ tool: request.tool_name, command: request.input?.command }))).toContainEqual({ tool: "Bash", command });
     // The daemon allowed the call, so the command ran and the model was told what it printed and no rule of the daemon's.
     expect(told.map(({ content }) => content).join("\n")).not.toContain("Owlery gives the");
-    // Every role's command was refused the read of the run folder's `daemon.json`, so it was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
+    // Claude Code asked the daemon before each file tool's read of the run folder, the `Read` through the link among them though the link stands in a folder the session was given, and the daemon refused each by the role's rule.
+    const reads = requests.filter((request) => request.subtype === "can_use_tool" && request.tool_name !== "Bash").map((request) => ({ name: request.tool_name, input: request.input }));
+    expect(reads).toMatchObject(fileReads(pair, worktree, kept));
+    // Each request repeats the tool results of the turns before it, so a refusal is counted once, by the call it answers: the stand-in names its calls after the first `toolu_stand_in_2` onwards.
+    const refusedCalls = new Set(
+      model.received
+        .flatMap((request) => toolResults(request.body))
+        .filter((result) => result.is_error === true && typeof result.content === "string" && result.content.startsWith(`Owlery's rule for the ${pair.role} does not allow this call.`))
+        .map((result) => result.tool_use_id),
+    );
+    expect([...refusedCalls].sort()).toEqual(fileReads(pair, worktree, kept).map((_call, index) => `toolu_stand_in_${String(index + 2)}`));
+    // Every role's command was refused the read of the run folder's `daemon.json`, and no file tool's read of it was let through, so the session was told neither the port nor the token with which a client on the loopback has the daemon act outside the sandbox.
     expect(told.map(({ content }) => content).join("\n")).not.toContain(TOKEN);
     expect(told).toContainEqual({ isError: true, content: expect.stringMatching(refused(join(runFolderIn(kept), "daemon.json"))) });
     if (pair.role === "crafter") {
