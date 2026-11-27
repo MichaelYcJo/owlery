@@ -71,8 +71,8 @@ export interface RoleAdapter {
    * runs its commands in the operating system's sandbox, which lets them
    * write in the `write` folders and never in the `refuse` ones, and
    * refuses them the adapter's own folders as well; one that cannot, or
-   * that is given a role with no
-   * `commands`, starts no session. `scratch`, which the daemon gives where
+   * that is given a role with no `commands`, starts no session. `scratch`,
+   * which the daemon gives where
    * the role's commands write in a scratch folder of the session's own, is
    * that folder, which the session's file tools reach as well. The promise
    * rejects, with a message a person can read, where no session started.

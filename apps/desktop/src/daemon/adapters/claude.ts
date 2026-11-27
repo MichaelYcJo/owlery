@@ -82,11 +82,11 @@ function firstOf(text: string): string {
  * worktree the session ran in. No command can ask to run outside it, a
  * session whose sandbox cannot start does not start, and a sandboxed
  * command still asks the adapter as any other does. Its scratch folder,
- * where it has one, joins the folders the session works in. A refresh of an account's usage, which
- * has no role, holds no tool at all, takes one turn and writes no
- * transcript. No other launch is made: a session with neither a role nor a
- * refresh would keep Claude Code's default tools, with no grant to answer
- * its calls.
+ * where it has one, joins the folders the session works in. A refresh of
+ * an account's usage, which has no role, holds no tool at all, takes one
+ * turn and writes no transcript. No other launch is made: a session with
+ * neither a role nor a refresh would keep Claude Code's default tools,
+ * with no grant to answer its calls.
  */
 export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[] {
   return [
