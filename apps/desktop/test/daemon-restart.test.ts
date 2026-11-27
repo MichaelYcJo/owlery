@@ -22,7 +22,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { alive, atRestAfterFailure, BuiltApp, buildApp, freePort, untilGone } from "./built-app";
+import { alive, BuiltApp, buildApp, freePort, untilGone } from "./built-app";
 import { openReceiverPane, Received, RECEIVER } from "./korean-pane";
 import { type Cleanups, clean, client, commitSeal, roles, standing } from "./chain-run";
 import { branchOf, git, temporaryRepository } from "./repositories";
@@ -112,9 +112,6 @@ describe("a restart of the daemon in the built app", { timeout: 60_000 }, () => 
     if (bystanderDir) rmSync(bystanderDir, { recursive: true, force: true });
     repository?.remove();
   }, 60_000);
-
-  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one. The last case quits the app, and an app that quit has no window to read.
-  afterEach(atRestAfterFailure(() => (app !== undefined && alive(app.pid) ? app : undefined)));
 
   it('says in the status line that a daemon whose daemon.json holds no build is from another build, asks before "Restart Daemon…" ends anything, ends nothing at Cancel, and at Restart ends the daemon of its own run folder with its pane and starts another, of this build, which the window attaches to', async () => {
     const runDir = join(app.userData, "run");
