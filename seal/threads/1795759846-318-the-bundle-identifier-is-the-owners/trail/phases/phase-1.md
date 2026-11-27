@@ -15,4 +15,4 @@ Built by the orchestrator, as `routing.md` answers `Implementation` with `the se
 
 ## The read of the range (executed)
 
-`git diff 06222134 a6492dde` holds two hunks, each a constant or its pin, read with the unit around it. `git grep -n "owlery.desktop"` outside `seal/threads/` printed nothing, and `git grep -n -i "bundle id"` printed only `package.ts`'s comment. A search on words is a sample.
+`git diff 06222134 a6492dde` holds two hunks, each a constant or its pin, read with the unit around it. `git grep -n -F "app.owlery.desktop"` outside `seal/threads/` printed nothing, and `git grep -n -i "bundle id"` printed `package.ts`'s comment and the name of the case that pins the value. A search on words is a sample.

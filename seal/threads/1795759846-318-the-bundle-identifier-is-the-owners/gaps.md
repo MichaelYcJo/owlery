@@ -2,7 +2,7 @@
 
 ## Scope confirmation
 
-`BUNDLE_ID` in `apps/desktop/src/package/package.ts` and its pin in `apps/desktop/test/package.test.ts` change from `app.owlery.desktop` to `com.akmaios.owlery` at `a6492dde`, and nothing else; `git grep -n "owlery.desktop"` outside `seal/threads/` printed nothing after the change.
+`BUNDLE_ID` in `apps/desktop/src/package/package.ts` and its pin in `apps/desktop/test/package.test.ts` change from `app.owlery.desktop` to `com.akmaios.owlery` at `a6492dde`, and nothing else; `git grep -n -F "app.owlery.desktop"` outside `seal/threads/` printed nothing after the change.
 
 ## Not verified
 
@@ -13,4 +13,4 @@
 
 ## Not done
 
-nothing
+Whether `docs/architecture.md` *Platforms and their order* should say that the macOS bundle identifier is fixed from the first public release, as it says of the Android package name: this work item has no `## Rule changes`, so the settle writes nothing from it, and the sentence is left for the release's settle to weigh.
