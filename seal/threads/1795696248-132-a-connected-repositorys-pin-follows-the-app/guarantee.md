@@ -84,3 +84,21 @@ The parties: the design, the changelog and `pr.md` are unchanged since `0ac71364
 target: b867082d against b5444f57
 Verdict: withheld reason: the orchestrator's closing memo gaps.md, copied into the pull request body, states the gate and the merges as they stood at 0ac71364. gaps.md:11 says trail/gate.md records a broad gate run at 42b7f4d2 against 450c6e09, and trail/gate.md records 1c3b3da4 against b5444f57. gaps.md:29 names 0a51bbcc and 42b7f4d2 as the later merges of the release and leaves out 1c3b3da4 (#315)
 ```
+
+## Re-audit at `dc29cd0c`
+
+`dc29cd0c` is the one commit after `b867082d`. It touches `gaps.md` and this file alone (`git diff --quiet b867082d HEAD` outside this directory exits 0), so no claim re-run above was run again. The base still resolves to `b5444f57`, and the gate's run at `1c3b3da4` is followed only by `b867082d` and `dc29cd0c`, both inside this directory (executed).
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate `trail/gate.md` records ran later, at a merge of `release/v0.1.0`, and passed | `gaps.md:11` | `cat trail/gate.md`; `git log -1 --format=%P 1c3b3da4` | Holds (executed): the record names `1c3b3da4`, whose second parent is `b5444f57`, the release. That it passed is read from the record standing (read). |
+| The later merges, which `git log --merges 2218e562..HEAD` lists, bring the release's own changes and resolve no hunk of this work's | `gaps.md:29` | that command; `git show --remerge-diff` of each merge it lists | Holds (executed): it lists `1c3b3da4`, `42b7f4d2` and `0a51bbcc`, and none prints a resolution hunk. |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Does not hold (executed): exit 1. The body file was last written at 13:47:55, before `dc29cd0c` (13:49:45), and it still carries the old `gaps.md:11` and `gaps.md:29`. |
+
+The records now agree with HEAD. The body file does not carry them, so step 2 withholds with the command's first line.
+
+```seal
+target: dc29cd0c against b5444f57
+Verdict: withheld reason: refused: 132-body.md:358: reads `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at `42b7f4d2`, the merge of `release/v0.1.0` with #308 and #311, against `450c6e09`, and passed | answered by the orchestrator's broad gate at `42b7f4d2` |`; the records give `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at a merge of `release/v0.1.0`, and passed | answered by the broad gate `trail/gate.md` records |` at `gaps.md:11`
+```
