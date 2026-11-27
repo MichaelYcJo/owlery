@@ -1,7 +1,7 @@
 """Where the streams get fixed, and why it is at every entry point.
 
 A script that raises while reading or printing dies with **stdout empty**, and
-empty stdout is exactly how the stamp's `seal stamp --stop` says "nothing to
+empty stdout is exactly how AgenticSeal's `stamp --stop` says "nothing to
 draw". So the failure mode of every gate in this repository, under a console it
 cannot encode to, is a silent pass — the exact condition the gates exist to
 end. The same shape costs the `bin/`-wrapped checks their output, and
@@ -22,7 +22,7 @@ this is a no-op, and branching on the platform would leave the Windows path
 proven by nothing while Linux CI runs the other one.
 
 **`stdin` is in the loop.** A payload is where the non-ASCII actually is — the
-`Stop` payload `seal stamp --stop` reads carries the session's own paths, and
+`Stop` payload AgenticSeal's `stamp --stop` reads carries the session's own paths, and
 one Korean path is enough. That is the only stdin read production takes, and a
 raise there draws no stamp.
 
@@ -49,17 +49,16 @@ import spells the loop, because a load of this module would be one more load
 that can fail before the answer. Many of the scripts under `skills/*/scripts/`
 and `.github/scripts/` already reach `lib/` at import: each imports
 `lib/sibling.py` and loads the modules it reads through `sibling.load`,
-directly or through a sibling script, `skills/implement/scripts/seal.py`
-among them.
+directly or through a sibling script, AgenticSeal's command script among
+them.
 `skills/code-review/scripts/chain_check.py` runs its loop before it loads any
 of them, so that the refusal it prints when one will not load does not meet a
 console's code page. None of the others says why it copies the loop rather
 than loading this module the same way.
-`.github/scripts/release_report.py`, `.github/scripts/release_seal.py` and
-`.github/scripts/rules.py` load the tree's modules only when first asked,
-after the arguments are read, so an absent module ends the first and the last
-in `lib/sibling.py`'s sentence at exit 2 and `release_seal.py` in its note at
-exit 0, rather than in a traceback. This command lists every place
+`.github/scripts/rules.py` and AgenticSeal's release scripts load the tree's
+modules only when first asked, after the arguments are read, so an absent
+module ends `rules.py` in `lib/sibling.py`'s sentence at exit 2, rather than in
+a traceback. This command lists every place
 that spells the loop, with this file among them:
 
     git grep -l "[.]reconfigure(" -- '*.py' ':!tests' ':!evals/behaviour'
@@ -67,7 +66,7 @@ that spells the loop, with this file among them:
 What must not diverge is the ANSWER, which is written down here.
 
 `annotate` is the one spelling of a line a check prints about a file: a
-GitHub annotation in CI, a plain line anywhere else. `seal unverified` and
+GitHub annotation in CI, a plain line anywhere else. AgenticSeal's `unverified` and
 `chain-check` print through it. It names the file as git spells it,
 `lib/gitcmd.py#git_path`, imported beside it.
 """
@@ -102,7 +101,7 @@ def annotate(kind, path, line, message):
     """A GitHub annotation in CI, a plain line anywhere else."""
     if os.environ.get("GITHUB_ACTIONS"):
         # An annotation is matched against the diff by path, and GitHub spells
-        # those the way git does. `seal unverified` passes
+        # those the way git does. AgenticSeal's `unverified` passes
         # `unverified_check.py#display_path` output, which is `os.sep`-spelled
         # on purpose -- right for a line a person reads, wrong for this. Live
         # wherever that command runs on a Windows runner.

@@ -2,10 +2,10 @@
 // at the branch's head commit: the seal's record, each round with its
 // findings, the commit that broke a broken seal, and the refused calls. The
 // worktree gives one thing, the place of the work item's directory, which
-// `decision-record.ts#workItemDirectory` finds, as `seal-state.ts` finds it.
+// `decision-record.ts#workItemDirectory` finds, as `inspection-state.ts` finds it.
 // Every record under that directory is then read as the head commit holds
 // it, through the readers that stand: `round-record.ts#readRoundRecord`,
-// `seal-records.ts#readGuarantee` and `#readGate`, and
+// `inspection-records.ts#readInspection` and `#readGate`, and
 // `chain.ts#readRefusals`. A record written and not committed says nothing,
 // so the back says what the committed records say
 // (docs/architecture.md, "State lives in three places").
@@ -18,7 +18,7 @@ import { CLOSING_RECORDS, REFUSALS_FILE, ROUNDS_FOLDER, readRefusals, roundNumbe
 import { lastRun } from "./chain-records";
 import { declaredBranch } from "./decision-record";
 import { type Finding, readRoundRecord } from "./round-record";
-import { GATE_FILE, GUARANTEE_FILE, readGuarantee } from "./seal-records";
+import { GATE_FILE, INSPECTION_FILE, readInspection } from "./inspection-records";
 import { commitNamed, fileAt, filesAt, firstCommitOutside, holdsCommit } from "./worktrees";
 
 /** What a work item holds for the back where its worktree holds no directory of its own, or two: no record and no round, read at the head. */
@@ -63,10 +63,10 @@ function backFinding(finding: Finding): BackFinding {
  * gives.
  */
 async function recordOf(worktree: string, place: string, head: string, folder: string): Promise<SealRecord | null> {
-  const text = await fileAt(worktree, head, gitPath(place, GUARANTEE_FILE));
-  const guarantee = text === null ? null : readGuarantee(text);
-  const verdict = guarantee === null || guarantee.refusals.length > 0 ? undefined : guarantee.verdicts.at(-1);
-  if (verdict === undefined || verdict.is !== "sealed") return null;
+  const text = await fileAt(worktree, head, gitPath(place, INSPECTION_FILE));
+  const inspection = text === null ? null : readInspection(text);
+  const verdict = inspection === null || inspection.refusals.length > 0 ? undefined : inspection.verdicts.at(-1);
+  if (verdict === undefined || verdict.is !== "cleared") return null;
   const sealed = await commitNamed(worktree, verdict.commit);
   const routing = await fileAt(worktree, head, gitPath(place, "routing.md"));
   const gate = await fileAt(worktree, head, gitPath(place, GATE_FILE));
@@ -78,7 +78,7 @@ async function recordOf(worktree: string, place: string, head: string, folder: s
     gate: gate === null ? null : lastRun(gate),
     rounds: (await roundFiles(worktree, sealed ?? head, folder)).length,
     builtBy: verdict.builtBy,
-    judgedBy: verdict.judgedBy,
+    judgedBy: verdict.inspectedBy,
     model: verdict.model,
     rules: verdict.rules,
   };

@@ -25,10 +25,10 @@ function printing(dir: string): string {
 describe("paneHead", () => {
   it("says the three things a pane's session is told and names the document that holds the rules: the session carries the owl chain, a branch takes its seal from it before its pull request or its end, and the bundle's document and the pane's environment say how", () => {
     const head = paneHead();
-    expect(head.split("\n")[0]).toBe("# Owlery: this session carries the owl chain");
-    expect(head).toContain("so it carries the owl chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.");
-    expect(head).toContain("A branch takes its seal from the owl chain before its pull request is opened or the work is called done.");
-    expect(head).toContain("The bundle's document `skills/seal/SKILL.md`, listed as the skill `owlery:seal`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.");
+    expect(head.split("\n")[0]).toBe("# Owlery: this session carries the Owl Chain");
+    expect(head).toContain("so it carries the Owl Chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.");
+    expect(head).toContain("A branch is cleared by the Owl Chain's inspection before its pull request is opened or the work is called done.");
+    expect(head).toContain("The bundle's document `skills/inspection/SKILL.md`, listed as the skill `owlery:inspection`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.");
     // The head states no step of the chain: the document it names does.
     for (const word of ["owed", "round", "gate", "--base"]) expect(head, word).not.toContain(word);
   });
@@ -52,8 +52,8 @@ describe("writePaneChain", () => {
     // The pane's own environment holds no such variable: the daemon's pane drops it (`pty.ts#terminalEnv`).
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const printed = execFileSync(launcher, ["seal", "an answer.md", "--judged-by", "it's"], { encoding: "utf8", env });
-    expect(JSON.parse(printed)).toEqual({ args: ["seal", "an answer.md", "--judged-by", "it's"], asNode: "1" });
+    const printed = execFileSync(launcher, ["inspect", "an answer.md", "--inspected-by", "it's"], { encoding: "utf8", env });
+    expect(JSON.parse(printed)).toEqual({ args: ["inspect", "an answer.md", "--inspected-by", "it's"], asNode: "1" });
   });
 
   it("writes over the files an earlier daemon left, and names the launcher apart from the folder the chain command keeps its files in", () => {
@@ -97,7 +97,7 @@ describe("carriedIn", () => {
   function onOwlChain(): string {
     const folder = scratch();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
+    writeFileSync(join(folder, ".github", "workflows", "owlery-inspection.yml"), "name: seal\n");
     return folder;
   }
   const NO_PLUGIN = () => ({ enabled: { "notes@somewhere": true }, agenticSeal: [] });
@@ -107,7 +107,7 @@ describe("carriedIn", () => {
     const carries = carriedIn(chain, NO_PLUGIN);
     expect(carries(start(folder))).toBeNull();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
+    writeFileSync(join(folder, ".github", "workflows", "owlery-inspection.yml"), "name: seal\n");
     // Nothing of the folder is kept between two launches.
     expect(carries(start(folder))).toEqual({ chain, enabledPlugins: null });
     expect(carries(start(join(folder, "absent")))).toBeNull();

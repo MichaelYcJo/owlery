@@ -1,7 +1,7 @@
 // Role sessions of the person's own `claude`, launched by the daemon as a
 // role at its stage with the built bundle. The suite runs neither case:
 // `pnpm run role:run` sets `OWLERY_ROLE_RUN` and takes the first, and
-// `pnpm run role:refusal`, `pnpm run role:refusal:sealer` and
+// `pnpm run role:refusal`, `pnpm run role:refusal:inspector` and
 // `pnpm run role:refusal:crafter` set `OWLERY_ROLE_REFUSAL` and take the
 // second, as the proofer at a round, the sealer at the seal and the crafter
 // at a fix pass. Without either variable the file runs nothing. Where
@@ -75,8 +75,8 @@ import { git, temporaryRepository } from "./repositories";
 const RUN = process.env.OWLERY_ROLE_RUN === "1";
 /** The pair the run's session is launched as: the proofer at a round. */
 const PROOFER: RoleStage = { role: "proofer", stage: "round" };
-/** The pair of the run whose last write the system refuses: the proofer's for `pnpm run role:refusal`, whose script sets the variable to `1`, the sealer's for `pnpm run role:refusal:sealer`, whose script sets it to `sealer`, and the crafter's for `pnpm run role:refusal:crafter`, whose script sets it to `crafter`. Undefined where none of the three started the file. */
-const REFUSED: RoleStage | undefined = ({ "1": PROOFER, sealer: { role: "sealer", stage: "seal" }, crafter: { role: "crafter", stage: "fix-pass" } } as Record<string, RoleStage>)[process.env.OWLERY_ROLE_REFUSAL ?? ""];
+/** The pair of the run whose last write the system refuses: the proofer's for `pnpm run role:refusal`, whose script sets the variable to `1`, the inspector's for `pnpm run role:refusal:inspector`, whose script sets it to `inspector`, and the crafter's for `pnpm run role:refusal:crafter`, whose script sets it to `crafter`. Undefined where none of the three started the file. */
+const REFUSED: RoleStage | undefined = ({ "1": PROOFER, inspector: { role: "inspector", stage: "inspection" }, crafter: { role: "crafter", stage: "fix-pass" } } as Record<string, RoleStage>)[process.env.OWLERY_ROLE_REFUSAL ?? ""];
 /** The refused write, started by one of those three scripts. */
 const REFUSAL = REFUSED !== undefined;
 

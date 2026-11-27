@@ -31,12 +31,12 @@ const QUESTIONS: Question[] = [
   { id: 6, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main", answer: null, since: 1170 },
   { id: 7, asks: "May the session push?", grounds: "A push needs an approval.", by: null, options: [], default: null, answer: "Yes.", since: null },
 ];
-const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
+const UNREAD: Unread[] = [{ line: 40, why: "an empty `iadd` block" }];
 const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0, gate: null }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1, gate: null }], since: 6 };
 const PULL_REQUEST: PullRequest = { number: 12, url: "https://github.com/owner/project/pull/12", state: "open", head: "c".repeat(40), pushed: "c".repeat(40), checks: "pending", list: [{ name: "build", state: "pending", link: null }], listCount: 1, readAt: 5, failure: "gh pr view exited with code 1: HTTP 502" };
 const SEALED: Seal = { state: "sealed", commit: "a".repeat(40), why: null };
-const BROKEN: Seal = { state: "broken", commit: "a".repeat(40), why: "`src/form.ts` changed after the sealed commit `aaaaaaa`." };
+const BROKEN: Seal = { state: "broken", commit: "a".repeat(40), why: "`src/form.ts` changed after the cleared commit `aaaaaaa`." };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -355,7 +355,7 @@ describe("LastLook", () => {
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages.map(({ gate: _gate, ...old }) => old), { ...gate, gate: { ...gate.gate, extra: 1 } }] } }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages, gate] } }] });
     // A chain that rests and a seal's stage are kept, and a field an earlier build wrote on every chain is dropped.
-    const seal = { ...CHAIN.stages[0], kind: "seal" };
+    const seal = { ...CHAIN.stages[0], kind: "inspection" };
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [seal] } }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [seal] } }] });
     // A build before the seal rested a chain `reviewed`, and an earlier build of this release rested one `sealed`: the look is read, with that work item's chain as none.

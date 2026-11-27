@@ -15,7 +15,7 @@ const SCRIPT = join(__dirname, "..", "scripts", "settle.mjs");
 
 const F = "```";
 /** A record of those blocks, each a `seal` block of its lines, after a head of two lines. */
-const record = (...blocks: string[][]): string => ["# Decisions and questions", "", ...blocks.flatMap((lines) => [`${F}seal`, ...lines, F, ""])].join("\n");
+const record = (...blocks: string[][]): string => ["# Decisions and questions", "", ...blocks.flatMap((lines) => [`${F}iadd`, ...lines, F, ""])].join("\n");
 
 const REVERSED = [
   "decision: 1 route",
@@ -50,7 +50,7 @@ afterEach(() => {
 function repository(): string {
   const made = temporaryRepository();
   cleanups.push(made.remove);
-  write(made.repo, "seal/README.md", `${MARKER}\n`);
+  write(made.repo, "iadd/README.md", `${MARKER}\n`);
   commit(made.repo, "chore: add the records root");
   return made.repo;
 }
@@ -77,38 +77,38 @@ describe("the directories a settle keeps", () => {
   it("keeps a directory whose record holds a reversed decision, and names the decision's id, its line and the reversal's message, in a record whose lines end with a carriage return too", () => {
     const repo = repository();
     for (const end of ["\n", "\r\n"]) {
-      write(repo, "seal/threads/1-a/decisions.md", record(REVERSED).replaceAll("\n", end));
+      write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED).replaceAll("\n", end));
       const reading = readSettle(repo);
-      expect(reading.root, end).toBe("seal");
+      expect(reading.root, end).toBe("iadd");
       expect(reading.kept, end).toEqual([
         {
-          directory: "seal/threads/1-a",
+          directory: "iadd/threads/1-a",
           rows: [{ line: 3, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." }],
         },
       ]);
       const got = run(repo);
       expect(got.code, end).toBe(1);
       expect(got.out, end).toContain(
-        "kept seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
+        "kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
       );
     }
   });
 
   it("is run by the package's script, which prints the reading and exits 1 where it keeps a directory", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
     const got = spawnSync(process.execPath, [SCRIPT], { cwd: repo, encoding: "utf8", env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
     expect(got.stderr).toBe("");
-    expect(got.stdout).toContain("kept seal/threads/1-a/\n");
+    expect(got.stdout).toContain("kept iadd/threads/1-a/\n");
     expect(got.status).toBe(1);
   });
 
   it("keeps a directory whose record holds an open question, and names the question's id and its text, each row in the record's order", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(OPEN, REVERSED));
+    write(repo, "iadd/threads/1-a/decisions.md", record(OPEN, REVERSED));
     expect(readSettle(repo).kept).toEqual([
       {
-        directory: "seal/threads/1-a",
+        directory: "iadd/threads/1-a",
         rows: [
           { line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" },
           { line: 10, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." },
@@ -117,15 +117,15 @@ describe("the directories a settle keeps", () => {
     ]);
     const got = run(repo);
     expect(got.code).toBe(1);
-    expect(got.out).toContain("kept seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
+    expect(got.out).toContain("kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
   });
 
   it("keeps a directory whose record holds a block the reader refuses, and names the refusal's line and reason", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(["decision: 1 scope", "decided: No push.", "grounds: None asked.", "state: undone"]));
+    write(repo, "iadd/threads/1-a/decisions.md", record(["decision: 1 scope", "decided: No push.", "grounds: None asked.", "state: undone"]));
     expect(readSettle(repo).kept).toEqual([
       {
-        directory: "seal/threads/1-a",
+        directory: "iadd/threads/1-a",
         rows: [
           {
             line: 7,
@@ -139,28 +139,28 @@ describe("the directories a settle keeps", () => {
 
   it("stops with exit 2 and names the record where a `decisions.md` cannot be read, and keeps reading nothing as a record with nothing open", () => {
     const repo = repository();
-    mkdirSync(join(repo, "seal/threads/1-a/decisions.md"), { recursive: true });
-    expect(() => readSettle(repo)).toThrow("seal/threads/1-a/decisions.md cannot be read");
+    mkdirSync(join(repo, "iadd/threads/1-a/decisions.md"), { recursive: true });
+    expect(() => readSettle(repo)).toThrow("iadd/threads/1-a/decisions.md cannot be read");
     const got = run(repo);
     expect([got.code, got.out]).toEqual([2, ""]);
-    expect(got.err).toContain("seal/threads/1-a/decisions.md cannot be read");
+    expect(got.err).toContain("iadd/threads/1-a/decisions.md cannot be read");
   });
 
   it("stops with exit 2 and names the link where a `decisions.md` links to nothing, `threads/` links to nothing, or a work item's directory is a link, and reads none of them as nothing", () => {
     for (const [made, said] of [
-      [(repo: string) => symlinkSync("nowhere.md", join(repo, "seal/threads/1-a/decisions.md")), "seal/threads/1-a/decisions.md cannot be read: it is a link to nothing"],
-      [(repo: string) => symlinkSync("nowhere", join(repo, "seal/threads")), "seal/threads cannot be read: it is a link to nothing"],
+      [(repo: string) => symlinkSync("nowhere.md", join(repo, "iadd/threads/1-a/decisions.md")), "iadd/threads/1-a/decisions.md cannot be read: it is a link to nothing"],
+      [(repo: string) => symlinkSync("nowhere", join(repo, "iadd/threads")), "iadd/threads cannot be read: it is a link to nothing"],
       [
         (repo: string) => {
           // The directory behind the link holds a reversal, which a settle that passed the link over would neither keep nor name.
           write(repo, "elsewhere/decisions.md", record(REVERSED));
-          symlinkSync("../../elsewhere", join(repo, "seal/threads/2-b"));
+          symlinkSync("../../elsewhere", join(repo, "iadd/threads/2-b"));
         },
-        "seal/threads/2-b is a link, and the settle reads a work item's directory only where one stands",
+        "iadd/threads/2-b is a link, and the settle reads a work item's directory only where one stands",
       ],
     ] as const) {
       const repo = repository();
-      if (said.startsWith("seal/threads/")) write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
+      if (said.startsWith("iadd/threads/")) write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
       made(repo);
       expect(() => readSettle(repo), said).toThrow(said);
       const got = run(repo);
@@ -170,27 +170,27 @@ describe("the directories a settle keeps", () => {
 
   it("names a notice of the reader at its line and keeps nothing for it", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", ["# Decisions and questions", "", `${F}seal decision`, "decision: 1 route", F, ""].join("\n"));
+    write(repo, "iadd/threads/1-a/decisions.md", ["# Decisions and questions", "", `${F}iadd decision`, "decision: 1 route", F, ""].join("\n"));
     const reading = readSettle(repo);
     expect(reading.kept).toEqual([]);
     expect(reading.notices).toEqual([
       {
-        directory: "seal/threads/1-a",
+        directory: "iadd/threads/1-a",
         line: 3,
-        why: "not read: `" + F + "seal decision` opens a fence like a `seal` block and is not one, so its lines are no fields; a `seal` block opens with three backticks and `seal` alone on the line",
+        why: "not read: `" + F + "seal decision` opens a fence like an `iadd` block and is not one, so its lines are no fields; an `iadd` block opens with three backticks and `iadd` alone on the line",
       },
     ]);
     const got = run(repo);
     expect(got.code).toBe(0);
-    expect(got.out).toContain("notice seal/threads/1-a/decisions.md:3: not read: ");
-    expect(got.out).not.toContain("kept seal/threads/");
+    expect(got.out).toContain("notice iadd/threads/1-a/decisions.md:3: not read: ");
+    expect(got.out).not.toContain("kept iadd/threads/");
   });
 
   it("keeps no directory whose decisions are decided, applied or carried and whose questions are answered, nor one without a record", () => {
     const repo = repository();
     write(
       repo,
-      "seal/threads/1-a/decisions.md",
+      "iadd/threads/1-a/decisions.md",
       record(
         ["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"],
         ["decision: 2 default", "decided: English.", "grounds: The key.", "state: applied 0123abc", "reversal: Korean."],
@@ -198,9 +198,9 @@ describe("the directories a settle keeps", () => {
         ["question: 4", "asks: Go on?", "grounds: None stands.", "state: answered", "answer: yes"],
       ),
     );
-    write(repo, "seal/threads/2-b/routing.md", "# Routing\n");
+    write(repo, "iadd/threads/2-b/routing.md", "# Routing\n");
     // A file under `threads/` is no work item's directory.
-    write(repo, "seal/threads/notes.md", "# Notes\n");
+    write(repo, "iadd/threads/notes.md", "# Notes\n");
     const reading = readSettle(repo);
     expect([reading.kept, reading.notices, reading.release.map((item) => item.id)]).toEqual([[], [], ["1-a", "2-b"]]);
     const got = run(repo);
@@ -209,34 +209,34 @@ describe("the directories a settle keeps", () => {
   });
 
   it("keeps a directory by the record HEAD holds where the working tree lacks the record, removed with its directory or alone, as an interrupted `--apply` leaves it, and stops where HEAD holds that record or its directory as a link", () => {
-    for (const removed of ["seal/threads/1-a", "seal/threads/1-a/decisions.md"]) {
+    for (const removed of ["iadd/threads/1-a", "iadd/threads/1-a/decisions.md"]) {
       const repo = repository();
-      write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
-      write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
-      write(repo, "seal/threads/2-b/decisions.md", record(OPEN));
+      write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
+      write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
+      write(repo, "iadd/threads/2-b/decisions.md", record(OPEN));
       commit(repo, "chore: two kept work items");
       rmSync(join(repo, removed), { recursive: true });
       expect(readSettle(repo).kept, removed).toEqual([
         {
-          directory: "seal/threads/1-a",
+          directory: "iadd/threads/1-a",
           rows: [{ line: 3, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." }],
         },
-        { directory: "seal/threads/2-b", rows: [{ line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" }] },
+        { directory: "iadd/threads/2-b", rows: [{ line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" }] },
       ]);
       const got = run(repo);
       expect(got.code, removed).toBe(1);
-      expect(got.out, removed).toContain("kept seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
+      expect(got.out, removed).toContain("kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; ");
     }
     for (const [link, target] of [
-      ["seal/threads/1-a/decisions.md", "nowhere.md"],
-      ["seal/threads/1-a", "../../elsewhere"],
+      ["iadd/threads/1-a/decisions.md", "nowhere.md"],
+      ["iadd/threads/1-a", "../../elsewhere"],
     ] as const) {
       const repo = repository();
       write(repo, "elsewhere/decisions.md", record(REVERSED));
       mkdirSync(dirname(join(repo, link)), { recursive: true });
       symlinkSync(target, join(repo, link));
       commit(repo, "chore: a work item that is a link");
-      rmSync(join(repo, "seal/threads/1-a"), { recursive: true });
+      rmSync(join(repo, "iadd/threads/1-a"), { recursive: true });
       const said = `${link} is a link in HEAD, and the settle reads a record only where one stands`;
       expect(() => readSettle(repo), link).toThrow(said);
       expect(run(repo), link).toEqual({ code: 2, out: "", err: `settle: ${said}\n` });
@@ -246,7 +246,7 @@ describe("the directories a settle keeps", () => {
   it("reads nothing and keeps nothing in a repository that holds no records root, and says so", () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    write(made.repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    write(made.repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
     expect(readSettle(made.repo)).toEqual({ root: null, kept: [], notices: [], since: null, release: [] });
     const got = run(made.repo);
     expect(got.code).toBe(0);
@@ -259,22 +259,22 @@ describe("the release's decisions made without asking", () => {
   function released(): { repo: string; before: string } {
     const repo = repository();
     const before = git(repo, "rev-parse", "HEAD").trim();
-    write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
-    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
+    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
     commit(repo, "feat: the first work item (#3)");
     git(repo, "tag", "v0.0.1");
-    write(repo, "seal/threads/2-b/routing.md", "# Routing: 2-b\n");
+    write(repo, "iadd/threads/2-b/routing.md", "# Routing: 2-b\n");
     write(
       repo,
-      "seal/threads/2-b/decisions.md",
+      "iadd/threads/2-b/decisions.md",
       record(
         ["decision: 1 default", "decided: English.", "grounds: The key is absent.", "by: framer", "state: reversed", "reversal: Korean."],
         ["decision: 2 route", "decided: No framer.", "grounds: Small.", "state: decided"],
       ),
     );
     commit(repo, "chore: frame the second work item");
-    write(repo, "seal/threads/3-c/routing.md", "# Routing: 3-c\n");
-    write(repo, "seal/threads/3-c/decisions.md", record(["decision: 1 default", "decided: No push.", "grounds: None asked.", "state: carried #20", "reversal: Push it."]));
+    write(repo, "iadd/threads/3-c/routing.md", "# Routing: 3-c\n");
+    write(repo, "iadd/threads/3-c/decisions.md", record(["decision: 1 default", "decided: No push.", "grounds: None asked.", "state: carried #20", "reversal: Push it."]));
     commit(repo, "feat: the third work item (#12)");
     return { repo, before };
   }
@@ -288,7 +288,7 @@ describe("the release's decisions made without asking", () => {
       ["3-c", 12, [1]],
     ]);
     // The work item of the earlier release is kept for its reversal and is not listed again.
-    expect(reading.kept.map((kept) => kept.directory)).toEqual(["seal/threads/1-a", "seal/threads/2-b"]);
+    expect(reading.kept.map((kept) => kept.directory)).toEqual(["iadd/threads/1-a", "iadd/threads/2-b"]);
     expect(listMarkdown(reading)).toBe(
       [
         "- `route`: 1 decision, 0 reversed by the person",
@@ -343,34 +343,34 @@ describe("the release's decisions made without asking", () => {
     const UNDONE = ["decision: 2 scope", "decided: No push.", "grounds: None asked.", "state: undone"];
     const WHY = "the reader refuses the line: `state: undone` does not read whole as `state: <value>`: a decision's state is `decided`, `reversed`, `applied <commit>` with 7 to 40 hex digits, or `carried <home>`";
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"], UNDONE));
-    write(repo, "seal/threads/2-b/decisions.md", record(UNDONE));
+    write(repo, "iadd/threads/1-a/decisions.md", record(["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"], UNDONE));
+    write(repo, "iadd/threads/2-b/decisions.md", record(UNDONE));
     const reading = readSettle(repo);
     expect(reading.release.map((item) => [item.id, item.refused])).toEqual([
       ["1-a", [{ line: 14, why: WHY }]],
       ["2-b", [{ line: 7, why: WHY }]],
     ]);
     const listed = listMarkdown(reading);
-    expect(listed.startsWith("- `route`: 1 decision, 0 reversed by the person\n- Not listed: 2 blocks the reader cannot read (`seal/threads/1-a/decisions.md:14`, `seal/threads/2-b/decisions.md:7`)\n\n### 1-a\n"), listed).toBe(true);
+    expect(listed.startsWith("- `route`: 1 decision, 0 reversed by the person\n- Not listed: 2 blocks the reader cannot read (`iadd/threads/1-a/decisions.md:14`, `iadd/threads/2-b/decisions.md:7`)\n\n### 1-a\n"), listed).toBe(true);
     const got = run(repo, "--list");
-    expect(got).toEqual({ code: 1, out: listed, err: `settle: not listed seal/threads/1-a/decisions.md:14: ${WHY}\nsettle: not listed seal/threads/2-b/decisions.md:7: ${WHY}\n` });
+    expect(got).toEqual({ code: 1, out: listed, err: `settle: not listed iadd/threads/1-a/decisions.md:14: ${WHY}\nsettle: not listed iadd/threads/2-b/decisions.md:7: ${WHY}\n` });
     // A release whose only block the reader refuses does not say it holds no decision.
-    rmSync(join(repo, "seal/threads/1-a"), { recursive: true });
-    expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`seal/threads/2-b/decisions.md:7`)\n");
+    rmSync(join(repo, "iadd/threads/1-a"), { recursive: true });
+    expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`iadd/threads/2-b/decisions.md:7`)\n");
   });
 
   it("writes each value of the record as the record holds it, escaping outside code spans what Markdown reads as markup, and keeping the code spans the record writes", () => {
     const repo = repository();
     write(
       repo,
-      "seal/threads/1-a/decisions.md",
+      "iadd/threads/1-a/decisions.md",
       record(
         ["decision: 1 route", "decided: Name <ref> as *a*, keep `<raw>` and ``a`b`` as typed.", "grounds: a | b & c_d, an open ` stays [x](y) ~z~ #1 \\n", "by: **orchestrator**", "state: reversed", "reversal: Use <ref> here."],
         ["decision: 2 scope", "decided: No push.", "grounds: None.", "state: carried notes`x", "reversal: Push it."],
         ["decision: 3 scope", "decided: No tag.", "grounds: None.", "state: carried notes`", "reversal: Tag it."],
       ),
     );
-    write(repo, "seal/threads/2-*b*/decisions.md", record(["decision: 1 default", "decided: English.", "grounds: The key.", "state: decided"]));
+    write(repo, "iadd/threads/2-*b*/decisions.md", record(["decision: 1 default", "decided: English.", "grounds: The key.", "state: decided"]));
     expect(listMarkdown(readSettle(repo))).toBe(
       [
         "- `route`: 1 decision, 1 reversed by the person",
@@ -402,7 +402,7 @@ describe("the release's decisions made without asking", () => {
 
   it("says so where the release holds no decision made without asking", () => {
     const repo = repository();
-    write(repo, "seal/threads/1-a/routing.md", "# Routing: 1-a\n");
+    write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
     expect(listMarkdown(readSettle(repo))).toBe("No decision was made without asking in this release.\n");
   });
 });
@@ -410,7 +410,7 @@ describe("the release's decisions made without asking", () => {
 describe("`--apply`, which runs AgenticSeal's settle and puts back each directory it kept", () => {
   const CLOSED = ["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"];
   /** Removes every directory under `threads/`, as AgenticSeal's settle removes a released one, and says so. */
-  const REMOVE_ALL = `for d in seal/threads/*/; do rm -rf "$d"; printf 'removed %s\\n' "$d"; done`;
+  const REMOVE_ALL = `for d in iadd/threads/*/; do rm -rf "$d"; printf 'removed %s\\n' "$d"; done`;
 
   /**
    * Puts a stand-in for AgenticSeal's `seal` first on the path: a shell
@@ -429,8 +429,8 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
   /** A repository whose records hold `1-a`, kept for a reversed decision, and `2-b`, closed, both committed. */
   function settled(): string {
     const repo = repository();
-    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
-    write(repo, "seal/threads/2-b/decisions.md", `${record(CLOSED)}${F}seal decision\ndecision: 9 route\n${F}\n`);
+    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "iadd/threads/2-b/decisions.md", `${record(CLOSED)}${F}iadd decision\ndecision: 9 route\n${F}\n`);
     commit(repo, "chore: two work items");
     return repo;
   }
@@ -440,20 +440,20 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     const seal = standIn(REMOVE_ALL);
     const got = run(repo, "--apply", "--released-at", "HEAD");
     expect(seal.ran()).toBe(true);
-    expect(got.out).toContain("notice seal/threads/2-b/decisions.md:9: not read: ");
+    expect(got.out).toContain("notice iadd/threads/2-b/decisions.md:9: not read: ");
     expect(got.out).toContain(
-      "keeping seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n" +
-        "stand-in seal settle --apply --released-at HEAD\nremoved seal/threads/1-a/\nremoved seal/threads/2-b/\n",
+      "keeping iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n" +
+        "stand-in seal settle --apply --released-at HEAD\nremoved iadd/threads/1-a/\nremoved iadd/threads/2-b/\n",
     );
-    expect(got.out.endsWith("\nremoved seal/threads/2-b/\nput back seal/threads/1-a/\nPut back 1 directory.\n"), got.out).toBe(true);
-    expect(git(repo, "status", "--short", "--", "seal/threads/1-a")).toBe("");
-    expect(existsSync(join(repo, "seal/threads/2-b"))).toBe(false);
+    expect(got.out.endsWith("\nremoved iadd/threads/2-b/\nput back iadd/threads/1-a/\nPut back 1 directory.\n"), got.out).toBe(true);
+    expect(git(repo, "status", "--short", "--", "iadd/threads/1-a")).toBe("");
+    expect(existsSync(join(repo, "iadd/threads/2-b"))).toBe(false);
     expect([got.code, got.err]).toEqual([1, ""]);
   });
 
   it("exits 2 where AgenticSeal's settle exits 2, any exit but 0 or 1, or no exit, 1 where either kept a directory, and 0 otherwise, and lets AgenticSeal's errors through", () => {
     const repo = repository();
-    write(repo, "seal/threads/2-b/decisions.md", record(CLOSED));
+    write(repo, "iadd/threads/2-b/decisions.md", record(CLOSED));
     commit(repo, "chore: a closed work item");
     for (const [theirs, want] of [
       [0, 0],
@@ -479,7 +479,7 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     expect(unstarted.code).toBe(2);
     expect(unstarted.err).toContain("settle: seal settle --apply did not run: ");
     // A kept directory the settle left as it was is not put back.
-    write(repo, "seal/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
     commit(repo, "chore: a kept work item");
     standIn("exit 2");
     const kept = run(repo, "--apply");
@@ -489,11 +489,11 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
 
   it("refuses, runs nothing and names the directory where a kept directory differs from HEAD, by an edit or by a file not committed, whatever `status.showUntrackedFiles` the repository sets", () => {
     for (const change of [
-      (repo: string) => write(repo, "seal/threads/1-a/decisions.md", record(REVERSED, OPEN)),
-      (repo: string) => write(repo, "seal/threads/1-a/notes.md", "# Notes\n"),
+      (repo: string) => write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED, OPEN)),
+      (repo: string) => write(repo, "iadd/threads/1-a/notes.md", "# Notes\n"),
       (repo: string) => {
         git(repo, "config", "status.showUntrackedFiles", "no");
-        write(repo, "seal/threads/1-a/notes.md", "# Notes\n");
+        write(repo, "iadd/threads/1-a/notes.md", "# Notes\n");
       },
     ]) {
       const repo = settled();
@@ -501,10 +501,10 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
       change(repo);
       const got = run(repo, "--apply");
       expect([got.code, got.out]).toEqual([2, ""]);
-      expect(got.err).toContain("settle: seal/threads/1-a/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first\n");
-      expect(got.err).not.toContain("seal/threads/2-b/");
+      expect(got.err).toContain("settle: iadd/threads/1-a/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first\n");
+      expect(got.err).not.toContain("iadd/threads/2-b/");
       expect(seal.ran()).toBe(false);
-      expect(existsSync(join(repo, "seal/threads/2-b"))).toBe(true);
+      expect(existsSync(join(repo, "iadd/threads/2-b"))).toBe(true);
     }
   });
 
@@ -515,8 +515,8 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
       const got = run(repo, "--apply");
       expect(got.code, move).toBe(2);
       expect(got.err, move).toMatch(/^settle: not put back seal\/threads\/1-a\/: HEAD moved from [0-9a-f]{40} to .+ while seal settle --apply ran\n$/);
-      expect(got.out, move).toContain("keeping seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; ");
-      expect(existsSync(join(repo, "seal/threads/1-a")), move).toBe(false);
+      expect(got.out, move).toContain("keeping iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; ");
+      expect(existsSync(join(repo, "iadd/threads/1-a")), move).toBe(false);
       expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
     }
   });
@@ -552,8 +552,8 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
       const got = await scriptApply(repo, temporaryFolder());
       expect([got.code, got.signal], signal).toEqual([2, null]);
       expect(got.err, signal).toBe(`settle: seal settle --apply ended on SIG${signal} with no exit code\n`);
-      expect(got.out.endsWith("\nput back seal/threads/1-a/\nPut back 1 directory.\n"), `${signal}: ${got.out}`).toBe(true);
-      expect(git(repo, "status", "--short", "--", "seal/threads/1-a"), signal).toBe("");
+      expect(got.out.endsWith("\nput back iadd/threads/1-a/\nPut back 1 directory.\n"), `${signal}: ${got.out}`).toBe(true);
+      expect(git(repo, "status", "--short", "--", "iadd/threads/1-a"), signal).toBe("");
     }
   });
 
@@ -564,10 +564,10 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     const got = await scriptApply(repo, tmp);
     expect(got.signal).toBe("SIGKILL");
     expect(got.out).toContain(
-      "keeping seal/threads/1-a/\n  seal/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
+      "keeping iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
     );
     expect(readdirSync(tmp)).toEqual([]);
-    expect(existsSync(join(repo, "seal/threads/1-a"))).toBe(false);
+    expect(existsSync(join(repo, "iadd/threads/1-a"))).toBe(false);
     // The run in this process gets a stand-in that kills nothing: one that sent SIGKILL to its group here would end the test runner's group, not fail the case.
     const seal = standIn(REMOVE_ALL);
     const again = run(repo, "--apply");
@@ -575,25 +575,25 @@ describe("`--apply`, which runs AgenticSeal's settle and puts back each director
     expect(again).toEqual({
       code: 2,
       out: "",
-      err: "settle: seal/threads/1-a/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first\nsettle: --apply ran nothing.\n",
+      err: "settle: iadd/threads/1-a/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first\nsettle: --apply ran nothing.\n",
     });
   });
 
   it("names each kept directory it could not put back, and goes on to the next", () => {
     const repo = settled();
-    write(repo, "seal/threads/3-c/decisions.md", record(OPEN));
+    write(repo, "iadd/threads/3-c/decisions.md", record(OPEN));
     commit(repo, "chore: a third work item");
     // The settle leaves `threads/` a folder nothing can be written in, so no checkout can make a directory there.
     standIn(REMOVE_ALL, "chmod 555 seal/threads");
     try {
       const got = run(repo, "--apply");
       expect(got.code).toBe(2);
-      for (const id of ["1-a", "3-c"]) expect(got.err, id).toContain(`settle: not put back seal/threads/${id}/: git checkout HEAD -- seal/threads/${id}/ failed`);
+      for (const id of ["1-a", "3-c"]) expect(got.err, id).toContain(`settle: not put back iadd/threads/${id}/: git checkout HEAD -- iadd/threads/${id}/ failed`);
       expect(got.err).not.toContain("decisions.md:3:");
-      expect(got.out).toContain("keeping seal/threads/3-c/\n  seal/threads/3-c/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
+      expect(got.out).toContain("keeping iadd/threads/3-c/\n  iadd/threads/3-c/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
       expect(got.out.endsWith("\nPut back no directory.\n"), got.out).toBe(true);
     } finally {
-      chmodSync(join(repo, "seal/threads"), 0o755);
+      chmodSync(join(repo, "iadd/threads"), 0o755);
     }
   });
 

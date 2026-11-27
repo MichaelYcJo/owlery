@@ -35,7 +35,7 @@ full suite, the repository-wide lint, the typecheck — is one act, taken once
 after the review rounds settle, and no agent runs any of the three. Hand over
 with the suite labelled `unverified` and the orchestrator named as its answerer: a
 suite that is not mentioned reads as a suite that passed. Where the environment
-names `OWLERY_RUN`, run each command the repository's `seal/config.json` names
+names `OWLERY_RUN`, run each command the repository's `iadd/config.json` names
 under `Heavy commands` through it, as `"$OWLERY_RUN" <name> -- <words>`, so the
 command waits its turn on the machine.
 
@@ -112,19 +112,19 @@ one call, has no excuse. An edit-test loop is serial — a call whose input
 depends on the last result cannot go out with it — and a review reads
 independent things, which is where batching pays most.
 
-## 11 Where the plugin's paths and the `seal/` root resolve, and the record language
+## 11 Where the plugin's paths and the `iadd/` root resolve, and the record language
 
 Every `skills/`, `templates/`, `docs/` and `agents/` path here and in your
 definition is the bundle's, at the root the head of these rules names; the repository you work in may
 hold other files at those paths.
 
-Every `seal/…` path here and in the skills means `<repo>/seal/` where that
+Every `iadd/…` path here and in the skills means `<repo>/iadd/` where that
 directory exists and its `README.md` opens with the marker
 `lib/optin.py#MARKER` holds, and
-`$(git rev-parse --git-common-dir)/seal/` otherwise —
+`$(git rev-parse --git-common-dir)/iadd/` otherwise —
 local mode, where the root sits under the common git directory and nothing
 under it is committed. A repository with both is shared, and no config key
-decides it. Each `seal/` here is the root's name, defined in the opening
+decides it. Each `iadd/` here is the root's name, defined in the opening
 paragraph of `skills/core/SKILL.md`. The prose in the records follows
 `Record language` in `config.json` under that root — English when the key
 is absent. What stays English regardless: the field names and vocabulary a

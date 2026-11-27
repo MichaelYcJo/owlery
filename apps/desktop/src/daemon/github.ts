@@ -1,8 +1,8 @@
 // The reach to GitHub of the pull request stage and of the watch: the remote
-// the sealed branch is pushed to with the person's git, the calls of the
+// the cleared branch is pushed to with the person's git, the calls of the
 // person's `gh` that list, open, edit and read a pull request, the body
 // composed from the records the branch's head commit holds, which opens with
-// the seal section and the back of the seal, and the pull request's checks
+// the inspection section and the back of the seal, and the pull request's checks
 // read into three states.
 // This module reads no stored state and writes none: `Daemon#runPullRequest`
 // and `Daemon#readPullRequest` store what it gives, and the daemon arranges
@@ -21,7 +21,7 @@ import { type Back, type FindingLine, STAGE_COLUMNS, type StageLine, costText } 
 import { ROUNDS_FOLDER, roundFile } from "./chain";
 import { readDecisionRecord } from "./decision-record";
 import { gfmLines } from "./record-blocks";
-import { readGate, readGuarantee } from "./seal-records";
+import { readGate, readInspection } from "./inspection-records";
 import { GATE_KILL_AFTER_MS } from "./gate";
 import { baseRef, fileAt, remoteOf } from "./worktrees";
 
@@ -43,13 +43,13 @@ export const BODY_LIMIT = 65_536;
 /** How many characters of a title a pull request is opened with. */
 export const TITLE_LIMIT = 256;
 
-/** The line that opens a body's seal section, alone on its line, as `pr-check/skills/code-review/scripts/chain_check.py#SECTION_OPEN` reads it. */
-export const SECTION_OPEN = "<!-- owlery:seal -->";
+/** The line that opens a body's inspection section, alone on its line, as `pr-check/skills/code-review/scripts/chain_check.py#SECTION_OPEN` reads it. */
+export const SECTION_OPEN = "<!-- owlery:inspection -->";
 
-/** The line that closes a body's seal section, as `chain_check.py#SECTION_CLOSE` reads it. */
-export const SECTION_CLOSE = "<!-- /owlery:seal -->";
+/** The line that closes a body's inspection section, as `chain_check.py#SECTION_CLOSE` reads it. */
+export const SECTION_CLOSE = "<!-- /owlery:inspection -->";
 
-/** The line that opens the body's section of the back of the seal, below the seal section. No check reads it. */
+/** The line that opens the body's section of the back of the seal, below the inspection section. No check reads it. */
 export const BACK_OPEN = "<!-- owlery:back -->";
 
 /** The line that closes the body's section of the back of the seal. */
@@ -62,7 +62,7 @@ const MARKERS: readonly string[] = [SECTION_OPEN, SECTION_CLOSE, BACK_OPEN, BACK
  * Which marker a line is, or null: a line is a marker line where it is one
  * of `MARKERS` once the spaces and tabs at its ends are taken off, and no
  * other character is taken off. The daemon and the check
- * (`chain_check.py#marker_of`, which knows the seal's two markers alone)
+ * (`chain_check.py#marker_of`, which knows the inspection's two markers alone)
  * hold this one rule, since the white space JavaScript's `trim` and Python's
  * `str.strip` take off differ. A line is asked after a text is split at
  * GFM's line endings.
@@ -394,7 +394,7 @@ export function checksOf(rollup: readonly unknown[]): Pick<PullRequest, "checks"
 export interface BodyRecords {
   /** The work item's directory, from the repository's top. */
   directory: string;
-  /** The newest verdict block of `guarantee.md`, from its opening fence to its closing fence, as the record holds it. */
+  /** The newest verdict block of `inspection.md`, from its opening fence to its closing fence, as the record holds it. */
   block: string[];
   changelog: string | null;
   /** The newest run block of `trail/gate.md`, from fence to fence. */
@@ -411,21 +411,21 @@ function under(directory: string, path: string): string {
 /**
  * Reads what a pull request's body is composed from, at the commit given,
  * through the daemon's own readers. `directory` is the work item's directory
- * from the worktree's top. It throws where `guarantee.md` holds no verdict
+ * from the worktree's top. It throws where `inspection.md` holds no verdict
  * block there. The back of the seal is composed apart
  * (`../shared/seal-back#composeBack`), since it reads the ledger too.
  */
 export async function bodyRecords(worktree: string, head: string, directory: string): Promise<BodyRecords> {
   const at = (path: string): Promise<string | null> => fileAt(worktree, head, under(directory, path));
-  const guarantee = (await at("guarantee.md")) ?? "";
-  const verdict = readGuarantee(guarantee).verdicts.at(-1);
-  if (verdict === undefined) throw new Error(`${under(directory, "guarantee.md")} holds no verdict block at the head commit`);
+  const inspection = (await at("inspection.md")) ?? "";
+  const verdict = readInspection(inspection).verdicts.at(-1);
+  if (verdict === undefined) throw new Error(`${under(directory, "inspection.md")} holds no verdict block at the head commit`);
   const gateText = (await at("trail/gate.md")) ?? "";
   const run = readGate(gateText).runs.at(-1);
   const decisionText = await at("decisions.md");
   return {
     directory,
-    block: gfmLines(guarantee).slice(verdict.line - 1, verdict.end),
+    block: gfmLines(inspection).slice(verdict.line - 1, verdict.end),
     changelog: await at("changelog.md"),
     gate: run === undefined ? null : gfmLines(gateText).slice(run.line - 1, run.end),
     decisions: decisionText === null ? [] : readDecisionRecord(decisionText).decisions.map(({ decided, grounds, state }) => ({ decided, grounds, state: state.is })),
@@ -433,15 +433,15 @@ export async function bodyRecords(worktree: string, head: string, directory: str
 }
 
 /**
- * The seal section of a body: the two marker lines around a heading, the
- * sentence that names the record and says that the seal binds the commit it
- * names, and the newest verdict block as the record holds it. The sentence
- * stays true after a later push breaks the seal, since the check `seal`
- * says whether the seal holds at the head, and no stage rewrites the body
- * until a new seal is given.
+ * The inspection section of a body: the two marker lines around a heading,
+ * the sentence that names the record and says that the inspection binds the
+ * commit it names, and the newest verdict block as the record holds it. The
+ * sentence stays true after a later push lapses the inspection, since the
+ * check `inspection` says whether it holds at the head, and no stage
+ * rewrites the body until a new inspection is given.
  */
-export function sealSection(records: Pick<BodyRecords, "directory" | "block">): string {
-  return [SECTION_OPEN, "## Seal", "", `The newest verdict of \`${under(records.directory, "guarantee.md")}\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", ...records.block, SECTION_CLOSE].join("\n");
+export function inspectionSection(records: Pick<BodyRecords, "directory" | "block">): string {
+  return [SECTION_OPEN, "## Inspection", "", `The newest verdict of \`${under(records.directory, "inspection.md")}\`. An inspection binds the commit it names, and the check \`inspection\` says whether it holds at this pull request's head commit:`, "", ...records.block, SECTION_CLOSE].join("\n");
 }
 
 /** One finding's line of a round's list: its number, its symptom as a sentence, each place in code, its severity, its close, and the earlier finding or round it names. */
@@ -473,8 +473,8 @@ function listedRounds(back: Back): number {
  * finding, the sentence of a round with none and the lines of its record not
  * read, one table of every stage that ran, the rounds' stages first, then the
  * sums with the sentence on a converted cost, the sessions outside the
- * chain, the refused calls and the lines not read. It holds no seal and no
- * seal's record, which the seal section above it carries. The last `held`
+ * chain, the refused calls and the lines not read. It holds no inspection
+ * and no inspection's record, which the inspection section above it carries. The last `held`
  * rounds that hold findings have their list given way to one line that
  * names the round's record. Every line it writes opens with `#`, `-` or `|`,
  * or is a sentence of the composition's own, so none is a marker line.
@@ -501,7 +501,7 @@ export function backSection(back: Back, directory: string, held = 0): string {
 }
 
 /**
- * A new pull request's body: the seal section, the back's section
+ * A new pull request's body: the inspection section, the back's section
  * (`backSection`), then, each under its own heading and each only where its
  * record stands, the changelog whole, the newest run of the broad gate and
  * each decision made without asking. Where the body would pass `limit`
@@ -512,7 +512,7 @@ export function backSection(back: Back, directory: string, held = 0): string {
  * committed record holds a cost. A part whose text holds a marker line
  * (`markerOf`) of either section is replaced so whatever the body's length,
  * since neither the replacing of a section nor the check reads a fence when
- * it counts marker lines: the body holds each marker once. The seal section
+ * it counts marker lines: the body holds each marker once. The inspection section
  * is never cut.
  */
 export function pullRequestBody(records: BodyRecords, back: Back, limit = BODY_LIMIT): string {
@@ -527,7 +527,7 @@ export function pullRequestBody(records: BodyRecords, back: Back, limit = BODY_L
   const marked = (text: string): boolean => gfmLines(text).some((line) => markerOf(line) !== null);
   const texts = parts.map(({ whole, held: line }) => (marked(whole) ? line : whole));
   let given = 0;
-  const body = (): string => `${[sealSection(records), backSection(back, records.directory, given), ...texts].join("\n\n")}\n`;
+  const body = (): string => `${[inspectionSection(records), backSection(back, records.directory, given), ...texts].join("\n\n")}\n`;
   for (let index = parts.length - 1; index >= 0 && body().length > limit; index -= 1) texts[index] = parts[index]?.held ?? "";
   while (given < listedRounds(back) && body().length > limit) given += 1;
   return body();
@@ -540,7 +540,7 @@ interface Section {
   named: string;
 }
 
-const SEAL: Section = { open: SECTION_OPEN, close: SECTION_CLOSE, named: "seal section" };
+const INSPECTION: Section = { open: SECTION_OPEN, close: SECTION_CLOSE, named: "inspection section" };
 const BACK: Section = { open: BACK_OPEN, close: BACK_CLOSE, named: "section of the back of the seal" };
 
 /**
@@ -583,19 +583,20 @@ function withSection(body: string, section: string, which: Section, after: strin
 }
 
 /**
- * A body with its seal section replaced (`withSection`). Where the body holds
- * no marker line of the seal, the section is put before its first line.
+ * A body with its inspection section replaced (`withSection`). Where the body
+ * holds no marker line of the inspection, the section is put before its first
+ * line.
  */
-export function withSealSection(body: string, section: string): string {
-  return withSection(body, section, SEAL, null);
+export function withInspectionSection(body: string, section: string): string {
+  return withSection(body, section, INSPECTION, null);
 }
 
 /**
  * A body with its back's section replaced by the back given
- * (`withSection`), as the daemon rewrites it at each seal sent to an open
+ * (`withSection`), as the daemon rewrites it at each inspection sent to an open
  * pull request. Where the body holds no marker line of the back, the section
- * is put after the seal section, or before the body's first line where it
- * holds no seal section. Where the body would pass `limit` UTF-16 code units,
+ * is put after the inspection section, or before the body's first line where
+ * it holds no inspection section. Where the body would pass `limit` UTF-16 code units,
  * each round's list of findings gives way, the last round first, as in a new
  * body, and no line outside the section changes.
  */

@@ -157,7 +157,7 @@ import { WINDOW_SIZE } from "../src/main/window-size";
 import { type Chain, type ChainStage, type ClientMessage, type Machine, type PullRequest, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type WorkItem, type WorktreeSetup } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
 import { branchedWorktree, branchOf, commitFile, git, temporaryRepository } from "./repositories";
-import { chainEntry, commitAll, commitSeal, commitSealedAfterAFix, parkedOnAQuestion, roundRecord, TODAY, write } from "./chain-run";
+import { chainEntry, commitAll, commitInspection, commitClearedAfterAFix, parkedOnAQuestion, roundRecord, TODAY, write } from "./chain-run";
 import { createdPane, pngSize, runFolder, type Shot, shots, themesAsked, type View } from "./screenshots";
 
 /** The run, started by `pnpm run screenshots`. Without it the file is the cases. */
@@ -260,7 +260,7 @@ const PULL_REQUEST = `Pull request #${String(PULL_REQUEST_NUMBER)}`;
 const CHECKS = ["records", "seal"];
 const FINISHED_RECORDS = "1795396352-add-an-export-of-the-history";
 /** The stages of the finished work item's chain, in the order they ended: four agents' turns and the gate. */
-const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["seal", 2]] as const;
+const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
 /** The work item whose seal a later commit broke: the run commits the records of a seal in its worktree, in the folder of the records this name gives, and one commit after them. Its view is the view "broken". */
 const BROKEN = "Cache the user avatars";
 const BROKEN_RECORDS = "1795396354-cache-the-user-avatars";
@@ -489,7 +489,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const searchSidebar = (query: string): Promise<void> =>
     app.evaluate(`(() => { const field = document.getElementById("search-field"); field.value = ${JSON.stringify(query)}; field.dispatchEvent(new Event("input")); })()`);
   /** Owlery's workflow, and the older version the view of the move commits it at. */
-  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const WORKFLOW = ".github/workflows/owlery-inspection.yml";
   const OLDER_CHECK = "0.0.4";
   /** The button of the older check on the scene's repository's row. */
   const CHECK_BUTTON = `#repositories section[data-repository="1"] .repository-check`;
@@ -649,7 +649,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     broken: async () => {
       await app.click(`#repositories button[data-work-item="${BROKEN_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-seal-head").textContent === ${JSON.stringify(`Seal broken, sealed at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-seal-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the sealed commit \`${brokenAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-seal button").length === 0 && document.querySelector('${place("sealer")} .note')?.textContent === "Seal broken" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .broken-by")?.textContent.startsWith(${JSON.stringify(`Broken by ${brokenBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the broken work item's view with the back of its seal in front, naming the commit that broke it and saying that its stages ran outside the daemon, and the broken seal and its sentence at its foot, with nothing to press");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-seal-head").textContent === ${JSON.stringify(`Seal broken, sealed at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-seal-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the cleared commit \`${brokenAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-seal button").length === 0 && document.querySelector('${place("sealer")} .note')?.textContent === "Seal broken" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .broken-by")?.textContent.startsWith(${JSON.stringify(`Broken by ${brokenBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the broken work item's view with the back of its seal in front, naming the commit that broke it and saying that its stages ran outside the daemon, and the broken seal and its sentence at its foot, with nothing to press");
       // The approval line stands under what the work item says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
@@ -851,13 +851,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch. The place for work records is committed with it, with the broad gate command its `config.json` names and the script that command runs, so the records the run commits in a worktree stand under a records root that is whole. Owlery's workflow is committed with it too, so the repository is on the owl chain.
     writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n*.pem\n");
     mkdirSync(join(made.repo, "seal"));
-    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(made.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
+    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "iadd", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
     mkdirSync(join(made.repo, "scripts"));
     writeFileSync(join(made.repo, "scripts", "check.sh"), GATE_SCRIPT);
     mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(made.repo, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
-    git(made.repo, "add", ".gitignore", "seal/README.md", "seal/config.json", "scripts/check.sh", ".github/workflows/owlery-seal.yml");
+    writeFileSync(join(made.repo, ".github", "workflows", "owlery-inspection.yml"), "name: seal\n");
+    git(made.repo, "add", ".gitignore", "iadd/README.md", "iadd/config.json", "scripts/check.sh", ".github/workflows/owlery-inspection.yml");
     git(made.repo, "commit", "--quiet", "-m", "ignore");
     for (const [path, text] of Object.entries(IGNORED)) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
@@ -876,14 +876,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const stored = Date.now();
     const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
-    commitSeal(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
-    const parkedRecord = `seal/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
+    commitInspection(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, seal: false });
+    const parkedRecord = `iadd/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
     writeFileSync(join(parkedAt.worktree, parkedRecord), withReversal(withDecision(ASKED_OF_PARKED.reduce(withQuestion, ""), DECIDED_FOR_PARKED), ASKED_OF_PARKED.length + 1, REVERSED_SAYS));
     // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
     writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
     const finishedAt = await branchedWorktree({ folder: made.repo, title: FINISHED, root: made.root });
     const unsealed = commitFile(finishedAt.worktree, "export.ts");
-    commitSealedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
+    commitClearedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
     const sealedAt = git(finishedAt.worktree, "rev-parse", "HEAD").trim();
     git(finishedAt.worktree, "reset", "--quiet", "--hard", unsealed);
     /** A stage as a daemon stores one that finished. */
@@ -1019,7 +1019,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     // The broken work item's seal: the records of a chain that sealed it, committed with git in its worktree, and one commit after them, which breaks the seal. The ledger holds no entry of it.
     const broken = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
     if (!broken?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
-    brokenAt = commitSeal(broken.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(broken), base: broken.baseCommit });
+    brokenAt = commitInspection(broken.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(broken), base: broken.baseCommit });
     brokenBy = commitFile(broken.worktree, AFTER_THE_SEAL);
     const sealOfBroken = async (): Promise<WorkItem["seal"]> => (await listed()).workItems.find((workItem) => workItem.id === broken.id)?.seal ?? null;
     for (let deadline = Date.now() + 20_000, seal = await sealOfBroken(); seal?.state !== "broken" || seal.commit !== brokenAt; seal = await sealOfBroken()) {
@@ -1042,9 +1042,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     for (const deadline = Date.now() + 10_000; (await panesOf()).map((pane) => pane.colour ?? "").join() !== `,${TAB_COLOURS.join()}`; await new Promise((resolve) => setTimeout(resolve, 100))) {
       if (Date.now() >= deadline) throw new Error(`the tabs of ${AT_REVIEW} never held their colours: ${JSON.stringify(await panesOf())}`);
     }
-    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
+    write(shown.worktree, `iadd/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
     const routed = commitAll(shown.worktree, "chore: declare the work item's routing");
-    write(shown.worktree, `seal/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
+    write(shown.worktree, `iadd/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
     commitAll(shown.worktree, "chore: record review round 1");
     await app.until(`document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelectorAll("#view-detail .commit").length === 4`, "the shown work item's round as recorded, and the two commits of its records", 20_000);
 

@@ -10,7 +10,7 @@ import { refusalsText } from "../src/daemon/chain";
 import { MARKER } from "../src/daemon/records-place";
 import { sealRecords } from "../src/daemon/seal-back-records";
 import type { Seal } from "../src/shared/protocol";
-import { type Cleanups, commitAll, commitSeal, head, roundRecord, VERSION, write } from "./chain-run";
+import { type Cleanups, commitAll, commitInspection, head, roundRecord, VERSION, write } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 const NAME = "1795400730-sealed-work";
-const DIRECTORY = `seal/threads/${NAME}`;
+const DIRECTORY = `iadd/threads/${NAME}`;
 const BRANCH = "feat/sealed-work";
 const F = "```";
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
@@ -27,20 +27,20 @@ const HEADING = (round: number): string => `# Review round ${String(round)}: ${N
 /**
  * A repository whose `main` holds the records root, checked out on a branch
  * that adds a source file and then the records of a chain that sealed it
- * (`chain-run.ts#commitSeal`), with the options that helper takes.
+ * (`chain-run.ts#commitInspection`), with the options that helper takes.
  * `before` commits what the branch holds before the records.
  */
 function sealedBranch(options: { seal?: boolean; verdict?: string; before?: (repo: string) => void } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
-  write(repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
   const base = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");
   commitAll(repo, "feat: greet");
   options.before?.(repo);
-  const gate = commitSeal(repo, { workItem: NAME, branch: BRANCH, base, ...options });
+  const gate = commitInspection(repo, { workItem: NAME, branch: BRANCH, base, ...options });
   const directory = join(repo, DIRECTORY);
   return { repo, base, gate, directory, read: (seal: Seal | null) => sealRecords(repo, directory, head(repo), seal) };
 }
@@ -56,7 +56,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
     const round2 = [
       HEADING(2),
       "",
-      `${F}seal`,
+      `${F}iadd`,
       `target: ${gate}, fixes ${gate}..${gate}`,
       F,
       "",
@@ -64,43 +64,43 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
       "",
       "### 1. A session that exits before its result line stays working",
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "severity: must",
       "location: `src/daemon/headless.ts:88`, `src/b.ts:3-9`, `src/c.ts`",
       "reopens: round-1#2",
       F,
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "verdict: fixed 86cb04d",
       "answer: The session ends at its exit.",
       F,
       "",
       "### 2. A close the reader refuses",
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "severity: should",
       "location: `src/d.ts`",
       F,
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "verdict: open",
       F,
       "",
       "### 3. A wrong sentence",
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "severity: nit",
       "location: `docs/e.md:4`",
       "regression: round-1",
       F,
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "verdict: deferred #141",
       F,
       "",
       "### 4. Another wrong sentence",
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "severity: nit",
       "location: `docs/e.md:9`",
       "regression: round-1#1",
@@ -108,7 +108,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
       "",
       "## Confirmations",
       "",
-      `${F}seal`,
+      `${F}iadd`,
       "confirms: round-1#1",
       F,
       "",
@@ -179,7 +179,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
     const withheld = sealedBranch({ verdict: "withheld reason: The suite failed." });
     const none = sealedBranch({ seal: false });
     const refused = sealedBranch();
-    write(refused.repo, `${DIRECTORY}/guarantee.md`, `${git(refused.repo, "show", `HEAD:${DIRECTORY}/guarantee.md`)}\n${F}seal\nVerdict: sealed\n${F}\n`);
+    write(refused.repo, `${DIRECTORY}/inspection.md`, `${git(refused.repo, "show", `HEAD:${DIRECTORY}/inspection.md`)}\n${F}iadd\nVerdict: cleared\n${F}\n`);
     commitAll(refused.repo, "chore: add a block with no target");
     for (const [name, branch] of [
       ["withheld", withheld],
@@ -194,7 +194,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
   it("names the oldest commit on the branch's own line that changes a path that is no closing record, as the commit that broke a broken seal, with its subject", async () => {
     // A closing record alone, then a commit that changes a source file and one that changes a closing record and a source file.
     const source = sealedBranch();
-    write(source.repo, `${DIRECTORY}/trail/refusals.md`, refusalsText(null, NAME, { kind: "seal", round: 1, role: "sealer", calls: [] }));
+    write(source.repo, `${DIRECTORY}/trail/refusals.md`, refusalsText(null, NAME, { kind: "inspection", round: 1, role: "sealer", calls: [] }));
     commitAll(source.repo, "chore: record the refusals");
     expect((await source.read(broken(source.gate))).brokenBy).toBeNull();
     write(source.repo, "feature.txt", "A greeting.\n");
@@ -208,7 +208,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
 
     // A commit that changes a closing record and a source file together.
     const together = sealedBranch();
-    write(together.repo, `${DIRECTORY}/guarantee.md`, `${git(together.repo, "show", `HEAD:${DIRECTORY}/guarantee.md`)}\nA note.\n`);
+    write(together.repo, `${DIRECTORY}/inspection.md`, `${git(together.repo, "show", `HEAD:${DIRECTORY}/inspection.md`)}\nA note.\n`);
     write(together.repo, "feature.txt", "A greeting.\n");
     const both = commitAll(together.repo, "fix: end the greeting and note it");
     expect((await together.read(broken(together.gate))).brokenBy).toEqual({ commit: both, subject: "fix: end the greeting and note it" });
@@ -247,7 +247,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
     let text = refusalsText(null, NAME, { kind: "round", round: 1, role: "proofer", calls: [{ tool: "Write", action: "write", rule: "no-write" }, { tool: "Bash", action: "run", rule: "no-command" }] });
     text = refusalsText(text, NAME, { kind: "ruling", round: 1, role: "orchestrator", calls: [{ tool: "Edit", action: "write", rule: "no-write" }] });
     text = refusalsText(text, NAME, { kind: "fix-pass", round: 1, role: "crafter", calls: [{ tool: "Write", action: "write", rule: "outside-worktree" }] });
-    text = refusalsText(text, NAME, { kind: "seal", round: 1, role: "sealer", calls: [{ tool: "Fetch", action: "other", rule: "other" }] });
+    text = refusalsText(text, NAME, { kind: "inspection", round: 1, role: "sealer", calls: [{ tool: "Fetch", action: "other", rule: "other" }] });
     text += "| build 1 | crafter | Write | writes a file | no-write |\n| round 1 | proofer | Write | writes a file | sometimes |\n";
     write(repo, `${DIRECTORY}/trail/refusals.md`, text);
     commitAll(repo, "chore: record the refusals");
@@ -260,7 +260,7 @@ describe("the records of the back of a seal", { timeout: 30_000 }, () => {
         { kind: "round", round: 1, rule: "no-command" },
         { kind: "ruling", round: 1, rule: "no-write" },
         { kind: "fix-pass", round: 1, rule: "outside-worktree" },
-        { kind: "seal", round: 1, rule: "other" },
+        { kind: "inspection", round: 1, rule: "other" },
       ],
       2,
     ]);

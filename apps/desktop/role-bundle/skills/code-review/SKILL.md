@@ -16,7 +16,7 @@ description: |
 Assume the code has defects, and look for them. A pass with no grounds is
 forbidden: where you are unsure, write a question, not a pass. A session
 orchestrating a review run holds the core once, from the plugin's
-`SessionStart` hook where its repository holds a `seal/` root, and opens
+`SessionStart` hook where its repository holds an `iadd/` root, and opens
 `skills/core/SKILL.md` once where no output opening `AgenticSeal core from`
 stands in its context. It then reads `skills/code-review/orchestration.md`
 before round 1.
@@ -25,7 +25,7 @@ before round 1.
 
 1. **Compliance**: the code against the ratified documents above it, the
    `docs/` policies first and then the work item's SDD set under
-   `seal/threads/`. Look for behaviour that is missing and for behaviour
+   `iadd/threads/`. Look for behaviour that is missing and for behaviour
    nobody asked for. Read the code, not the implementer's report of it.
 2. **Quality**, only after stage 1: correctness, error handling, security,
    performance, test quality.
@@ -52,12 +52,12 @@ removal as a settle, so outside a settle only this reading sees one. In
 local mode the records are never committed, so no diff holds them, and
 nothing reads a row taken out there.
 
-Where `seal/config.json` has a `Pact` key, the proofer reads the work item's
+Where `iadd/config.json` has a `Pact` key, the proofer reads the work item's
 `frame/design.md` at stage 1 against the shape
 `skills/verify/scripts/pact_check.py` states under *What each frame is read
-for*, which is all `seal pact` reads. A line written as a pact anchor and
+for*, which is all AgenticSeal's `seal pact` reads. A line written as a pact anchor and
 outside that shape is a finding, whatever remote its `Pact` cell names:
-`seal pact` reads it as no anchor and reports the signer as citing nothing.
+AgenticSeal's `seal pact` reads it as no anchor and reports the signer as citing nothing.
 Examples are a table under a plural or other wording of the anchor header,
 a row with no header, a row outside the anchor table, and any of these
 naming a remote one letter off a pact that key declares.
@@ -161,14 +161,14 @@ check: tests/text/test_review_axes.py tests/text/test_the_rules_have_one_owner.p
 
 ## The record
 
-A round writes `seal/threads/<work-item-id>/trail/rounds/round-N.md` from
+A round writes `iadd/threads/<work-item-id>/trail/rounds/round-N.md` from
 `templates/records/sdd-round.md`. Every field the check reads stands inside a
-`seal` block, a fenced block opened by a line of three backticks and `seal`
+`iadd` block, a fenced block opened by a line of three backticks and `iadd`
 alone, and `lib/fields.py` is the one statement of each block's lines
 and the shape of each value. A line outside a block is prose and no field.
 The check also reads the `## Findings` heading and each finding's
 `### <n>. <symptom>` heading, as the template shows them. The prose follows
-`Record language` in the `seal/` root's `config.json`, English where the
+`Record language` in the `iadd/` root's `config.json`, English where the
 key is absent; the field names, headings and vocabulary words a checker
 reads stay English (`templates/setup/config.md` *What no key governs*).
 

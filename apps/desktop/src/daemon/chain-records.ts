@@ -1,7 +1,7 @@
 // What a work item's records say of its chain, as the daemon reads them in
 // the work item's directory of its worktree, committed or not: whether the
 // frame stands, how many rounds are recorded, the commit of the gate's last
-// run and the sealer's last verdict. The window draws the approval line from
+// run and the inspector's last verdict. The window draws the approval line from
 // these facts, the work item's questions, its chain and the stage a pane's
 // session runs through the chain command (`WorkItem.paneStage`); no hook and
 // no session is read.
@@ -16,16 +16,16 @@
 //
 // A record whose reader refuses a line gives nothing, wherever the line
 // stands, as the pull request check reads it
-// (`pr-check/skills/code-review/scripts/chain_check.py#guarantee` and its
+// (`pr-check/skills/code-review/scripts/chain_check.py#inspection` and its
 // gate record's arm). Of the blocks the last is the newest. The two records
-// are parsed in `seal-records.ts`, which the chain reads them with too, so
+// are parsed in `inspection-records.ts`, which the chain reads them with too, so
 // each block has one parser. No round record is parsed: a round is a file's
 // name.
 import { lstatSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Recorded } from "../shared/protocol";
 import { repositoryFileText } from "./repository-file";
-import { readGate, readGuarantee } from "./seal-records";
+import { readGate, readInspection } from "./inspection-records";
 
 /** What a work item holds of its records where its worktree holds no directory of its own, or the directory holds none of them. */
 export const NOTHING_RECORDED: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
@@ -33,15 +33,15 @@ export const NOTHING_RECORDED: Recorded = { framed: false, rounds: 0, gate: null
 /** The name of a round record: `round-`, a whole number from 1 with no leading zero, and `.md`. */
 const ROUND = /^round-[1-9][0-9]*\.md$/;
 
-/** The commit the newest run of a gate record names, as `seal-records.ts#readGate` reads the record, or null where it holds no run and where the reader refuses a line of it. A fence named as not read decides nothing. */
+/** The commit the newest run of a gate record names, as `inspection-records.ts#readGate` reads the record, or null where it holds no run and where the reader refuses a line of it. A fence named as not read decides nothing. */
 export function lastRun(text: string): string | null {
   const { runs, refusals } = readGate(text);
   return refusals.length > 0 ? null : (runs.at(-1)?.commit ?? null);
 }
 
-/** The newest verdict of a guarantee, as `seal-records.ts#readGuarantee` reads the record, or null where it holds none and where the reader refuses a line of it: the verdict's word, the commit its `target:` names, and the reason of a `withheld` or the question of an `undecided`. */
+/** The newest verdict of an inspection, as `inspection-records.ts#readInspection` reads the record, or null where it holds none and where the reader refuses a line of it: the verdict's word, the commit its `target:` names, and the reason of a `withheld` or the question of an `undecided`. */
 export function lastVerdict(text: string): Recorded["verdict"] {
-  const { verdicts, refusals } = readGuarantee(text);
+  const { verdicts, refusals } = readInspection(text);
   const newest = refusals.length > 0 ? undefined : verdicts.at(-1);
   return newest === undefined ? null : { is: newest.is, commit: newest.commit, says: newest.says };
 }
@@ -78,11 +78,11 @@ function roundsIn(folder: string): number {
 export function readChainRecords(directory: string | null): Recorded {
   if (directory === null) return NOTHING_RECORDED;
   const gate = textOf(join(directory, "trail", "gate.md"));
-  const guarantee = textOf(join(directory, "guarantee.md"));
+  const inspection = textOf(join(directory, "inspection.md"));
   return {
     framed: plainFile(join(directory, "frame", "design.md")),
     rounds: roundsIn(join(directory, "trail", "rounds")),
     gate: gate === null ? null : lastRun(gate),
-    verdict: guarantee === null ? null : lastVerdict(guarantee),
+    verdict: inspection === null ? null : lastVerdict(inspection),
   };
 }

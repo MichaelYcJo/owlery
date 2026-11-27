@@ -10,16 +10,16 @@ import type { AddressInfo } from "node:net";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { planRecords, setUpRecords } from "../src/daemon/records-place";
-import { workItemSeal } from "../src/daemon/seal-state";
-import { type Cleanups, commitSeal, guaranteeWith, proofs, roles, roundRecord, standing } from "./chain-run";
-import { commandOn, sealThrough } from "./chain-command-run";
+import { workItemInspection } from "../src/daemon/inspection-state";
+import { type Cleanups, commitInspection, inspectionWith, proofs, roles, roundRecord, standing } from "./chain-run";
+import { commandOn, inspectThrough } from "./chain-command-run";
 import { git, temporaryRepository } from "./repositories";
 
 const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const CHAIN_CHECK = join(PR_CHECK, "skills", "code-review", "scripts", "chain_check.py");
 
 /** The first line of a records root's `README.md`, which the check tells a root by. */
-const MARKER = "# What AgenticSeal maintains in seal/";
+const MARKER = "# What IADD keeps in iadd/";
 
 /** Writes a file in a repository, with the folders above it. */
 function write(repo: string, path: string, text: string): void {
@@ -30,13 +30,13 @@ function write(repo: string, path: string, text: string): void {
 /** Commits everything in the folder. A commit of a work item names it in the trailer the check reads. */
 function commitAll(repo: string, subject: string, workItem?: string): void {
   git(repo, "add", "--all");
-  git(repo, "commit", "--quiet", "-m", subject, ...(workItem === undefined ? [] : ["-m", `Seal-Routing: ${workItem}`]));
+  git(repo, "commit", "--quiet", "-m", subject, ...(workItem === undefined ? [] : ["-m", `IADD-Routing: ${workItem}`]));
 }
 
 /** Commits a records root on the checked-out branch: the marked `README.md`, and a `config.json` that names both languages. */
 function commitRoot(repo: string): void {
-  write(repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "iadd/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
   commitAll(repo, "chore: add the place for work records");
 }
 
@@ -63,7 +63,7 @@ function routing(workItem: string, branch: string, planning = "the session", imp
 const DECISIONS = [
   "# Decisions and questions: 1-x",
   "",
-  "```seal",
+  "```iadd",
   "decision: 1 route",
   "decided: The work item runs through the review chain, with no framer.",
   "grounds: `docs/roadmap.md` *Milestones* row 2 puts every pull request of a work item under the check.",
@@ -72,7 +72,7 @@ const DECISIONS = [
   "reversal: Frame it first: the change reaches the protocol.",
   "```",
   "",
-  "```seal",
+  "```iadd",
   "question: 2",
   "asks: May the run push the branch to `origin`?",
   "grounds: No document of the repository grants it, and a session cannot grant itself a push.",
@@ -111,7 +111,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   const check = (made: { base: string; repo: string }, state: "ready" | "draft", sealing = false, body = true): { exit: number | null; output: string } => {
     const payload = join(made.base, `${state}.json`);
     writeFileSync(payload, JSON.stringify({ pull_request: { draft: state === "draft", ...(body ? { body: "hello" } : {}) } }));
-    const run = spawnSync("python3", ["-B", CHAIN_CHECK, "--baseline", "main", ...(sealing ? ["--sealing"] : [])], {
+    const run = spawnSync("python3", ["-B", CHAIN_CHECK, "--baseline", "main", ...(sealing ? ["--inspecting"] : [])], {
       cwd: made.repo,
       encoding: "utf8",
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: made.base, GITHUB_EVENT_PATH: payload },
@@ -125,11 +125,24 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = repository();
     commitRoot(made.repo);
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "seal/threads/1-x/routing.md", routing("1-x", "feature"));
+    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature"));
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     return made;
   };
+
+  it("reads the routing trailer of the pull request's own commits in both spellings: `IADD-Routing:`, and `Seal-Routing:`, which a commit written before the rename carries and no commit can rewrite, each refused where it names a work item no declaration names and passed where it names the declared one", () => {
+    const made = reviewed();
+    for (const [key, item] of [["IADD-Routing", "9-gone"], ["Seal-Routing", "8-gone"], ["Seal-Routing", "1-x"]] as const) {
+      write(made.repo, `${item}-${key}.txt`, "x\n");
+      git(made.repo, "add", "--all");
+      git(made.repo, "commit", "--quiet", "-m", `chore: a commit of ${item}`, "-m", `${key}: ${item}`);
+    }
+    const said = check(made, "draft").output;
+    expect(said).toContain("carries `IADD-Routing: 9-gone`, and no routing declaration this pull request judges names that work item");
+    expect(said).toContain("carries `Seal-Routing: 8-gone`, and no routing declaration this pull request judges names that work item");
+    expect(said).not.toContain("1-x`, and no routing declaration");
+  });
 
   it("passes a ready pull request that declares no work item, and says that it examined nothing, in a repository with the records root and in one with none", () => {
     const examinedNothing = "this pull request declared neither way, so the review-chain check examined nothing";
@@ -155,7 +168,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   it("fails a ready pull request whose branch declares a work item through the review chain and holds no round record, names its routing.md, and passes the same pull request as a draft", () => {
     const made = declared();
     const ready = check(made, "ready");
-    expect(ready.output).toContain("seal/threads/1-x/routing.md:0  declares `through the review chain` and seal/threads/1-x/trail/rounds/ holds no `round-N.md`");
+    expect(ready.output).toContain("iadd/threads/1-x/routing.md:0  declares `through the review chain` and iadd/threads/1-x/trail/rounds/ holds no `round-N.md`");
     expect(ready.exit).toBe(1);
     // The root names both languages, so no refusal is about the root's `config.json`.
     expect(ready.output).not.toContain("config.json");
@@ -166,14 +179,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = repository();
     const plan = await planRecords(made.repo, "true", "1.2.3");
     await setUpRecords(made.repo, "true", "1.2.3", plan.stamp);
-    expect(existsSync(join(made.repo, "seal", "config.json"))).toBe(true);
+    expect(existsSync(join(made.repo, "iadd", "config.json"))).toBe(true);
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "seal/threads/1-x/routing.md", routing("1-x", "feature"));
+    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature"));
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     const ready = check(made, "ready");
     // The check tells the written root by its marker, so it judges the branch its `routing.md` names.
-    expect(ready.output).toContain("seal/threads/1-x/routing.md:0  declares `through the review chain` and seal/threads/1-x/trail/rounds/ holds no `round-N.md`");
+    expect(ready.output).toContain("iadd/threads/1-x/routing.md:0  declares `through the review chain` and iadd/threads/1-x/trail/rounds/ holds no `round-N.md`");
     expect(ready.exit).toBe(1);
     // The written `config.json` names both languages, so the check refuses nothing of it.
     expect(ready.output).not.toContain("config.json");
@@ -184,7 +197,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // The first start stops after the fix pass: round 2's proofer answers with no record until the case lets it.
     let verifies = false;
     // The sealer asks to write a file and to run a command: its grant refuses the write, which is a row of `trail/refusals.md` in the commit that carries the guarantee, and allows the command, which the sandbox bounds.
-    const asks = (_prompt: string, role?: { role: string }) => (role?.role === "sealer" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
+    const asks = (_prompt: string, role?: { role: string }) => (role?.role === "inspector" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
     const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round === 2 && !verifies ? "No record." : proofs(given)) }, { asks }) });
     const a = workItems[0]!;
     const worktree = { base: join(a.worktree, ".."), repo: a.worktree };
@@ -200,14 +213,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     // The daemon's own records, read by the check's Python: the rounds, the run block and the verdict block with the daemon's lines.
     const sealed = check(worktree, "ready", false, false);
     expect(sealed.exit, sealed.output).toBe(0);
-    for (const file of ["round-", "gate.md", "guarantee.md:"]) expect(sealed.output, file).not.toContain(file);
-    expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the sealer's verdict", "", "seal/threads/1795388700-sealed-work/guarantee.md", "seal/threads/1795388700-sealed-work/trail/refusals.md"]);
-    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toMatch(/\n\| seal 2 \| sealer \| Write \| writes a file \| no-write \|\n$/u);
-    expect(readFileSync(join(a.worktree, "seal/threads/1795388700-sealed-work/guarantee.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\njudged-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\n```\n/u);
+    for (const file of ["round-", "gate.md", "inspection.md:"]) expect(sealed.output, file).not.toContain(file);
+    expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the inspector's verdict", "", "iadd/threads/1795388700-sealed-work/inspection.md", "iadd/threads/1795388700-sealed-work/trail/refusals.md"]);
+    expect(readFileSync(join(a.worktree, "iadd/threads/1795388700-sealed-work/trail/refusals.md"), "utf8")).toMatch(/\n\| inspection 2 \| inspector \| Write \| writes a file \| no-write \|\n$/u);
+    expect(readFileSync(join(a.worktree, "iadd/threads/1795388700-sealed-work/inspection.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\ninspected-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\nworkflow: owl-chain\ninspector: owl-chain\n```\n/u);
     // A body with no seal section is named as not read, and the same records pass with it.
     const ready = check(worktree, "ready");
     expect(ready.exit, ready.output).toBe(0);
-    expect(ready.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
+    expect(ready.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:inspection -->` line and no `<!-- /owlery:inspection -->` line");
   });
 
   /**
@@ -218,48 +231,48 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   const reviewed = (): { base: string; repo: string; gate: string } => {
     const made = declared();
     const target = git(made.repo, "rev-parse", "HEAD").trim();
-    write(made.repo, "seal/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```seal", `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
     commitAll(made.repo, "chore: record review round 1", "1-x");
     return { ...made, gate: git(made.repo, "rev-parse", "HEAD").trim() };
   };
 
   /** Commits the gate's record as the daemon writes it: one run block that names the gate's commit against the base's commit. */
   const gated = (made: { repo: string; gate: string }): void => {
-    write(made.repo, "seal/threads/1-x/trail/gate.md", ["# Broad gate: 1-x", "", "```seal", `run: ${made.gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/trail/gate.md", ["# Broad gate: 1-x", "", "```iadd", `run: ${made.gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
     commitAll(made.repo, "chore: record the broad gate's run", "1-x");
   };
 
   /** One run's section of a guarantee: its heading, and a verdict block that targets the gate's commit and holds the lines given after its verdict. */
-  const section = (run: number, gate: string, ...lines: string[]): string => [`## Run ${String(run)}`, "", "```seal", `target: ${gate} against main`, "Verdict: sealed", ...lines, "```", ""].join("\n");
+  const section = (run: number, gate: string, ...lines: string[]): string => [`## Run ${String(run)}`, "", "```iadd", `target: ${gate} against main`, "Verdict: cleared", ...lines, "```", ""].join("\n");
 
   /** Commits a guarantee of the sections given, with whatever else the case wrote. */
   const guaranteed = (made: { repo: string }, ...sections: string[]): void => {
-    write(made.repo, "seal/threads/1-x/guarantee.md", ["# Guarantee: 1-x", "", sections.join("\n")].join("\n"));
-    commitAll(made.repo, "chore: record the sealer's verdict", "1-x");
+    write(made.repo, "iadd/threads/1-x/inspection.md", ["# Inspection: 1-x", "", sections.join("\n")].join("\n"));
+    commitAll(made.repo, "chore: record the inspector's verdict", "1-x");
   };
 
-  const REFUSED_CALLS = ["# Refused calls: 1-x", "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""].join("\n");
-  const DAEMONS_LINES = ["built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"];
+  const REFUSED_CALLS = ["# Refused calls: 1-x", "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| inspection 1 | inspector | Write | writes a file | no-write |", ""].join("\n");
+  const DAEMONS_LINES = ["built-by: the session, s-1", "inspected-by: s-2", "model: owl-large", "rules: owlery 0.0.2", "workflow: owl-chain", "inspector: owl-chain"];
 
   /** The branch `reviewed` makes, gated, and sealed by one verdict block with the daemon's lines; `block` is that block's lines between its fences. */
   const sealedBranch = (): { base: string; repo: string; gate: string; block: string[] } => {
     const made = reviewed();
     gated(made);
     guaranteed(made, section(1, made.gate, ...DAEMONS_LINES));
-    return { ...made, block: [`target: ${made.gate} against main`, "Verdict: sealed", ...DAEMONS_LINES] };
+    return { ...made, block: [`target: ${made.gate} against main`, "Verdict: cleared", ...DAEMONS_LINES] };
   };
 
-  /** A seal section written by hand in the form of the pull request work item's `frame/design.md` *Data & interfaces*: its two marker lines around a heading, a sentence and a `seal` block of the lines given. */
-  const sealSection = (...block: string[]): string[] => [
-    "<!-- owlery:seal -->",
-    "## Seal",
+  /** An inspection section written by hand in the form the daemon writes (`github.ts#inspectionSection`): its two marker lines around a heading, a sentence and an `iadd` block of the lines given. */
+  const bodySection = (...block: string[]): string[] => [
+    "<!-- owlery:inspection -->",
+    "## Inspection",
     "",
-    "The newest verdict of `seal/threads/1-x/guarantee.md`. A seal binds the commit it names, and the check `seal` says whether it holds at this pull request's head commit:",
+    "The newest verdict of `iadd/threads/1-x/inspection.md`. An inspection binds the commit it names, and the check `inspection` says whether it holds at this pull request's head commit:",
     "",
-    "```seal",
+    "```iadd",
     ...block,
     "```",
-    "<!-- /owlery:seal -->",
+    "<!-- /owlery:inspection -->",
   ];
 
   /** What the check sent a server: each request's method, path, two of its headers and its JSON body. */
@@ -315,11 +328,11 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   };
 
   // The sentence every refusal of the body arm ends with.
-  const SECTION_IS = "the seal section, between `<!-- owlery:seal -->` and `<!-- /owlery:seal -->`, is the newest verdict block of the work item's `guarantee.md` at the head commit, which Owlery's daemon copies there line for line";
+  const SECTION_IS = "the inspection section, between `<!-- owlery:inspection -->` and `<!-- /owlery:inspection -->`, is the newest verdict block of the work item's `inspection.md` at the head commit, which Owlery's daemon copies there line for line";
 
   it("passes a ready pull request whose body holds the seal section as the daemon writes it, alone and between a person's lines, with the lines ended as a browser ends them too, and names no line of the body", async () => {
     const made = sealedBranch();
-    for (const lines of [sealSection(...made.block), ["A person's line above.", "", ...sealSection(...made.block), "", "A person's line below, with `<!-- a comment -->` in it."]]) {
+    for (const lines of [bodySection(...made.block), ["A person's line above.", "", ...bodySection(...made.block), "", "A person's line below, with `<!-- a comment -->` in it."]]) {
       for (const end of ["\n", "\r\n"]) {
         const passed = await run(made, { body: lines.join(end) });
         expect(passed.exit, passed.output).toBe(0);
@@ -327,11 +340,11 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       }
     }
     // A fence like a block's in the section is named, as in a record, and decides nothing.
-    const near = sealSection(...made.block);
-    near.splice(-1, 0, "```Seal", "x", "```");
+    const near = bodySection(...made.block);
+    near.splice(-1, 0, "```Iadd", "x", "```");
     const named = await run(made, { body: near.join("\n") });
     expect(named.exit, named.output).toBe(0);
-    expect(named.output).toContain("seal/threads/1-x:0  the pull request's body, line 14: not read: ````Seal` opens a fence like a `seal` block and is not one");
+    expect(named.output).toContain("iadd/threads/1-x:0  the pull request's body, line 16: not read: ````Iadd` opens a fence like an `iadd` block and is not one");
   });
 
   it("passes a ready pull request whose body is the one the daemon's pull request stage wrote for a sealed chain of two rounds and one fix pass, the back of the seal with each stage's cost among it, and names no line of it", async () => {
@@ -342,37 +355,37 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     await c.chain(a.id, "rested");
     const created = gh.calls().findIndex((call) => call[1] === "create");
     const body = gh.bodies()[created] ?? "";
-    expect(body).toContain("\n<!-- /owlery:seal -->\n\n<!-- owlery:back -->\n## The back of the seal\n");
+    expect(body).toContain("\n<!-- /owlery:inspection -->\n\n<!-- owlery:back -->\n## The back of the seal\n");
     expect(body).toContain("\n| Round 1 | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
     const passed = await run({ base: join(a.worktree, ".."), repo: a.worktree }, { body });
     expect(passed.exit, passed.output).toBe(0);
     expect(passed.output).not.toContain("the pull request's body");
   });
 
-  it("refuses a seal section that is not the newest verdict block of guarantee.md at the head commit, on the work item's directory and naming the body's line: another target, a verdict that is not sealed, a line the reader refuses, a second block and no block", async () => {
+  it("refuses a seal section that is not the newest verdict block of inspection.md at the head commit, on the work item's directory and naming the body's line: another target, a verdict that is not sealed, a line the reader refuses, a second block and no block", async () => {
     const made = sealedBranch();
     const base = git(made.repo, "rev-parse", "main").trim();
     const refused = async (lines: string[], said: string): Promise<void> => {
       const answer = await run(made, { body: ["A person's line.", ...lines].join("\n") });
-      expect(answer.output).toContain(`seal/threads/1-x:0  the pull request's body, ${said}; ${SECTION_IS}\n`);
+      expect(answer.output).toContain(`iadd/threads/1-x:0  the pull request's body, ${said}; ${SECTION_IS}\n`);
       expect(answer.exit).toBe(1);
     };
     // The person's line is the body's first, so the section's marker is its second and the block's opener its seventh.
-    await refused(sealSection(`target: ${base} against main`, ...made.block.slice(1)), `line 8: the section's verdict block holds \`target: ${base} against main\` where the newest verdict block of \`seal/threads/1-x/guarantee.md\` at the head commit holds \`target: ${made.gate} against main\``);
-    await refused(sealSection(made.block[0] ?? "", "Verdict: withheld reason: x", ...made.block.slice(2)), "line 9: the section's verdict block holds `Verdict: withheld reason: x` where the newest verdict block of `seal/threads/1-x/guarantee.md` at the head commit holds `Verdict: sealed`");
-    await refused(sealSection(...made.block.slice(0, 2), "colour: blue", ...made.block.slice(2)), "line 10: `colour: blue` is no field of a verdict block, which takes `target:`, `original:`, `Verdict:`, `built-by:`, `judged-by:`, `model:` and `rules:`, each written `<key>: <value>`");
+    await refused(bodySection(`target: ${base} against main`, ...made.block.slice(1)), `line 8: the section's verdict block holds \`target: ${base} against main\` where the newest verdict block of \`iadd/threads/1-x/inspection.md\` at the head commit holds \`target: ${made.gate} against main\``);
+    await refused(bodySection(made.block[0] ?? "", "Verdict: withheld reason: x", ...made.block.slice(2)), "line 9: the section's verdict block holds `Verdict: withheld reason: x` where the newest verdict block of `iadd/threads/1-x/inspection.md` at the head commit holds `Verdict: cleared`");
+    await refused(bodySection(...made.block.slice(0, 2), "colour: blue", ...made.block.slice(2)), "line 10: `colour: blue` is no field of a verdict block, which takes `target:`, `original:`, `Verdict:`, `built-by:`, `inspected-by:`, `model:`, `rules:`, `workflow:` and `inspector:`, each written `<key>: <value>`");
     // A block whose daemon's lines are gone differs from the record's by their absence.
-    await refused(sealSection(...made.block.slice(0, 2)), "line 7: the section's verdict block holds no `built-by:` line, no `judged-by:` line, no `model:` line and no `rules:` line where the newest verdict block of `seal/threads/1-x/guarantee.md` at the head commit holds `built-by: the session, s-1`, `judged-by: s-2`, `model: owl-large` and `rules: owlery 0.0.2`");
-    const twice = sealSection(...made.block);
-    twice.splice(-1, 0, "", "```seal", ...made.block, "```");
-    await refused(twice, "line 16: the seal section holds a second verdict block");
-    await refused(["<!-- owlery:seal -->", "## Seal", "", "No block.", "<!-- /owlery:seal -->"], "line 2: the seal section holds no verdict block");
+    await refused(bodySection(...made.block.slice(0, 2)), "line 7: the section's verdict block holds no `built-by:` line, no `inspected-by:` line, no `model:` line, no `rules:` line, no `workflow:` line and no `inspector:` line where the newest verdict block of `iadd/threads/1-x/inspection.md` at the head commit holds `built-by: the session, s-1`, `inspected-by: s-2`, `model: owl-large`, `rules: owlery 0.0.2`, `workflow: owl-chain` and `inspector: owl-chain`");
+    const twice = bodySection(...made.block);
+    twice.splice(-1, 0, "", "```iadd", ...made.block, "```");
+    await refused(twice, "line 18: the inspection section holds a second verdict block");
+    await refused(["<!-- owlery:inspection -->", "## Seal", "", "No block.", "<!-- /owlery:inspection -->"], "line 2: the inspection section holds no verdict block");
 
     // A branch with no guarantee: the section copies a record that is not there.
     const unsealed = reviewed();
     gated(unsealed);
-    const none = await run(unsealed, { body: ["A person's line.", ...sealSection(...made.block)].join("\n") });
-    expect(none.output).toContain(`seal/threads/1-x:0  the pull request's body, line 7: the section's verdict block copies none, since no judged work item's \`guarantee.md\` holds a verdict block that reads at the head commit; ${SECTION_IS}\n`);
+    const none = await run(unsealed, { body: ["A person's line.", ...bodySection(...made.block)].join("\n") });
+    expect(none.output).toContain(`iadd/threads/1-x:0  the pull request's body, line 7: the section's verdict block copies none, since no judged work item's \`inspection.md\` holds a verdict block that reads at the head commit; ${SECTION_IS}\n`);
     expect(none.exit).toBe(1);
   }, 60_000);
 
@@ -380,30 +393,30 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = sealedBranch();
     const unread = async (body: string | null, why: string): Promise<void> => {
       const answer = await run(made, { body });
-      expect(answer.output).toContain(`not read: the pull request's body, since ${why}, so no seal section of it is compared with \`guarantee.md\`, whose newest verdict block Owlery's daemon copies there\n`);
+      expect(answer.output).toContain(`not read: the pull request's body, since ${why}, so no inspection section of it is compared with \`inspection.md\`, whose newest verdict block Owlery's daemon copies there\n`);
       expect(answer.exit, answer.output).toBe(0);
     };
-    await unread("hello", "it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
-    await unread([...sealSection(...made.block), ...sealSection(...made.block)].join("\n"), "it holds 2 `<!-- owlery:seal -->` lines, and a body holds one seal section");
-    await unread([...sealSection(...made.block)].reverse().join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
-    await unread(sealSection(...made.block).slice(0, -1).join("\n"), "it holds no `<!-- /owlery:seal -->` line after a `<!-- owlery:seal -->` line");
+    await unread("hello", "it holds no `<!-- owlery:inspection -->` line and no `<!-- /owlery:inspection -->` line");
+    await unread([...bodySection(...made.block), ...bodySection(...made.block)].join("\n"), "it holds 2 `<!-- owlery:inspection -->` lines, and a body holds one inspection section");
+    await unread([...bodySection(...made.block)].reverse().join("\n"), "it holds no `<!-- /owlery:inspection -->` line after a `<!-- owlery:inspection -->` line");
+    await unread(bodySection(...made.block).slice(0, -1).join("\n"), "it holds no `<!-- /owlery:inspection -->` line after a `<!-- owlery:inspection -->` line");
     await unread(null, "the event payload holds no `pull_request.body`");
     // A marker line is one of the two markers with spaces and tabs at its ends, and with no other character there: the daemon reads it so too.
-    await unread([`\u0085<!-- owlery:seal -->`, "x", `\ufeff<!-- /owlery:seal -->`].join("\n"), "it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
-    const spaced = sealSection(...made.block);
+    await unread([`\u0085<!-- owlery:inspection -->`, "x", `\ufeff<!-- /owlery:inspection -->`].join("\n"), "it holds no `<!-- owlery:inspection -->` line and no `<!-- /owlery:inspection -->` line");
+    const spaced = bodySection(...made.block);
     spaced[0] = ` \t${spaced[0] ?? ""}\t `;
     spaced[spaced.length - 1] = `\t${spaced.at(-1) ?? ""}  `;
     for (const end of ["\u0085", "\u001c", "\ufeff"]) {
-      const read = await run(made, { body: [...spaced, "", "## What changed", "", `${end}<!-- /owlery:seal -->`, `<!-- owlery:seal -->${end}`].join("\n") });
+      const read = await run(made, { body: [...spaced, "", "## What changed", "", `${end}<!-- /owlery:inspection -->`, `<!-- owlery:inspection -->${end}`].join("\n") });
       expect(read.exit, read.output).toBe(0);
       expect(read.output, JSON.stringify(end)).not.toContain("the pull request's body");
     }
 
     // A declaration that does not read judges no work item, so the section has no record to be compared with.
-    write(made.repo, "seal/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");
+    write(made.repo, "iadd/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");
     commitAll(made.repo, "chore: break the declaration", "1-x");
-    const unjudged = await run(made, { body: sealSection(...made.block).join("\n") });
-    expect(unjudged.output).toContain("not read: the pull request's body, since no declaration of this pull request reads, so no seal section of it is compared with `guarantee.md`");
+    const unjudged = await run(made, { body: bodySection(...made.block).join("\n") });
+    expect(unjudged.output).toContain("not read: the pull request's body, since no declaration of this pull request reads, so no inspection section of it is compared with `inspection.md`");
     expect(unjudged.output).not.toContain("the pull request's body, line");
   });
 
@@ -417,28 +430,28 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const sealed = await run(made, { body: null, args: ["--post"], env });
     expect(sealed.exit, sealed.output).toBe(0);
     expect(sent.map((request) => [request.method, request.url, request.authorization, request.accept])).toEqual([["POST", "/repos/owner/project/check-runs", "Bearer t0ken", "application/vnd.github+json"]]);
-    expect(last()).toMatchObject({ name: "seal", head_sha: head, status: "completed", conclusion: "success", output: { title: `Sealed by the owl chain at ${made.gate.slice(0, 7)}` } });
-    expect(last()?.output.summary).toContain(["```seal", ...made.block, "```"].join("\n"));
-    expect(sealed.output).toContain(`chain-check: posted \`seal\`, success: Sealed by the owl chain at ${made.gate.slice(0, 7)}\n`);
+    expect(last()).toMatchObject({ name: "inspection", head_sha: head, status: "completed", conclusion: "success", output: { title: `Cleared by the Owl Chain at ${made.gate.slice(0, 7)}` } });
+    expect(last()?.output.summary).toContain(["```iadd", ...made.block, "```"].join("\n"));
+    expect(sealed.output).toContain(`chain-check: posted \`inspection\`, success: Cleared by the Owl Chain at ${made.gate.slice(0, 7)}\n`);
 
     // The seal stands, and the body's section names another commit: the body arm alone refuses.
     const base = git(made.repo, "rev-parse", "main").trim();
-    const other = await run(made, { body: sealSection(`target: ${base} against main`, ...made.block.slice(1)).join("\n"), args: ["--post"], env });
+    const other = await run(made, { body: bodySection(`target: ${base} against main`, ...made.block.slice(1)).join("\n"), args: ["--post"], env });
     expect(other.exit).toBe(1);
     expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The records are refused" } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x:0  the pull request's body, line 7: the section's verdict block holds \`target: ${base} against main\``);
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x:0  the pull request's body, line 7: the section's verdict block holds \`target: ${base} against main\``);
 
     const unsealed = reviewed();
     gated(unsealed);
     const none = await run(unsealed, { args: ["--post"], env });
     expect(none.exit).toBe(1);
-    expect(last()).toMatchObject({ head_sha: git(unsealed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: "No seal at the head commit" } });
-    expect(last()?.output.summary).toContain("- seal/threads/1-x/guarantee.md:0  git carries no guarantee file");
+    expect(last()).toMatchObject({ head_sha: git(unsealed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
+    expect(last()?.output.summary).toContain("- iadd/threads/1-x/inspection.md:0  git carries no inspection file");
 
     const draft = await run(unsealed, { draft: true, args: ["--post"], env });
     expect(draft.exit).toBe(0);
     expect(last()).toMatchObject({ conclusion: "neutral", output: { title: "Draft: judged when it is ready" } });
-    expect(last()?.output.summary).toContain("- seal/threads/1-x/guarantee.md:0  git carries no guarantee file");
+    expect(last()?.output.summary).toContain("- iadd/threads/1-x/inspection.md:0  git carries no inspection file");
 
     const outside = repository();
     commitRoot(outside.repo);
@@ -451,7 +464,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
     const broken = await run(made, { baseline: "no-such-branch", args: ["--post"], env });
     expect(broken.exit).toBe(2);
-    expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The seal check could not run" } });
+    expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The inspection check could not run" } });
     expect(sent).toHaveLength(6);
   }, 60_000);
 
@@ -462,7 +475,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     for (const [branch, exit] of [[made, 0], [unsealed, 1]] as const) {
       const answer = await run(branch, { body: null, args: ["--post"], env: posting(refusing.url) });
       expect(answer.exit, answer.output).toBe(exit);
-      expect(answer.output.split("`seal` was not posted: GitHub answered 403")).toHaveLength(2);
+      expect(answer.output.split("`inspection` was not posted: GitHub answered 403")).toHaveLength(2);
     }
     expect(refusing.sent).toHaveLength(2);
 
@@ -471,19 +484,19 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect((await run(made, { body: null, env: posting(quiet.url) })).exit).toBe(0);
     const noToken = await run(made, { body: null, args: ["--post"], env: tokenless });
     expect(noToken.exit).toBe(0);
-    expect(noToken.output).toContain("`seal` was not posted: the environment holds no `GITHUB_TOKEN`");
+    expect(noToken.output).toContain("`inspection` was not posted: the environment holds no `GITHUB_TOKEN`");
     // The working tree is not what CI posts on, and the broad gate's own run comes before the guarantee.
-    for (const [flag, why] of [["--worktree", "--worktree reads the working tree, and CI posts the check from HEAD"], ["--sealing", "--sealing runs before the sealer writes `guarantee.md`"]] as const) {
-      expect((await run(made, { body: null, args: ["--post", flag], env: posting(quiet.url) })).output).toContain(`\`seal\` was not posted: ${why}\n`);
+    for (const [flag, why] of [["--worktree", "--worktree reads the working tree, and CI posts the check from HEAD"], ["--inspecting", "--inspecting runs before the inspector writes `inspection.md`"]] as const) {
+      expect((await run(made, { body: null, args: ["--post", flag], env: posting(quiet.url) })).output).toContain(`\`inspection\` was not posted: ${why}\n`);
     }
     expect(quiet.sent).toEqual([]);
   }, 60_000);
 
-  it("posts a ready pull request whose seal a later commit broke as a failure titled with the broken seal and its sealed commit, naming the owl chain where each broken verdict block holds a `rules:` line and no chain where one holds none, also where the commit after the seal was taken back and the guarantee arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no seal for a head with no guarantee and for one whose newest verdict is withheld, which no later commit breaks, and titles as broken a seal whose commit HEAD does not descend from or the repository cannot resolve", async () => {
+  it("posts a ready pull request whose seal a later commit broke as a failure titled with the broken seal and its sealed commit, naming the Owl Chain where each broken verdict block holds `workflow: owl-chain` and no workflow where one holds none, though it holds a `rules:` line, also where the commit after the seal was taken back and the guarantee arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no seal for a head with no guarantee and for one whose newest verdict is withheld, which no later commit breaks, and titles as broken a seal whose commit HEAD does not descend from or the repository cannot resolve", async () => {
     const { url, sent } = await server();
     const env = posting(url);
     const last = (): Sent["body"] | undefined => sent.at(-1)?.body;
-    const BROKEN = (gate: string): string => `Seal of the owl chain broken: a commit landed after ${gate.slice(0, 7)}`;
+    const BROKEN = (gate: string): string => `Inspection of the Owl Chain lapsed: a commit landed after ${gate.slice(0, 7)}`;
 
     const changed = sealedBranch();
     write(changed.repo, "x", "x, changed\n");
@@ -491,29 +504,37 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const broken = await run(changed, { body: null, args: ["--post"], env });
     expect(broken.exit, broken.output).toBe(1);
     expect(last()).toMatchObject({ head_sha: git(changed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: BROKEN(changed.gate) } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: \`x\` changed after the sealed commit \`${changed.gate.slice(0, 7)}\``);
-    expect(broken.output).toContain(`chain-check: posted \`seal\`, failure: ${BROKEN(changed.gate)}\n`);
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${changed.gate.slice(0, 7)}\``);
+    expect(broken.output).toContain(`chain-check: posted \`inspection\`, failure: ${BROKEN(changed.gate)}\n`);
 
-    // A verdict block with no `rules:` line is not the owl chain's, so the title of its broken seal names no chain.
+    // A verdict block that names no workflow is not the Owl Chain's, though it holds Owlery's `rules:` line, so the title of its lapsed inspection names no workflow.
+    const unnamed = reviewed();
+    gated(unnamed);
+    guaranteed(unnamed, section(1, unnamed.gate, ...DAEMONS_LINES.slice(0, 4)));
+    write(unnamed.repo, "x", "x, changed\n");
+    commitAll(unnamed.repo, "fix: x", "1-x");
+    expect((await run(unnamed, { body: null, args: ["--post"], env })).exit).toBe(1);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Inspection lapsed: a commit landed after ${unnamed.gate.slice(0, 7)}` } });
+    // A verdict block with none of the daemon's lines is not the Owl Chain's either.
     const plugins = reviewed();
     gated(plugins);
     guaranteed(plugins, section(1, plugins.gate));
     write(plugins.repo, "x", "x, changed\n");
     commitAll(plugins.repo, "fix: x", "1-x");
     expect((await run(plugins, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Seal broken: a commit landed after ${plugins.gate.slice(0, 7)}` } });
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Inspection lapsed: a commit landed after ${plugins.gate.slice(0, 7)}` } });
     // Nor where one of two broken seals is the owl chain's: a second work item on the branch, sealed at the same commit by a block with no `rules:` line.
     const two = sealedBranch();
-    write(two.repo, "seal/threads/2-y/routing.md", routing("2-y", "feature"));
-    write(two.repo, "seal/threads/2-y/trail/gate.md", ["# Broad gate: 2-y", "", "```seal", `run: ${two.gate} against ${git(two.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
-    write(two.repo, "seal/threads/2-y/guarantee.md", ["# Guarantee: 2-y", "", section(1, two.gate)].join("\n"));
+    write(two.repo, "iadd/threads/2-y/routing.md", routing("2-y", "feature"));
+    write(two.repo, "iadd/threads/2-y/trail/gate.md", ["# Broad gate: 2-y", "", "```iadd", `run: ${two.gate} against ${git(two.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+    write(two.repo, "iadd/threads/2-y/inspection.md", ["# Inspection: 2-y", "", section(1, two.gate)].join("\n"));
     commitAll(two.repo, "chore: record the second work item's seal", "2-y");
     write(two.repo, "x", "x, changed\n");
     commitAll(two.repo, "fix: x", "1-x");
     const both = await run(two, { body: null, args: ["--post"], env });
     expect(both.exit).toBe(1);
-    expect(both.output).toContain("seal/threads/2-y/guarantee.md:0  the seal is broken");
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Seal broken: a commit landed after ${two.gate.slice(0, 7)}` } });
+    expect(both.output).toContain("iadd/threads/2-y/inspection.md:0  the inspection lapsed");
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Inspection lapsed: a commit landed after ${two.gate.slice(0, 7)}` } });
 
     // The tree at the head is the sealed tree, and the rounds arm and the gate arm read the two commits after the seal.
     const back = sealedBranch();
@@ -524,8 +545,8 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const taken = await run(back, { body: null, args: ["--post"], env });
     expect(taken.exit, taken.output).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(back.gate) } });
-    expect(last()?.output.summary).not.toContain("guarantee.md:");
-    expect(last()?.output.summary).toContain("- seal/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
+    expect(last()?.output.summary).not.toContain("inspection.md:");
+    expect(last()?.output.summary).toContain("- iadd/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
 
     const draft = await run(changed, { draft: true, body: null, args: ["--post"], env });
     expect(draft.exit).toBe(0);
@@ -534,25 +555,25 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const unsealed = reviewed();
     gated(unsealed);
     expect((await run(unsealed, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
     // A withheld verdict is no seal, so a commit after it breaks none.
     const withheld = reviewed();
     gated(withheld);
-    guaranteed(withheld, section(1, withheld.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: x"));
+    guaranteed(withheld, section(1, withheld.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: withheld reason: x"));
     write(withheld.repo, "x", "x, changed\n");
     commitAll(withheld.repo, "fix: x", "1-x");
     expect((await run(withheld, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
-    expect(last()?.output.summary).not.toContain("the seal is broken");
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
+    expect(last()?.output.summary).not.toContain("the inspection lapsed");
     // A withheld verdict and a merge of the base after it whose commits leave the tree as it was: no seal broke, and the arm names the path the base's commit touched.
     const withheldMerged = reviewed();
     gated(withheldMerged);
-    guaranteed(withheldMerged, section(1, withheldMerged.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: x"));
+    guaranteed(withheldMerged, section(1, withheldMerged.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: withheld reason: x"));
     mergeAsSealed(withheldMerged.repo, "revert");
     expect((await run(withheldMerged, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "No seal at the head commit" } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the guarantee is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
 
     // A seal whose commit HEAD does not descend from, and one whose commit the repository does not hold, are broken, as the daemon reads them.
     const off = reviewed();
@@ -565,14 +586,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     guaranteed(off, section(1, aside, ...DAEMONS_LINES));
     expect((await run(off, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(aside) } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: HEAD does not descend from the sealed commit \`${aside.slice(0, 7)}\`; a new seal is owed at HEAD`);
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: HEAD does not descend from the cleared commit \`${aside.slice(0, 7)}\`; a new inspection is owed at HEAD`);
     const nowhere = reviewed();
     gated(nowhere);
     guaranteed(nowhere, section(1, "d".repeat(40), ...DAEMONS_LINES));
     expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
-    expect(last()?.output.summary).toContain(`- seal/threads/1-x/guarantee.md:0  the seal is broken: this repository cannot resolve the sealed commit \`${"d".repeat(40)}\`; a new seal is owed at HEAD`);
-    expect(sent).toHaveLength(10);
+    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: this repository cannot resolve the cleared commit \`${"d".repeat(40)}\`; a new inspection is owed at HEAD`);
+    expect(sent).toHaveLength(11);
   }, 60_000);
 
   it("passes the records the AgenticSeal plugin's process leaves, each commit in them short, as a ready pull request whose body the plugin composed with no seal section, and posts it as sealed at the verdict's commit: a routing that names a framer and a crafter, a design whose rule changes are none and that ends with the framer's mark, its plan, a round, the gate's run, and a verdict block of a target and a verdict alone", async () => {
@@ -581,45 +602,45 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     commitRoot(made.repo);
     const base = git(made.repo, "rev-parse", "--short=7", "main").trim();
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "seal/threads/1-x/routing.md", routing("1-x", "feature", "framer", "crafter"));
+    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature", "framer", "crafter"));
     commitAll(made.repo, "docs: route the 1-x work item", "1-x");
-    write(made.repo, "seal/threads/1-x/frame/design.md", ["# Design: x (#1)", "", "## Scope", "", "1. **x holds one line.**", "", "## Rule changes", "", "- nothing", "  why: The work states no rule.", "", "## Removes", "", "| Removes | Coordinate | Where it lands, or why it can go |", "|---|---|---|", "| nothing | | |", "", "Framed 2026-11-24 by framer, before the build.", ""].join("\n"));
-    write(made.repo, "seal/threads/1-x/frame/plan.md", ["# Implementation Plan: x (#1)", "", "## Phases", "", "| Phase | Delivers | Verified by | Status |", "|---|---|---|---|", "| 1 | x | Scenario 1 | |", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/frame/design.md", ["# Design: x (#1)", "", "## Scope", "", "1. **x holds one line.**", "", "## Rule changes", "", "- nothing", "  why: The work states no rule.", "", "## Removes", "", "| Removes | Coordinate | Where it lands, or why it can go |", "|---|---|---|", "| nothing | | |", "", "Framed 2026-11-24 by framer, before the build.", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/frame/plan.md", ["# Implementation Plan: x (#1)", "", "## Phases", "", "| Phase | Delivers | Verified by | Status |", "|---|---|---|---|", "| 1 | x | Scenario 1 | |", ""].join("\n"));
     commitAll(made.repo, "docs: frame the 1-x work item", "1-x");
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     const built = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
-    write(made.repo, "seal/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```seal", `target: ${built} against ${base}`, "```", "", "The round read the diff whole.", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${built} against ${base}`, "```", "", "The round read the diff whole.", "", "## Findings", "", "## Confirmations", ""].join("\n"));
     commitAll(made.repo, "chore: record review round 1", "1-x");
     const gate = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
-    write(made.repo, "seal/threads/1-x/trail/gate.md", ["# 1-x — broad gate", "", "```seal", `run: ${gate} against ${base}`, "```", ""].join("\n"));
+    write(made.repo, "iadd/threads/1-x/trail/gate.md", ["# 1-x — broad gate", "", "```iadd", `run: ${gate} against ${base}`, "```", ""].join("\n"));
     commitAll(made.repo, "chore: record the broad gate's run", "1-x");
-    const guarantee = ["# Guarantee: 1-x", "", `Audited at \`${gate}\` against the base \`main\`, resolved to \`${base}\`.`, "", "## The parties", "", "| Party | Says | Agrees with | Disagrees with |", "|---|---|---|---|", "| The design | x | the diff | none |", "", "```seal", `target: ${gate} against ${base}`, "Verdict: sealed", "```", ""];
-    write(made.repo, "seal/threads/1-x/guarantee.md", guarantee.join("\n"));
-    commitAll(made.repo, "chore: record the sealer's verdict", "1-x");
-    const body = ["x holds one line.", "", "## From the records", "", "## Broad gate", "", "From `trail/gate.md`.", "", "```seal", `run: ${gate} against ${base}`, "```", ""].join("\n");
+    const guarantee = ["# Inspection: 1-x", "", `Audited at \`${gate}\` against the base \`main\`, resolved to \`${base}\`.`, "", "## The parties", "", "| Party | Says | Agrees with | Disagrees with |", "|---|---|---|---|", "| The design | x | the diff | none |", "", "```iadd", `target: ${gate} against ${base}`, "Verdict: cleared", "```", ""];
+    write(made.repo, "iadd/threads/1-x/inspection.md", guarantee.join("\n"));
+    commitAll(made.repo, "chore: record the inspector's verdict", "1-x");
+    const body = ["x holds one line.", "", "## From the records", "", "## Broad gate", "", "From `trail/gate.md`.", "", "```iadd", `run: ${gate} against ${base}`, "```", ""].join("\n");
 
     const passed = await run(made, { body, args: ["--post"], env: posting(url) });
     expect(passed.exit, passed.output).toBe(0);
-    expect(passed.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:seal -->` line and no `<!-- /owlery:seal -->` line");
-    expect(passed.output).not.toContain("seal/threads/1-x/");
-    expect(sent.map((request) => request.body)).toMatchObject([{ conclusion: "success", output: { title: `Sealed at ${gate}` } }]);
+    expect(passed.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:inspection -->` line and no `<!-- /owlery:inspection -->` line");
+    expect(passed.output).not.toContain("iadd/threads/1-x/");
+    expect(sent.map((request) => request.body)).toMatchObject([{ conclusion: "success", output: { title: `Cleared at ${gate}` } }]);
   }, 60_000);
 
   it("passes the gate's record and the seal as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
     const made = reviewed();
     gated(made);
-    write(made.repo, "seal/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+    write(made.repo, "iadd/threads/1-x/trail/refusals.md", REFUSED_CALLS);
     guaranteed(made, section(1, made.gate, ...DAEMONS_LINES));
     const sealed = check(made, "ready", false, false);
     expect(sealed.exit, sealed.output).toBe(0);
-    expect(sealed.output).not.toContain("guarantee.md:");
+    expect(sealed.output).not.toContain("inspection.md:");
 
     // Only the closing records follow the sealed commit: a decision committed after it breaks the seal.
-    write(made.repo, "seal/threads/1-x/decisions.md", DECISIONS);
+    write(made.repo, "iadd/threads/1-x/decisions.md", DECISIONS);
     commitAll(made.repo, "chore: record a decision and a question", "1-x");
     const behind = check(made, "ready", false, false);
-    expect(behind.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`seal/threads/1-x/decisions.md\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
+    expect(behind.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`iadd/threads/1-x/decisions.md\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     expect(behind.exit).toBe(1);
   });
 
@@ -669,12 +690,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   };
 
   /** The guarantee arm's line for a commit of the base, touching `path`, that a merge brought after the seal of `gate`. */
-  const BROUGHT = (path: string, gate: string): string => `seal/threads/1-x/guarantee.md:0  the seal is broken: a commit of the base that a merge brought after the sealed commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new seal is owed at HEAD\n`;
+  const BROUGHT = (path: string, gate: string): string => `iadd/threads/1-x/inspection.md:0  the inspection lapsed: a commit of the base that a merge brought after the cleared commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new inspection is owed at HEAD\n`;
 
-  it("fails a merge of the base after the seal, though the merge commit and the base's commit are read by no walk of the branch's commits: the guarantee arm compares the sealed commit's tree with HEAD's, says that the seal is broken, and names the path that changed and the sealed commit", () => {
+  it("fails a merge of the base after the seal, though the merge commit and the base's commit are read by no walk of the branch's commits: the guarantee arm compares the sealed commit's tree with HEAD's, says that the inspection lapsed, and names the path that changed and the sealed commit", () => {
     const made = mergedAfterSeal(false);
     const merged = check(made, "ready", false, false);
-    expect(merged.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`other.txt\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
+    expect(merged.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`other.txt\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
     expect(merged.output).not.toContain("round-1.md:0");
     expect(merged.output).not.toContain("gate.md:0");
@@ -683,9 +704,9 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
   it("fails a merge commit after the seal that itself changes a source file, where the base's commit it merges changes nothing", () => {
     const made = mergedAfterSeal(true);
-    expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n")).toEqual(["seal/threads/1-x/guarantee.md", "seal/threads/1-x/trail/gate.md", "x"]);
+    expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n")).toEqual(["iadd/threads/1-x/inspection.md", "iadd/threads/1-x/trail/gate.md", "x"]);
     const edited = check(made, "ready", false, false);
-    expect(edited.output).toContain(`seal/threads/1-x/guarantee.md:0  the seal is broken: \`x\` changed after the sealed commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new seal is owed at HEAD\n`);
+    expect(edited.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     expect(edited.exit).toBe(1);
   });
 
@@ -694,14 +715,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     for (const [how, path] of [["same file", "x"], ["revert", "other.txt"]] as const) {
       const made = sealedBranch();
       mergeAsSealed(made.repo, how);
-      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["seal/threads/1-x/guarantee.md", "seal/threads/1-x/trail/gate.md"]);
+      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["iadd/threads/1-x/inspection.md", "iadd/threads/1-x/trail/gate.md"]);
       const merged = await run(made, { body: null, args: ["--post"], env: posting(url) });
       expect(merged.output, how).toContain(BROUGHT(path, made.gate));
       // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
       expect(merged.output, how).not.toContain("round-1.md:0");
       expect(merged.output, how).not.toContain("gate.md:0");
       expect(merged.exit, how).toBe(1);
-      expect(sent.at(-1)?.body, how).toMatchObject({ conclusion: "failure", output: { title: `Seal of the owl chain broken: a commit landed after ${made.gate.slice(0, 7)}` } });
+      expect(sent.at(-1)?.body, how).toMatchObject({ conclusion: "failure", output: { title: `Inspection of the Owl Chain lapsed: a commit landed after ${made.gate.slice(0, 7)}` } });
     }
   }, 60_000);
 
@@ -714,10 +735,10 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       git(made.repo, "checkout", "--quiet", "-b", "feature");
       write(made.repo, "x", "x\n");
       commitAll(made.repo, "feat: x");
-      const gate = commitSeal(made.repo, { workItem: "1-x", branch: "feature", base, ...given });
+      const gate = commitInspection(made.repo, { workItem: "1-x", branch: "feature", base, ...given });
       return { ...made, gate, item: { worktree: made.repo, branch: "feature", baseBranch: "main", baseCommit: base } };
     };
-    const GUARANTEE_AT = "seal/threads/1-x/guarantee.md";
+    const GUARANTEE_AT = "iadd/threads/1-x/inspection.md";
     const merge = (repo: string, edit: boolean): void => {
       git(repo, "checkout", "--quiet", "main");
       if (edit) git(repo, "commit", "--quiet", "--allow-empty", "-m", "chore: nothing changed");
@@ -737,7 +758,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         commitAll(repo, "docs: note below the verdict");
       }, "sealed"],
       ["a commit of the refused calls", ({ repo }) => {
-        write(repo, "seal/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+        write(repo, "iadd/threads/1-x/trail/refusals.md", REFUSED_CALLS);
         commitAll(repo, "chore: record the refusals");
       }, "sealed"],
       ["a commit that changes a source file", ({ repo }) => {
@@ -745,12 +766,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         commitAll(repo, "fix: x");
       }, "broken"],
       ["a commit that changes decisions.md", ({ repo }) => {
-        write(repo, "seal/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
+        write(repo, "iadd/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
         commitAll(repo, "chore: record a decision");
       }, "broken"],
       ["a commit that adds a round record", ({ repo }) => {
         const at = git(repo, "rev-parse", "HEAD").trim();
-        write(repo, "seal/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
+        write(repo, "iadd/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
         commitAll(repo, "chore: record review round 2");
       }, "broken"],
       ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "broken"],
@@ -759,9 +780,9 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsSealed(repo, "revert"), "broken", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
       ["a merge of a base whose commits add and take back a file of the work item's directory alone", ({ repo }) => {
         git(repo, "checkout", "--quiet", "main");
-        write(repo, "seal/threads/1-x/notes.md", "notes\n");
+        write(repo, "iadd/threads/1-x/notes.md", "notes\n");
         commitAll(repo, "docs: notes");
-        git(repo, "rm", "--quiet", "seal/threads/1-x/notes.md");
+        git(repo, "rm", "--quiet", "iadd/threads/1-x/notes.md");
         git(repo, "commit", "--quiet", "-m", "revert: notes");
         git(repo, "checkout", "--quiet", "feature");
         git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
@@ -776,11 +797,11 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       ["a newest verdict block that reads withheld", () => undefined, null, { verdict: "withheld reason: x" }],
       ["a newest verdict block that reads undecided", () => undefined, null, { verdict: "undecided question: May it?" }],
       ["a seal followed by a withheld verdict", ({ repo, gate }) => {
-        write(repo, GUARANTEE_AT, guaranteeWith(git(repo, "show", `HEAD:${GUARANTEE_AT}`), "1-x", 2, `${gate} against main`, "withheld reason: x"));
-        commitAll(repo, "chore: record the sealer's verdict");
+        write(repo, GUARANTEE_AT, inspectionWith(git(repo, "show", `HEAD:${GUARANTEE_AT}`), "1-x", 2, `${gate} against main`, "withheld reason: x"));
+        commitAll(repo, "chore: record the inspector's verdict");
       }, null],
       ["a guarantee with a line the reader refuses", ({ repo }) => {
-        write(repo, GUARANTEE_AT, git(repo, "show", `HEAD:${GUARANTEE_AT}`).replace("Verdict: sealed\n", "Verdict: sealed\ngate: passed\n"));
+        write(repo, GUARANTEE_AT, git(repo, "show", `HEAD:${GUARANTEE_AT}`).replace("Verdict: cleared\n", "Verdict: cleared\ngate: passed\n"));
         commitAll(repo, "chore: write a line the reader refuses");
       }, null],
       ["a branch reset to the commit before the guarantee", ({ repo }) => git(repo, "reset", "--quiet", "--hard", "HEAD~1"), null],
@@ -790,8 +811,8 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         commitAll(repo, "feat: aside");
         const aside = git(repo, "rev-parse", "HEAD").trim();
         git(repo, "checkout", "--quiet", "feature");
-        write(repo, GUARANTEE_AT, guaranteeWith(null, "1-x", 1, `${aside} against main`));
-        commitAll(repo, "chore: record the sealer's verdict");
+        write(repo, GUARANTEE_AT, inspectionWith(null, "1-x", 1, `${aside} against main`));
+        commitAll(repo, "chore: record the inspector's verdict");
       }, "broken", { seal: false }],
       ["a seal of no commit of the repository", () => undefined, "broken", { target: "d".repeat(40) }],
     ];
@@ -799,7 +820,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     for (const [name, make, state, given, says] of histories) {
       const made = history(given);
       make(made);
-      const seal = await workItemSeal(made.item, git(made.repo, "rev-parse", "HEAD").trim());
+      const seal = await workItemInspection(made.item, git(made.repo, "rev-parse", "HEAD").trim());
       const checked = check(made, "ready", false, false);
       answers.push([name, seal?.state ?? null, checked.exit]);
       if (says) expect(checked.output, name).toContain(says(made));
@@ -807,44 +828,44 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(answers).toEqual(histories.map(([name, , state]) => [name, state, state === "sealed" ? 0 : 1]));
   }, 120_000);
 
-  it("refuses a verdict block whose judge is one of its builders, at the judged-by line, and reads the newest block alone: a judge that built none of the work passes, and so does a block that names no builder", () => {
+  it("refuses a verdict block whose judge is one of its builders, at the inspected-by line, and reads the newest block alone: a judge that built none of the work passes, and so does a block that names no builder", () => {
     const made = reviewed();
     gated(made);
-    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "judged-by: s-1", "model: owl-large", "rules: owlery 0.0.2"));
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "inspected-by: s-1", "model: owl-large", "rules: owlery 0.0.2"));
     const same = check(made, "ready", false, false);
     // The file's heading, a blank line, the run's heading and a blank line stand above the block, whose fourth line names the judge.
     expect(same.output).toContain(
-      "seal/threads/1-x/guarantee.md:9  `judged-by: s-1` names a session that the block's `built-by:` line names too: the session that judges a work item built none of it, so this verdict block is no seal",
+      "iadd/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session that the block's `built-by:` line names too: the session that inspects a work item built none of it, so this verdict block clears nothing",
     );
     expect(same.exit).toBe(1);
 
     // The judge is found wherever the line names it, before `the session` too.
-    guaranteed(made, section(1, made.gate, "built-by: s-1, the session", "judged-by: s-1"));
+    guaranteed(made, section(1, made.gate, "built-by: s-1, the session", "inspected-by: s-1"));
     const first = check(made, "ready", false, false);
-    expect(first.output).toContain("seal/threads/1-x/guarantee.md:9  `judged-by: s-1` names a session");
+    expect(first.output).toContain("iadd/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session");
     expect(first.exit).toBe(1);
 
     // A second run by another session: the first block still stands above it, and only the newest is read for its judge.
-    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "judged-by: s-1", "model: owl-large", "rules: owlery 0.0.2"), section(2, made.gate, "built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.0.2"));
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-1", "inspected-by: s-1", "model: owl-large", "rules: owlery 0.0.2"), section(2, made.gate, "built-by: the session, s-1", "inspected-by: s-2", "model: owl-large", "rules: owlery 0.0.2"));
     const other = check(made, "ready", false, false);
-    expect(other.output).not.toContain("judged-by");
+    expect(other.output).not.toContain("inspected-by");
     expect(other.exit, other.output).toBe(0);
 
     // A block written before the daemon wrote its lines names no builder and no judge, and one that names a judge alone has nothing to compare.
-    guaranteed(made, section(1, made.gate), section(2, made.gate, "judged-by: s-1"));
+    guaranteed(made, section(1, made.gate), section(2, made.gate, "inspected-by: s-1"));
     expect(check(made, "ready", false, false).exit).toBe(0);
     // `the session` is a builder's name and no id: a judge's id that is a part of a builder's is another session.
-    guaranteed(made, section(1, made.gate, "built-by: the session, s-10", "judged-by: s-1"));
+    guaranteed(made, section(1, made.gate, "built-by: the session, s-10", "inspected-by: s-1"));
     expect(check(made, "ready", false, false).exit).toBe(0);
   });
 
   it("passes, as a ready pull request, a branch a pane's session sealed through the chain command, with the body the command composes and with none", async () => {
     const on = commandOn(cleanups);
-    await sealThrough(on);
+    await inspectThrough(on);
     const made = { base: on.folder, repo: on.repo };
     const { body } = await on.said<{ body: string }>(["body"]);
     const composed = await run(made, { body: readFileSync(body, "utf8") });
-    expect(composed.output).not.toContain("guarantee.md:");
+    expect(composed.output).not.toContain("inspection.md:");
     expect(composed.exit, composed.output).toBe(0);
     expect((await run(made, { body: null })).exit).toBe(0);
     // The same branch with its verdict taken off is refused, so the pass above read the command's records.
@@ -854,17 +875,17 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
   it("says of a verdict that is not sealed what Owlery does next, at the verdict's line: the person fixes what a withheld reason names and the chain is started again, in the pane's session or by the daemon, an undecided question is decided by the pane's session or by the orchestrator agent, or answered by the person, and the gate and the sealer's stage then append their blocks", () => {
     const next =
-      ": a ready pull request needs `sealed`. Where the reason of a `withheld` verdict names something to fix, fix it and start the chain again, in the pane's session or by Owlery's daemon. The question of an `undecided` verdict is decided by the pane's session or by Owlery's orchestrator agent, or answered by the person. The chain then runs the broad gate and the sealer's stage on the new head, and each appends its block";
+      ": a ready pull request needs `cleared`. Where the reason of a `withheld` verdict names something to fix, fix it and start the chain again, in the pane's session or by Owlery's daemon. The question of an `undecided` verdict is decided by the pane's session or by Owlery's orchestrator agent, or answered by the person. The chain then runs the broad gate and the inspector's stage on the new head, and each appends its block";
     const made = reviewed();
     gated(made);
-    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold"));
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold"));
     const withheld = check(made, "ready", false, false);
-    expect(withheld.output).toContain(`seal/threads/1-x/guarantee.md:7  the sealer's verdict reads \`Verdict: withheld reason: the changelog names \`gone.ts\`, which the tree does not hold\`${next}\n`);
+    expect(withheld.output).toContain(`iadd/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: withheld reason: the changelog names \`gone.ts\`, which the tree does not hold\`${next}\n`);
     expect(withheld.exit).toBe(1);
 
-    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: sealed", "Verdict: undecided question: does item 4 cover a renamed branch?"));
+    guaranteed(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: undecided question: does item 4 cover a renamed branch?"));
     const undecided = check(made, "ready", false, false);
-    expect(undecided.output).toContain(`seal/threads/1-x/guarantee.md:7  the sealer's verdict reads \`Verdict: undecided question: does item 4 cover a renamed branch?\`${next}\n`);
+    expect(undecided.output).toContain(`iadd/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: undecided question: does item 4 cover a renamed branch?\`${next}\n`);
     expect(undecided.exit).toBe(1);
     for (const said of [withheld.output, undecided.output]) for (const word of ["below the newest block", "seal gate", "templates/", "new HEAD"]) expect(said, word).not.toContain(word);
   });
@@ -874,20 +895,20 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const none = check(made, "ready", false, false);
     expect(none.exit).toBe(1);
     expect(none.output).toContain(
-      "seal/threads/1-x/trail/gate.md:0  git carries no gate record: once the review rounds settle, Owlery's daemon runs the repository's broad gate on the branch's head and commits this record where the run passes",
+      "iadd/threads/1-x/trail/gate.md:0  git carries no gate record: once the review rounds settle, Owlery's daemon runs the repository's broad gate on the branch's head and commits this record where the run passes",
     );
-    expect(none.output).toContain("seal/threads/1-x/guarantee.md:0  git carries no guarantee file: the sealer's stage of Owlery's daemon writes it once the broad gate has passed on the branch's head");
+    expect(none.output).toContain("iadd/threads/1-x/inspection.md:0  git carries no inspection file: the inspector's stage of Owlery's daemon writes it once the broad gate has passed on the branch's head");
 
-    write(made.repo, "seal/threads/1-x/trail/gate.md", "# Broad gate: 1-x\n\nThe run passed.\n");
-    write(made.repo, "seal/threads/1-x/guarantee.md", "# Guarantee: 1-x\n\nVerdict: sealed\n");
+    write(made.repo, "iadd/threads/1-x/trail/gate.md", "# Broad gate: 1-x\n\nThe run passed.\n");
+    write(made.repo, "iadd/threads/1-x/inspection.md", "# Inspection: 1-x\n\nVerdict: cleared\n");
     commitAll(made.repo, "chore: write both records with no block", "1-x");
     const empty = check(made, "ready", false, false);
     expect(empty.exit).toBe(1);
     expect(empty.output).toContain(
-      "seal/threads/1-x/trail/gate.md:0  no run block: a passed run of the broad gate stands in a `seal` block holding `run: <tree> against <base commit>`, which Owlery's daemon appends below the text already there",
+      "iadd/threads/1-x/trail/gate.md:0  no run block: a passed run of the broad gate stands in an `iadd` block holding `run: <tree> against <base commit>`, which Owlery's daemon appends below the text already there",
     );
     expect(empty.output).toContain(
-      "seal/threads/1-x/guarantee.md:0  no verdict block: the sealer's verdict stands in a `seal` block holding `target: <sha> against <base>`, the `original:` line where one is owed and `Verdict:`, which the sealer's stage of Owlery's daemon appends below the text already there once the broad gate has passed on the branch's head",
+      "iadd/threads/1-x/inspection.md:0  no verdict block: the inspector's verdict stands in an `iadd` block holding `target: <sha> against <base>`, the `original:` line where one is owed and `Verdict:`, which the inspector's stage of Owlery's daemon appends below the text already there once the broad gate has passed on the branch's head",
     );
     for (const said of [none.output, empty.output]) for (const word of ["seal gate", "orchestrator", "templates/", "#1198"]) expect(said, word).not.toContain(word);
   });
@@ -896,7 +917,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = declared();
     const before = check(made, "ready");
     expect(before.exit).toBe(1);
-    write(made.repo, "seal/threads/1-x/decisions.md", DECISIONS);
+    write(made.repo, "iadd/threads/1-x/decisions.md", DECISIONS);
     commitAll(made.repo, "chore: record a decision and a question", "1-x");
     const after = check(made, "ready");
     expect(after.output).not.toContain("decisions.md");

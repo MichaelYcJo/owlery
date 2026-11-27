@@ -538,7 +538,7 @@ const STAGES: Record<ChainStageKind, { short: (round: number) => string; marks: 
   judgment: { short: () => "Orchestrator, judgment", marks: null },
   ruling: { short: () => "Orchestrator, ruling", marks: null },
   gate: { short: () => GATE_HEAD, marks: { role: "sealer", note: () => GATE_HEAD, label: () => GATE_HEAD, failed: { state: "waiting", note: "Gate failed", label: "Gate failed" } } },
-  seal: { short: () => "Sealer, verdict", marks: { role: "sealer", note: () => "Judging", label: () => "Judging" } },
+  inspection: { short: () => "Sealer, verdict", marks: { role: "sealer", note: () => "Judging", label: () => "Judging" } },
   "pull-request": { short: () => "Pull request", marks: null },
 };
 
@@ -684,7 +684,7 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
       const seal = workItem.seal ?? null;
       if (seal !== null) return { ...(seal.state === "broken" ? { state: "waiting", note: SEAL_BROKEN } : { state: "finished", note: "Sealed" }), label: sealShown(seal).words, since: null, text: seal.why };
       const verdict = recorded.verdict;
-      if (verdict === null || verdict.is === "sealed") return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      if (verdict === null || verdict.is === "cleared") return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
       const { state, note } = ({ withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
       return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
     }
@@ -1164,7 +1164,7 @@ function headlessRuns(session: HeadlessInfo): boolean {
 }
 
 /** How a session of a role is named where no stage of its chain names it: the role and the stage `ROLE_STAGES` pairs it with. */
-const ROLE_STAGE_SAYS: Record<NonNullable<HeadlessInfo["role"]>["role"], string> = { proofer: "Proofer, round", crafter: "Crafter, fix pass", sealer: "Sealer, verdict", orchestrator: "Orchestrator, judgment" };
+const ROLE_STAGE_SAYS: Record<NonNullable<HeadlessInfo["role"]>["role"], string> = { proofer: "Proofer, round", crafter: "Crafter, fix pass", inspector: "Sealer, verdict", orchestrator: "Orchestrator, judgment" };
 
 /**
  * The words that name a headless session of `workItem` where the window

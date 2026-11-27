@@ -12,7 +12,7 @@
 |---|---|---|---|
 | <one of: the routing, the frame, the build, the rounds, the decisions, the changelog> | <what it says the work is> | <the parties and facts it agrees with> | <none, or what contradicts it> |
 
-```seal
+```iadd
 target: <the line your prompt gives, `<sha> against <base>`, each one word>
-Verdict: <`sealed`, `withheld reason: <reason>` or `undecided question: <question>`>
+Verdict: <`cleared`, `withheld reason: <reason>` or `undecided question: <question>`>
 ```

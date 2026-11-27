@@ -31,8 +31,8 @@ const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ -
 
 /** Writes the records root's config.json of a folder with these heavy commands, and commits it. */
 function naming(folder: string, heavy: unknown): void {
-  write(folder, "seal/README.md", `${MARKER}\n`);
-  write(folder, "seal/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
+  write(folder, "iadd/README.md", `${MARKER}\n`);
+  write(folder, "iadd/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
   commitAll(folder, "chore: name the heavy commands");
 }
 
@@ -78,7 +78,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const out = stood.made.base;
     const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
     for (const [index, item] of [reviewed, built].entries()) {
-      const directory = `seal/threads/${String(index + 1)}-work`;
+      const directory = `iadd/threads/${String(index + 1)}-work`;
       write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, branchOf(item), "2026-11-25"));
       if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
       naming(item.worktree, { mark: appends });
@@ -269,9 +269,9 @@ describe("the stage lines of the turn socket", { timeout: 60_000 }, () => {
     const stage = { is: "stage", folder: on.repo, pane: 7, kind: "round", round: 1 };
     expect(await wrote(socketPath, JSON.stringify(stage))).toBe("");
     expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "fix-pass", round: 2 }))).toBe("");
-    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "seal" }))).toBe("");
+    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "inspection" }))).toBe("");
     expect(await wrote(socketPath, JSON.stringify({ is: "stage-ended", folder: on.repo }))).toBe("");
-    expect(told).toEqual([stage, { ...stage, kind: "fix-pass", round: 2 }, { ...stage, kind: "seal" }, { is: "stage-ended", folder: on.repo }]);
+    expect(told).toEqual([stage, { ...stage, kind: "fix-pass", round: 2 }, { ...stage, kind: "inspection" }, { is: "stage-ended", folder: on.repo }]);
     told.length = 0;
     const { folder: _folder, ...noFolder } = stage;
     const { pane: _pane, ...noPane } = stage;

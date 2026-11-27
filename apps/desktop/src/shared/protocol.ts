@@ -72,7 +72,7 @@ export interface Group {
 
 /** What a repository's main checkout holds of the place for work records, as the daemon last read its working tree. */
 export interface RecordsPlace {
-  /** The root's folder from the top of the repository, `seal` or `agentic-seal`, or null where none stands. */
+  /** The root's folder from the top of the repository, `iadd`, or null where none stands. */
   root: string | null;
   /** The path of the workflow that runs the check, or null where none stands. */
   check: string | null;
@@ -339,8 +339,8 @@ export interface WorkItem {
 
 /** A stage of the work item's chain that a pane's session runs through the chain command, as the daemon holds it: the kind and the round `owed` handed, from the daemon's time of its word, or the broad gate the command's `gate` waits for or runs, from its ask. */
 export interface PaneStage {
-  kind: "round" | "fix-pass" | "seal" | "gate";
-  /** The round a round is, the round a fix pass answers, the last round recorded before a seal or a broad gate. */
+  kind: "round" | "fix-pass" | "inspection" | "gate";
+  /** The round a round is, the round a fix pass answers, the last round recorded before an inspection or a broad gate. */
   round: number;
   /** The daemon's clock when the stage was first told, or when the gate asked for its turn. */
   since: number;
@@ -470,13 +470,13 @@ export interface PullRequest {
  * The kinds of stage a work item's chain runs. Five are one role session
  * each: a review round, a fix pass, the orchestrator's judgment of whether
  * the rounds are converging, its ruling on the questions a stage asked, and
- * the seal, a sealer's session that gives its verdict on the commit the
- * broad gate passed on. Two are no session: the broad gate, where the daemon
- * runs the repository's broad gate command, and the pull request stage,
- * where the daemon pushes the sealed branch and opens or updates its pull
+ * the inspection, an inspector's session that gives its verdict on the
+ * commit the broad gate passed on. Two are no session: the broad gate, where
+ * the daemon runs the repository's broad gate command, and the pull request
+ * stage, where the daemon pushes the cleared branch and opens or updates its pull
  * request through the person's `gh`.
  */
-export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "seal", "pull-request"] as const;
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "inspection", "pull-request"] as const;
 
 /** One of `CHAIN_STAGE_KINDS`. */
 export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
@@ -496,9 +496,9 @@ export interface GateRun {
 /** One stage a chain ran or is running. */
 export interface ChainStage {
   kind: ChainStageKind;
-  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate, a seal or a pull request stage. */
+  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate, an inspection or a pull request stage. */
   round: number;
-  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. A seal is `finished` where the daemon wrote and committed the sealer's verdict, whichever of the three it reads. A pull request stage is `finished` where the branch was pushed and its pull request opened or updated and read again, and `failed` at every other end. */
+  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. An inspection is `finished` where the daemon wrote and committed the inspector's verdict, whichever of the three it reads. A pull request stage is `finished` where the branch was pushed and its pull request opened or updated and read again, and `failed` at every other end. */
   state: "working" | "finished" | "failed";
   /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
@@ -517,13 +517,13 @@ export interface ChainStage {
  * What the daemon runs for one work item once its chain is started
  * (`Daemon#startChain`, which no client message reaches): its review
  * rounds, its fix passes, the orchestrator's judgments and rulings, and,
- * once the rounds settle, the repository's broad gate and the seal, and
- * after a seal the pull request stage, one stage at a time. Which stage is next is read
+ * once the rounds settle, the repository's broad gate and the inspection,
+ * and after an inspection the pull request stage, one stage at a time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a sealer's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `guarantee.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `guarantee.md` reads `sealed` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether a seal holds, since a commit after the run can break it while the chain rests: `WorkItem.seal` says that, read from the branch's head. */
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where an inspector's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `inspection.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `inspection.md` reads `cleared` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether a seal holds, since a commit after the run can break it while the chain rests: `WorkItem.seal` says that, read from the branch's head. */
   state: "running" | "parked" | "stopped" | "rested";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;
@@ -541,8 +541,8 @@ export interface Recorded {
   rounds: number;
   /** The commit the last run block of the gate's record names, or null. */
   gate: string | null;
-  /** The last verdict block of the guarantee: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
-  verdict: { is: "sealed" | "withheld" | "undecided"; commit: string; says: string | null } | null;
+  /** The last verdict block of the inspection: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
+  verdict: { is: "cleared" | "withheld" | "undecided"; commit: string; says: string | null } | null;
 }
 
 /** The seal the branch's head commit holds, as the daemon read it from git and the committed records. */
@@ -618,7 +618,7 @@ export interface Look {
 export const ROLE_STAGES = [
   { role: "proofer", stage: "round" },
   { role: "crafter", stage: "fix-pass" },
-  { role: "sealer", stage: "seal" },
+  { role: "inspector", stage: "inspection" },
   { role: "orchestrator", stage: "judgment" },
 ] as const;
 

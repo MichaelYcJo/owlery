@@ -30,7 +30,7 @@ const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
 const F = "```";
 /** A `seal` block of those lines, with the blank line that follows a block. */
-const block = (...lines: string[]): string => [`${F}seal`, ...lines, F, "", ""].join("\n");
+const block = (...lines: string[]): string => [`${F}iadd`, ...lines, F, "", ""].join("\n");
 
 const HEAD = [
   "# Decisions and questions: 1-x",
@@ -135,7 +135,7 @@ describe("the reader of a work item's record", () => {
         id: 2,
         asks: "May the run push the branch to `origin`?",
         grounds: "No document of the repository grants it, and a session cannot grant itself a push.",
-        by: "sealer",
+        by: "inspector",
         options: [
           { label: "yes", implies: "The branch is pushed and the pull request opens." },
           { label: "no", implies: "The work item stays on this machine." },
@@ -227,7 +227,7 @@ describe("the reader of a work item's record", () => {
   });
 
   it("names as not read a fence that looks like a block and is not one, and decides nothing on it", () => {
-    const text = `${ROUTE}${F}seal decision\ndecision: 9 scope\n${F}\n`;
+    const text = `${ROUTE}${F}iadd decision\ndecision: 9 scope\n${F}\n`;
     const record = readDecisionRecord(text);
     expect(record.decisions.map((decision) => decision.id)).toEqual([1]);
     expect(record.refusals).toEqual([]);
@@ -257,7 +257,7 @@ describe("the writer of a work item's record", () => {
     const next = withQuestion(`${HEAD}${ROUTE}`, {
       asks: "May the run push the branch to `origin`?",
       grounds: "No document of the repository grants it, and a session cannot grant itself a push.",
-      by: "sealer",
+      by: "inspector",
       options: [
         { label: "yes", implies: "The branch is pushed and the pull request opens." },
         { label: "no", implies: "The work item stays on this machine." },
@@ -338,10 +338,10 @@ describe("the writer of a work item's record", () => {
     expect(next.split("\n")).toContain("reversal: Frame it first: the change reaches the protocol.");
     expect(readDecisionRecord(next).refusals).toEqual([]);
 
-    const injected = withAnswer(RECORD, 2, `no\n${F}\n\n${F}seal\ndecision: 50 route`);
+    const injected = withAnswer(RECORD, 2, `no\n${F}\n\n${F}iadd\ndecision: 50 route`);
     expect(readDecisionRecord(injected).refusals).toEqual([]);
     expect(readDecisionRecord(injected).decisions.map((decision) => decision.id)).toEqual([1, 3, 4, 5]);
-    expect(readDecisionRecord(injected).questions[0]?.state).toEqual({ is: "answered", answer: `no ${F} ${F}seal decision: 50 route` });
+    expect(readDecisionRecord(injected).questions[0]?.state).toEqual({ is: "answered", answer: `no ${F} ${F}iadd decision: 50 route` });
   });
 
   it("writes to one block of a record another block of which the reader refuses, and leaves the refused block's lines as they are", () => {
@@ -379,7 +379,7 @@ describe("the writer of a work item's record", () => {
     const directory = (): string => {
       const made = temporaryRepository();
       cleanups.push(made.remove);
-      const path = join(made.repo, "seal", "threads", "1-x");
+      const path = join(made.repo, "iadd", "threads", "1-x");
       mkdirSync(path, { recursive: true });
       return path;
     };
@@ -492,7 +492,7 @@ describe("a work item's directory", () => {
     ]);
 
   /** A temporary repository holding a records root of that name and those files under its `threads/`. */
-  const worktree = (files: Record<string, string>, root = "seal"): string => {
+  const worktree = (files: Record<string, string>, root = "iadd"): string => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     write(made.repo, `${root}/README.md`, `${MARKER}\n`);
@@ -515,7 +515,7 @@ describe("a work item's directory", () => {
     { name: "two directories that name the branch", files: { "1-a/routing.md": declares("feature"), "2-b/routing.md": declares("feature") }, found: null },
     { name: "no directory that names the branch", files: { "1-a/routing.md": declares("other"), "2-b/decisions.md": "feature\n" }, found: null },
     { name: "no directory at all", files: {}, found: null },
-    { name: "a root named agentic-seal", files: { "2-b/routing.md": declares("feature") }, root: "agentic-seal", found: "2-b" },
+    { name: "a root at AgenticSeal's second name, agentic-seal, which is no root", files: { "2-b/routing.md": declares("feature") }, root: "agentic-seal", found: null },
     { name: "a branch named in a row inside a fence", files: { "2-b/routing.md": `${F}\n${declares("feature")}${F}\n` }, found: null },
     { name: "a branch named in a row inside an HTML comment", files: { "2-b/routing.md": `<!--\n${declares("feature")}-->\n` }, found: null },
     { name: "a routing whose review is no answer the check knows", files: { "2-b/routing.md": routing([["Review", "none"], ["Destination", "open the pull request"], ["Branch", "feature"]]) }, found: null },
@@ -525,7 +525,7 @@ describe("a work item's directory", () => {
   ];
 
   // Each case starts Python, which takes seconds while the rest of the suite runs beside it.
-  it.each(TREES)("is found by its branch as the pull request check finds it: $name", { timeout: 30_000 }, ({ files, root = "seal", found }) => {
+  it.each(TREES)("is found by its branch as the pull request check finds it: $name", { timeout: 30_000 }, ({ files, root = "iadd", found }) => {
     const folder = worktree(files, root);
     const expected = found === null ? null : join(folder, root, "threads", found);
     expect(workItemDirectory(folder, "feature")).toBe(expected);
@@ -534,8 +534,8 @@ describe("a work item's directory", () => {
 
   it("is none where the `routing.md` that names the branch is a link, or holds more than the daemon reads of a file: the daemon reads neither, though the pull request check reads both", () => {
     const linked = worktree({ "elsewhere.md": declares("feature") });
-    mkdirSync(join(linked, "seal", "threads", "2-b"));
-    symlinkSync("../elsewhere.md", join(linked, "seal", "threads", "2-b", "routing.md"));
+    mkdirSync(join(linked, "iadd", "threads", "2-b"));
+    symlinkSync("../elsewhere.md", join(linked, "iadd", "threads", "2-b", "routing.md"));
     expect(workItemDirectory(linked, "feature")).toBeNull();
     const large = worktree({ "2-b/routing.md": `${declares("feature")}${"a".repeat(REPOSITORY_FILE_BYTES)}\n` });
     expect(workItemDirectory(large, "feature")).toBeNull();
@@ -543,12 +543,12 @@ describe("a work item's directory", () => {
     expect(workItemDirectory(worktree({ "2-b/routing.md": declares("feature") }), "feature")).not.toBeNull();
   });
 
-  it("is none in a folder with no records root, in one whose `seal/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
+  it("is none in a folder with no records root, in one whose `iadd/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
-    write(made.repo, "seal/README.md", "# The seal colony\n");
-    write(made.repo, "seal/threads/2-b/routing.md", declares("feature"));
+    write(made.repo, "iadd/README.md", "# The seal colony\n");
+    write(made.repo, "iadd/threads/2-b/routing.md", declares("feature"));
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
     expect(checkFinds(made.repo, "feature")).toBeNull();
 
@@ -568,7 +568,7 @@ describe("a work item's directory", () => {
     expect(withBranch(declares("feature").trimEnd().replace(/ \|$/, ""), "second")).toBe(declares("second").trimEnd().replace(/ \|$/, ""));
 
     const folder = worktree({ "2-b/routing.md": withBranch(padded.join("\n"), "owlery/second-name") });
-    const expected = join(folder, "seal", "threads", "2-b");
+    const expected = join(folder, "iadd", "threads", "2-b");
     expect([workItemDirectory(folder, "feature"), workItemDirectory(folder, "owlery/second-name"), checkFinds(folder, "owlery/second-name")]).toEqual([null, expected, expected]);
   });
 

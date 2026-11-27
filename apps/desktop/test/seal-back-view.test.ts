@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { MARKER } from "../src/daemon/records-place";
 import type { ServerMessage, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { chainEntry, commitSeal, commitSealedAfterAFix } from "./chain-run";
+import { chainEntry, commitInspection, commitClearedAfterAFix } from "./chain-run";
 import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** The work items of the case, and the folder of each one's records. */
@@ -79,7 +79,7 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     made = temporaryRepository();
     // The place for work records stands on the branch the work items are cut from.
     mkdirSync(join(made.repo, "seal"));
-    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon runs the CLI at its start, to read its version, and starts no session of it here.
@@ -125,12 +125,12 @@ describe("the back of a seal in the built app", { timeout: 120_000 }, () => {
     plain = await branched(plain, 13);
 
     const base = git(made.repo, "rev-parse", "HEAD").trim();
-    fixedIn = commitSealedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: branchOf(sealed), base, symptom: SYMPTOM });
+    fixedIn = commitClearedAfterAFix(sealed.worktree, { workItem: SEALED.records, branch: branchOf(sealed), base, symptom: SYMPTOM });
     // The ledger's lines of the sealed work item's chain, in the order its stages ended, each after the work item was made.
     const at = Date.now();
-    const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["seal", 2]] as const;
+    const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
     appendFileSync(join(app.userData, "run", "ledger.jsonl"), stages.map(([kind, round], place) => `${JSON.stringify(chainEntry(sealed, kind, round, at + place * 5 * 60_000))}\n`).join(""), { mode: 0o600 });
-    commitSeal(broken.worktree, { workItem: BROKEN.records, branch: branchOf(broken), base });
+    commitInspection(broken.worktree, { workItem: BROKEN.records, branch: branchOf(broken), base });
     brokenBy = commitFile(broken.worktree, "avatars.ts");
 
     // Each message the page sends from here on is counted by its type.

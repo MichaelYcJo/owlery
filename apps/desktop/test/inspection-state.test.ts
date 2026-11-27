@@ -1,7 +1,7 @@
 // The seal a work item's branch holds at its head commit, as the daemon reads
 // it: `sealed`, `broken` or none, from git and the committed records alone.
 // Each case commits the records to a temporary repository as the daemon's
-// writers write them (`seal-records.ts#gateText` and `#guaranteeText`), and
+// writers write them (`inspection-records.ts#gateText` and `#inspectionText`), and
 // no case starts an agent or reaches a remote.
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -9,9 +9,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { roundBase, routingText, standingOf } from "../src/daemon/chain";
 import { withQuestion } from "../src/daemon/decision-record";
 import { MARKER } from "../src/daemon/records-place";
-import { gateText } from "../src/daemon/seal-records";
-import { workItemSeal } from "../src/daemon/seal-state";
-import { type Cleanups, commitAll, commitSeal, guaranteeWith, head, roundRecord, write } from "./chain-run";
+import { gateText } from "../src/daemon/inspection-records";
+import { workItemInspection } from "../src/daemon/inspection-state";
+import { type Cleanups, commitAll, commitInspection, inspectionWith, head, roundRecord, write } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -20,31 +20,31 @@ afterEach(async () => {
 });
 
 const NAME = "1795396351-sealed-work";
-const DIRECTORY = `seal/threads/${NAME}`;
+const DIRECTORY = `iadd/threads/${NAME}`;
 const BRANCH = "feat/sealed-work";
-const GUARANTEE = `${DIRECTORY}/guarantee.md`;
+const GUARANTEE = `${DIRECTORY}/inspection.md`;
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
 /**
  * A repository whose `main` holds the records root, checked out on a branch
  * that adds a source file and then the records of a chain that sealed it
- * (`chain-run.ts#commitSeal`), with the options that helper takes.
+ * (`chain-run.ts#commitInspection`), with the options that helper takes.
  * `before` commits what the branch holds before the records.
  */
 function sealedBranch(options: { seal?: boolean; verdict?: string; target?: string; before?: (repo: string) => void } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
-  write(repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "seal/config.json", `${JSON.stringify({ "Record language": "English" }, null, 2)}\n`);
+  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "iadd/config.json", `${JSON.stringify({ "Record language": "English" }, null, 2)}\n`);
   write(repo, ".gitignore", "ignored.log\n");
   const base = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");
   commitAll(repo, "feat: greet");
   options.before?.(repo);
-  const gate = commitSeal(repo, { workItem: NAME, branch: BRANCH, base, ...options });
+  const gate = commitInspection(repo, { workItem: NAME, branch: BRANCH, base, ...options });
   const item = { worktree: repo, branch: BRANCH, baseBranch: "main", baseCommit: base };
-  return { repo, base, gate, item, seal: () => workItemSeal(item, head(repo)) };
+  return { repo, base, gate, item, seal: () => workItemInspection(item, head(repo)) };
 }
 
 /** Commits a change of `feature.txt` in the folder, and gives the commit. */
@@ -54,14 +54,14 @@ function commitSource(folder: string, text = "A greeting.\n"): string {
 }
 
 /** The sentence of a seal a commit changed a path after. */
-const changedAfter = (path: string, gate: string): string => `\`${path}\` changed after the sealed commit \`${gate.slice(0, 7)}\`.`;
+const changedAfter = (path: string, gate: string): string => `\`${path}\` changed after the cleared commit \`${gate.slice(0, 7)}\`.`;
 
 describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
   it("is sealed, with the sealed commit whole, where the head holds a seal of the gate's commit and only closing records were committed after it, and stays so after a commit that changes the guarantee below its block", async () => {
     const { repo, gate, seal } = sealedBranch();
     expect(await seal()).toEqual({ state: "sealed", commit: gate, why: null });
     // Only closing records follow the sealed commit: the gate's record and the guarantee.
-    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/gate.md`]);
+    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/gate.md`]);
     write(repo, GUARANTEE, `${git(repo, "show", `HEAD:${GUARANTEE}`)}\nThe sealer's notes end here.\n`);
     commitAll(repo, "docs: note below the verdict");
     expect(await seal()).toEqual({ state: "sealed", commit: gate, why: null });
@@ -76,7 +76,7 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     git(repo, "branch", "develop", base);
     const item = { worktree: repo, branch: BRANCH, baseBranch: "develop", baseCommit: base };
     expect((await standingOf(repo, join(repo, DIRECTORY), head(repo), roundBase(item.baseBranch, item.baseCommit, head(repo)), "head")).base).toBe("main");
-    expect(await workItemSeal(item, head(repo))).toEqual({ state: "sealed", commit: gate, why: null });
+    expect(await workItemInspection(item, head(repo))).toEqual({ state: "sealed", commit: gate, why: null });
   });
 
   it("is broken, with the sealed commit and the first path that differs, after a commit that changes a source file, one that changes decisions.md, and one that adds a round record", async () => {
@@ -127,12 +127,12 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     expect(await edited.seal()).toEqual({ state: "broken", commit: edited.gate, why: changedAfter("feature.txt", edited.gate) });
   });
 
-  it("is broken after two commits of which the second takes the first back, and says which step the order owes, since no path differs from the sealed commit", async () => {
+  it("is broken after two commits of which the second takes the first back, and says which step the order owes, since no path differs from the cleared commit", async () => {
     const { repo, gate, seal } = sealedBranch();
     commitSource(repo);
     commitSource(repo, "A greeting\n");
-    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/gate.md`]);
-    expect(await seal()).toEqual({ state: "broken", commit: gate, why: `Review round 2 is owed after the sealed commit \`${gate.slice(0, 7)}\`.` });
+    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/gate.md`]);
+    expect(await seal()).toEqual({ state: "broken", commit: gate, why: `Review round 2 is owed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("is broken where the head holds an open question that the sealed commit held too, as records written by hand can, and says that the work item waits for its answers", async () => {
@@ -142,8 +142,8 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
         commitAll(folder, "chore: record a question");
       },
     });
-    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/gate.md`]);
-    expect(await seal()).toEqual({ state: "broken", commit: gate, why: `The work item waits for the answers to its open questions after the sealed commit \`${gate.slice(0, 7)}\`.` });
+    expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/gate.md`]);
+    expect(await seal()).toEqual({ state: "broken", commit: gate, why: `The work item waits for the answers to its open questions after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("is broken where a record of the head does not read, and says what the reader refuses", async () => {
@@ -157,7 +157,7 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
 
   it("counts only what a commit holds: a seal the worktree holds and no commit does is none, and an edit, an untracked file, an ignored file and an open question that no commit holds leave a seal sealed", async () => {
     const unsealed = sealedBranch({ seal: false });
-    write(unsealed.repo, GUARANTEE, guaranteeWith(null, NAME, 1, `${unsealed.gate} against main`));
+    write(unsealed.repo, GUARANTEE, inspectionWith(null, NAME, 1, `${unsealed.gate} against main`));
     expect(await unsealed.seal()).toBeNull();
 
     const { repo, gate, seal } = sealedBranch();
@@ -175,12 +175,12 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     expect(await sealedBranch({ verdict: "undecided question: May it?" }).seal()).toBeNull();
     // A seal followed by a withheld verdict: the newest block decides.
     const withheld = sealedBranch();
-    write(withheld.repo, GUARANTEE, guaranteeWith(git(withheld.repo, "show", `HEAD:${GUARANTEE}`), NAME, 2, `${withheld.gate} against main`, "withheld reason: x"));
-    commitAll(withheld.repo, "chore: record the sealer's verdict");
+    write(withheld.repo, GUARANTEE, inspectionWith(git(withheld.repo, "show", `HEAD:${GUARANTEE}`), NAME, 2, `${withheld.gate} against main`, "withheld reason: x"));
+    commitAll(withheld.repo, "chore: record the inspector's verdict");
     expect(await withheld.seal()).toBeNull();
 
     const refused = sealedBranch();
-    write(refused.repo, GUARANTEE, git(refused.repo, "show", `HEAD:${GUARANTEE}`).replace("Verdict: sealed\n", "Verdict: sealed\ngate: passed\n"));
+    write(refused.repo, GUARANTEE, git(refused.repo, "show", `HEAD:${GUARANTEE}`).replace("Verdict: cleared\n", "Verdict: cleared\ngate: passed\n"));
     commitAll(refused.repo, "chore: write a line the reader refuses");
     expect(await refused.seal()).toBeNull();
 
@@ -192,9 +192,9 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
 
   it("is none for a work item whose worktree holds no directory that names its branch, and for one whose worktree holds two", async () => {
     const { repo, item } = sealedBranch();
-    expect(await workItemSeal({ ...item, branch: "feat/another" }, head(repo))).toBeNull();
-    write(repo, "seal/threads/1795396352-twin/routing.md", routingText("1795396352-twin", BRANCH, "2026-11-23"));
-    expect(await workItemSeal(item, head(repo))).toBeNull();
+    expect(await workItemInspection({ ...item, branch: "feat/another" }, head(repo))).toBeNull();
+    write(repo, "iadd/threads/1795396352-twin/routing.md", routingText("1795396352-twin", BRANCH, "2026-11-23"));
+    expect(await workItemInspection(item, head(repo))).toBeNull();
   });
 
   it("is broken where the seal names a commit the head does not hold, and where it names no commit of the repository, and says so", async () => {
@@ -204,20 +204,20 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     write(made.repo, "aside.txt", "Aside\n");
     const aside = commitAll(made.repo, "feat: aside");
     git(made.repo, "checkout", "--quiet", BRANCH);
-    write(made.repo, GUARANTEE, guaranteeWith(null, NAME, 1, `${aside} against main`));
-    commitAll(made.repo, "chore: record the sealer's verdict");
-    expect(await made.seal()).toEqual({ state: "broken", commit: aside, why: `The branch no longer holds the sealed commit \`${aside.slice(0, 7)}\`.` });
+    write(made.repo, GUARANTEE, inspectionWith(null, NAME, 1, `${aside} against main`));
+    commitAll(made.repo, "chore: record the inspector's verdict");
+    expect(await made.seal()).toEqual({ state: "broken", commit: aside, why: `The branch no longer holds the cleared commit \`${aside.slice(0, 7)}\`.` });
 
     const none = "d".repeat(40);
     const nowhere = sealedBranch({ target: none });
-    expect(await nowhere.seal()).toEqual({ state: "broken", commit: none, why: `The repository holds no sealed commit \`${none.slice(0, 7)}\`.` });
+    expect(await nowhere.seal()).toEqual({ state: "broken", commit: none, why: `The repository holds no cleared commit \`${none.slice(0, 7)}\`.` });
   });
 
   it("reads a head of 10 round records within the interval of the daemon's read of the branches, 3 seconds", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     const repo = made.repo;
-    write(repo, "seal/README.md", `${MARKER}\n`);
+    write(repo, "iadd/README.md", `${MARKER}\n`);
     const base = commitAll(repo, "chore: add the place for work records");
     git(repo, "checkout", "--quiet", "-b", BRANCH);
     write(repo, "feature.txt", "A greeting\n");
@@ -229,11 +229,11 @@ describe("the seal a branch's head holds", { timeout: 30_000 }, () => {
     }
     write(repo, `${DIRECTORY}/trail/gate.md`, gateText(null, NAME, { head: target, base }));
     commitAll(repo, "chore: record the broad gate's run");
-    write(repo, GUARANTEE, guaranteeWith(null, NAME, 1, `${target} against main`));
-    commitAll(repo, "chore: record the sealer's verdict");
+    write(repo, GUARANTEE, inspectionWith(null, NAME, 1, `${target} against main`));
+    commitAll(repo, "chore: record the inspector's verdict");
     const item = { worktree: repo, branch: BRANCH, baseBranch: "main", baseCommit: base };
     const started = performance.now();
-    const read = await workItemSeal(item, head(repo));
+    const read = await workItemInspection(item, head(repo));
     const took = performance.now() - started;
     expect(read).toEqual({ state: "sealed", commit: target, why: null });
     expect(took, `the head reading of 10 round records took ${took.toFixed(0)} ms`).toBeLessThan(3000);

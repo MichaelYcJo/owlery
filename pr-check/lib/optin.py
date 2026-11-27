@@ -1,30 +1,26 @@
-"""Shared opt-in: does this repository run the AgenticSeal process?
+"""Shared opt-in: does this repository keep IADD's records?
 
 Imported by the gates rather than copied into each, because where the answer
 moves, divergent copies are how half of them keep the old one.
 
-The signal is `seal/` — the root the plugin maintains, whose existence is the
-declaration — at the first of three places that has it with its `README.md`
-opening with `MARKER`: `<repo>/seal/`, which shared mode commits, then
-`<repo>/agentic-seal/`, the shared root's second name, then
-`<git-common-dir>/seal/`, where local mode keeps it. One root, read one
-way, and no config key (`docs/layout/one-root-by-lifetime.md`, "The opt-in signal
-is the root itself"). A `seal/` without the marker is a directory the project
-keeps for itself, as a package named `seal` does, and declares nothing; the
-shared root then takes the second name, found by the same marker.
+The signal is `iadd/`, the records root, whose existence is the declaration,
+at the first of two places that has it with its `README.md` opening with
+`MARKER`: `<repo>/iadd/`, which shared mode commits, then
+`<git-common-dir>/iadd/`, where local mode keeps it. One root, read one
+way, under one name, and no config key. An `iadd/` without the marker is a
+directory the project keeps for itself and declares nothing, and the root
+has no second name to move to.
 
 `<git-common-dir>/agentic-scratch` takes that declaration back. A repository
-that exists for thirty seconds — a fixture built by hand to reproduce a gate
-decision, which is what developing these gates consists of — carries the same
-`seal/` as a repository under review, and the gates cannot tell them apart:
-every probe would stop for a prompt about a repository that is deleted
-before the answer means anything. The opt-out file is written once, by a
-person, in the repository being thrown away. It lives under the git directory
+that exists for thirty seconds, a fixture built by hand to reproduce a gate
+decision, carries the same `iadd/` as a repository under review, and the
+gates cannot tell them apart. The opt-out file is written once, by a person,
+in the repository being thrown away. It lives under the git directory
 rather than inside the root because the root is committed: a file committed
 in the root would silence every gate in every clone with nothing in the diff
-that read as the AgenticSeal process being switched off. Nothing under
-`.git/` can be committed, and a linked worktree shares the common directory,
-so it shares the opt-out. `seal/README.md` says so too.
+that read as the records being switched off. Nothing under `.git/` can be
+committed, and a linked worktree shares the common directory, so it shares
+the opt-out.
 
 Everything here fails toward "not opted in": a gate that cannot tell should do
 nothing rather than act on a guess.
@@ -33,11 +29,7 @@ nothing rather than act on a guess.
 import os
 import subprocess
 
-HOME = "seal"
-# The shared root's second name, taken where the repository's own `seal/`
-# belongs to something else. The local root keeps `HOME`: nothing of
-# a project's own lives under its git directory.
-SECOND_HOME = "agentic-seal"
+HOME = "iadd"
 # The sub-directory of the root that holds the work items.
 WORK_ITEMS = "threads"
 # Where each record sits in a thread, `/`-joined and relative to the thread's
@@ -54,7 +46,7 @@ PHASES = f"{TRAIL}/phases"
 ROUNDS = f"{TRAIL}/rounds"
 GATE = f"{TRAIL}/gate.md"
 GAPS = "gaps.md"
-GUARANTEE = "guarantee.md"
+INSPECTION = "inspection.md"
 CHANGELOG = "changelog.md"
 # The migration config, directly under the root: `chain_check.py` reads it at
 # HEAD under the shared root.
@@ -64,11 +56,10 @@ PARITY_CONFIG = "parity.json"
 # file because every gate would then parse one to answer what is a directory
 # test. A directory of this name is not the opt-out — see `home_at()` below.
 SCRATCH = "agentic-scratch"
-# The first line of `templates/setup/seal-README.md`, which first setup writes
-# into every root: a `seal/` is the plugin's root only where its `README.md`
-# opens with this line. `tests/lib/test_optin.py` pins the template's first
-# line to this value.
-MARKER = "# What AgenticSeal maintains in seal/"
+# The first line of the `README.md` Owlery's setup writes into every root
+# (`apps/desktop/src/daemon/records-place.ts#MARKER`): an `iadd/` is the
+# records root only where its `README.md` opens with this line.
+MARKER = "# What IADD keeps in iadd/"
 README = "README.md"
 
 
@@ -105,7 +96,7 @@ def repo_root(cwd):
     # someone who has to recognise their own repository in it. git answers
     # with forward slashes on every platform, so on Windows the root would
     # arrive in one dialect and be joined in another -- `C:/proj` and then
-    # `C:/proj\seal\parity.json`. Both halves work; neither
+    # `C:/proj\iadd\parity.json`. Both halves work; neither
     # equals a path the caller built, and the address is the whole point of a
     # module named for having ONE.
     #
@@ -147,28 +138,13 @@ def git_common_dir(root):
 
 
 def home_paths(root, common=None):
-    """The two places `seal/` is read from at `root`, shared first then local.
+    """The two places `iadd/` is read from at `root`, shared first then local.
 
     `("", "")` for no root, and the local entry is "" where the common git
-    directory could not be resolved. The local entry is `<common>/seal`. The
-    shared entry is `<root>/seal` where that directory carries the marker,
-    else `<root>/agentic-seal` where that one does, else `<root>/seal` where
-    nothing stands at that path, else `<root>/agentic-seal`. Neither
-    entry is tested for being the root: this answers *where would it be*,
-    and `home_at` below answers *where is it*.
-
-    Two limits. A repository whose `seal/` and `agentic-seal/` both carry
-    the marker reads `seal/` and never says the other exists. A reader that
-    reads at a commit other than the working tree reads under the name the
-    working tree resolves, so a repository that moved its root from one name
-    to the other reads its earlier history under the current name.
-
-    It exists because the second question is not the only one asked. `seal
-    import` has to be able to create the root the user names — including the
-    mode this repository is not in — and a caller that spelled
-    `os.path.join(root, "seal")` for itself would hold a second answer to the
-    question this module is named for having ONE of. The order is part of
-    that answer and lives here with it.
+    directory could not be resolved. The local entry is `<common>/iadd`, and
+    the shared entry `<root>/iadd`. Neither entry is tested for being the
+    root: this answers *where would it be*, and `home_at` below answers
+    *where is it*.
 
     `common` is passed by a caller that has already resolved the common git
     directory, so nothing here costs a second `git` call, which every gated
@@ -180,17 +156,14 @@ def home_paths(root, common=None):
         common = git_common_dir(root)
     # `normpath` on the git-derived half, and it is not tidying. `git
     # rev-parse --git-common-dir` answers with `/` on Windows as well, so
-    # joining `seal` onto it would produce `C:/Users/x/repo\.git\seal` -- one
+    # joining `iadd` onto it would produce `C:/Users/x/repo\.git\iadd` -- one
     # path spelled two ways, printed to a person in the gate's question and
     # in chain-check's local-mode sentence. Nothing here hands `home` to
     # git, so the native spelling is the right one, and normalising at the
     # source closes it for every caller rather than at each of the four
     # places that print it.
-    shared = home_name_in(_on_disk(root))
-    if not shared:
-        shared = SECOND_HOME if os.path.lexists(os.path.join(root, HOME)) else HOME
     return (
-        os.path.join(root, shared),
+        os.path.join(root, HOME),
         os.path.normpath(os.path.join(common, HOME)) if common else "",
     )
 
@@ -201,19 +174,16 @@ def home_name_in(read):
     READ takes a `/`-joined path relative to the repository's top and
     returns that file's text, or None where there is none: the working tree
     through `_on_disk` below, or a commit through a caller's own reader, as
-    `chain_check.py` reads one. The answer is the first of `HOME` and
-    `SECOND_HOME` whose `README.md` opens with `MARKER`, so the order and the
-    marker comparison have this one home for every reader.
+    `chain_check.py` reads one. The answer is `HOME` where its `README.md`
+    opens with `MARKER`, so the marker comparison has this one home for every
+    reader.
     """
-    for name in (HOME, SECOND_HOME):
-        if _opens_with_marker(read(f"{name}/{README}")):
-            return name
-    return ""
+    return HOME if _opens_with_marker(read(f"{HOME}/{README}")) else ""
 
 
 def home_name(root, common=None):
     """The `/`-joined repository-relative name of the root in force at
-    `root` where it is the shared one, `HOME` or `SECOND_HOME`; "" where the
+    `root` where it is the shared one, `HOME`; "" where the
     root is local or there is none.
 
     For a reader that classifies paths as git prints them, which needs the
@@ -274,16 +244,14 @@ def marked(path):
 
 
 def home_at(root, common=None):
-    """The `seal/` of the repository at `root`, or "" — for a caller that has
+    """The `iadd/` of the repository at `root`, or "" — for a caller that has
     already resolved the root and should not pay for a second `git` call.
 
-    The places are read in order, `<root>/seal/`, then
-    `<root>/agentic-seal/`, then `<git-common-dir>/seal/`, and the first that
-    is a directory whose `README.md` opens with `MARKER` is the answer;
-    nothing else is read. The first two are the shared entry of `home_paths`
-    above, which names the marked one of them. A `<root>/seal/` without the
-    marker is passed over, so a project that keeps a directory of that name
-    for itself keeps its shared root at `<root>/agentic-seal/`, or its local
+    The places are read in order, `<root>/iadd/`, then
+    `<git-common-dir>/iadd/`, and the first that is a directory whose
+    `README.md` opens with `MARKER` is the answer; nothing else is read. A
+    `<root>/iadd/` without the marker is passed over, so a project that keeps
+    a directory of that name for itself keeps no shared root, and its local
     root under the git directory. The opt-out is read once, here, so it
     cannot be honoured by one arm of a gate and missed by the other — the
     migration config sits inside the root the opt-out takes back, and a
@@ -305,11 +273,11 @@ def home_at(root, common=None):
     # once is what lets the two places be produced in one place.
     if common is None:
         common = git_common_dir(root)
-    # A FILE, which is what this module and `seal/README.md` both say the
+    # A FILE, which is what this module says the
     # signal is. `os.path.exists` would also accept a DIRECTORY of that name,
     # so a directory created where the opt-out goes would turn every
-    # gate off with nothing in the diff that reads as the AgenticSeal
-    # process being switched off.
+    # gate off with nothing in the diff that reads as the records being
+    # switched off.
     if common and os.path.isfile(os.path.join(common, SCRATCH)):
         return ""
     for found in home_paths(root, common):
@@ -319,11 +287,10 @@ def home_at(root, common=None):
 
 
 def home(cwd):
-    """This repository's `seal/`, or "" when it does not run the AgenticSeal
-    process."""
+    """This repository's `iadd/`, or "" when it keeps no IADD records."""
     return home_at(repo_root(cwd))
 
 
 def opted_in(cwd):
-    """True when this repository runs the AgenticSeal process."""
+    """True when this repository keeps IADD records."""
     return bool(home(cwd))

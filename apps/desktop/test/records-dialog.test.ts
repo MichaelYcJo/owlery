@@ -20,7 +20,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
   let made: ReturnType<typeof temporaryRepository>;
   let pinned: ReturnType<typeof temporaryRepository> | undefined;
 
-  const WORKFLOW = ".github/workflows/owlery-seal.yml";
+  const WORKFLOW = ".github/workflows/owlery-inspection.yml";
   /** What the dialog says of the seal check Owlery's workflow posts, and how an administrator makes it required. */
   const REQUIRED = "The workflow posts its verdict as the check `seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
   const value = <T>(expression: string): Promise<T> => app.evaluate<T>(expression);
@@ -65,27 +65,27 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     expect(await text("records-head")).toBe("Records and check: project");
     expect(await text("records-scope")).toBe("Owlery commits work records to this repository. A repository that cannot keep work records in its tree is out of scope for Owlery.");
     expect(await text("records-commit")).toBe(`This makes one commit on \`main\`: \`${SUBJECT}\`. Nothing is pushed.`);
-    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["seal/README.md", "seal/config.json", WORKFLOW]);
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["iadd/README.md", "iadd/config.json", WORKFLOW]);
     const texts = await value<string[]>(`[...document.querySelectorAll("#records-files pre")].map((file) => file.textContent)`);
-    expect(texts[0]?.split("\n")[0]).toBe("# What AgenticSeal maintains in seal/");
+    expect(texts[0]?.split("\n")[0]).toBe("# What IADD keeps in iadd/");
     expect(texts[1]).toContain('"Broad gate": "npm run check"');
     // The workflow fetches the check at the version the build read from package.json.
     const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
     expect(texts[2]).toContain(`--branch v${version} \\`);
     expect(await value<unknown[]>(`[document.getElementById("records-gate-name").textContent, document.getElementById("records-gate").value, document.getElementById("records-gate").disabled]`)).toEqual(["Broad gate command", "npm run check", false]);
-    expect(await text("records-gate-says")).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(await text("records-gate-says")).toBe("Kept in `iadd/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
     expect(await value<string[]>(`[document.getElementById("records-cancel").textContent, document.getElementById("records-submit").textContent]`)).toEqual(["Not now", "Set up and commit"]);
     // The plan names Owlery's workflow, so the dialog says how an administrator makes its check required.
     expect(await value<unknown[]>(`[document.getElementById("records-required").hidden, document.getElementById("records-required").textContent]`)).toEqual([false, REQUIRED]);
     // Nothing is written until the person confirms.
-    expect([git(made.repo, "rev-parse", "HEAD").trim(), status(), existsSync(join(made.repo, "seal")), existsSync(join(made.repo, ".github"))]).toEqual([before, "", false, false]);
+    expect([git(made.repo, "rev-parse", "HEAD").trim(), status(), existsSync(join(made.repo, "iadd")), existsSync(join(made.repo, ".github"))]).toEqual([before, "", false, false]);
 
     await app.click("#records-submit");
     await dialogClosed("records-dialog");
     expect(git(made.repo, "rev-parse", "HEAD~1").trim()).toBe(before);
-    expect(git(made.repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "seal/README.md", "seal/config.json"]);
+    expect(git(made.repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "iadd/README.md", "iadd/config.json"]);
     expect(status()).toBe("");
-    expect(JSON.parse(readFileSync(join(made.repo, "seal", "config.json"), "utf8"))).toEqual({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "npm run check" });
+    expect(JSON.parse(readFileSync(join(made.repo, "iadd", "config.json"), "utf8"))).toEqual({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "npm run check" });
 
     // The repository now holds every part: its menu's entry shows them, and offers no commit.
     await app.click(`#repositories section[data-repository="1"] .repository-menu`);
@@ -93,7 +93,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     await value(`[...document.querySelectorAll('[role="menu"] [role="menuitem"]')].find((item) => item.textContent === "Records and check…").click()`);
     await dialogOpen("records-dialog");
     await app.until(`document.querySelectorAll("#records-holds li").length === 3`, "what the repository holds");
-    expect(await value<string[]>(`[...document.querySelectorAll("#records-holds li")].map((line) => line.textContent)`)).toEqual(["Records: `seal/`", `Check: \`${WORKFLOW}\``, "Broad gate: `npm run check`, kept in `seal/config.json` under `Broad gate`"]);
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-holds li")].map((line) => line.textContent)`)).toEqual(["Records: `iadd/`", `Check: \`${WORKFLOW}\``, "Broad gate: `npm run check`, kept in `iadd/config.json` under `Broad gate`"]);
     expect(await value<unknown[]>(`[document.getElementById("records-submit").hidden, document.getElementById("records-gate-label").hidden, document.getElementById("records-cancel").textContent, document.querySelectorAll("#records-files > *").length]`)).toEqual([true, true, "Close", 0]);
     expect(await value<unknown[]>(`[document.getElementById("records-required").hidden, document.getElementById("records-required").textContent]`)).toEqual([false, REQUIRED]);
     await app.click("#records-cancel");
@@ -104,12 +104,12 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
     const repository = temporaryRepository("pinned");
     pinned = repository;
-    mkdirSync(join(repository.repo, "seal"));
-    writeFileSync(join(repository.repo, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(repository.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": "make check" })}\n`);
+    mkdirSync(join(repository.repo, "iadd"));
+    writeFileSync(join(repository.repo, "iadd", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(repository.repo, "iadd", "config.json"), `${JSON.stringify({ "Broad gate": "make check" })}\n`);
     mkdirSync(join(repository.repo, ".github", "workflows"), { recursive: true });
     writeFileSync(join(repository.repo, WORKFLOW), workflowText("0.0.1"));
-    git(repository.repo, "add", "seal", ".github");
+    git(repository.repo, "add", "iadd", ".github");
     git(repository.repo, "commit", "--quiet", "-m", "chore: the records place of Owlery 0.0.1");
     const before = git(repository.repo, "rev-parse", "HEAD").trim();
 

@@ -5,7 +5,7 @@ first edit, and this module reads it back. Without a declaration, the route
 could only be guessed from the absence of a review mark, and a mark only
 exists after a review passes.
 
-A declaration lives at `seal/threads/<work-item-id>/routing.md` and is committed.
+A declaration lives at `iadd/threads/<work-item-id>/routing.md` and is committed.
 Committed is the load-bearing part: the check moves to the pull request, and CI
 sees only what is in the tree; nothing under the git directory travels there.
 
@@ -173,9 +173,9 @@ def parse(text):
     `Planning`'s one reader is `chain_check.py`, which reads a `framer` answer
     against the frame's mark, and no script of the check reads
     `Implementation`: Owlery's daemon reads it for the sessions a verdict
-    names as having built the work, and the sealer reads it and withholds
+    names as having built the work, and the inspector reads it and withholds
     where a declared `crafter` left a closed phase with no record
-    (`agents/sealer.md` step 3). So a wrong answer here is read
+    (`agents/inspector.md` step 3). So a wrong answer here is read
     against a record the run left, where a wrong answer above decides what the
     pull request owes. That is why
     the rows are optional rather than lenient, and it is also the asymmetry to
@@ -202,7 +202,7 @@ def parse(text):
     above the table is not a block at all, so that declaration still reads.
 
     **A label written twice has no value**, the rule
-    `lib/config.py#config_value` gives every `seal/config.json` key: taking
+    `lib/config.py#config_value` gives every `iadd/config.json` key: taking
     the last row would let a second `Review` row below the first answer for
     it, with nothing saying there were two. A strict label doubled --
     `Review`, `Destination`, `Branch` -- makes the file no declaration, as
@@ -275,9 +275,9 @@ def declarations(root):
     orders the directories and names the work, but which declaration APPLIES is
     settled by the branch it names, not by its position in a sort.
 
-    `root` is the repository root; the work items are under whichever `seal/`
+    `root` is the repository root; the work items are under whichever `iadd/`
     `optin.home_at` finds for it, and a repository with none has no
-    declarations — the same silence as a `seal/threads/` that is not there.
+    declarations — the same silence as an `iadd/threads/` that is not there.
     """
     home = optin.home_at(root)
     if not home:
@@ -394,8 +394,8 @@ def rounds(item):
     on, and an expiry nothing enforces is a comment.
 
     What stays different between the two readers is deliberate, and it is not
-    the order: this one reads the working tree, because its callers, `seal
-    settle` and the release scripts, read the checkout they run in. The
+    the order: this one reads the working tree, because its callers,
+    AgenticSeal's `settle` and its release scripts, read the checkout they run in. The
     pull-request check reads what git carries, because CI sees nothing
     else -- an untracked file there is evidence nobody can open.
     """

@@ -9,7 +9,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type CommandEnd, chainCommand } from "../src/daemon/chain-command";
 import { MARKER } from "../src/daemon/records-place";
-import { type Cleanups, NOW, VERSION, clean, commitAll, givenRound, givenSeal, sealSection, write } from "./chain-run";
+import { type Cleanups, NOW, VERSION, clean, commitAll, givenRound, givenInspection, runSection, write } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
 /** The branch the cases' session built. */
@@ -44,8 +44,8 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const { repo, base: folder } = made;
-  write(repo, "seal/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "seal/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": options.gate ?? "true" }, null, 2)}\n`);
+  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "iadd/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": options.gate ?? "true" }, null, 2)}\n`);
   const main = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");
@@ -78,12 +78,12 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
  * answers a proofer and a sealer that find nothing give. Gives the sealed
  * commit.
  */
-export async function sealThrough(on: ReturnType<typeof commandOn>, judgedBy = "agent-sealer"): Promise<string> {
+export async function inspectThrough(on: ReturnType<typeof commandOn>, inspectedBy = "agent-inspector"): Promise<string> {
   await on.said(["start"]);
   const round = await on.said(["owed"]);
   await on.said(["round", on.answer("round-1.md", clean(givenRound(readFileSync(round.prompt ?? "", "utf8"))))]);
   await on.said(["gate"]);
   const seal = await on.said(["owed"]);
-  await on.said(["seal", on.answer("seal-1.md", sealSection(givenSeal(readFileSync(seal.prompt ?? "", "utf8")))), "--judged-by", judgedBy, "--model", "owl-large"]);
+  await on.said(["inspect", on.answer("seal-1.md", runSection(givenInspection(readFileSync(seal.prompt ?? "", "utf8")))), "--inspected-by", inspectedBy, "--model", "owl-large"]);
   return seal.commit ?? "";
 }

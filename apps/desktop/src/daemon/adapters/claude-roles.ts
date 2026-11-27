@@ -25,7 +25,7 @@ const EVERY_ROLE = ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"];
 const AT_THE_STAGE: Record<PairKey, readonly string[]> = {
   "proofer at round": ["skills/code-review/SKILL.md"],
   "crafter at fix-pass": ["skills/implement/SKILL.md", "skills/implement/fix-pass.md"],
-  "sealer at seal": [],
+  "inspector at inspection": [],
   "orchestrator at judgment": ["docs/forms/the-round-record.md"],
 };
 
@@ -100,7 +100,7 @@ export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "
       ? "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
       : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. ${COMMANDS_WRITE[grantOf(role).commands]} Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.`,
     "",
-    "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+    "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any command line of AgenticSeal's CLI or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
     "",
   ].join("\n");
 }

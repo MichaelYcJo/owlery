@@ -26,7 +26,7 @@ import { RECORD_FILE, type DecisionRecord, readDecisionRecord, withAnswer, withA
 import { MARKER } from "../src/daemon/records-place";
 import type { ClientMessage, ServerMessage } from "../src/shared/protocol";
 import { atRestAfterFailure, BuiltApp, buildApp } from "./built-app";
-import { type Cleanups, commitSeal, heldGit } from "./chain-run";
+import { type Cleanups, commitInspection, heldGit } from "./chain-run";
 import { commitFile, git, temporaryRepository } from "./repositories";
 
 const DECISION = { kind: "default", decided: "Start the branch from main.", grounds: "frame/questions.md Q1 states main as its default.", by: "orchestrator" } as const;
@@ -38,7 +38,7 @@ const LATER = { kind: "route", decided: "Run the review chain.", grounds: "routi
 /** The question the third work item was parked with, answered before the person last looked. */
 const SETTLED = { asks: "May the build use the network?", grounds: "Only the person can allow it.", by: "crafter" } as const;
 /** A block the record's reader refuses: a decision with no `decided:` line. */
-const REFUSED = "```seal\ndecision: 9 scope\n```\n";
+const REFUSED = "```iadd\ndecision: 9 scope\n```\n";
 const QUESTIONS = [
   { asks: "Which base does the branch merge into?", grounds: "No document names the base of a hotfix.", by: "sealer", options: [{ label: "main", implies: "It waits for the next release." }, { label: "release/v0.0.2", implies: "It ships with this release." }], default: "release/v0.0.2" },
   { asks: "Squash or merge?", grounds: "The repository's config names neither.", by: "sealer", options: [{ label: "squash", implies: "One commit reaches the base." }, { label: "merge", implies: "Every commit stays." }] },
@@ -56,7 +56,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   let heldSeal: ReturnType<typeof heldGit>;
 
   /** The directory of the work item whose worktree and branch are named `name`. */
-  const directoryOf = (name: string): string => join(made.root, name, "seal", "threads", `1-${name}`);
+  const directoryOf = (name: string): string => join(made.root, name, "iadd", "threads", `1-${name}`);
   /** The record of that work item as its file reads now. */
   const recordOf = (name: string): DecisionRecord => readDecisionRecord(readFileSync(join(directoryOf(name), RECORD_FILE), "utf8"));
   /** The 1-based line of the refused block's opener in that work item's record. */
@@ -95,7 +95,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
       git(made.repo, "worktree", "add", "--quiet", "-b", `owlery/${name}`, worktree);
       // The work item's directory, uncommitted: the records root with its marker, the routing that names the branch, and the record.
       mkdirSync(directoryOf(name), { recursive: true });
-      writeFileSync(join(worktree, "seal", "README.md"), `${MARKER}\n`);
+      writeFileSync(join(worktree, "iadd", "README.md"), `${MARKER}\n`);
       writeFileSync(join(directoryOf(name), "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | owlery/${name} |\n`);
       return { id, title, branch: `owlery/${name}`, worktree, createdAt: Date.now() - 60 * 60_000, baseCommit: null as string | null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null };
     };
@@ -105,7 +105,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     // The fourth is cut from the repository's one commit, which it records, and its branch is sealed by the records a chain commits: its routing, round 1, the broad gate's run and the sealer's verdict.
     const cutAt = git(made.repo, "rev-parse", "HEAD").trim();
     const fourth = { ...workItem(4, "Delta", "delta"), baseCommit: cutAt };
-    sealedAt = commitSeal(fourth.worktree, { workItem: "1-delta", branch: fourth.branch, base: cutAt });
+    sealedAt = commitInspection(fourth.worktree, { workItem: "1-delta", branch: fourth.branch, base: cutAt });
     writeFileSync(join(directoryOf("alpha"), RECORD_FILE), withDecision(withApplied(withReversal(withDecision(withDecision("", DECISION), APPLIED), 2, EARLIER_MESSAGE), 2, "abc1234"), LATER) + REFUSED);
     writeFileSync(join(directoryOf("beta"), RECORD_FILE), QUESTIONS.reduce(withQuestion, ""));
     writeFileSync(join(directoryOf("gamma"), RECORD_FILE), withAnswer(withQuestion("", SETTLED), 1, "yes") + REFUSED);
@@ -124,7 +124,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
         seen(fourth, { seal: null }),
       ],
     };
-    // The app's daemon runs git from the path the app inherits, and reads a seal first with a `git show` of the guarantee in the work item's worktree (`seal-state.ts#sealAt`). No other git command runs as `show` in the fourth's worktree before the release.
+    // The app's daemon runs git from the path the app inherits, and reads a seal first with a `git show` of the guarantee in the work item's worktree (`inspection-state.ts#sealAt`). No other git command runs as `show` in the fourth's worktree before the release.
     heldSeal = heldGit(cleanups, made.base, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`);
     app = await BuiltApp.start(
       { SHELL: shell, OWLERY_WORKTREES: made.root },
@@ -267,8 +267,8 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
       const newest = (): string => git(worktree, "log", "-1", "--format=%s%n%b").trim();
       // The commit is made after the daemon's `done`, so the case waits for it.
       for (let waits = 0; waits < 50 && newest().split("\n")[0] !== subject; waits++) await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(newest()).toBe(`${subject}\nSeal-Routing: 1-${name}`);
-      expect(git(worktree, "show", "--name-only", "--format=", "HEAD").trim()).toBe(`seal/threads/1-${name}/${RECORD_FILE}`);
+      expect(newest()).toBe(`${subject}\nIADD-Routing: 1-${name}`);
+      expect(git(worktree, "show", "--name-only", "--format=", "HEAD").trim()).toBe(`iadd/threads/1-${name}/${RECORD_FILE}`);
       expect(git(worktree, "rev-list", "--count", "HEAD").trim()).toBe("2");
     }
   });
@@ -292,7 +292,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await app.evaluate(`document.getElementById("summary-screen").hidden`)).toBe(false);
     expect(await text("#summary-sentence")).toBe("1 seal broken. 1 decision made without asking.");
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Alpha", "Beta"]);
-    expect(await text(`${delta} .change`)).toBe(`Seal broken. \`delta.txt\` changed after the sealed commit \`${at}\`.`);
+    expect(await text(`${delta} .change`)).toBe(`Seal broken. \`delta.txt\` changed after the cleared commit \`${at}\`.`);
     expect(await app.evaluate(`document.querySelector('${delta} .seal').getAttribute("aria-label")`)).toBe(`Seal broken, sealed at ${at}`);
     expect(await app.evaluate(`document.activeElement === document.querySelector('${delta}')`)).toBe(true);
     // The sidebar counts the lines the summary draws.

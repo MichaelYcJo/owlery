@@ -1,7 +1,7 @@
 ---
-name: seal
+name: inspection
 description: |
-  How the session of a Claude Code pane runs the owl chain on the branch it
+  How the session of a Claude Code pane runs the Owl Chain on the branch it
   built, through the chain command its environment names in `OWLERY_CHAIN`.
   Use when: the work on the branch is built and committed, before its pull
   request is opened or the work is called done.
@@ -9,12 +9,12 @@ description: |
   environment names no `OWLERY_CHAIN`.
 ---
 
-# seal: the owl chain in a pane
+# inspection: the Owl Chain in a pane
 
-The session of a pane opens this file where its branch is built and owes a
-seal. A role of the chain never opens it.
+The session of a pane opens this file where its branch is built and owes an
+inspection. A role of the chain never opens it.
 
-**Owlery's code runs the owl chain, and your session carries it.** The
+**Owlery's code runs the Owl Chain, and your session carries it.** The
 chain command is the program your environment names in `OWLERY_CHAIN`. It
 reads the records the branch's head holds and says which step they owe. You
 run that step and hand its answer back, and the command writes and commits
@@ -33,7 +33,7 @@ work around it.
 
 1. Commit what you built. The chain reads a committed tree.
 2. Run `owed`, and do what the table below says for the `step` it prints.
-3. Run `owed` again after each step, until it prints `sealed`.
+3. Run `owed` again after each step, until it prints `cleared`.
 
 | `step` | What you do |
 |---|---|
@@ -42,8 +42,8 @@ work around it.
 | `fix-pass` | The round left open the findings `open` lists. Judge first what *What you judge* asks before a fix pass. Then make the pass yourself, or start the role, as *The fix pass* says, and run `fix-pass --by <id>`. |
 | `ceiling` | Round `round` left open the findings `open` lists, and the chain stops for the person from round `ceiling` on, with no judgment. Tell the person the round, its open findings and what the rounds kept finding, and run nothing more of the chain. Once the person has said in this run, after that stop, to go on, run `owed --persons-word <round>` with the round the step named, and pass the same option to `fix-pass` for that pass. Pass the option on no other ground. |
 | `gate` | Run `gate`. The command runs the repository's broad gate itself and reads its exit code, so a run of yours is no gate. Where the gate fails, the command prints what the gate printed: fix that, commit, and run `owed`. |
-| `seal` | Start the role. Write its answer, unchanged, to a file outside the worktree, and run `seal <file> --judged-by <id> --model <name>`: the id your subagent tool gave for the sealer, and the model the sealer's definition names. A session that built the work judges none of it, so the command refuses `the session` and the id of a fix pass's subagent. |
-| `sealed` | The branch holds its seal at the commit `commit` names. Where the work goes to a pull request, run `body` and hand the file its `body` names to `gh pr create --body-file`. |
+| `inspection` | Start the role. Write its answer, unchanged, to a file outside the worktree, and run `inspect <file> --inspected-by <id> --model <name>`: the id your subagent tool gave for the inspector, and the model the inspector's definition names. A session that built the work judges none of it, so the command refuses `the session` and the id of a fix pass's subagent. |
+| `cleared` | The branch is cleared at the commit `commit` names. Where the work goes to a pull request, run `body` and hand the file its `body` names to `gh pr create --body-file`. |
 | `parked` | The work item's `decisions.md` holds a question that waits for the person. Tell the person, and run nothing more until it is answered. |
 
 **The base is named once, before round 1.** The chain reads the branch
@@ -54,7 +54,7 @@ follows the base that record names, whatever is passed.
 
 ## A role is a subagent of the bundle
 
-For `round`, `fix-pass` and `seal`, `owed` prints three more values:
+For `round`, `fix-pass` and `inspection`, `owed` prints three more values:
 `agent`, the name of the bundle's agent, `rules`, the path of the role's
 rules file, and `prompt`, the path of the stage's prompt. Start a subagent of
 the type `agent` names. Tell it to read the file at `rules` to its end, and
@@ -67,7 +67,7 @@ nothing of the chain until it arrives. Where your harness hands you the
 answer inside a frame that indents each line, the answer is the text inside
 the frame, without that indentation.
 
-The id that `--by` and `--judged-by` take is the `agentId` your subagent
+The id that `--by` and `--inspected-by` take is the `agentId` your subagent
 tool's result names for that subagent. Passing it to the command is no
 reply to the person.
 

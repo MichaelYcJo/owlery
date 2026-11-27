@@ -101,9 +101,9 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
       mkdirSync(join(repo, path, ".."), { recursive: true });
       writeFileSync(join(repo, path), text);
     };
-    write("seal/README.md", `${MARKER}\n`);
-    write("seal/config.json", '{ "Mode": "shared", "Record language": "English", "Broad gate": "true" }\n');
-    write(".github/workflows/owlery-seal.yml", workflowText("0.0.0"));
+    write("iadd/README.md", `${MARKER}\n`);
+    write("iadd/config.json", '{ "Mode": "shared", "Record language": "English", "Broad gate": "true" }\n');
+    write(".github/workflows/owlery-inspection.yml", workflowText("0.0.0"));
     git(repo, "add", "--all");
     git(repo, "commit", "--quiet", "-m", "chore: the records place");
     git(repo, "switch", "--quiet", "-c", "feat/pane-run");
@@ -198,10 +198,10 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     // A pane with no choice takes the settings file every pane shares.
     expect(settingsFile).toBe(shared);
     // The bundle is loaded as the plugin `owlery`: its four agents and the skill a pane's session opens.
-    for (const named of ["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator", "owlery:seal"]) expect(answers, named).toContain(named);
+    for (const named of ["owlery:proofer", "owlery:crafter", "owlery:inspector", "owlery:orchestrator", "owlery:inspection"]) expect(answers, named).toContain(named);
     // The head reached the session's system prompt.
     expect(answers).toContain(paneHead().split("\n")[0]);
-    expect(answers).toContain("A branch takes its seal from the owl chain before its pull request is opened or the work is called done.");
+    expect(answers).toContain("A branch is cleared by the Owl Chain's inspection before its pull request is opened or the work is called done.");
     // The call reached the bundle's hook, and the built command refused it with its reason, which the session was handed.
     expect(events.filter((event) => event.name === "PreToolUse").map((event) => event.payload.tool_name)).toContain("AskUserQuestion");
     expect(results).toContain(`${directory}/routing.md answers \`Automation\` \`yes\`, so this run does not stop for a question.`);
@@ -220,7 +220,7 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
     expect(enabledPlugins).toEqual({ ...read.enabled, ...Object.fromEntries(read.agenticSeal.map((key) => [key, false])) });
     // The names the session listed, which hold the bundle's, so the lists were read.
     const listed = itemsOf(answers);
-    for (const named of ["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator", "owlery:seal"]) expect(listed, named).toContain(named);
+    for (const named of ["owlery:proofer", "owlery:crafter", "owlery:inspector", "owlery:orchestrator", "owlery:inspection"]) expect(listed, named).toContain(named);
     // A plugin's agents and skills are offered under its name, which is the part of its key before the marketplace's.
     for (const key of read.agenticSeal) expect(listed.filter((name) => name.startsWith(`${key.split("@")[0] ?? key}:`)), key).toEqual([]);
     // The plugin holds hooks, and the conversation records the run of none of them.

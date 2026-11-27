@@ -22,7 +22,7 @@ const PAIRS: Record<string, LedgerEntry["stage"]> = {
   "fix-pass": { role: "crafter", stage: "fix-pass" },
   judgment: { role: "orchestrator", stage: "judgment" },
   ruling: { role: "orchestrator", stage: "judgment" },
-  seal: { role: "sealer", stage: "seal" },
+  seal: { role: "inspector", stage: "inspection" },
   gate: { role: null, stage: "gate" },
 };
 
@@ -153,7 +153,7 @@ describe("the back of a seal, composed", () => {
     ]);
     expect(back.after.map(({ name, ended, time, tokens, cost }) => [name, ended, time, tokens, cost, costText(cost)])).toEqual([["Broad gate", null, "under 1 min", null, null, ""]]);
     expect(back.sums).toEqual(["The chain's stages cost $0.28 converted.", "2 stages reported no cost."]);
-    const ended = (more: Partial<LedgerEntry>) => composeBack(records([]), [entry({ kind: "seal", round: 1 }, more)], 0).after[0]?.ended;
+    const ended = (more: Partial<LedgerEntry>) => composeBack(records([]), [entry({ kind: "inspection", round: 1 }, more)], 0).after[0]?.ended;
     expect([ended({ state: "failed", stopped: "request" }), ended({ state: "failed", stopped: "daemon" }), ended({ state: "finished" })]).toEqual(["Stopped", "Stopped with the daemon", null]);
   });
 
@@ -171,7 +171,7 @@ describe("the back of a seal, composed", () => {
       entry({ kind: "judgment", round: 2 }),
       entry({ kind: "ruling", round: 2 }),
       entry({ kind: "gate", round: 2 }),
-      entry({ kind: "seal", round: 2 }),
+      entry({ kind: "inspection", round: 2 }),
       entry({ kind: "ruling", round: 2 }),
     ];
     const back = composeBack(records([round(1), round(2)]), entries, 0);

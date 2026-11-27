@@ -8,11 +8,8 @@ into operations, refusing at its line any block that does not match whole, and n
 refusing it, a line that opens like one of the section's forms and is not it.
 Each operation carries its fields' lines at their lines in the design
 (`Op.lines`), by which `skills/code-review/scripts/chain_check.py` names a
-check line inside a `to` at its line. `order` reads merge
-order from git, `merge_order` reads it in local mode from the merge commits
-`settle` hands it, `group` joins the released designs whose operations name one
-place into one group, `unordered` names the pairs inside a group that no
-ancestry orders, and `section_lines` finds a section's lines in a document.
+check line inside a `to` at its line, and `section_lines` finds a
+section's lines in a document.
 `pending` reads the designs not yet settled, and `removed_by` says which of
 their `remove` items with no `from` takes a line's section out, for the two
 readers that excuse such a line: `.github/scripts/rules.py` and
@@ -33,8 +30,8 @@ lines through `lib/blocks.py#gfm_lines`, each loaded on first use, so this
 module spells no fence or heading rule of its own. A design is a
 record and carries no HTML comment, so `parse` reads it with no comment
 state and refuses a section line that begins with `<!--`; `headings`
-keeps the comment state for `section_lines` and `overlapping`, which read the
-policy documents.
+keeps the comment state for `section_lines`, which reads the policy
+documents.
 """
 
 import ast
@@ -42,7 +39,6 @@ import collections
 import glob
 import os
 import re
-import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -57,7 +53,6 @@ BLOCKS = "lib/blocks.py"
 FIELDS = "lib/fields.py"
 PASSAGES = "skills/settle/scripts/passages.py"
 TABLES = "lib/tables.py"
-GITCMD = "lib/gitcmd.py"
 
 HEADING = "Rule changes"
 # Each operation's fields: (required, optional). The item lines, their fields
@@ -130,14 +125,6 @@ def tables():
     import sibling
 
     return sibling.load(TABLES)
-
-
-def gitcmd():
-    """`lib/gitcmd.py`, which builds a `git log` read the same under
-    any git configuration, loaded on first use."""
-    import sibling
-
-    return sibling.load(GITCMD)
 
 
 def heading_text(line):
@@ -413,7 +400,7 @@ def apply_op(text, op):
     there. An `add` whose `to` is one table row lands as the last row of the
     last table in the section's own text (`_last_row`), and where no table
     stands there, as any `add` does. The document's line end, CRLF or LF, is
-    kept in what it writes. `seal settle --draft` calls it once per released
+    kept in what it writes. AgenticSeal's `settle --draft` calls it once per released
     operation. `copies` above applies an operation too, to the whole document
     with no section, for the runs of words the document will hold; a new
     operation kind is applied in both."""
@@ -583,7 +570,7 @@ def copies(op, texts, gone=None):
 def pending(home, policy_root):
     """`[(Op, work item directory)]` for every item of a pending `## Rule
     changes`: each `frame/design.md` under `<home>/threads/`, HOME the
-    `seal/` root, read through `parse` against POLICY_ROOT. The directory
+    `iadd/` root, read through `parse` against POLICY_ROOT. The directory
     is named `<name>/threads/<id>/`, NAME being HOME's own. A design that
     cannot be read as UTF-8, or a section `parse` refuses, gives no item."""
     found = []
@@ -614,171 +601,7 @@ def removed_by(items, rel, text, line):
     return None
 
 
-# --- the released designs, by place and in merge order ------------------------
-
-
-def place(op):
-    return (op.file, op.section)
-
-
-def where(p):
-    """A place as a person reads it."""
-    return f"{p[0]} section `{p[1]}`" if p[1] else p[0]
-
-
-def overlapping(read):
-    """`same(p, q)`: whether two places can name one text. They do when they
-    are one file and one section holds the other, a section's range holding
-    its sub-sections, or either is the whole document. READ(path) is the
-    document as it stands, whose headings decide what holds what."""
-    held_by = {}
-
-    def lineage(p):
-        if p not in held_by:
-            text, found = read(p[0]), {p[1]}
-            marks = headings(blocks().gfm_lines(text)) if text and p[1] else []
-            at = [n for n, (_, _, t) in enumerate(marks) if t == p[1]]
-            if len(at) == 1:
-                level = marks[at[0]][1]
-                for _, lv, t in reversed(marks[: at[0]]):
-                    if lv < level:
-                        found.add(t)
-                        level = lv
-            held_by[p] = found
-        return held_by[p]
-
-    def same(p, q):
-        if p[0] != q[0]:
-            return False
-        return None in (p[1], q[1]) or p[1] in lineage(q) or q[1] in lineage(p)
-
-    return same
-
-
 # A thread's design, relative to its directory: `lib/optin.py#DESIGN`.
 DESIGN = "frame/design.md"
 # The sub-directory of the root that holds the threads: `lib/optin.py#WORK_ITEMS`.
 THREADS = "threads"
-# Where a thread's design stood before the session-start move brought it into
-# `seal/threads/`, as (directory, name): read from history only, so a moved
-# thread is placed where its design was first added and not at the move's one
-# commit, which adds every moved design at once.
-# exempt from old_names: the 0.22.x path of a design, read from history
-# exempt from root_name: a path of 0.22.x's history, before a second name existed
-EARLIER = ("seal/specs", "spec.md")
-
-
-def order(root, ref, ids, specs):
-    """`[(id, commit)]` for IDS in merge order: the first commit reachable from
-    REF that adds the id's `frame/design.md` under SPECS, the `/`-joined
-    `<name>/threads` of the root in the tree, or its design at the earlier
-    path (`EARLIER`), in `git log --topo-order --reverse` order, a directory
-    moved under a new id counting as added where it lands. An id no such
-    commit adds comes last, with commit None."""
-    r = subprocess.run(
-        gitcmd().argv(
-            "-C", root, "log", "-z", "--full-history", "--topo-order",
-            "--reverse", "--no-renames", "--diff-filter=A", "--name-only",
-            "--format=%x01%H",
-            ref, "--", specs, EARLIER[0],
-        ),
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-    )  # fmt: skip
-    first, commit = {}, None
-    # `-z` ends each path with a NUL and quotes none, whatever
-    # `core.quotePath` says; a commit's field opens with U+0001, which no
-    # path under SPECS starts with, and the path that follows it opens with
-    # a newline.
-    for line in r.stdout.split("\0"):
-        line = line.lstrip("\n")
-        if line.startswith("\x01"):
-            commit = line[1:]
-            continue
-        for base, name in ((specs, DESIGN), EARLIER):
-            parts = line[len(base) + 1 :].split("/", 1)
-            if line.startswith(base + "/") and len(parts) == 2 and parts[1] == name:
-                first.setdefault(parts[0], commit)
-    known = [i for i in first if i in ids]
-    return [(i, first[i]) for i in known] + [(i, None) for i in ids if i not in first]
-
-
-def merge_order(root, ref, pairs):
-    """PAIRS, `[(id, commit)]`, sorted by each commit's place in `git rev-list
-    --topo-order --reverse REF`: the merge order of local-mode designs, which
-    no commit adds, read from their pull requests' merge commits. A pair
-    whose commit REF does not reach comes last, in the order handed."""
-    r = subprocess.run(
-        ["git", "-C", root, "rev-list", "--topo-order", "--reverse", ref],
-        capture_output=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    place = {commit: n for n, commit in enumerate(r.stdout.split())}
-    return sorted(pairs, key=lambda pair: place.get(pair[1], len(place)))
-
-
-def _ancestor(root, a, b):
-    return (
-        a != b
-        and subprocess.run(
-            ["git", "-C", root, "merge-base", "--is-ancestor", a, b],
-            capture_output=True,
-        ).returncode
-        == 0
-    )
-
-
-def group(specs, same):
-    """`[(places, [(id, Op)])]` for SPECS, `[(id, [Op])]` in merge order.
-
-    Two places are one group where SAME (`overlapping`) says they can name
-    one text, and a place joins every group it overlaps, so a group is the
-    history of one rule. Each group lists its places and its operations in
-    the order SPECS hands them, and the groups come in the order of their
-    first operation. A design with operations at two places that cannot name
-    one text is in two groups."""
-    places = []
-    for _, ops in specs:
-        for o in ops:
-            if place(o) not in places:
-                places.append(place(o))
-    parent = list(range(len(places)))
-
-    def find(n):
-        while parent[n] != n:
-            parent[n] = parent[parent[n]]
-            n = parent[n]
-        return n
-
-    for n, p in enumerate(places):
-        for m in range(n):
-            if same(p, places[m]):
-                parent[find(n)] = find(m)
-    # A group is first met at its first place, and places are in the order
-    # of the operations that name them, so the dict keeps the groups' order.
-    out = {}
-    for n, p in enumerate(places):
-        out.setdefault(find(n), ([], []))[0].append(p)
-    for work_item, ops in specs:
-        for o in ops:
-            out[find(places.index(place(o)))][1].append((work_item, o))
-    return list(out.values())
-
-
-def unordered(root, commits):
-    """`[(a, b)]` for the ids of COMMITS, `[(id, commit)]` in merge order,
-    whose commits no ancestry orders: commits on two branches, or a commit
-    None, which `order` hands an id no commit adds. The commits are the ones
-    that add each design, or in local mode its pull request's merge commit."""
-    out = []
-    for n, (a, ca) in enumerate(commits):
-        for b, cb in commits[n + 1 :]:
-            if a == b:
-                continue
-            if None in (ca, cb) or not (
-                ca == cb or _ancestor(root, ca, cb) or _ancestor(root, cb, ca)
-            ):
-                out.append((a, b))
-    return out

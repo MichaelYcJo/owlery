@@ -31,7 +31,7 @@ describe("the fake adapter", () => {
     expect((await runWhole(fakeAdapter(), "Q"))[0]).toEqual({ type: "session", id: "fake-1", model: "fake" });
 
     const given = fakeAdapter({ session: (prompt, role) => ({ id: `${prompt}-${role?.role ?? "none"}`, model: role ? null : "owl" }) });
-    expect(await runWhole(given, "s", { role: "sealer", stage: "seal" })).toEqual([
+    expect(await runWhole(given, "s", { role: "inspector", stage: "inspection" })).toEqual([
       { type: "session", id: "s-sealer", model: null },
       { type: "text", text: 'As the sealer at the stage seal, you asked: "s"' },
       { type: "result", text: 'As the sealer at the stage seal, you asked: "s"', isError: false, usage: null },
@@ -122,7 +122,7 @@ describe("the fake adapter", () => {
 
   it("gives its pieces the role it was started with, and nothing where it was started with none", async () => {
     const adapter = fakeAdapter({ pieces: (prompt, role) => [prompt, ": ", role ? `${role.role}/${role.stage}` : "no role"] });
-    expect((await run(adapter, "Q", { role: "sealer", stage: "seal" })).at(-2)).toEqual({ type: "result", text: "Q: sealer/seal", isError: false, usage: null });
+    expect((await run(adapter, "Q", { role: "inspector", stage: "inspection" })).at(-2)).toEqual({ type: "result", text: "Q: sealer/seal", isError: false, usage: null });
     expect((await run(adapter, "Q")).at(-2)).toEqual({ type: "result", text: "Q: no role", isError: false, usage: null });
   });
 

@@ -16,7 +16,7 @@ import { repositoryFileText } from "./repository-file";
 import { commitRunner } from "./worktrees";
 
 /** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
-export const MARKER = "# What AgenticSeal maintains in seal/";
+export const MARKER = "# What IADD keeps in iadd/";
 /** The subject of the commit a setup makes. */
 export const SUBJECT = "chore: add the place for work records and the pull request check";
 
@@ -24,10 +24,10 @@ export const SUBJECT = "chore: add the place for work records and the pull reque
 export function moveSubject(version: string): string {
   return `chore: move the pull request check to Owlery ${version}`;
 }
-/** The two names a records root takes: the first, and the second where the repository keeps a `seal/` of its own. */
-const ROOTS = ["seal", "agentic-seal"] as const;
+/** The one name a records root takes. A repository that keeps an `iadd/` of its own has no place for the records. */
+export const ROOT = "iadd";
 /** The workflow a setup writes, and the one of AgenticSeal's that is kept in its place where it stands. */
-const WORKFLOW = ".github/workflows/owlery-seal.yml";
+export const WORKFLOW = ".github/workflows/owlery-inspection.yml";
 const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
 /** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
 export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
@@ -39,7 +39,7 @@ const FILE_MODES = ["100644", "100755"];
  * a phase and a round under other numbers, and a later release may add a
  * record.
  */
-const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questions.md", "gaps.md", "changelog.md", "pr.md", "decisions.md", "trail/phases/phase-1.md", "trail/rounds/round-1.md", "trail/gate.md", "guarantee.md"] as const;
+const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questions.md", "gaps.md", "changelog.md", "pr.md", "decisions.md", "trail/phases/phase-1.md", "trail/rounds/round-1.md", "trail/gate.md", "inspection.md"] as const;
 
 /** What a new root's `README.md` holds. Its first line is the marker. */
 function readmeText(): string {
@@ -48,8 +48,8 @@ function readmeText(): string {
     "",
     "Owlery keeps the work records of this repository here, and commits them. The first line of this file is the marker the pull request check reads: leave it as it is.",
     "",
-    "- `config.json` holds what this repository says about itself. `Broad gate` is the command that must pass on a commit before it is sealed. `Commit and pull request language` and `Record language` name the language of commits and of records.",
-    "- `threads/<work-item-id>/` holds one work item's records: how it was routed, its design, its review rounds, the broad gate's run, the verdict, and `decisions.md`, the decisions made for it without asking and the questions it was parked with.",
+    "- `config.json` holds what this repository says about itself. `Broad gate` is the command that must pass on a commit before it is inspected. `Commit and pull request language` and `Record language` name the language of commits and of records.",
+    "- `threads/<work-item-id>/` holds one work item's records: how it was routed, its design, its review rounds, the broad gate's run, the inspection, and `decisions.md`, the decisions made for it without asking and the questions it was parked with.",
     "",
     `The check runs on every pull request from \`${WORKFLOW}\`. It judges a pull request whose branch a \`routing.md\` under \`threads/\` names, and passes every other one unjudged.`,
     "",
@@ -66,19 +66,19 @@ function configText(command: string): string {
  * from Owlery's repository at the tag of that version, and at the release's
  * branch until the tag exists, and runs the check's script under
  * `pr-check/` with `--post`. The job's id, `records`, is one check's name on
- * GitHub, and the script posts its verdict as a second, `seal`, with the
- * run's token, which the job's permissions let write a check.
+ * GitHub, and the script posts its verdict as a second, `inspection`, with
+ * the run's token, which the job's permissions let write a check.
  */
 export function workflowText(version: string): string {
   return `# The pull request check of Owlery: a pull request that declares a work item
-# carries the records it owes, and a ready one carries a seal at its head.
-# A pull request that declares no work item is not judged.
-# The check posts its verdict as the check \`seal\` on the pull request's
+# carries the records it owes, and a ready one carries a cleared inspection
+# at its head. A pull request that declares no work item is not judged.
+# The check posts its verdict as the check \`inspection\` on the pull request's
 # head commit, which an administrator can make required.
 # This file fetches the check from Owlery's repository at one release, the
 # one named below. That line moves when the file is written again.
 
-name: seal
+name: inspection
 
 on:
   pull_request:
@@ -190,9 +190,9 @@ function runsPluginCheck(text: string | null): boolean {
   return text?.includes(PLUGIN_CHECK) === true;
 }
 
-/** The root that stands in a working tree: the first of the two names whose `README.md` is a root's. Null where neither is. */
+/** The root that stands in a working tree: `iadd` where its `README.md` is a root's, and null where it is not. */
 export function rootOf(folder: string): string | null {
-  return ROOTS.find((name) => opensWithMarker(textOf(join(folder, name, "README.md")))) ?? null;
+  return opensWithMarker(textOf(join(folder, ROOT, "README.md"))) ? ROOT : null;
 }
 
 /** The workflow that stands in a working tree: Owlery's, or AgenticSeal's where Owlery's does not. Null where neither does. */
@@ -295,13 +295,13 @@ function git(cwd: string, args: string[]): Promise<{ code: number; stdout: strin
 }
 
 /**
- * What git lists at or below the root's two names and `.github`: each file,
+ * What git lists at or below the root's name and `.github`: each file,
  * link and submodule by its path, with its mode. `args` is the listing, of
  * a commit's tree or of the index, and each prints a mode, more, a tab and
  * the path, with a NUL after each entry. A folder has no entry of its own.
  */
 async function listed(folder: string, args: string[]): Promise<Map<string, string>> {
-  const list = await git(folder, [...args, "--", ...ROOTS, ".github"]);
+  const list = await git(folder, [...args, "--", ROOT, ".github"]);
   if (list.code !== 0) throw new Error(list.stderr.trim() || "git could not list what it holds of the records place");
   const held = new Map<string, string>();
   for (const entry of list.stdout.split("\0")) {
@@ -370,10 +370,9 @@ function shows(folder: string, path: string): boolean {
  * The plan is made from the commit the checkout stands at and from nothing
  * else, because that is what a clone and the check on GitHub get. A
  * repository with no commit is planned as one that holds nothing. The root
- * that is kept is the first of the two names whose `README.md` the commit
- * holds as a file that opens with the marker, with its `config.json` where
- * the commit holds one. A new root is planned at the first name the commit
- * holds nothing at or below. The workflow that is kept is Owlery's where
+ * is kept where the commit holds its `README.md` as a file that opens with
+ * the marker, with its `config.json` where the commit holds one. A new root
+ * is planned where the commit holds nothing at or below its name. The workflow that is kept is Owlery's where
  * the commit holds it as a file and the plan does not move its check, or
  * AgenticSeal's `hygiene.yml` where the commit's text of it runs the
  * check, and Owlery's is planned where the commit holds neither.
@@ -395,14 +394,14 @@ function shows(folder: string, path: string): boolean {
  * checkout, and where its text there, hashed as git would store it, is not
  * the commit's: status reports no change of a path it is told not to look
  * at, by the skip-worktree or the assume-unchanged flag of its index
- * entry. The `README.md` of the other name of the root and a `hygiene.yml`
- * the plan does not keep are the project's own, and the daemon reads one
+ * entry. The root's `README.md` where the plan neither keeps nor writes it,
+ * and a `hygiene.yml` the plan does not keep, are the project's own, and the daemon reads one
  * thing of each, whether it opens with the marker and whether it runs the
  * check: such a file differs where the checkout's text or the index's
  * answers that otherwise than the commit's, and no other edit of it does.
  *
  * The plan is `blocked` by the first of these that holds: the commit holds
- * something of the project's own at both names of the root; git ignores a
+ * something of the project's own at the root's name; git ignores a
  * file of the plan; git ignores the folder `threads/` of the root or one of
  * the sample of record paths below it; something other than a folder is at
  * `threads` of the root, where each work item's records go, in the
@@ -438,12 +437,9 @@ export async function planRecords(folder: string, broadGate: string, version: st
     return blob.stdout;
   };
 
-  const readmes = ROOTS.map((name) => `${name}/README.md`);
-  let kept: string | null = null;
-  for (const name of ROOTS) {
-    if (kept === null && opensWithMarker(await committed(`${name}/README.md`))) kept = name;
-  }
-  const root = kept ?? ROOTS.find((name) => !holds(name)) ?? null;
+  const readmes = [`${ROOT}/README.md`];
+  const kept = opensWithMarker(await committed(`${ROOT}/README.md`)) ? ROOT : null;
+  const root = kept ?? (holds(ROOT) ? null : ROOT);
   const check = holdsFile(WORKFLOW) ? WORKFLOW : runsPluginCheck(await committed(PLUGIN_WORKFLOW)) ? PLUGIN_WORKFLOW : null;
   const files: RecordsPlan["files"] = [];
   if (root !== null) {
@@ -480,7 +476,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
       if (inCheckout[at] !== atCommit[at]) apart.add(path);
     });
   }
-  // What the daemon reads of the `README.md` at each name of the root and of `hygiene.yml`: whether it is a root's, and whether it runs the check. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
+  // What the daemon reads of the root's `README.md` and of `hygiene.yml`: whether it is a root's, and whether it runs the check. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
   const reads = (path: string): ((text: string | null) => boolean) => (path === PLUGIN_WORKFLOW ? runsPluginCheck : opensWithMarker);
   for (const path of [...readmes, PLUGIN_WORKFLOW]) {
     const atCommit = reads(path)(await committed(path));
@@ -512,7 +508,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const ignoredRecords = asked.ignored;
   let blocked: string | null = null;
   if (root === null) {
-    blocked = "Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.";
+    blocked = "iadd/ holds something of this repository's own, so Owlery has no folder to keep work records in. Rename that folder in a commit, and open this again.";
   } else if (ignored.length > 0) {
     blocked = `Git ignores ${named(ignored)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
   } else if (ignoredRecords.length > 0) {
@@ -580,7 +576,7 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
   if (plan.blocked !== null) throw new Error(plan.blocked);
   const writes = plan.files.filter((file): file is { path: string; text: string } => file.text !== null);
   if (writes.length === 0) return;
-  if (broadGate.trim() === "" && writes.some((file) => file.path.endsWith("/config.json"))) throw new Error("The broad gate command is empty. Type the command that must pass before a commit is sealed.");
+  if (broadGate.trim() === "" && writes.some((file) => file.path.endsWith("/config.json"))) throw new Error("The broad gate command is empty. Type the command that must pass before a commit is inspected.");
   const paths = writes.map((file) => file.path);
   const madeFiles: string[] = [];
   const madeFolders: string[] = [];

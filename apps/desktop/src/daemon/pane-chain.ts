@@ -31,21 +31,21 @@ export const RUNNER_FILE = "owl-run";
 
 /**
  * The head a pane's system prompt ends with. It says three things and no
- * rule: the session carries the owl chain, a branch takes its seal from that
- * chain before its pull request is opened or the work is called done, and
- * the bundle's document and the pane's environment say how. The steps are
- * the document's, `skills/seal/SKILL.md` of the bundle, which the session
- * opens when a branch owes its seal.
+ * rule: the session carries the Owl Chain, a branch is cleared by its
+ * inspection before its pull request is opened or the work is called done,
+ * and the bundle's document and the pane's environment say how. The steps
+ * are the document's, `skills/inspection/SKILL.md` of the bundle, which the
+ * session opens when a branch owes its inspection.
  */
 export function paneHead(): string {
   return [
-    "# Owlery: this session carries the owl chain",
+    "# Owlery: this session carries the Owl Chain",
     "",
-    "This session runs in a pane of Owlery, in a repository whose installed check is Owlery's, so it carries the owl chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.",
+    "This session runs in a pane of Owlery, in a repository whose installed check is Owlery's, so it carries the Owl Chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.",
     "",
-    "A branch takes its seal from the owl chain before its pull request is opened or the work is called done.",
+    "A branch is cleared by the Owl Chain's inspection before its pull request is opened or the work is called done.",
     "",
-    "The bundle's document `skills/seal/SKILL.md`, listed as the skill `owlery:seal`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.",
+    "The bundle's document `skills/inspection/SKILL.md`, listed as the skill `owlery:inspection`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.",
     "",
   ].join("\n");
 }

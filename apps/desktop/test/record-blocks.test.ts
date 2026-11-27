@@ -1,4 +1,4 @@
-// The daemon's reader and writer of a `seal` block. The pull request check
+// The daemon's reader and writer of an `iadd` block. The pull request check
 // reads the same blocks in Python (`pr-check/lib/fields.py`), so the first
 // case hands one set of fixtures to both readers and compares what they
 // return, and the second does the same for the four kinds of a round record.
@@ -7,20 +7,20 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { earlierRunSays, endedWith } from "../src/daemon/chain";
-import { gateText } from "../src/daemon/seal-records";
+import { gateText } from "../src/daemon/inspection-records";
 import { ASK_BLOCK, CONVERGENCE_BLOCK, DECISION_BLOCK, QUESTION_BLOCK, ROUND_RECORD, RULING_BLOCK, RUN_BLOCK, VERDICT_BLOCK, assemble, field, isSessionId, read, type BlocksRead } from "../src/daemon/record-blocks";
 
 const PR_CHECK_LIB = join(__dirname, "..", "..", "..", "pr-check", "lib");
 
 const F = "```";
-const VERDICT = [`${F}seal`, "target: 0123abc against main", "Verdict: sealed", F, ""].join("\n");
-const RUN = [`${F}seal`, "run: 0123abc against 89abcde", F, ""].join("\n");
+const VERDICT = [`${F}iadd`, "target: 0123abc against main", "Verdict: cleared", F, ""].join("\n");
+const RUN = [`${F}iadd`, "run: 0123abc against 89abcde", F, ""].join("\n");
 
 /** A block from its lines. */
-const sealed = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+const fenced = (...lines: string[]): string => [`${F}iadd`, ...lines, F, ""].join("\n");
 
-/** A verdict block that holds the lines given after its target and its verdict: the lines the daemon writes on who built and who judged. */
-const judged = (...lines: string[]): string => sealed("target: 0123abc against main", "Verdict: sealed", ...lines);
+/** A verdict block that holds the lines given after its target and its verdict: the lines the daemon writes on who built and who inspected. */
+const judged = (...lines: string[]): string => fenced("target: 0123abc against main", "Verdict: cleared", ...lines);
 
 /**
  * Each fixture with what both readers return of it: how many blocks, and the
@@ -30,63 +30,66 @@ const judged = (...lines: string[]): string => sealed("target: 0123abc against m
 const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]; notices: number[] }[] = [
   { name: "a block alone", text: `# Guarantee\n\n${VERDICT}\nProse below it.\n`, blocks: 1, refusals: [], notices: [] },
   { name: "a block inside another fence", text: `${F}${F}\n${VERDICT}${F}${F}\n`, blocks: 0, refusals: [], notices: [] },
-  { name: "a fence that never closes", text: `${F}seal\ntarget: 0123abc against main\nVerdict: sealed\n`, blocks: 0, refusals: [1], notices: [] },
+  { name: "a fence that never closes", text: `${F}iadd\ntarget: 0123abc against main\nVerdict: cleared\n`, blocks: 0, refusals: [1], notices: [] },
   { name: "a line that begins with an HTML comment", text: `<!-- a note -->\n\n${RUN}`, blocks: 1, refusals: [1], notices: [] },
-  { name: "an indented fence", text: `    ${F}seal\n    run: 0123abc against 89abcde\n    ${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
-  { name: "an opener with a word after seal", text: `${F}seal verdict\ntarget: 0123abc against main\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
-  { name: "a blank line inside a block", text: `${F}seal\ntarget: 0123abc against main\n\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "a line that is no field", text: `${F}seal\ntarget: 0123abc against main\nVerdict: sealed\nnote: read twice\n${F}\n`, blocks: 0, refusals: [4], notices: [] },
-  { name: "a key twice", text: `${F}seal\ntarget: 0123abc against main\ntarget: 0123abd against main\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "a block that lacks a key", text: `prose\n\n${F}seal\ntarget: 0123abc against main\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "an empty block", text: `${F}seal\n${F}\n`, blocks: 0, refusals: [1], notices: [] },
-  { name: "a first line that opens no kind given", text: `${F}seal\nseverity: P1\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
-  { name: "a value of another shape", text: `${F}seal\ntarget: 0123abc\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
-  { name: "a key alone where its shape takes a value", text: `${F}seal\nrun:\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
+  { name: "an indented fence", text: `    ${F}iadd\n    run: 0123abc against 89abcde\n    ${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
+  { name: "an opener with a word after iadd", text: `${F}iadd verdict\ntarget: 0123abc against main\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
+  { name: "a blank line inside a block", text: `${F}iadd\ntarget: 0123abc against main\n\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a line that is no field", text: `${F}iadd\ntarget: 0123abc against main\nVerdict: cleared\nnote: read twice\n${F}\n`, blocks: 0, refusals: [4], notices: [] },
+  { name: "a key twice", text: `${F}iadd\ntarget: 0123abc against main\ntarget: 0123abd against main\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a block that lacks a key", text: `prose\n\n${F}iadd\ntarget: 0123abc against main\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "an empty block", text: `${F}iadd\n${F}\n`, blocks: 0, refusals: [1], notices: [] },
+  { name: "a first line that opens no kind given", text: `${F}iadd\nseverity: P1\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
+  { name: "a value of another shape", text: `${F}iadd\ntarget: 0123abc\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
+  { name: "a key alone where its shape takes a value", text: `${F}iadd\nrun:\n${F}\n`, blocks: 0, refusals: [2], notices: [] },
   {
     name: "a run block and a verdict block with its original, each line ended by a carriage return and a line feed",
-    text: [`${F}seal`, "run: 0123abc against 89abcde", F, "", `${F}seal`, "target: 0123abc against release/v1", "original: 89abcde", "Verdict: sealed", F, ""].join("\r\n"),
+    text: [`${F}iadd`, "run: 0123abc against 89abcde", F, "", `${F}iadd`, "target: 0123abc against release/v1", "original: 89abcde", "Verdict: cleared", F, ""].join("\r\n"),
     blocks: 2,
     refusals: [],
     notices: [],
   },
   {
     name: "a withheld verdict and an undecided one",
-    text: `${F}seal\ntarget: 0123abc against main\nVerdict: withheld reason: the gate did not run\n${F}\n\n${F}seal\ntarget: 0123abc against main\nVerdict: undecided question: may it push?\n${F}\n`,
+    text: `${F}iadd\ntarget: 0123abc against main\nVerdict: withheld reason: the gate did not run\n${F}\n\n${F}iadd\ntarget: 0123abc against main\nVerdict: undecided question: may it push?\n${F}\n`,
     blocks: 2,
     refusals: [],
     notices: [],
   },
   {
     name: "a verdict block with the daemon's lines: two builders, the judge, its model and the rules",
-    text: judged("built-by: the session, 00000000-0000-4000-8000-000000000001", "judged-by: s-2", "model: claude-opus-5-5", "rules: owlery 0.0.2"),
+    text: judged("built-by: the session, 00000000-0000-4000-8000-000000000001", "inspected-by: s-2", "model: claude-opus-5-5", "rules: owlery 0.0.2"),
     blocks: 1,
     refusals: [],
     notices: [],
   },
-  { name: "a block that opens with one of the daemon's lines, which opens no kind", text: sealed("rules: owlery 0.0.2", "target: 0123abc against main", "model: owl large", "judged-by: s-2", "built-by: s-1", "Verdict: sealed"), blocks: 0, refusals: [2], notices: [] },
-  { name: "the daemon's lines in another order above the verdict, a builder that is an id alone, and a model of two words", text: sealed("target: 0123abc against main", "rules: owlery 0.0.2", "model: owl large", "judged-by: s-2", "built-by: s-1", "Verdict: sealed"), blocks: 1, refusals: [], notices: [] },
-  { name: "a second judge", text: judged("built-by: the session", "judged-by: s-2", "judged-by: s-3"), blocks: 0, refusals: [6], notices: [] },
+  { name: "a block that opens with one of the daemon's lines, which opens no kind", text: fenced("rules: owlery 0.0.2", "target: 0123abc against main", "model: owl large", "inspected-by: s-2", "built-by: s-1", "Verdict: cleared"), blocks: 0, refusals: [2], notices: [] },
+  { name: "the daemon's lines in another order above the verdict, a builder that is an id alone, and a model of two words", text: fenced("target: 0123abc against main", "rules: owlery 0.0.2", "model: owl large", "inspected-by: s-2", "built-by: s-1", "Verdict: cleared"), blocks: 1, refusals: [], notices: [] },
+  { name: "a second judge", text: judged("built-by: the session", "inspected-by: s-2", "inspected-by: s-3"), blocks: 0, refusals: [6], notices: [] },
   { name: "a second line of builders, of a model and of the rules", text: `${judged("built-by: s-1", "built-by: s-2")}\n${judged("model: owl", "model: owl")}\n${judged("rules: owlery 1", "rules: owlery 2")}`, blocks: 0, refusals: [5, 12, 19], notices: [] },
   { name: "builders joined by a comma alone", text: judged("built-by: the session,s-1"), blocks: 0, refusals: [4], notices: [] },
-  { name: "two ids joined by a comma alone, as builders and as the judge: an id holds no comma", text: `${judged("built-by: s-1,s-2")}\n${judged("judged-by: s-1,s-2")}`, blocks: 0, refusals: [4, 10], notices: [] },
+  { name: "two ids joined by a comma alone, as builders and as the judge: an id holds no comma", text: `${judged("built-by: s-1,s-2")}\n${judged("inspected-by: s-1,s-2")}`, blocks: 0, refusals: [4, 10], notices: [] },
   { name: "a builder of two words that is not the session", text: judged("built-by: a session"), blocks: 0, refusals: [4], notices: [] },
   { name: "a builder's id that holds a no-break space, and a line of builders that names none", text: `${judged("built-by: s\u00a01")}\n${judged("built-by:")}\n${judged("built-by: s-1, ")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
-  { name: "a judge named as the session, two judges on one line, and a judge with no id", text: `${judged("judged-by: the session")}\n${judged("judged-by: s-1, s-2")}\n${judged("judged-by:")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
+  { name: "a verdict block with the lines of the workflow and the inspector module that produced it", text: judged("built-by: s-1", "inspected-by: s-2", "model: owl", "rules: owlery 0.0.2", "workflow: owl-chain", "inspector: owl-chain"), blocks: 1, refusals: [], notices: [] },
+  { name: "a second workflow line, and an inspector line that names no module", text: `${judged("workflow: owl-chain", "workflow: other")}\n${judged("inspector:")}`, blocks: 0, refusals: [5, 11], notices: [] },
+  { name: "a judge named as the session, two judges on one line, and a judge with no id", text: `${judged("inspected-by: the session")}\n${judged("inspected-by: s-1, s-2")}\n${judged("inspected-by:")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
   { name: "a model with no name, and one that ends with a no-break space", text: `${judged("model:")}\n${judged("model: owl\u00a0")}`, blocks: 0, refusals: [4, 10], notices: [] },
-  { name: "rules of another product, rules with no version, and a version of two words", text: `${judged("rules: seal 0.0.2")}\n${judged("rules: owlery")}\n${judged("rules: owlery 0.0.2 beta")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
-  { name: "a fence of tildes named seal", text: `~~~seal\nrun: 0123abc against 89abcde\n~~~\n`, blocks: 0, refusals: [], notices: [1] },
-  { name: "the opener in capitals", text: `${F}SEAL\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
-  { name: "the opener with a long s", text: `${F}ſeal\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
-  { name: "a fence in a list item", text: `- ${F}seal\n  run: 0123abc against 89abcde\n  ${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
-  { name: "a fence after a list number of another script", text: `١. ${F}seal\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
+  { name: "rules of another product, rules with no version, and a version of two words", text: `${judged("rules: iadd 0.0.2")}\n${judged("rules: owlery")}\n${judged("rules: owlery 0.0.2 beta")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
+  { name: "a fence of tildes named iadd", text: `~~~iadd\nrun: 0123abc against 89abcde\n~~~\n`, blocks: 0, refusals: [], notices: [1] },
+  { name: "the opener in capitals", text: `${F}IADD\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
+  { name: "the opener with a dotless i, which Python's case fold keeps and an upper case and back would turn into an i", text: `${F}\u0131add\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [] },
+  { name: "a block whose fence is seal, the earlier form, which is no block and no fence like one", text: `${F}seal\ntarget: 0123abc against main\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [], notices: [] },
+  { name: "a fence in a list item", text: `- ${F}iadd\n  run: 0123abc against 89abcde\n  ${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
+  { name: "a fence after a list number of another script", text: `١. ${F}iadd\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [1, 3], notices: [] },
   { name: "a block below an HTML block", text: `<div>\n\n${RUN}`, blocks: 0, refusals: [3, 5], notices: [] },
   { name: "a comment line inside another fence", text: `${F}\n<!-- quoted -->\n${F}\n\n${RUN}`, blocks: 1, refusals: [], notices: [] },
   { name: "a block below a fence that never closes", text: `~~~\n\n${RUN}`, blocks: 1, refusals: [1], notices: [] },
-  { name: "a reason that opens with a next-line character", text: `${F}seal\ntarget: 0123abc against main\nVerdict: withheld reason: \u0085late\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "a line of a unit separator alone inside a block", text: `${F}seal\ntarget: 0123abc against main\n\u001f\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "a closing fence followed by a no-break space", text: `${F}seal\nrun: 0123abc against 89abcde\n${F} \n`, blocks: 0, refusals: [1, 3], notices: [] },
-  { name: "a key with no space after its colon", text: `${F}seal\ntarget: 0123abc against main\nVerdict:sealed\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
-  { name: "a fence of backticks whose info string holds a backtick", text: `${F}seal \`verdict\`\ntarget: 0123abc against main\nVerdict: sealed\n${F}\n`, blocks: 0, refusals: [4], notices: [] },
+  { name: "a reason that opens with a next-line character", text: `${F}iadd\ntarget: 0123abc against main\nVerdict: withheld reason: \u0085late\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a line of a unit separator alone inside a block", text: `${F}iadd\ntarget: 0123abc against main\n\u001f\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a closing fence followed by a no-break space", text: `${F}iadd\nrun: 0123abc against 89abcde\n${F} \n`, blocks: 0, refusals: [1, 3], notices: [] },
+  { name: "a key with no space after its colon", text: `${F}iadd\ntarget: 0123abc against main\nVerdict:cleared\n${F}\n`, blocks: 0, refusals: [3], notices: [] },
+  { name: "a fence of backticks whose info string holds a backtick", text: `${F}iadd \`verdict\`\ntarget: 0123abc against main\nVerdict: cleared\n${F}\n`, blocks: 0, refusals: [4], notices: [] },
   { name: "a block inside an HTML comment block", text: `<!--\n${RUN}-->\n`, blocks: 0, refusals: [1], notices: [] },
   // A fence run whose info string holds a backtick opens no fence, so the walk reads the line as a paragraph's and says where it is not sure of it.
   { name: "a fence run on the line after a comment left open", text: `prose <!-- open\n${F}a\`b\n`, blocks: 0, refusals: [2], notices: [] },
@@ -101,40 +104,40 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
  * of it, as `FIXTURES` gives it for the verdict kind and the run kind.
  */
 const ROUND_FIXTURES: { name: string; text: string; blocks: number; refusals: number[]; notices: number[] }[] = [
-  { name: "a round block that names a base", text: sealed("target: 0123abc against release/v0.0.2"), blocks: 1, refusals: [], notices: [] },
-  { name: "a round block of a verifying round, with its original", text: sealed("target: 0123abc, fixes 89abcde..0123abc", "original: 89abcde"), blocks: 1, refusals: [], notices: [] },
-  { name: "a target with neither a base nor a range", text: sealed("target: 0123abc"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a target whose base ends with a dot", text: sealed("target: 0123abc against main."), blocks: 0, refusals: [2], notices: [] },
-  { name: "a target whose base is spelt in letters of another script", text: sealed("target: 0123abc against 기준"), blocks: 1, refusals: [], notices: [] },
-  { name: "a target whose base ends with a combining mark, which is no letter", text: sealed("target: 0123abc against main\u0301"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a target whose range names one commit", text: sealed("target: 0123abc, fixes 89abcde"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a round block that names a base", text: fenced("target: 0123abc against release/v0.0.2"), blocks: 1, refusals: [], notices: [] },
+  { name: "a round block of a verifying round, with its original", text: fenced("target: 0123abc, fixes 89abcde..0123abc", "original: 89abcde"), blocks: 1, refusals: [], notices: [] },
+  { name: "a target with neither a base nor a range", text: fenced("target: 0123abc"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose base ends with a dot", text: fenced("target: 0123abc against main."), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose base is spelt in letters of another script", text: fenced("target: 0123abc against 기준"), blocks: 1, refusals: [], notices: [] },
+  { name: "a target whose base ends with a combining mark, which is no letter", text: fenced("target: 0123abc against main\u0301"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a target whose range names one commit", text: fenced("target: 0123abc, fixes 89abcde"), blocks: 0, refusals: [2], notices: [] },
   {
     name: "a finding block with every key but a reopening",
-    text: sealed("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `docs/c.md`", "evidence: read `src/a.ts:12`", "regression: round-1#2"),
+    text: fenced("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `docs/c.md`", "evidence: read `src/a.ts:12`", "regression: round-1#2"),
     blocks: 1,
     refusals: [],
     notices: [],
   },
-  { name: "a finding block whose severity and evidence hold no word, and a regression that names a round alone", text: sealed("severity:", "location: `a.ts`", "evidence:", "regression: round-2"), blocks: 1, refusals: [], notices: [] },
-  { name: "a finding block that reopens a finding", text: sealed("severity: should", "location: `a.ts:1`", "reopens: round-1#1"), blocks: 1, refusals: [], notices: [] },
-  { name: "a reopening that names a round alone", text: sealed("severity: should", "location: `a.ts:1`", "reopens: round-1"), blocks: 0, refusals: [4], notices: [] },
-  { name: "a regression beside a reopening", text: sealed("severity: must", "location: `a.ts:1`", "regression: round-1#1", "reopens: round-1#1"), blocks: 0, refusals: [5], notices: [] },
-  { name: "a reopening beside a regression, the second of another shape", text: sealed("severity: must", "location: `a.ts:1`", "reopens: round-1#1", "regression: nothing"), blocks: 0, refusals: [5], notices: [] },
-  { name: "a finding block with no location", text: sealed("severity: must", "evidence: read it"), blocks: 0, refusals: [1], notices: [] },
-  { name: "a location with no backticks", text: sealed("severity: must", "location: src/a.ts:12"), blocks: 0, refusals: [3], notices: [] },
-  { name: "a location that opens with a slash", text: sealed("severity: must", "location: `/src/a.ts`"), blocks: 0, refusals: [3], notices: [] },
-  { name: "a location that holds a no-break space", text: sealed("severity: must", "location: `src/a\u00a0b.ts`"), blocks: 0, refusals: [3], notices: [] },
-  { name: "two locations joined by a comma alone", text: sealed("severity: must", "location: `a.ts`,`b.ts`"), blocks: 0, refusals: [3], notices: [] },
-  { name: "a round numbered from zero", text: sealed("severity: must", "location: `a.ts`", "regression: round-0#1"), blocks: 0, refusals: [4], notices: [] },
-  { name: "a close block that reads fixed, with its answer and a location", text: sealed("verdict: fixed 0123abc", "answer: The guard moved above the read.", "location: `src/c.ts`"), blocks: 1, refusals: [], notices: [] },
-  { name: "a close block that reads rejected, and one deferred to an issue", text: `${sealed("verdict: rejected", "answer:")}\n${sealed("verdict: deferred #42")}`, blocks: 2, refusals: [], notices: [] },
-  { name: "a deferral whose home is several words", text: sealed("verdict: deferred the frame, at its next fold"), blocks: 1, refusals: [], notices: [] },
-  { name: "a deferral with no home", text: sealed("verdict: deferred"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a deferral whose home ends with a no-break space", text: sealed("verdict: deferred #42\u00a0"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a verdict that reads open", text: sealed("verdict: open"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a fixed verdict with no commit, and one whose commit is six digits", text: `${sealed("verdict: fixed")}\n${sealed("verdict: fixed 0123ab")}`, blocks: 0, refusals: [2, 6], notices: [] },
-  { name: "a confirmation, and one of an earlier release that names none", text: `${sealed("confirms: round-1#2")}\n${sealed("confirms: none")}`, blocks: 2, refusals: [], notices: [] },
-  { name: "a confirmation that names a round alone", text: sealed("confirms: round-1"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a finding block whose severity and evidence hold no word, and a regression that names a round alone", text: fenced("severity:", "location: `a.ts`", "evidence:", "regression: round-2"), blocks: 1, refusals: [], notices: [] },
+  { name: "a finding block that reopens a finding", text: fenced("severity: should", "location: `a.ts:1`", "reopens: round-1#1"), blocks: 1, refusals: [], notices: [] },
+  { name: "a reopening that names a round alone", text: fenced("severity: should", "location: `a.ts:1`", "reopens: round-1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a regression beside a reopening", text: fenced("severity: must", "location: `a.ts:1`", "regression: round-1#1", "reopens: round-1#1"), blocks: 0, refusals: [5], notices: [] },
+  { name: "a reopening beside a regression, the second of another shape", text: fenced("severity: must", "location: `a.ts:1`", "reopens: round-1#1", "regression: nothing"), blocks: 0, refusals: [5], notices: [] },
+  { name: "a finding block with no location", text: fenced("severity: must", "evidence: read it"), blocks: 0, refusals: [1], notices: [] },
+  { name: "a location with no backticks", text: fenced("severity: must", "location: src/a.ts:12"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a location that opens with a slash", text: fenced("severity: must", "location: `/src/a.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a location that holds a no-break space", text: fenced("severity: must", "location: `src/a\u00a0b.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "two locations joined by a comma alone", text: fenced("severity: must", "location: `a.ts`,`b.ts`"), blocks: 0, refusals: [3], notices: [] },
+  { name: "a round numbered from zero", text: fenced("severity: must", "location: `a.ts`", "regression: round-0#1"), blocks: 0, refusals: [4], notices: [] },
+  { name: "a close block that reads fixed, with its answer and a location", text: fenced("verdict: fixed 0123abc", "answer: The guard moved above the read.", "location: `src/c.ts`"), blocks: 1, refusals: [], notices: [] },
+  { name: "a close block that reads rejected, and one deferred to an issue", text: `${fenced("verdict: rejected", "answer:")}\n${fenced("verdict: deferred #42")}`, blocks: 2, refusals: [], notices: [] },
+  { name: "a deferral whose home is several words", text: fenced("verdict: deferred the frame, at its next fold"), blocks: 1, refusals: [], notices: [] },
+  { name: "a deferral with no home", text: fenced("verdict: deferred"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a deferral whose home ends with a no-break space", text: fenced("verdict: deferred #42\u00a0"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a verdict that reads open", text: fenced("verdict: open"), blocks: 0, refusals: [2], notices: [] },
+  { name: "a fixed verdict with no commit, and one whose commit is six digits", text: `${fenced("verdict: fixed")}\n${fenced("verdict: fixed 0123ab")}`, blocks: 0, refusals: [2, 6], notices: [] },
+  { name: "a confirmation, and one of an earlier release that names none", text: `${fenced("confirms: round-1#2")}\n${fenced("confirms: none")}`, blocks: 2, refusals: [], notices: [] },
+  { name: "a confirmation that names a round alone", text: fenced("confirms: round-1"), blocks: 0, refusals: [2], notices: [] },
   { name: "a verdict block of a guarantee, which a round record holds no kind for", text: VERDICT, blocks: 0, refusals: [3], notices: [] },
 ];
 
@@ -146,7 +149,7 @@ interface Compared {
 }
 
 /** The Python reader's answer for each text, for the kinds its module holds under that name. `-B` keeps Python from writing its bytecode into `pr-check/`. */
-function pythonRead(texts: string[], kinds: "GUARANTEE + fields.GATE" | "ROUND_RECORD"): Compared[] {
+function pythonRead(texts: string[], kinds: "INSPECTION + fields.GATE" | "ROUND_RECORD"): Compared[] {
   const script = [
     "import json, sys",
     "sys.path.insert(0, sys.argv[1])",
@@ -189,12 +192,12 @@ function compared(got: BlocksRead): Compared {
   };
 }
 
-describe("the reader of a seal block", () => {
+describe("the reader of an iadd block", () => {
   // The case starts Python, which takes seconds while the rest of the suite runs beside it.
   it("returns the blocks, the refusals and the notices the pull request check's reader returns, for every fixture", { timeout: 30_000 }, () => {
     const python = pythonRead(
       FIXTURES.map((fixture) => fixture.text),
-      "GUARANTEE + fields.GATE",
+      "INSPECTION + fields.GATE",
     );
     for (const [index, fixture] of FIXTURES.entries()) {
       const own = compared(read(fixture.text, [VERDICT_BLOCK, RUN_BLOCK]));
@@ -238,7 +241,7 @@ describe("the reader of a seal block", () => {
     ]).toEqual(["exit code 3", "the signal SIGKILL", null, null, null]);
     const text = gateText(null, "1-work", { head: "0123abc", base: "89abcde" }, earlier);
     expect(text).toBe(`# Broad gate: 1-work\n\n${earlier}\n\n${RUN}`);
-    const [python] = pythonRead([text], "GUARANTEE + fields.GATE");
+    const [python] = pythonRead([text], "INSPECTION + fields.GATE");
     const own = compared(read(text, [VERDICT_BLOCK, RUN_BLOCK]));
     expect(own).toEqual(python);
     expect(own.blocks).toHaveLength(1);
@@ -257,8 +260,8 @@ describe("the reader of a seal block", () => {
   it("tells a session's id that a verdict block and a commit's trailer can name: one word that holds no comma, and not the name of a session a person drove", () => {
     for (const id of ["s-1", "fake-12", "0199e5c2-7b1d-7a7e-9c7f-3d2b1a0c9e8f", "the-session"]) expect(isSessionId(id), id).toBe(true);
     for (const none of ["", "the session", "s-1, s-2", "s-1,s-2", "s 1", " s-1", "s-1 ", "s-1\n", "s-1\ns-2", "s\t1"]) expect(isSessionId(none), JSON.stringify(none)).toBe(false);
-    // The shape is the one the block's `judged-by:` line takes.
-    expect(read(["```seal", `target: ${"a".repeat(40)} against main`, "Verdict: sealed", "judged-by: s-1,s-2", "```", ""].join("\n"), [VERDICT_BLOCK]).refusals).toHaveLength(1);
+    // The shape is the one the block's `inspected-by:` line takes.
+    expect(read(["```iadd", `target: ${"a".repeat(40)} against main`, "Verdict: cleared", "inspected-by: s-1,s-2", "```", ""].join("\n"), [VERDICT_BLOCK]).refusals).toHaveLength(1);
   });
 
   it("reads a block only for the kinds it is given", () => {
@@ -269,7 +272,7 @@ describe("the reader of a seal block", () => {
 
   it("returns every line of a key a block may hold any number of, in the file's order, and refuses a second line of any other key", () => {
     const question = [
-      `${F}seal`,
+      `${F}iadd`,
       "question: 2",
       "asks: May the run push the branch to `origin`?",
       "grounds: No document of the repository grants it.",
@@ -295,7 +298,7 @@ describe("the reader of a seal block", () => {
   });
 
   describe("the kinds a stage's answer holds", () => {
-    const block = (...lines: string[]): string => [`${F}seal`, ...lines, F, ""].join("\n");
+    const block = (...lines: string[]): string => [`${F}iadd`, ...lines, F, ""].join("\n");
     const refusal = (text: string, kinds: Parameters<typeof read>[1]): string => read(text, kinds).refusals.map(({ line, why }) => `${String(line)}: ${why}`).join("; ");
 
     it("reads a stage's question: what it asks and its grounds, any number of options each with a label and what it implies, and at most one default that names an option", () => {
@@ -344,7 +347,7 @@ describe("the reader of a seal block", () => {
   });
 
   it("says of a refusal which block it refused, by the line of the block's opener, and of a refusal outside every block that it refused none", () => {
-    const got = read(`<!-- a note -->\n\n${F}seal\nrun: 0123abc\n${F}\n`, [RUN_BLOCK]);
+    const got = read(`<!-- a note -->\n\n${F}iadd\nrun: 0123abc\n${F}\n`, [RUN_BLOCK]);
     expect(got.refusals.map(({ line, block }) => [line, block])).toEqual([
       [1, null],
       [4, 3],
@@ -352,12 +355,12 @@ describe("the reader of a seal block", () => {
   });
 });
 
-describe("the writer of a seal block", () => {
+describe("the writer of an iadd block", () => {
   it("builds the text the reader reads back as one block of those pairs", () => {
     const text = assemble(
       [
         ["target:", "0123abc against main"],
-        ["Verdict:", "sealed"],
+        ["Verdict:", "cleared"],
       ],
       [VERDICT_BLOCK],
     );
@@ -367,7 +370,7 @@ describe("the writer of a seal block", () => {
   it("throws the reader's refusal for pairs the reader would refuse", () => {
     expect(() => assemble([["target:", "0123abc against main"]], [VERDICT_BLOCK])).toThrow("the verdict block holds no `Verdict:` line, and it holds one");
     expect(() => assemble([["run:", "0123abc"]], [RUN_BLOCK])).toThrow("does not read whole as `run: <value>`");
-    expect(() => assemble([], [RUN_BLOCK])).toThrow("an empty `seal` block");
+    expect(() => assemble([], [RUN_BLOCK])).toThrow("an empty `iadd` block");
   });
 
   it("throws for a value that holds a line break, which the reader would read as another line of the block", () => {

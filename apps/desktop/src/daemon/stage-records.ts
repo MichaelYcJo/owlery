@@ -3,7 +3,7 @@
 // chain (`Daemon#runChain`), whose stages are headless sessions, and the
 // chain command (`chain-command.ts`), which a pane's session calls with each
 // role's answer. So a record is written under one set of checks whoever ran
-// the stage, and the daemon's reader of a seal and the pull request check
+// the stage, and the daemon's reader of an inspection and the pull request check
 // read the same records from both (docs/architecture.md, "Records are
 // committed to the repository").
 //
@@ -17,6 +17,8 @@ import { basename, join, relative } from "node:path";
 import {
   type Ask,
   BUILT_BY_TRAILER,
+  EARLIER_BUILT_BY_TRAILER,
+  ROUTING_TRAILER,
   type ChainBase,
   ChainStop,
   GATE_SUBJECT,
@@ -37,14 +39,14 @@ import {
   roundPrompt,
   roundRecordOf,
   routingText,
-  sealPrompt,
+  inspectionPrompt,
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, routingAnswer, withApplied, workItemDirectories, writeRecord } from "./decision-record";
 import { THE_SESSION, isSessionId } from "./record-blocks";
 import { writeRecordFile } from "./record-writer";
 import { readRecordsPlace, rootOf } from "./records-place";
 import { repositoryFileText } from "./repository-file";
-import { GATE_FILE, GUARANTEE_FILE, type Verdict, gateText, guaranteeText, readGuarantee, sectionOf } from "./seal-records";
+import { GATE_FILE, INSPECTION_FILE, type Verdict, gateText, inspectionText, readInspection, sectionOf } from "./inspection-records";
 import { type CommitBounds, commitPaths, diffBetween, fileAt, holdsCommit, slugFor, trailerValues, uncommittedPaths, worktreeHead } from "./worktrees";
 
 /** Where a work item's records are written: its worktree, the branch the worktree is on, and the work item's directory, a folder of the worktree; and the bounds of each commit made there (`worktrees.ts#commitPaths`), the default limit and no signal where none are given. */
@@ -72,7 +74,7 @@ const AT_ONCE: InTurn = (act) => act();
  * a file of the work item's directory, with the work item's record of
  * decisions and its refusals where each stands, together and nothing else
  * (`worktrees.ts#commitPaths`) under the place's bounds, with the subject given, the trailer
- * `Seal-Routing:` that names the directory, and below it each trailer the
+ * `IADD-Routing:` that names the directory, and below it each trailer the
  * stage gives. It throws a `ChainStop` with what a write refused, or with
  * git's first words where the commit failed, a hook's refusal among them:
  * the files then stand written and not committed.
@@ -90,7 +92,7 @@ export function commitRecords(place: Place, files: readonly [string, ...string[]
     }
     const [first, ...others] = [...new Set([...files, ...[record, refusals].filter((file) => existsSync(file))])].map((file) => relative(worktree, file));
     try {
-      await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`Seal-Routing: ${basename(directory)}`, ...(stage.trailers ?? [])], bounds);
+      await commitPaths(worktree, branch, [first ?? "", ...others], subject, [`${ROUTING_TRAILER}: ${basename(directory)}`, ...(stage.trailers ?? [])], bounds);
     } catch (error) {
       const [said] = (error instanceof Error ? error.message : String(error)).split("\n");
       throw new ChainStop(`${relative(worktree, files[0])} was written and not committed: ${said ?? ""}`);
@@ -205,8 +207,8 @@ export async function fixPassStage(place: Place, standing: Standing, step: Extra
  * work item's directory. Where one does not hold, nothing is committed. The
  * record's commit carries each decision the step gave as reversed, written
  * `applied` with the branch's head after the pass, and the trailer
- * `Seal-Built-By:` with `builtBy`, where that is an id a verdict block can
- * name (`record-blocks.ts#isSessionId`): a later seal reads the sessions
+ * `IADD-Built-By:` with `builtBy`, where that is an id a verdict block can
+ * name (`record-blocks.ts#isSessionId`): a later inspection reads the sessions
  * that built the work from that trailer. `applied` runs once the reversals
  * are written, before the commit. It gives the questions the answer asks
  * (`chain.ts#asksOf`) and the numbers of the findings the pass left open,
@@ -270,7 +272,7 @@ export async function gateOwed(place: Place, standing: Standing, base: ChainBase
  * Records a run of the broad gate that exited with 0: where the head and the
  * tree stand as they stood before the run, it appends one run block,
  * `run: <head> against <base commit>`, to `trail/gate.md` as the head holds
- * the file (`seal-records.ts#gateText`), below the sentence of an earlier
+ * the file (`inspection-records.ts#gateText`), below the sentence of an earlier
  * run that failed while the machine was over its load where `earlier` gives
  * one, and commits it. It throws a
  * `ChainStop`, with nothing committed, where the head moved during the run
@@ -289,47 +291,49 @@ export async function recordGate(place: Place, run: { head: string; base: string
 }
 
 // ---------------------------------------------------------------------------
-// The seal.
+// The inspection.
 
 /**
- * The seal's prompt (`chain.ts#sealPrompt`) and the `target:` line its
- * verdict carries, `<gate's commit> against <base>`. The paths and the diff
- * are what changed since the commit the newest verdict block seals, where it
- * is a seal and an ancestor of the gate's commit, which a later commit
- * broke, and otherwise since the branch left its base, as round 1 reads it.
+ * The inspection's prompt (`chain.ts#inspectionPrompt`) and the `target:`
+ * line its verdict carries, `<gate's commit> against <base>`. The paths and
+ * the diff are what changed since the commit the newest verdict block
+ * clears, where it clears and is an ancestor of the gate's commit, which a
+ * later commit lapsed, and otherwise since the branch left its base, as round 1 reads it.
  */
-export async function sealStage(place: Place, standing: Standing, step: Extract<Step, { is: "seal" }>, base: ChainBase): Promise<{ prompt: StagePrompt; target: string }> {
+export async function inspectionStage(place: Place, standing: Standing, step: Extract<Step, { is: "inspection" }>, base: ChainBase): Promise<{ prompt: StagePrompt; target: string }> {
   const { worktree, directory } = place;
   const target = `${step.commit} against ${standing.base}`;
-  // A seal a later commit broke, which the newest verdict block names, hands the sealer the part that changed since its commit: the newest block's run is the one before this.
-  const sealed = standing.sealCommit;
-  const earlier = sealed !== null && (await holdsCommit(worktree, step.commit, sealed)) ? { run: step.run - 1, commit: sealed } : null;
+  // An inspection a later commit lapsed, which the newest verdict block names, hands the inspector the part that changed since its commit: the newest block's run is the one before this.
+  const cleared = standing.clearedCommit;
+  const earlier = cleared !== null && (await holdsCommit(worktree, step.commit, cleared)) ? { run: step.run - 1, commit: cleared } : null;
   const { paths, text: diff } = earlier === null ? await diffBetween(worktree, base.reads, step.commit, true) : await diffBetween(worktree, earlier.commit, step.commit, false);
   const stands = (...path: string[]): boolean => existsSync(join(directory, ...path));
-  const prompt = sealPrompt({ run: step.run, worktree, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
+  const prompt = inspectionPrompt({ run: step.run, worktree, directory: standing.directory, target, rounds: standing.rounds.map(({ round }) => round), decisions: stands(RECORD_FILE), frame: stands("frame"), phases: stands("trail", "phases"), changelog: stands("changelog.md"), earlier, paths, diff });
   return { prompt, target };
 }
 
 /**
- * Writes a sealer's answer as its run's section of the guarantee: it takes
- * the section from the answer (`seal-records.ts#sectionOf`), puts Owlery's
- * own lines into the section's verdict block, appends the section to
- * `guarantee.md` as the head holds the file (`seal-records.ts#guaranteeText`)
- * and commits it, with the rows of the calls the sealer's rule refused,
+ * Writes an inspector's answer as its run's section of the inspection: it
+ * takes the section from the answer (`inspection-records.ts#sectionOf`), puts
+ * Owlery's own lines into the section's verdict block, appends the section to
+ * `inspection.md` as the head holds the file
+ * (`inspection-records.ts#inspectionText`) and commits it, with the rows of
+ * the calls the inspector's rule refused,
  * where each of these holds: the answer's first line that opens a run's
  * section is this run's heading, the reader refuses no line of the section,
  * it holds one verdict block, whose `target:` line is the one given and
- * which holds none of Owlery's lines; a judging session and its model are
- * named, and the judging session is not `the session`, which names a
+ * which holds none of Owlery's lines; an inspecting session and its model
+ * are named, and the inspecting session is not `the session`, which names a
  * builder; one session or more is named as
- * having built the work, and the judging session is none of them; and the
+ * having built the work, and the inspecting session is none of them; and the
  * worktree's head is the one the step was read at, so the gate still holds
  * there, with no change outside the work item's directory. Where one does
  * not hold, nothing is written.
  *
  * The sessions that built the work are `the session` where the
  * `Implementation` row of the `routing.md` the head holds reads so, then the
- * id of each fix pass's session, read from the trailer `Seal-Built-By:` of
+ * id of each fix pass's session, read from the trailer `IADD-Built-By:`, and
+ * from `Seal-Built-By:` of a commit written before the rename, of
  * the commits on the gate's commit's own line that neither the base's commit
  * nor the base the branch left holds, so of none of the base's commits,
  * whether a merge, a fast-forward or a rebase put it on the branch.
@@ -341,37 +345,37 @@ export async function sealStage(place: Place, standing: Standing, step: Extract<
 export async function recordVerdict(
   place: Place,
   standing: Standing,
-  step: Extract<Step, { is: "seal" }>,
+  step: Extract<Step, { is: "inspection" }>,
   base: ChainBase,
-  given: { answer: string; target: string; judgedBy: string | null; model: string | null; version: string; refused?: StageRefusals; before?: (verdict: Verdict) => void },
+  given: { answer: string; target: string; inspectedBy: string | null; model: string | null; version: string; refused?: StageRefusals; before?: (verdict: Verdict) => void },
   inTurn: InTurn = AT_ONCE,
 ): Promise<Verdict> {
   const { worktree, directory } = place;
-  const file = join(directory, GUARANTEE_FILE);
+  const file = join(directory, INSPECTION_FILE);
   let section: string;
   try {
     section = sectionOf(given.answer, { run: step.run, target: given.target });
   } catch (error) {
     throw new ChainStop(error instanceof Error ? error.message : String(error));
   }
-  if (given.judgedBy === null) throw new ChainStop("its session named no id of its own, and a verdict names the session that judged");
-  if (given.judgedBy === THE_SESSION) throw new ChainStop(`the judging session is named \`${THE_SESSION}\`, which names the session that built the work, and a session that built gives no verdict`);
-  if (given.model === null) throw new ChainStop("its session named no model, and a verdict names the model that judged");
+  if (given.inspectedBy === null) throw new ChainStop("its session named no id of its own, and a verdict names the session that inspected");
+  if (given.inspectedBy === THE_SESSION) throw new ChainStop(`the inspecting session is named \`${THE_SESSION}\`, which names the session that built the work, and a session that built gives no verdict`);
+  if (given.model === null) throw new ChainStop("its session named no model, and a verdict names the model that inspected");
   const head = await worktreeHead(worktree);
-  if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the seal, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the sealer read`);
+  if (head !== standing.head) throw new ChainStop(`the worktree's head moved during the inspection, from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)}, so the broad gate no longer holds at the head the inspector read`);
   await noChangeOutside(worktree, directory);
   const routing = await fileAt(worktree, head, relative(worktree, join(directory, ROUTING_FILE)));
-  const passes = base.commit === null ? [] : (await trailerValues(worktree, [base.commit, base.reads], step.commit, BUILT_BY_TRAILER)).filter(isSessionId);
+  const passes = base.commit === null ? [] : (await trailerValues(worktree, [base.commit, base.reads], step.commit, [BUILT_BY_TRAILER, EARLIER_BUILT_BY_TRAILER])).filter(isSessionId);
   const builtBy = [...(routingAnswer(routing ?? "", "Implementation") === THE_SESSION ? [THE_SESSION] : []), ...passes];
   const stood = await fileAt(worktree, head, relative(worktree, file));
   let written: string;
   try {
-    written = guaranteeText(stood, basename(directory), section, { builtBy, judgedBy: given.judgedBy, model: given.model, version: given.version });
+    written = inspectionText(stood, basename(directory), section, { builtBy, inspectedBy: given.inspectedBy, model: given.model, version: given.version });
   } catch (error) {
     throw new ChainStop(error instanceof Error ? error.message : String(error));
   }
-  const newest = readGuarantee(written).verdicts.at(-1);
-  if (newest === undefined) throw new ChainStop("the section appended to the guarantee holds no verdict");
+  const newest = readInspection(written).verdicts.at(-1);
+  if (newest === undefined) throw new ChainStop("the section appended to the inspection holds no verdict");
   given.before?.(newest);
   await commitRecords(place, [file], VERDICT_SUBJECT, { write: () => writeRecordFile(worktree, file, written), refused: given.refused }, inTurn);
   return newest;

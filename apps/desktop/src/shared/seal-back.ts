@@ -88,7 +88,7 @@ const STAGE_NAMES: Record<ChainStageKind, (round: number) => string> = {
   judgment: (round) => `Judgment after round ${String(round)}`,
   ruling: (round) => `Ruling after round ${String(round)}`,
   gate: () => "Broad gate",
-  seal: () => "Sealer",
+  inspection: () => "Sealer",
   "pull-request": () => "Pull request",
 };
 
@@ -262,7 +262,7 @@ export function composeBack(records: SealRecords, entries: readonly LedgerEntry[
     const line = stageLine(entry, kind, round);
     if (ROUND_KINDS.includes(kind) && !(kind === "ruling" && sealed.has(round))) byRound.set(round, [...(byRound.get(round) ?? []), line]);
     else after.push(line);
-    if (kind === "seal") sealed.add(round);
+    if (kind === "inspection") sealed.add(round);
   }
   const recorded = new Map(records.rounds.map((round) => [round.round, round]));
   const numbers = [...new Set([...recorded.keys(), ...byRound.keys()])].sort((a, b) => a - b);

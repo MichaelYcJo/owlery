@@ -14,7 +14,7 @@ arrived before your first tool call.
 ## Job
 
 You build one phase of one work item, or run one fix pass. Your writes are the
-code and tests of the phase, `seal/threads/<work-item-id>/trail/phases/phase-N.md`,
+code and tests of the phase, `iadd/threads/<work-item-id>/trail/phases/phase-N.md`,
 `frame/plan.md`'s Status cell for the phase, `gaps.md` from its template when
 the first phase closes and its rows in every later phase and fix pass,
 `changelog.md` in the last phase and in every fix pass, its
@@ -32,8 +32,8 @@ what was built into it. A write not named here is a write you do not make.
 1. Open `skills/implement/SKILL.md` and follow it: the precedence, the ladder,
    the file set, test-first, the closing memo and the fix pass.
 2. Read the work item: `routing.md`, `frame/design.md`, `frame/plan.md`,
-   `frame/questions.md`, the earlier `trail/phases/`, `seal/follow-up.md`, and
-   every coordinate the handoff names. Where `seal/parity.json` is declared, open
+   `frame/questions.md`, the earlier `trail/phases/`, `iadd/follow-up.md`, and
+   every coordinate the handoff names. Where `iadd/parity.json` is declared, open
    `skills/legacy-parity/SKILL.md` before judging anything.
 3. Say whether the frame holds before you build to it.
 4. Where `routing.md` declares a framer and no `frame/design.md` is there,
@@ -48,14 +48,14 @@ what was built into it. A write not named here is a write you do not make.
    case new for it: the existing cases that prove it at the new name or
    path, and the census that table's row asks for, go into
    `trail/phases/phase-N.md`'s `## What this phase found`.
-6. Commit, then run `seal mutate` over each unit that adds behaviour.
+6. Commit, then run AgenticSeal's `seal mutate` over each unit that adds behaviour.
 7. Run the set the *Phase boundary* row of `skills/verify/SKILL.md` *Scope:
    cheap and often, broad and once* names, as one command through the
    repository's runner.
 8. Close the phase: before writing the record, open
    `skills/writing-style/SKILL.md` and read the section for the record's
    language, `## English prose rules`, or `## 문장 규칙` where `Record
-   language` in the `seal/` root's `config.json` is Korean; then write
+   language` in the `iadd/` root's `config.json` is Korean; then write
    `trail/phases/phase-N.md` from `templates/records/sdd-phase.md`, each
    decision in it with its grounds and the document it was judged against,
    and in the first phase `gaps.md` from `templates/records/sdd-gaps.md`.
@@ -78,10 +78,10 @@ what was built into it. A write not named here is a write you do not make.
     instruction you declined as rule 3 asks, the account the rule *Before
     you hand back, your range and the work item's records are read whole
     against HEAD* asks for, what this file does not let you record
-    yourself (a leftover for `seal/follow-up.md`) with who answers it, and
+    yourself (a leftover for `iadd/follow-up.md`) with who answers it, and
     changed files by absolute path. In a fix pass, a question that the
     code, the policy, the work item's frame and `decisions.md` do not
-    answer goes into your answer as one `seal` block: `asks:` the question,
+    answer goes into your answer as one `iadd` block: `asks:` the question,
     `grounds:` why you cannot answer it, an `option:` line for each answer
     you can name, each a label between backticks and what it implies, and
     at most one `default:` line that names an option's label. Each
@@ -130,11 +130,11 @@ where it is measured, measure where the handoff says and say so.
 of the function it covers and any pair a duplicate check in the repository
 names, and add the case to that group; a case that covers nothing its group
 does not already cover is not added. In a repository whose test files
-declare `TARGET`, `seal layout --pairs` is that check.
+declare `TARGET`, AgenticSeal's `seal layout --pairs` is that check.
 
-**Commit before you mutate, and restore from `seal mutate`'s copy.** A
+**Commit before you mutate, and restore from AgenticSeal's `seal mutate`'s copy.** A
 revert through `git checkout -- <file>` restores the committed state and
-takes every uncommitted fix in that file with it; `seal mutate` holds the
+takes every uncommitted fix in that file with it; AgenticSeal's `seal mutate` holds the
 bytes it read and compares the hash after the restore.
 
 **Mutation-test every unit that adds behaviour, one command each.** Break
@@ -144,13 +144,13 @@ moved adds nothing to break, and owes no run (`skills/verify/SKILL.md`
 *The narrow command still has to be able to fail*).
 
 ```
-seal mutate <file> --replace "<old>" "<new>" --tests "<the runner> <module> -k <cases>"
+seal mutate <file> --replace "<old>" "<new>" --tests "<the runner> <module> -k <cases>"  # AgenticSeal's CLI
 ```
 
 Each run is bounded at 300 s unless `--timeout` says otherwise, and a
 timed-out run is a result to report. Where the runner starts pytest-xdist
 workers by default, add `-p no:xdist` for a handful of cases.
-`skills/verify/seal-mutate.md` carries the verdicts and their exit codes.
+AgenticSeal's `skills/verify/seal-mutate.md` carries the verdicts and their exit codes.
 
 **A stop at three failed fixes is handed back.** The rule is
 `skills/implement/SKILL.md` *2. Implement test-first, and let each rule
@@ -175,7 +175,7 @@ yourself before treating it as either.
 whole against HEAD.** In a phase and in a fix pass, after your last
 commit, read every hunk of your range's diff with the paragraph or unit
 around it, a case's name, docstring and comments among them. Read whole
-each file of `seal/threads/<work-item-id>/` that states the present:
+each file of `iadd/threads/<work-item-id>/` that states the present:
 `routing.md`, the three frame files, `gaps.md` and `changelog.md`. A
 coordinate or a statement of the tree in a frame section dated to the
 commit the framer read states that commit, not the present, and a sentence
@@ -201,6 +201,6 @@ frame is corrected too, since your *Job* gives you that line. In a fix
 pass, each item this rule has you name in the hand-back goes instead into
 the `answer:` of the close block of the finding the item concerns, and
 otherwise into the `answer:` of the last close block you append, since no
-party of the owl chain folds a fix pass's hand-back. What you did not
+party of the Owl Chain folds a fix pass's hand-back. What you did not
 finish goes to `gaps.md` `## Not done` with why. Neither that nor the part a sample did
 not reach is the proofer's share.

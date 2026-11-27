@@ -26,7 +26,7 @@ import { MARKER, workflowText } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitSeal } from "./chain-run";
+import { commitInspection } from "./chain-run";
 import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** What a place of the line shows, as a person and a screen reader read it. */
@@ -107,8 +107,8 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     made = temporaryRepository();
     // The place for work records stands on the branch the work items are cut from.
     mkdirSync(join(made.repo, "seal"));
-    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
+    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon runs the CLI at its start, to read its version: that run prints one and is no session, and no case of this file starts one.
@@ -150,7 +150,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
 
     // One commit after the base, and the records a stage writes: the routing that names the branch, and two rounds.
     commitFile(workItem.worktree, "login.ts");
-    const directory = join(workItem.worktree, "seal", "threads", "1-alpha");
+    const directory = join(workItem.worktree, "iadd", "threads", "1-alpha");
     mkdirSync(join(directory, "trail", "rounds"), { recursive: true });
     writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
     for (const round of [1, 2]) writeFileSync(join(directory, "trail", "rounds", `round-${round}.md`), `# Round ${round}\n`);
@@ -232,7 +232,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     gamma = await branched(second.item("Gamma")!, 12);
-    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
+    sealedAt = commitInspection(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
     for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
     expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });
     const words = `Sealed at ${sealedAt.slice(0, 7)}`;
@@ -264,7 +264,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await openView(gamma);
     await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the broken seal", 20_000);
     const why = second.item("Gamma")?.seal?.why;
-    expect(why).toBe(`\`after-the-seal.ts\` changed after the sealed commit \`${sealedAt.slice(0, 7)}\`.`);
+    expect(why).toBe(`\`after-the-seal.ts\` changed after the cleared commit \`${sealedAt.slice(0, 7)}\`.`);
     const inView = await sealsOf(gamma.id);
     expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.sealer]).toEqual([["broken", words], words, "", 0, [["broken", words], "Seal broken", ["waiting"]]]);
     // The seal's sentence stands under the head, in the foot.
@@ -319,7 +319,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const delta = await branched(second.item("Delta")!, 13);
     // The branch puts the repository on the owl chain, with Owlery's workflow, so a Claude Code pane opened in its worktree carries the chain.
     mkdirSync(join(delta.worktree, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-seal.yml"), workflowText("0.0.0"));
+    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-inspection.yml"), workflowText("0.0.0"));
     git(delta.worktree, "add", "--all");
     git(delta.worktree, "commit", "--quiet", "-m", "ci: the check");
     writeFileSync(join(made.base, "stand-in-base"), delta.baseCommit!);

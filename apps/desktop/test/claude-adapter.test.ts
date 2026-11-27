@@ -654,15 +654,15 @@ describe("a role's rules file", () => {
   const PROOFER: RoleStage = { role: "proofer", stage: "round" };
 
   it("names each role's agent as the bundle's plugin names it, and its file by the role and the stage", () => {
-    expect(ROLE_STAGES.map(agentOf)).toEqual(["owlery:proofer", "owlery:crafter", "owlery:sealer", "owlery:orchestrator"]);
-    expect(ROLE_STAGES.map(rulesFileName)).toEqual(["proofer-round.md", "crafter-fix-pass.md", "sealer-seal.md", "orchestrator-judgment.md"]);
+    expect(ROLE_STAGES.map(agentOf)).toEqual(["owlery:proofer", "owlery:crafter", "owlery:inspector", "owlery:orchestrator"]);
+    expect(ROLE_STAGES.map(rulesFileName)).toEqual(["proofer-round.md", "crafter-fix-pass.md", "inspector-inspection.md", "orchestrator-judgment.md"]);
   });
 
   it("holds the core and the agent contract for every pair, then the documents the role opens first at its stage", () => {
     expect(ROLE_STAGES.map((pair) => [pair.role, roleDocuments(pair)])).toEqual([
       ["proofer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/code-review/SKILL.md"]],
       ["crafter", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "skills/implement/SKILL.md", "skills/implement/fix-pass.md"]],
-      ["sealer", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"]],
+      ["inspector", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"]],
       // The orchestrator reads every round record for its judgment, so the record's form follows the two.
       ["orchestrator", ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md", "docs/forms/the-round-record.md"]],
     ]);
@@ -685,7 +685,7 @@ describe("a role's rules file", () => {
         "",
         "You hold these tools and no other: Read, Glob, Grep, Bash. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root. Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.",
         "",
-        "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+        "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any command line of AgenticSeal's CLI or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
         "",
       ].join("\n"),
     );
@@ -694,7 +694,7 @@ describe("a role's rules file", () => {
     // Each pair's head names the tools of its own launch, in the launch's order, and where its grant lets its commands write.
     const writes: Record<RoleStage["role"], string> = {
       proofer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
-      sealer: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
+      inspector: "Write with them only in the scratch folder your prompt names: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
       crafter: "Write with them only in the worktree your prompt names and in its repository's git folder: the system refuses their writes to that git folder's hooks and config and to the bundle's root.",
       orchestrator: "Write nothing with them: the system refuses their writes to the worktree, to its repository's git folder and to the bundle's root.",
     };
@@ -746,7 +746,7 @@ describe("a role's rules file", () => {
 
 describe("the first line of a role launch", () => {
   // The keys of the `init` line Claude Code 2.1.330 printed for a role launch (the probe of 2026-11-22, case 1).
-  const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", plugins: [{ name: "owlery", source: "owlery@inline" }], agents: ["claude", "Explore", "owlery:crafter", "owlery:proofer", "owlery:sealer"], skills: ["owlery:core"], ...fields });
+  const init = (fields: object): string => JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", plugins: [{ name: "owlery", source: "owlery@inline" }], agents: ["claude", "Explore", "owlery:crafter", "owlery:proofer", "owlery:inspector"], skills: ["owlery:core"], ...fields });
 
   it("fails where the session names a version older than the minimum, with the notice's sentence for that version, and reads the version before the agents (scenario 12 of #127)", () => {
     const older = `Claude Code 2.1.328 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
@@ -763,7 +763,7 @@ describe("the first line of a role launch", () => {
 
   it("passes where the session lists the role's agent and no plugin that did not load", () => {
     expect(roleCheck(init({}), "owlery:proofer")).toEqual({ seen: true, failure: null });
-    expect(roleCheck(init({ plugin_errors: [] }), "owlery:sealer")).toEqual({ seen: true, failure: null });
+    expect(roleCheck(init({ plugin_errors: [] }), "owlery:inspector")).toEqual({ seen: true, failure: null });
   });
 
   it("fails where the session does not list the role's agent: another's name, the bare name, or no list", () => {
@@ -777,7 +777,7 @@ describe("the first line of a role launch", () => {
   it("passes where the session lists the role's agent though a plugin did not load: the session holds other plugins beside the bundle, and the agent's name decides", () => {
     const errors = [{ plugin: "cc-plugin-telemetry@builtin", type: "path-not-found", message: "Path not found: /elsewhere" }];
     expect(roleCheck(init({ plugin_errors: errors }), "owlery:proofer")).toEqual({ seen: true, failure: null });
-    expect(roleCheck(init({ plugin_errors: [{ type: "unknown" }] }), "owlery:sealer")).toEqual({ seen: true, failure: null });
+    expect(roleCheck(init({ plugin_errors: [{ type: "unknown" }] }), "owlery:inspector")).toEqual({ seen: true, failure: null });
   });
 
   it("fails with the first plugin error's message where the session does not list the role's agent and a plugin did not load", () => {
@@ -874,7 +874,7 @@ describe("the Claude adapter's role launch", () => {
     expect(launched).toEqual([
       ["proofer", "Read,Glob,Grep,Bash"],
       ["crafter", "Read,Glob,Grep,Bash,Edit,Write"],
-      ["sealer", "Read,Glob,Grep,Bash"],
+      ["inspector", "Read,Glob,Grep,Bash"],
       ["orchestrator", "Read,Glob,Grep,Bash"],
     ]);
   });
@@ -883,7 +883,7 @@ describe("the Claude adapter's role launch", () => {
     const given = {
       crafter: { commands: { write: ["/w/tree", "/repo/.git"], refuse: ["/repo/.git/hooks", "/repo/.git/config"], unread: ["/run"] }, account: true },
       proofer: { commands: { write: ["/run/scratch/1"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/1", account: true },
-      sealer: { commands: { write: ["/run/scratch/2"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/2" },
+      inspector: { commands: { write: ["/run/scratch/2"], refuse: ["/w/tree"], unread: ["/run"] }, scratch: "/run/scratch/2" },
       orchestrator: { commands: { write: [], refuse: ["/w/tree"], unread: ["/run"] } },
     };
     for (const pair of ROLE_STAGES) {
@@ -1226,7 +1226,7 @@ describe("the output stream of a role launch, as one real run of Claude Code 2.1
   it("opens with an init line that lists the bundle as a plugin of the session and its three agents by the plugin's name", () => {
     const init = JSON.parse(lines[0]!) as { type: string; subtype: string; claude_code_version: string; agents: string[]; plugins: { name: string; source: string }[]; plugin_errors?: unknown };
     expect([init.type, init.subtype, init.claude_code_version]).toEqual(["system", "init", "2.1.330"]);
-    expect(init.agents.filter((agent) => agent.startsWith("owlery:"))).toEqual(["owlery:crafter", "owlery:proofer", "owlery:sealer"]);
+    expect(init.agents.filter((agent) => agent.startsWith("owlery:"))).toEqual(["owlery:crafter", "owlery:proofer", "owlery:inspector"]);
     expect(init.plugins).toContainEqual(expect.objectContaining({ name: "owlery", source: "owlery@inline" }));
     expect(init.plugin_errors ?? []).toEqual([]);
   });
