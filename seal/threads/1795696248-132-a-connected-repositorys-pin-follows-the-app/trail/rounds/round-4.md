@@ -47,6 +47,11 @@ Add to `frame/design.md` *Rule changes*, after the second `add`:
 
 The Korean sentence that follows, "끝내기 전에 커밋이 이미 만들어졌으면 그 커밋은 그대로 남습니다.", stays as it is. The English `to` carries its fact in its first sentence, because the English `from` holds it in one sentence.
 
+```seal
+verdict: fixed 6b76ec22
+answer: The orchestrator added the round's two `change` operations, English and Korean, to `frame/design.md` *Rule changes* after the second `add`, word for word. The settle of release 0.1.0 writes them into `docs/`. Records alone.
+```
+
 ### 2. `routing.md` still says the pull request merges into `release/v0.0.5`, which has merged into `main`
 
 ```seal
@@ -63,6 +68,11 @@ Replace `routing.md:22` with:
 
 ```markdown
 - **Branch:** cut from `release/v0.0.5` at `c35c8271`. The branch took that release in by a merge (`ec72ff39`), and release 0.0.5 then merged into `main` (pull request #303). `release/v0.1.0` was cut from that merge, so the pull request merges into `release/v0.1.0` by squash.
+```
+
+```seal
+verdict: fixed 6b76ec22
+answer: The orchestrator replaced `routing.md:22` with the round's `**Branch:**` bullet, word for word. Records alone.
 ```
 
 ### 3. The frame and the plan say a workflow pinned to 0.0.5 will find no tag once `release/v0.0.5` is deleted, and the tag `v0.0.5` stands
@@ -101,6 +111,11 @@ Replace `frame/plan.md:57` with:
 - **A repository connected by a build of 0.0.5 keeps fetching its check after `release/v0.0.5` is deleted**, since the tag `v0.0.5` stands at `e7737b7e` (`git ls-remote --tags origin`, 2026-11-27). Such a repository shows "Check 0.0.5" in an app of a later version and moves from there.
 ```
 
+```seal
+verdict: fixed 6b76ec22
+answer: The orchestrator replaced the sentence of `frame/design.md:18`, the item at `frame/design.md:49` and the bullet at `frame/plan.md:57` with the round's text, word for word. Records alone.
+```
+
 ### 4. `gaps.md` says the merge changed no line of either architecture document, and it brought 71 changed lines into each
 
 ```seal
@@ -115,6 +130,11 @@ Replace the clause at `gaps.md:27`, "and the merge changed no line of either fil
 
 ```markdown
 The merge took the release's edits of both files with no conflict, among them the paragraph on the commit of a person's word and the commit limit in the section the `add` operations name (`docs/architecture.md:291`, `docs/architecture.ko.md:291`), and its resolution changed no line of either.
+```
+
+```seal
+verdict: fixed 83d29d52
+answer: The clause at `gaps.md:27` is replaced with the round's sentence, word for word, after a full stop in place of the comma that joined it to the sentence before. Records alone.
 ```
 
 ## Confirmations
