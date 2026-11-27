@@ -344,6 +344,51 @@ describe("the move of the records from the earlier form", () => {
     expect(earlierRecordsSays(repo, "feature")).toBeNull();
   });
 
+  it("moves the threads/ a branch kept under agentic-seal/ beside a project's own seal/, whether or not that seal/ holds a README.md of its own, and leaves the project's seal/ and every other file of agentic-seal/ as they stood", async () => {
+    for (const own of [{ "seal/notes.txt": "Our notes.\n" }, { "seal/README.md": "# Our seal\n", "seal/notes.txt": "Our notes.\n" }]) {
+      const repo = earlier("agentic-seal");
+      for (const [path, text] of Object.entries(own)) write(repo, path, text);
+      commitAll(repo, "docs: the project's own seal/");
+      git(repo, "checkout", "--quiet", "-b", "feature");
+      write(repo, "agentic-seal/threads/2-y/routing.md", routing("2-y", "feature"));
+      write(repo, "agentic-seal/threads/2-y/trail/rounds/round-1.md", ROUND);
+      commitAll(repo, "chore: the branch's work item");
+      git(repo, "checkout", "--quiet", "main");
+      const base = await planMigration(repo, VERSION);
+      expect([base.from, base.blocked]).toEqual(["agentic-seal", null]);
+      await migrateRecords(repo, VERSION, base.stamp);
+      git(repo, "checkout", "--quiet", "feature");
+      git(repo, "-c", "merge.directoryRenames=false", "merge", "--quiet", "--no-edit", "main");
+      // A file the branch kept of the earlier root outside its threads/, and one the checkout holds untracked there, are no part of what the branch moves.
+      write(repo, "agentic-seal/config.json", CONFIG);
+      commitAll(repo, "chore: the config the branch kept");
+      write(repo, "agentic-seal/local.txt", "untracked\n");
+      expect(earlierRecordsSays(repo, "feature")).toMatch(/^This work item's records stand in agentic-seal\/threads\/2-y\//u);
+      const plan = await planMigration(repo, VERSION);
+      expect([plan.from, plan.blocked, plan.moves, plan.removes, plan.writes]).toEqual([
+        "agentic-seal",
+        null,
+        [
+          { from: "agentic-seal/threads/2-y/routing.md", to: "iadd/threads/2-y/routing.md", rewritten: false },
+          { from: "agentic-seal/threads/2-y/trail/rounds/round-1.md", to: "iadd/threads/2-y/trail/rounds/round-1.md", rewritten: true },
+        ],
+        [],
+        [],
+      ]);
+      await migrateRecords(repo, VERSION, plan.stamp);
+      expect(git(repo, "show", "--name-status", "--no-renames", "--format=", "HEAD").trim().split("\n").sort()).toEqual([
+        "A\tiadd/threads/2-y/routing.md",
+        "A\tiadd/threads/2-y/trail/rounds/round-1.md",
+        "D\tagentic-seal/threads/2-y/routing.md",
+        "D\tagentic-seal/threads/2-y/trail/rounds/round-1.md",
+      ]);
+      expect(git(repo, "ls-tree", "-r", "--name-only", "HEAD", "--", "seal", "agentic-seal").trim().split("\n")).toEqual(["agentic-seal/config.json", ...Object.keys(own).sort()]);
+      expect(Object.entries(own).map(([path]) => readFileSync(join(repo, path), "utf8"))).toEqual(Object.values(own));
+      expect(status(repo)).toBe("?? agentic-seal/local.txt\n");
+      expect(earlierRecordsSays(repo, "feature")).toBeNull();
+    }
+  });
+
   it("rewrites in place, under IADD's root, the records a branch added in the earlier form where its merge of a base that moved took git's proposal of their place, moves a guarantee there to inspection.md, puts them back where the commit is refused, and names the work item's own directory until then", async () => {
     const repo = earlier();
     git(repo, "rm", "--quiet", "seal/threads/1-x/guarantee.md");
@@ -422,6 +467,19 @@ describe("the move of the records from the earlier form", () => {
     expect(git(repo, "show", "--name-status", "--format=", "HEAD").trim()).toBe("M\tiadd/threads/1-x/trail/rounds/round-2.md");
     expect(readFileSync(join(repo, "iadd/threads/1-x/trail/rounds/round-2.md"), "utf8")).toBe(round2.replace(`${F}seal`, `${F}iadd`));
     expect(earlierRecordsSays(repo, "feature")).toBeNull();
+  });
+
+  it("reads a round IADD's form wrote under IADD's root as IADD's, though its prose shows a fence of the earlier form: the chain is not refused and the plan has nothing to move", async () => {
+    const repo = earlier();
+    const base = await planMigration(repo, VERSION);
+    await migrateRecords(repo, VERSION, base.stamp);
+    git(repo, "checkout", "--quiet", "-b", "feature");
+    const shown = ["# Review round 2: 1-x", "", `${F}iadd`, `target: ${A} against main`, F, "", "A round of the earlier form opened so:", "", `${F}seal`, `target: ${A} against main`, F, "", "## Findings", "", "## Confirmations", ""].join("\n");
+    write(repo, "iadd/threads/1-x/trail/rounds/round-2.md", shown);
+    commitAll(repo, "chore: record review round 2");
+    expect(earlierRecordsSays(repo, "feature")).toBeNull();
+    const plan = await planMigration(repo, VERSION);
+    expect([plan.blocked, plan.moves]).toEqual(["The commit this checkout stands at holds no work records in the form the AgenticSeal plugin wrote, so there is nothing to move.", []]);
   });
 
   it("names a worktree whose records stand in an earlier root alone, and reads the heavy commands of that root's config.json and nothing else of it", () => {

@@ -114,9 +114,10 @@ export function heavyCommandsOf(folder: string): { root: string | null; commands
  * `routing.md` names the branch: a branch that merged a base that moved
  * keeps its own records where they were. They do too where the directory
  * under the records root's `threads/` whose `routing.md` names the branch
- * holds a `guarantee.md`, or a record the move rewrites: a merge that took
- * git's proposal of a place under the moved folder (`CONFLICT (file
- * location)`) puts there what the branch added in the earlier form. The
+ * holds a `guarantee.md`, or a record the earlier form wrote, as `rewrite`
+ * tells one below IADD's root: a merge that took git's proposal of a place
+ * under the moved folder (`CONFLICT (file location)`) puts there what the
+ * branch added in the earlier form. The
  * sentence says, before the move, that an inspection cleared before it
  * lapses at its commit.
  */
@@ -153,12 +154,12 @@ export function earlierRecordsSays(worktree: string, branch: string | null): str
   } catch {
     rounds = [];
   }
-  // The records the move rewrites, by their path in the directory; a record IADD's form holds the move gives back as it stands.
+  // The records the earlier form wrote in the directory, by their path in it, as `rewrite` tells one below IADD's root; a record IADD's form wrote is not one, whatever fence its prose shows.
   const earlier =
     textOf(join(directory, EARLIER_INSPECTION)) !== null ||
     ["decisions.md", "trail/gate.md", "trail/refusals.md", ...rounds.map((name) => `trail/rounds/${name}`)].some((inside) => {
       const text = textOf(join(directory, inside));
-      const after = text === null ? null : rewrite(`threads/${here}/${inside}`, text);
+      const after = text === null ? null : rewrite(`threads/${here}/${inside}`, text, true);
       return after !== null && after !== text;
     });
   return earlier ? `This work item's directory ${ROOT}/threads/${here}/ holds records in the form the AgenticSeal plugin wrote, which a merge of a base that moved put there. ${migrate}` : null;
@@ -273,9 +274,9 @@ export interface MigrationPlan {
   /** The branch the commit lands on, or null where the checkout stands on none. */
   branch: string | null;
   subject: string;
-  /** The root in the earlier form the plan moves, or null where the commit holds none and the plan rewrites only records below IADD's root. */
+  /** The root in the earlier form the plan moves from, whole or its `threads/` alone, or null where the commit holds none and the plan rewrites only records below IADD's root. */
   from: string | null;
-  /** Each file of that root, and each record in the earlier form below IADD's root, by its path in the commit and the path it moves to, the same for a record rewritten where it stands, and whether its text is rewritten, in the commit's order. */
+  /** Each file the plan moves of that root, and each record in the earlier form below IADD's root, by its path in the commit and the path it moves to, the same for a record rewritten where it stands, and whether its text is rewritten, in the commit's order. */
   moves: { from: string; to: string; rewritten: boolean }[];
   /** The files the commit removes without moving: the earlier workflow, where the commit holds it. */
   removes: string[];
@@ -316,16 +317,26 @@ function movedPath(below: string): string {
   return `${ROOT}/${renamed}`;
 }
 
-/** The text a file of the earlier root moves with, by its path below that root, or null for a file that moves as it stands. */
-function rewrite(below: string, text: string): string | null {
+/**
+ * The text a file of the earlier root moves with, by its path below that
+ * root, or null for a file that moves as it stands. With `stray`, the file
+ * stands below IADD's root, where a record of blocks was written in the
+ * earlier form only where IADD's grammar reads none of its blocks and the
+ * earlier grammar reads at least one. A record of IADD's form that shows a
+ * fence of info `seal` in its prose reads its own blocks in IADD's grammar,
+ * so it gives null and stays as it is.
+ */
+function rewrite(below: string, text: string, stray = false): string | null {
   if (below === "README.md") return readmeMoved(text);
   const [threads, id, ...rest] = below.split("/");
   if (threads !== "threads" || id === undefined || rest.length === 0) return null;
   const inside = rest.join("/");
   if (inside === EARLIER_INSPECTION) return inspectionFromGuarantee(text);
-  if (inside === "decisions.md") return decisionsMoved(text);
   if (inside === "trail/refusals.md") return refusalsMoved(text);
-  return blockKinds(inside) === null ? null : fencesMoved(text);
+  const kinds = blockKinds(inside);
+  if (kinds === null) return null;
+  if (stray && (read(text, kinds.now).blocks.length > 0 || readEarlier(text, kinds).got.blocks.length === 0)) return null;
+  return inside === "decisions.md" ? decisionsMoved(text) : fencesMoved(text);
 }
 
 /**
@@ -334,13 +345,15 @@ function rewrite(below: string, text: string): string | null {
  *
  * The root moved is the first of `EARLIER_ROOTS` whose `README.md` the
  * commit holds with the earlier marker, the whole root, or, where the commit
- * holds IADD's root, the first under which it holds anything: what a branch
- * kept of the earlier root after it merged a base that moved. Each file the
- * commit holds below that root moves to the same path below `iadd/`, a work
+ * holds IADD's root, the first under whose `threads/` it holds a file, of
+ * which the plan moves that `threads/` alone: what a branch kept of the
+ * earlier root after it merged a base that moved. Each file the commit holds
+ * below what the plan moves goes to the same path below `iadd/`, a work
  * item's `guarantee.md` to its `inspection.md`. Where the commit holds IADD's
  * root, each file of a work item's directory below it that is a
  * `guarantee.md` moves to that directory's `inspection.md`, and each record
- * there the lines below would rewrite is rewritten where it stands: a merge
+ * there the earlier form wrote, as `rewrite` tells one below IADD's root, is
+ * rewritten where it stands: a merge
  * that took git's proposal of a place under the moved folder (`CONFLICT
  * (file location)`) put there what a branch added in the earlier form. Every
  * other file below IADD's root is IADD's form already and stays out of the
@@ -413,12 +426,15 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
     return null;
   })();
   const rooted = whole === null && (await textAt(`${ROOT}/README.md`))?.split("\n", 1)[0]?.replace(/\r+$/u, "") === MARKER;
-  const keptByBranch = rooted ? (EARLIER_ROOTS.find((root) => holds(root)) ?? null) : null;
+  // A branch keeps the earlier root's `threads/` alone, as `earlierRecordsSays` reads it, and a project's own `seal/` beside IADD's root is no part of it.
+  const keptByBranch = rooted ? (EARLIER_ROOTS.find((root) => [...inCommit.keys()].some((held) => held.startsWith(`${root}/threads/`))) ?? null) : null;
   const from = whole ?? keptByBranch;
+  // What the move takes: the whole earlier root, or the `threads/` a branch kept of it.
+  const moving = from === null ? null : whole === null ? `${from}/threads` : from;
   // Below IADD's root, each file of a work item's directory is read too: a merge that took git's proposal of a place under the moved folder put there what the branch added in the earlier form.
   const strayed = rooted ? [...inCommit.keys()].filter((path) => path.startsWith(`${ROOT}/threads/`) && holdsFile(path)) : [];
 
-  const below = from === null ? [] : [...inCommit.keys()].filter((path) => path.startsWith(`${from}/`));
+  const below = moving === null ? [] : [...inCommit.keys()].filter((path) => path.startsWith(`${moving}/`));
   const moves: MigrationPlan["moves"] = [];
   const refused: string[] = [];
   const candidates = new Set([...below, ...strayed]);
@@ -428,8 +444,8 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
     const rest = path.slice((stray ? ROOT : from).length + 1);
     const bytes = await blob(folder, head, path);
     const before = bytes.toString("utf8");
-    const after = rewrite(rest, before);
-    // A file below IADD's root moves only where it is a work item's `guarantee.md` or a record the move rewrites; the rest is IADD's form already.
+    const after = rewrite(rest, before, stray);
+    // A file below IADD's root moves only where it is a work item's `guarantee.md` or a record the earlier form wrote, which `rewrite` tells there; the rest is IADD's form already.
     if (stray && movedPath(rest) === path && (after === null || after === before)) continue;
     // Each record that holds blocks is read with the earlier grammar, and what it moves with in IADD's, which reads as many blocks at the same lines.
     const [threads, id, ...within] = rest.split("/");
@@ -460,7 +476,7 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
   else if (refused.length > 0) blocked = `The earlier form's reader refuses ${refused.length === 1 ? "a line" : `${String(refused.length)} lines`} of these records, so Owlery cannot move them as they mean: ${refused.join("; ")}. Fix each line named in a commit, and open this again.`;
   if (blocked !== null) return plan(from, moves, removes, writes, blocked);
 
-  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", ...(from === null ? [] : [from]), ROOT, EARLIER_WORKFLOW, WORKFLOW]);
+  const status = await git(folder, ["--no-optional-locks", "status", "--porcelain=v1", "-z", "--no-renames", "--untracked-files=all", "--", ...(moving === null ? [] : [moving]), ROOT, EARLIER_WORKFLOW, WORKFLOW]);
   if (status.code !== 0) throw new Error(status.stderr.trim() || "git could not say how the checkout differs from its commit");
   const differing = [...new Set(status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3)))];
   const ignored = await git(folder, ["check-ignore", "--no-index", "--", ...written]);
@@ -478,9 +494,8 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
  * is not `stamp` and where it is blocked. Each file moves to its path with
  * the text the plan gives it and its mode, each created where nothing
  * stands, but a record below IADD's root that the plan rewrites where it
- * stands, which is written over; each file of the earlier root, each
- * `guarantee.md` below IADD's root and the earlier workflow is removed from
- * the index and the checkout. Those paths alone are staged and committed,
+ * stands, which is written over; each file the plan moves to another path
+ * and the earlier workflow is removed from the index and the checkout. Those paths alone are staged and committed,
  * on the branch the checkout stands on, with the person's git identity and
  * the repository's hooks, under `limitMs` as
  * `records-place.ts#setUpRecords` runs its commit, and nothing is pushed.
@@ -504,9 +519,8 @@ export async function migrateRecords(folder: string, version: string, stamp: str
   const madeFolders: string[] = [];
   const overwritten: string[] = [];
   const written = [...plan.moves.map((move) => move.to), ...plan.writes.map((write) => write.path)];
-  const { from } = plan;
-  // A file below IADD's root that moves to another path is a `guarantee.md`, which goes as the earlier root goes.
-  const removed = [...(from === null ? [] : [from]), ...plan.moves.filter((move) => move.to !== move.from && (from === null || !move.from.startsWith(`${from}/`))).map((move) => move.from), ...plan.removes];
+  // Each file the plan moves to another path is removed where it stood: each file of the earlier root it moves, and a `guarantee.md` below IADD's root. Nothing else of the earlier root's folder is touched.
+  const removed = [...plan.moves.filter((move) => move.to !== move.from).map((move) => move.from), ...plan.removes];
   const write = (path: string, content: string | Buffer, mode: string, over = false): void => {
     if (over) {
       // The plan found the record in the checkout as the commit holds it, so the commit's is what is put back.
