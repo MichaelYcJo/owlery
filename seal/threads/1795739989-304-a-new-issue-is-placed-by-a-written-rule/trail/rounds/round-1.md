@@ -44,6 +44,11 @@ In `docs/roadmap.ko.md:77`, it replaces "어느 조건에도 맞지 않는 이�
 
 The anchors `#not-in-the-first-version` and `#첫-버전에-넣지-않는-것` are the slugs of the headings at `docs/roadmap.md:116` and `docs/roadmap.ko.md:116`. The same two sentences replace the old ones in the quotes at `frame/design.md:63` and `frame/design.md:67`. In `changelog.md:5`, "except where the issue meets no test." becomes "except where the issue meets no test or asks for work the roadmap holds outside the first version." Finding 2 changes the same changelog sentence again, and its fix gives the line with both changes.
 
+```seal
+verdict: fixed 81c09167
+answer: Applied as pasted in `docs/roadmap.md` and `docs/roadmap.ko.md` (the two anchors read at line 116 of each, executed), and the `changelog.md` sentence now carries both findings' exceptions. The two quotes in `frame/design.md` (the lines this round's `location:` names) are a frame file the crafter does not write, so the orchestrator folds them: in the quote of the roadmap paragraph at line 63, "The list does not decide an issue that meets none of its tests." becomes "The list does not decide an issue that meets none of its tests, nor one that asks for what [Not in the first version](#not-in-the-first-version) or [After the first version](#after-the-first-version) holds outside the first version, whichever test it meets."; at line 67 the Korean quote takes "어느 조건에도 맞지 않는 이슈와, 어느 조건에 맞든 [첫 버전에 넣지 않는 것](#첫-버전에-넣지-않는-것)이나 [첫 버전 다음](#첫-버전-다음)이 첫 버전 밖에 두는 일을 바라는 이슈는 이 목록이 정하지 않습니다." in place of "어느 조건에도 맞지 않는 이슈는 이 목록이 정하지 않습니다." The round's evidence search run again after the fix commit prints `docs/roadmap.md` nowhere; it prints `routing.md:16` (the owner's question, a statement of the request, stands), `changelog.md:5` (now the three-way exception), `frame/plan.md:27` (a rejected alternative about test 5, stands), `frame/design.md:63` (the old quote, folded as above) and `frame/design.md:84` (Scenario A, a defect met in the published app, which test 4 still places without asking, stands). The round suggested a scenario for the new case: `frame/design.md` *Scope* is the framer's, so the orchestrator decides whether to add one.
+```
+
 ### 2. Under test 1 nothing says who asks the owner, and the line makes the waiting issue read as sorted
 
 ```seal
@@ -70,6 +75,11 @@ The same sentences replace the old ones in the quotes at `frame/design.md:63` an
 
 ```markdown
 The orchestrator sorts an issue by it without asking, except where the issue blocks the open release, meets no test, or asks for work the roadmap holds outside the first version.
+```
+
+```seal
+verdict: fixed 81c09167
+answer: Applied as pasted in both editions of `docs/roadmap.md` at the paragraph's test 1 sentence, and the changelog bullet reads as the round gives it. The frame quotes and Scenario C are the framer's files, so the orchestrator folds them: the quotes at `frame/design.md` lines 63 and 67 take the two new sentences of each edition as they stand at line 77 of the roadmap files, and in Scenario C at line 86 "leaves a line that names the release and what the issue blocks, and the issue takes `release: <version>` only on the owner's word." becomes "leaves a line that names the release and what the issue blocks, asks the owner, and the issue takes `release: <version>` only on the owner's word."
 ```
 
 ### 3. Scenario B and the roadmap's ground 4 hold #176 in `owner: by hand`, and the tracker moved it into `release: 0.1.0`
@@ -100,6 +110,11 @@ In `docs/roadmap.ko.md:39`, "#176은 2026-11-25에 릴리스 0.0.5로 옮겼고,
 
 ```markdown
 #176은 2026-11-25에 릴리스 0.0.5로 옮겼고, 2026-11-26에 마일스톤 `owner: by hand`로, 2026-11-27에 저장소 소유자의 말로 `release: 0.1.0`으로 옮겼습니다.
+```
+
+```seal
+verdict: fixed 81c09167
+answer: Ground 4 is corrected in both editions, in the round's words except one: the English sentence names the three moves as dated events ("moved ... on 2026-11-25, to the milestone `owner: by hand` on 2026-11-26, and to `release: 0.1.0` on 2026-11-27 on the owner's word") and not as "stands in `release: 0.1.0` since 2026-11-27", because the owner moved #176, #184 and #110 into `release: 0.1.0` (label `owner runs`) on 2026-11-27 and returns them to `owner: by hand` if they are not finished by 2026-11-28, and a dated event stays true on either side of that day where "stands" would not. Scenario B in `frame/design.md` line 85 is the framer's, so the orchestrator folds the round's replacement row as pasted; if the orchestrator wants it to hold after the return, its last sentence should say "#176 stood in `owner: by hand` until the owner's word moved it into `release: 0.1.0` on 2026-11-27" and leave the later place unsaid, which the pasted row already does. The round's evidence search run again after the fix commit prints ground 4 at line 39 of each edition with the new sentence, and two rows that stand uncorrected: the 0.0.3 row at line 53 ("are now in the milestone `owner: by hand`", of #176, #184 and #110) and the 0.0.5 row at line 55 ("stayed in the milestone `owner: by hand`"). They sit in the release table the round puts out of scope for the settle, and the second is a dated past, but the first is a present tense the tracker now contradicts; the orchestrator decides whether to fold it here or leave it to the settle of release 0.1.0. Also in this pass: the `gaps.md` row "Scenarios A to D were read, and no second reader applied the list to a live issue" is removed, since the round applied the list to live issues and its record says what it found. Read across the range after the last fix commit (executed): both editions count the same headings and table rows as before (`grep -c '^#'` and `grep -c '^|'` on each), `git grep` for `도장` exits 1, and the diff of the commit shows only the sentences named here. `frame/plan.md` line 21 and `frame/design.md` lines 16 and 17 state the tracker as the framer read it and stand as dated readings. The searches are a sample under contract rules 12 and 19, and the part they did not reach is the other statements of where #176, #184 and #110 stand, which only the listing of the tracker finds. Not run: the broad gate, the orchestrator's.
 ```
 
 ## Confirmations
