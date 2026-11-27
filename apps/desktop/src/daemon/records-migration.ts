@@ -496,8 +496,9 @@ async function planned(folder: string, version: string): Promise<{ plan: Migrati
  * the text the plan gives it and its mode, each created where nothing
  * stands, but a record below IADD's root that the plan rewrites where it
  * stands, which is written over; each file the plan moves to another path
- * and the earlier workflow is removed from the index and the checkout. Those paths alone are staged and committed,
- * on the branch the checkout stands on, with the person's git identity and
+ * and the earlier workflow is removed from the index and the checkout.
+ * Those paths alone are staged and committed, on the branch the checkout
+ * stands on, with the person's git identity and
  * the repository's hooks, under `limitMs` as
  * `records-place.ts#setUpRecords` runs its commit, and nothing is pushed.
  * Where a write or the commit fails, those paths are unstaged, the files
