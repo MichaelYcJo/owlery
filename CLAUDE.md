@@ -1,6 +1,6 @@
 # Working in this repository
 
-This file holds the rules for how work runs in this repository that every session follows, on whichever machine it runs. A rule whose home is a policy document under `docs/` stands there, and this file links to it rather than restating it. How the AgenticSeal plugin runs a work item is the plugin's own, and this file does not restate it either.
+This file holds the rules for how work runs in this repository that every session follows, on whichever machine it runs. A rule whose home is a policy document under `docs/` stands there, and this file links to it rather than restating it. How the AgenticSeal plugin runs a work item is the plugin's own, and this file does not restate it either. The orchestrator these rules name is the session that runs a work item, through the AgenticSeal plugin or in a pane that carries the owl chain. The agents that session starts and the role sessions Owlery's daemon starts read this file too ([docs/architecture.md *Role sessions run detached from the user's environment*](docs/architecture.md#role-sessions-run-detached-from-the-users-environment)), and none of them takes these steps, the orchestrator agent of `apps/desktop/role-bundle/agents/orchestrator.md` among them.
 
 ## Where the other rules stand
 
