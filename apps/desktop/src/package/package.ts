@@ -13,8 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Configuration } from "electron-builder";
 
-/** The app's bundle identifier, the owner's default of the work item's question Q1 until the owner names another. */
-export const BUNDLE_ID = "app.owlery.desktop";
+/** The app's bundle identifier, which the owner named on 2026-11-27 (issue #318), under the name the owner's products share. */
+export const BUNDLE_ID = "com.akmaios.owlery";
 
 /** The name of the `.dmg`, which carries no version, so one link can serve the newest release's. */
 export const ARTIFACT = "Owlery-arm64.dmg";
