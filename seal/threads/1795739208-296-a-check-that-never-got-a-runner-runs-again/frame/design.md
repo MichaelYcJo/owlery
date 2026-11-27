@@ -78,12 +78,12 @@ Where a *Verifiable how* cell says "a case", the case stands in `apps/desktop/te
 
 ## Data & interfaces
 
-**A never-started job** is an entry of `GET repos/<repository>/actions/runs/<run id>/attempts/<attempt>/jobs` that holds all four facts:
+**A never-started job** is an entry of `GET repos/<repository>/actions/runs/<run id>/attempts/<attempt>/jobs?per_page=100` that holds all four facts:
 
 - its `conclusion` is `cancelled`;
 - its `steps` is an empty list;
 - its `runner_id` is 0;
-- `GET repos/<repository>/check-runs/<job id>/annotations` holds an annotation whose `message` equals `The job was not acquired by Runner of type hosted even after multiple attempts`.
+- `GET repos/<repository>/check-runs/<job id>/annotations?per_page=100` holds an annotation whose `message` equals `The job was not acquired by Runner of type hosted even after multiple attempts`.
 
 The first three are read from the jobs' list, so the annotations are read only for a job that holds them. The sentence of the fourth is GitHub's, and no page of GitHub's documentation that the framer read states it. Where GitHub rewords it, the command reruns nothing and prints the messages it read, which is scenario C's line.
 
@@ -119,7 +119,7 @@ A `gh` call that exits non-zero, other than the missing ref of step 4, ends the 
 - `on: workflow_run`, with `workflows: [check, package]` and `types: [completed]`.
 - One job on `ubuntu-latest` with a `timeout-minutes` of 5, run where `github.event.workflow_run.conclusion != 'success'`. The run's conclusion cannot narrow it further: a no-runner attempt reads `failure` (*Grounding*).
 - `permissions`: `actions: write` for the rerun, `checks: read` for the annotations, `contents: read` for the checkout and the ref.
-- Steps: `actions/checkout@v4`, which in a `workflow_run` run checks out the default branch and so never a pull request's code; `actions/setup-node@v4` with Node 22, as `check.yml` sets it; then `node .github/scripts/rerun-unstarted.mjs` with the variables above in `env`.
+- Steps: `actions/checkout` pinned to the commit of v4.4.0 with `persist-credentials: false`, which in a `workflow_run` run checks out the default branch and so never a pull request's code; `actions/setup-node` pinned to the commit of v4.4.0 with Node 22, as `check.yml` sets it; then `node .github/scripts/rerun-unstarted.mjs` with the variables above in `env`.
 - No `concurrency` group. Two completed attempts of one run are never handled at once, since the later attempt exists only after the earlier one was rerun.
 
 **What stays bounded, and why.** The command's one kind of write is the rerun of a job that never started, so the command reruns no job that ran, whatever that job's conclusion. Each rerun makes an attempt whose number is one higher, and no attempt numbered 5 or more is rerun, so one run ends after at most 4 reruns from the command, whether or not the end of a rerun attempt starts the workflow again. The workflow lists only `check` and `package`, so its own completion never starts it.
