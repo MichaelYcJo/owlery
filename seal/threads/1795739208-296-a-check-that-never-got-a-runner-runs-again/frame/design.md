@@ -46,7 +46,7 @@ In scope:
 
 1. A command, `.github/scripts/rerun-unstarted.mjs`, that reads one completed run attempt and asks GitHub to rerun each never-started job of it, and no other job. *Data & interfaces* fixes its inputs, its reads, its one write and its lines.
 2. The command asks for no rerun where the attempt's number is 5 or more. So a run gets at most 4 reruns from this command, and a fifth attempt's cancellation stays.
-3. The command asks for no rerun of a `pull_request` run whose branch has moved off the run's commit, or whose head repository is not this repository.
+3. The command asks for no rerun of a run whose head repository is not this repository, whatever its event, nor of a `pull_request` run whose branch has moved off the run's commit.
 4. A workflow, `.github/workflows/rerun-unstarted.yml`, that runs the command when a run of `check` or of `package` completes with a conclusion other than `success`. It holds `actions: write`, `checks: read` and `contents: read`, and no other permission.
 5. Cases in `apps/desktop/test/rerun-unstarted.test.ts` that run the command against a stand-in `gh`, one or more per row of *User scenarios & acceptance* that names a case.
 
@@ -107,7 +107,7 @@ The command runs `gh api` for each read and for its one kind of write, and takes
 1. It reads the attempt's jobs. Where none holds the first three facts, it prints that the attempt holds no never-started job.
 2. For each job that holds them, it reads the annotations. Where no job holds the fourth fact, it prints each such job's name and the annotation messages it read.
 3. Where `RUN_ATTEMPT` is 5 or more, it prints that the attempt reached the ceiling. The ceiling is one named constant of the command.
-4. Where `RUN_EVENT` is `pull_request` and `HEAD_REPOSITORY` is not `GITHUB_REPOSITORY`, it says so. Where `RUN_EVENT` is `pull_request` and the two are equal, it reads `repos/<repository>/git/ref/heads/<HEAD_BRANCH>`, and where the ref's commit is not `HEAD_SHA`, or the ref does not exist, it prints both.
+4. Where `HEAD_REPOSITORY` is not `GITHUB_REPOSITORY`, whatever `RUN_EVENT` is, it says so. Where `RUN_EVENT` is `pull_request`, it reads `repos/<repository>/git/ref/heads/<HEAD_BRANCH>`, with each segment of `HEAD_BRANCH` between slashes URL-encoded, and where the ref's commit is not `HEAD_SHA`, or the ref does not exist, it prints both.
 5. It sends `POST repos/<repository>/actions/jobs/<job id>/rerun` for each never-started job, in the list's order, prints one line per job, and exits 0.
 
 A `gh` call that exits non-zero, other than the missing ref of step 4, ends the command non-zero with the call and `gh`'s error output. Each printed line also goes to the file `GITHUB_STEP_SUMMARY` names, where that variable is set.
