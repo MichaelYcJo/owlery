@@ -541,3 +541,24 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
     expect(left).toEqual([]);
   });
 });
+
+// The window's status line against the daemon the app starts on a run folder whose `repositories.json` holds no JSON.
+describe("the built app's notice of a kept repositories file", { timeout: 120_000 }, () => {
+  it("says in the status line, drawn as a notice, where the daemon kept a `repositories.json` it could not read", async () => {
+    buildApp();
+    // The login shell names no CLI, so the person's own Claude Code is not read.
+    const app = await BuiltApp.start({ SHELL: "/usr/bin/true" }, { writeRun: (runDir) => writeFileSync(join(runDir, "repositories.json"), "{ not json", { mode: 0o600 }) });
+    let left: number[];
+    try {
+      // The stamp is the daemon's own clock, so the sentence is matched up to the kept file's name and from its end.
+      const opening = `Owlery could not read its list of repositories, so it kept the file as ${join(app.userData, "run", "repositories-unread-")}`;
+      const closing = ".json and started with none. Nothing in that file was changed.";
+      await app.until(`document.getElementById("status")?.textContent?.startsWith(${JSON.stringify(opening)}) === true`, "the notice of the kept file");
+      const said = await app.evaluate(`({ notice: document.getElementById("status").classList.contains("notice"), closing: document.getElementById("status").textContent.endsWith(${JSON.stringify(closing)}) })`);
+      expect(said).toEqual({ notice: true, closing: true });
+    } finally {
+      left = await app.stop();
+    }
+    expect(left).toEqual([]);
+  });
+});
