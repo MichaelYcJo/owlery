@@ -8,7 +8,7 @@ This round reviewed the net diff `d323b45a..b08cf838`. The code under review is 
 
 ## Findings
 
-### 1. The pull request closes #328 with a line of its *Done when* undelivered, and #328 does not say the line moved, while `gaps.md` says #331 holds a line that #331 states more weakly
+### 1. The pull request closes `#328` with a line of its *Done when* undelivered, and #328 does not say the line moved, while `gaps.md` says #331 holds a line that #331 states more weakly
 
 ```seal
 severity: must
