@@ -19,10 +19,11 @@ Issue #323: the rules for how work runs in this repository stand in two machines
 - **Decisions the orchestrator took for the owner's open points, 2026-11-28:**
   - The rules of how this repository is worked are written in the vocabulary its tools use today (`seal/`, the `seal` command, sealer). This repository stays on the AgenticSeal plugin's forms until the plugin takes IADD's names (#322 *When it lands*, step 4), and the rename sweeps them then. IADD's own definition goes through #322, not here.
   - The pull request check's name belongs to #322.
-  - The crafter's model is recommended at routing and defaults to Opus.
   - The time `pr.md` is written stays the plugin's rule, so nothing is written here.
   - The brand criteria move into `docs/name.md`.
   - Rules about using the plugin itself stay out of this repository.
   - `handoff.md` is one sentence of practice, not a record form.
-  - Rules bound to the long release branch say "until #279".
+- **Narrowed by the owner during phase 1, 2026-11-28:** no model rule is written, since #129 owns the product's model defaults and how this repository picks models stays in memory; and no rule is written that an open issue already owns (#129, #279, #322, #333 among them), since that issue writes it when it lands.
+- **Title prefix, `docs`:** the change writes rules into `CLAUDE.md` and the policy documents and changes no code; `chore` came closest, since the rules describe how work runs.
+- **Not closed by this pull request:** #323's last *Done when* item, each machine's memory pruned to what the decision left there, is done outside the repository after the merge, so the pull request says *Part of #323*.
 - **Branch:** cut from `main` at `aec3e8ac` on 2026-11-28.
