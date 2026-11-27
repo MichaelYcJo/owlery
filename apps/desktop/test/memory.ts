@@ -6,7 +6,7 @@
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { startsInBackground } from "../src/main/background";
-import { BuiltApp, endNow, untilGone } from "./built-app";
+import { BuiltApp, endNow, formPlanOf, untilGone } from "./built-app";
 import { temporaryRepository } from "./repositories";
 
 /** The pane's process: `SHELL` for the app the measurement starts. */
@@ -366,8 +366,8 @@ async function openWorkItem(app: BuiltApp, repo: string, title: string): Promise
   await fill(app, "work-item-title", title);
   // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
   await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-  // Create creates nothing before the form shows the plan of its folder.
-  await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+  // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+  await app.until(formPlanOf(title), `the plan of the folder for ${title}`);
   await app.click("#work-item-create");
   try {
     await untilInFront(app, 1);

@@ -28,8 +28,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { installedApps } from "../src/main/openers";
-import { CARD_LEAVE_MS, CARD_SHOW_MS } from "../src/renderer/view";
-import { alive, BuiltApp, buildApp, untilGone } from "./built-app";
+import { CARD_LEAVE_MS, CARD_SHOW_MS, deleteSays } from "../src/renderer/view";
+import { alive, atRestAfterFailure, BuiltApp, buildApp, formPlanOf, untilGone } from "./built-app";
 import { openReceiverPane, Received } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
@@ -189,6 +189,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     // The button is pressed from the page, since a case that failed may have left another screen in front of the view that holds it.
     await app.evaluate(`void (document.getElementById("side-by-side").getAttribute("aria-pressed") === "true" && document.getElementById("side-by-side").click())`);
   }, 30_000);
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   /** Puts the one work item's view in front from another screen, by its line in the sidebar. */
   async function openView(): Promise<void> {
@@ -486,6 +488,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click(`[role="menu"] [role="menuitem"][data-pressed-here]`);
     await app.until(`document.getElementById("delete-dialog").open && document.querySelectorAll("#delete-sessions li").length === ${count}`, `the delete dialog with ${count} running sessions`);
     const named = await app.evaluate<string[]>(`[...document.querySelectorAll("#delete-sessions li")].map((item) => item.textContent)`);
+    // The dialog asks what a delete would lose as it opens, and the loss it draws above the buttons moves Cancel down: Cancel is pressed once the loss stands.
+    await app.until(`document.getElementById("delete-says").textContent !== ${JSON.stringify(deleteSays(null))}`, "the loss in the delete dialog");
     await app.click("#delete-cancel");
     await app.until(`!document.getElementById("delete-dialog").open`, "the delete dialog closed");
     return named;
@@ -1097,8 +1101,8 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Second item" });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-    // Create creates nothing before the form shows the plan of its folder.
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf("Second item"), "the plan of the folder for Second item");
     await app.click("#work-item-create");
     await app.until(`document.getElementById("view-title").textContent === "Second item" && ${PANE_HAS_KEYBOARD}`, "the second work item's view");
     panes += 1;

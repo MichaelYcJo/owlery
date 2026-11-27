@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { readDiscovery } from "../src/daemon/discovery";
 import { MARKER } from "../src/daemon/records-place";
-import { BuiltApp, buildApp } from "./built-app";
+import { deleteSays } from "../src/renderer/view";
+import { atRestAfterFailure, BuiltApp, buildApp } from "./built-app";
 import { parkedOnAQuestion } from "./chain-run";
 import { git, temporaryRepository } from "./repositories";
 
@@ -57,6 +58,9 @@ describe.skipIf(process.platform !== "darwin")("the Machine dialog in the built 
   afterAll(async () => {
     expect(await app.stop()).toEqual([]);
   });
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("opens from a button at the sidebar's foot, and shows what the daemon read under `OWLERY_MACHINE` in one sentence and each cap's default with the numbers it came from (scenarios 1 and 16)", async () => {
     expect(await app.evaluate<{ hidden: boolean; label: string | null; title: string }>(`(() => { const button = document.getElementById("machine-button"); return { hidden: button.hidden, label: button.getAttribute("aria-label"), title: button.title }; })()`)).toEqual({ hidden: false, label: "Machine", title: "Machine…" });
@@ -265,6 +269,9 @@ describe.skipIf(process.platform !== "darwin")("the new work item form and the s
     made?.remove();
   });
 
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
+
   it("warns under the plan that the disk would not hold the worktree, with the free disk, the 10 GB kept free and what a worktree of the repository takes, and that the worktrees are at the cap the same disk proposes, in the theme's ink, and keeps Create enabled (scenarios 11 and 12)", async () => {
     await app.click("#new-work-item");
     await app.until(`document.getElementById("work-item-dialog").open`, 'the "New work item" form');
@@ -367,6 +374,9 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
     made?.remove();
   });
 
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
+
   it("lists the sessions that wait under a label of their own, \"Waiting for the machine\", each with its work item's name and, on the line under it in the secondary colour, what it waits to run, and shows no label while none waits", async () => {
     await app.click("#machine-button");
     await app.until(`document.getElementById("machine-dialog").open && document.querySelector('#machine-caps [data-cap="agents"]')`, "the Machine dialog");
@@ -429,6 +439,8 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
       ["Running sessions that end", ["Claude Code"]],
       ["Sessions waiting for the machine that leave the queue", ["Proofer, round 1"]],
     ]);
+    // The dialog asks what a delete would lose as it opens, and the loss it draws above the buttons moves Cancel down: Cancel is pressed once the loss stands.
+    await app.until(`document.getElementById("delete-says").textContent !== ${JSON.stringify(deleteSays(null))}`, "the loss in the delete dialog");
     await app.click("#delete-cancel");
     await app.until(`!document.getElementById("delete-dialog").open`, "the delete dialog closed");
   });

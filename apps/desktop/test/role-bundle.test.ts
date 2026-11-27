@@ -3,7 +3,7 @@
 // session alone. Its files started from AgenticSeal and are Owlery's own, and
 // the bundle's README.md says where they started.
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, relative } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -542,8 +542,8 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
     const version = join(folder, "version");
     const hold = join(folder, "hold");
     writeFileSync(version, "2.1.300 (Claude Code)\n");
-    // Stands for the CLI: asked for its version, it prints the file's, once no file holds it back. A held one also ends once this script is gone, with the folder of a case that failed.
-    const cli = script("cli", `[ "$*" = "--version" ] || exit 1\nwhile [ -e '${hold}' ] && [ -e "$0" ]; do sleep 0.05; done\ncat '${version}'`);
+    // Stands for the CLI: asked for its version, it reads the file's, and prints what it read once no file holds it back. A read that began before the case rewrote the file prints the old version, and one that began after it is held. A held one also ends once this script is gone, with the folder of a case that failed.
+    const cli = script("cli", `[ "$*" = "--version" ] || exit 1\nread=$(cat '${version}')\nwhile [ -e '${hold}' ] && [ -e "$0" ]; do sleep 0.05; done\nprintf '%s\\n' "$read"`);
     // Stands for the login shell: it names the CLI and ends.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     const old = versionNotice("2.1.300 (Claude Code)");
@@ -558,11 +558,17 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
       expect(await status()).toEqual({ text: old, notice: true });
 
       // The person updates. The daemon reads the version again as a window connects, and that read is held here, so the page loaded anew has the sentence from the daemon's `ready` alone.
+      // The hold stands before the new version does, and the new version is put in place whole, so a read under way prints the old version and a later one is held.
       writeFileSync(hold, "");
-      writeFileSync(version, "2.1.329 (Claude Code)\n");
+      writeFileSync(`${version}.next`, "2.1.329 (Claude Code)\n");
+      renameSync(`${version}.next`, version);
       await app.evaluate(`window.__beforeReload = true`);
       await app.cdp("Page.reload");
-      await app.until(`window.__beforeReload === undefined && document.getElementById("status")?.textContent === ${JSON.stringify(old)}`, "the notice in the page loaded anew");
+      await app.until(`window.__beforeReload === undefined && document.getElementById("status")?.textContent === ${JSON.stringify(old)}`, "the notice in the page loaded anew").catch(async (error: unknown) => {
+        // What the status line held, and in which page, tells a notice that went before the reload from a page that never loaded anew.
+        const seen = await app.evaluate<{ text: string | null; anew: boolean }>(`({ text: document.getElementById("status")?.textContent ?? null, anew: window.__beforeReload === undefined })`).catch(() => null);
+        throw seen === null ? error : new Error(`${(error as Error).message}; the status line said ${JSON.stringify(seen.text)} in ${seen.anew ? "the page loaded anew" : "the page from before the reload"}`);
+      });
       expect(await status()).toEqual({ text: old, notice: true });
 
       // The read ends, and the daemon tells the window that the notice went.

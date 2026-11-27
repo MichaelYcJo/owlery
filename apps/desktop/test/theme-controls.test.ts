@@ -11,10 +11,10 @@
 // releases on the same point.
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { GROUNDS } from "../src/main/appearance";
 import { REFRESH_SAYS } from "../src/renderer/view";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp, formPlanOf } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
@@ -80,8 +80,8 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app.click("#work-item-title");
     await app.cdp("Input.insertText", { text: "Alpha" });
     await app.evaluate(`document.getElementById("work-item-kind").value = "shell"`);
-    // Create creates nothing before the form shows the plan of its folder.
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf("Alpha"), "the plan of the folder for Alpha");
     await app.click("#work-item-create");
     await app.until(`!document.getElementById("work-item-view").hidden && document.querySelector("#stage .pane .xterm-scrollable-element")`, "the view of Alpha with its terminal");
   }, 120_000);
@@ -90,6 +90,9 @@ describe("the theme and the appearance in the built app", { timeout: 60_000 }, (
     await app?.stop();
     made?.remove();
   }, 30_000);
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("opens a first run in Night watch, in the dark appearance, on that ground, and offers the three themes and the three choices of appearance", async () => {
     expect(existsSync(file())).toBe(false);

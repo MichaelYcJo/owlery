@@ -10,9 +10,9 @@
 // temporary repository alone.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { MARKER, moveSubject, SUBJECT, workflowText } from "../src/daemon/records-place";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp } from "./built-app";
 import { git, temporaryRepository } from "./repositories";
 
 describe("the dialog of the records place in the built app", { timeout: 60_000 }, () => {
@@ -41,6 +41,8 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     await app.cdp("Emulation.setFocusEmulationEnabled", { enabled: true });
     await app.until(`["summary-screen", "inbox-screen", "history-screen"].some((id) => document.getElementById(id)?.hidden === false)`, "a screen in front");
   }, 120_000);
+
+  afterEach(atRestAfterFailure(() => app));
 
   afterAll(async () => {
     await app?.stop();

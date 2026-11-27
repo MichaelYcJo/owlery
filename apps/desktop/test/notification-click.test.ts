@@ -7,9 +7,9 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ServerMessage, SessionInfo } from "../src/shared/protocol";
-import { BuiltApp, buildApp } from "./built-app";
+import { atRestAfterFailure, BuiltApp, buildApp, formPlanOf } from "./built-app";
 import { RECEIVER } from "./korean-pane";
 import { temporaryRepository } from "./repositories";
 
@@ -54,8 +54,8 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     await app.cdp("Input.insertText", { text: title });
     // The kind's menu is the system's own, which the debugging port does not reach, so the choice is set on the field.
     await app.evaluate(`document.getElementById("work-item-kind").value = ${JSON.stringify(kind)}`);
-    // Create creates nothing before the form shows the plan of its folder.
-    await app.until(`document.getElementById("work-item-branch").textContent !== ""`, "the plan of the folder");
+    // Create creates nothing before the form shows the plan of its folder. The press waits for the plan of the name typed (`built-app.ts#formPlanOf`).
+    await app.until(formPlanOf(title), `the plan of the folder for ${title}`);
     await app.click("#work-item-create");
     try {
       await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(title)}`, `the view of ${title}`);
@@ -106,6 +106,9 @@ describe("a click on a notification in the built app", { timeout: 30_000 }, () =
     await app?.stop();
     made?.remove();
   }, 30_000);
+
+  // The cases share one app, so a dialog or a menu a failed case leaves open would keep every later case from opening one.
+  afterEach(atRestAfterFailure(() => app));
 
   it("raises nothing of the system's in the background, and a click on the notification the page kept opens the view of the work item that waits, with the pane that waits in front, from the view of another work item", async () => {
     expect(await recorded()).toEqual([]);
