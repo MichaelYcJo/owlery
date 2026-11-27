@@ -1,0 +1,6 @@
+#!/bin/sh
+# The stand-in for `gh` in rerun-unstarted.test.ts, which puts this folder first
+# on the PATH of `.github/scripts/rerun-unstarted.mjs`. It reaches no GitHub:
+# gh.mjs beside it answers each call from the answers the case wrote, and
+# notes the call. The case names the Node that runs it in GH_STAND_IN_NODE.
+exec "$GH_STAND_IN_NODE" "$(dirname "$0")/gh.mjs" "$@"

@@ -1,0 +1,56 @@
+# Reruns a job of the `check` or the `package` workflow that GitHub cancelled
+# because no hosted runner took it. GitHub gives up on a macOS job it could not
+# place in about 15 minutes, cancels it with no runner and no step, and marks
+# the run as failed, so the run's conclusion does not tell such a job from one
+# that ran and failed. The command decides on each job of the attempt and
+# reruns no job that ran (.github/scripts/rerun-unstarted.mjs).
+#
+# GitHub starts a `workflow_run` workflow from the copy of its file on the
+# default branch, and checks out that branch's commit, never a pull request's
+# code. Its run adds no check to a pull request.
+
+name: rerun-unstarted
+
+on:
+  workflow_run:
+    workflows: [check, package]
+    types: [completed]
+
+# The rerun needs `actions: write`, the read of a job's annotations needs
+# `checks: read`, and the checkout and the read of a branch's head need
+# `contents: read`.
+permissions:
+  actions: write
+  checks: read
+  contents: read
+
+jobs:
+  rerun:
+    # A run that succeeded holds no job to rerun. A no-runner attempt's run
+    # reads `failure`, so the conclusion narrows it no further.
+    if: github.event.workflow_run.conclusion != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The job holds `actions: write`, so each action is pinned to a commit: the
+    # one the tag v4 named on 2026-11-27, which is v4.4.0's for both.
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          # No step pushes with git, and the command takes the token from GH_TOKEN.
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # Each value of the run reaches the command as a variable and never as text of the script.
+      - name: rerun the jobs no runner took
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: node .github/scripts/rerun-unstarted.mjs
