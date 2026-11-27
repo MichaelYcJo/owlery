@@ -5,8 +5,8 @@
 // answers from `fixtures/rerun-unstarted/github.json`, which holds what
 // `gh api` returned for the runs and jobs named below on 2026-11-27, cut to the
 // fields the command reads, and it notes every call. Each case arranges the
-// answers to every call the command could make, the rerun among them, so a
-// command that decides wrongly makes a call the case can see.
+// answers to the calls a wrong decision would make, the rerun among them, so
+// such a decision shows as a call the case can see.
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -269,5 +269,12 @@ describe("a refusal", () => {
     expect(ran.status).toBe(1);
     expect(ran.calls).toEqual([]);
     expect(ran.stderr).toBe('RUN_ATTEMPT is "", which is no attempt\'s number.\n');
+  });
+
+  it("of a value of the run that is empty ends the command non-zero before any call, and names it", () => {
+    const ran = command({ ...NEVER_STARTED, RUN_ID: "" }, neverStarted());
+    expect(ran.status).toBe(1);
+    expect(ran.calls).toEqual([]);
+    expect(ran.stderr).toBe("RUN_ID is not set.\n");
   });
 });

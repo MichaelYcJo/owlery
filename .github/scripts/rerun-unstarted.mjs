@@ -21,7 +21,7 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
-/** GitHub's message on a job no hosted runner took. No page of GitHub's documentation states it; it is read from the jobs. */
+/** GitHub's message on a job no hosted runner took, read from the annotations of such jobs in issue #296. No page of GitHub's documentation read for that issue states it. */
 const NOT_ACQUIRED = "The job was not acquired by Runner of type hosted even after multiple attempts";
 
 /** No job of an attempt numbered this or more is rerun, so a run gets at most four reruns from this command. */
