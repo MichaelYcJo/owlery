@@ -130,6 +130,14 @@ describe("a job that never got a runner", () => {
     expect(reruns(ran)).toEqual([rerun(NEVER_STARTED_JOB)]);
     expect(ran.calls.filter((call) => call.includes("git/ref"))).toEqual([]);
   });
+
+  // Git allows `#` in a branch's name, and a path reads it as the start of a fragment. Only the encoded read is
+  // arranged, so a read of `heads/fix/296-a#b` gets no answer from the stand-in and ends the command at 1.
+  it("reads the ref of a branch whose name holds a character a path reads otherwise, with that character encoded", () => {
+    const ran = command({ ...NEVER_STARTED, HEAD_BRANCH: "fix/296-a#b" }, { ...neverStarted(), [refRead("fix/296-a%23b")]: refAt(NEVER_STARTED.HEAD_SHA) });
+    expect(ran.status).toBe(0);
+    expect(reruns(ran)).toEqual([rerun(NEVER_STARTED_JOB)]);
+  });
 });
 
 describe("a job that is not rerun", () => {
