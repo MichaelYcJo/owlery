@@ -12,4 +12,4 @@ Issue #323. Many rules for how work runs in this repository stood only in one ma
 
 | Date | Change | Why | Source |
 |---|---|---|---|
-| 2026-11-28 | A repository `CLAUDE.md` holds the session rules of how work runs here: read the remote before each step, push after each step, the owner's delegation quoted in `routing.md`, and the framing and research rules | They stood in one machine's agent memory, so a session elsewhere did not know them | https://github.com/MichaelYcJo/owlery/issues/323 |
+| 2026-11-28 | A repository `CLAUDE.md` holds the session rules of how work runs here: read the remote before each step, push after each step of a work item that opens a pull request, the owner's delegation quoted in `routing.md`, and the framing and research rules | They stood in one machine's agent memory, so a session elsewhere did not know them | https://github.com/MichaelYcJo/owlery/issues/323 |
