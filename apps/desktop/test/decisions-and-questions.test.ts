@@ -221,6 +221,16 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
     expect(await texts("#questions fieldset[data-question] legend")).toEqual(["Which base does the branch merge into?", "Squash or merge?"]);
     expect(await texts("#questions fieldset[data-question] > .by, #questions fieldset[data-question] > .grounds")).toEqual(["Asked by inspector", "Grounds: No document names the base of a hotfix.", "Asked by inspector", "Grounds: The repository's config names neither."]);
     expect(await texts(`#questions fieldset[data-question="1"] label.option`)).toEqual(["mainIt waits for the next release.", "release/v0.0.2DefaultIt ships with this release.", "Another answer"]);
+    // The default option's "Default" is a word of its row in the caption's size, and never the inspection's mark, whose class lays a span out as a box of the mark's size that the word runs out of.
+    expect(
+      await app.evaluate(`(() => {
+        const word = [...document.querySelectorAll('#questions fieldset[data-question="1"] label.option span')].find((span) => span.textContent === "Default");
+        const at = word.getBoundingClientRect();
+        const row = word.closest("label.option").getBoundingClientRect();
+        const caption = getComputedStyle(document.querySelector('#questions fieldset[data-question="1"] > .by')).fontSize;
+        return { className: word.className, inside: word.scrollWidth <= word.clientWidth && at.right <= row.right, caption: getComputedStyle(word).fontSize === caption };
+      })()`),
+    ).toEqual({ className: "default", inside: true, caption: true });
     const chosen = (): Promise<(string | null)[]> => app.evaluate(`[1, 2].map((id) => document.querySelector('#questions input[name="question-' + id + '"]:checked')?.value ?? null)`);
     expect(await chosen()).toEqual(["1", null]);
 

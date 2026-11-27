@@ -502,8 +502,8 @@
       #questions .grounds:empty { display: none; }
       #questions .option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--space-3); align-items: center; }
       #questions .option .label { overflow-wrap: anywhere; }
-      #questions .option .mark { font-size: var(--size-caption); color: var(--ink-faint); }
-      #questions .option .mark:empty { display: none; }
+      #questions .option .default { font-size: var(--size-caption); color: var(--ink-faint); }
+      #questions .option .default:empty { display: none; }
       #questions .option .implies { grid-column: 2 / -1; color: var(--ink-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
       #questions .option .implies:empty { display: none; }
       /* The chosen option is marked in the strong ink, and never in the system's own accent: a theme has one signal, and a choice is not it. */

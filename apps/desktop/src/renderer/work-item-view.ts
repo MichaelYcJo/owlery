@@ -1123,7 +1123,7 @@ function showQuestions(workItem: WorkItem): void {
         return label;
       };
       // Who asks and why the question is the person's are plain text, never markup.
-      field.append(asks, part("by", question.by), part("grounds", question.grounds), ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("mark", option.mark), part("implies", option.implies))));
+      field.append(asks, part("by", question.by), part("grounds", question.grounds), ...question.options.map((option, index) => choice(String(index), index === question.chosen, part("label", option.label), part("default", option.mark), part("implies", option.implies))));
       if (question.options.length > 0) {
         field.append(choice("other", false, part("label", "Another answer")));
         // Words typed as another answer choose it.
