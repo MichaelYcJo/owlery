@@ -28,7 +28,7 @@ import { menuOpen, openMenu } from "./menu";
 import { chooseNotifier, type Kept } from "./notifier";
 import { holdDraws } from "./press";
 import { refresher } from "./refresh";
-import { byId, connected, connectedBy, held, request, send } from "./shared";
+import { byId, connected, connectedBy, held, request, send, waits, whenUnanswered } from "./shared";
 import { focusSearch, initSidebar, showRefresh, showSidebar, showStatus, tell, untell, type Front } from "./sidebar";
 import { initSummary, pressMain, redrawSummary, showSummary } from "./summary";
 import { askedSignIn, closeSignIn, showSignIn, SIGN_IN_SIZE, signInRefused, takeSignInStarted, writeSignIn } from "./sign-in-pane";
@@ -50,6 +50,7 @@ import {
   daemonEnding,
   daemonLists,
   daemonNotice,
+  refusalSays,
   decisionLines,
   deleteChoice,
   deleteSays,
@@ -139,6 +140,9 @@ const refreshing = refresher({
   tell,
   daemonNotice: () => held.daemonNotice,
 });
+
+// A request a daemon of an earlier build has not answered within its wait ends as the daemon's own refusal would end it, in the place where that request's refusal is shown (./view, `answerWaits`).
+whenUnanswered(onMessage);
 
 // The Command key's place is the Control key's where the keyboard has none.
 const MAC = navigator.platform.startsWith("Mac");
@@ -1789,7 +1793,7 @@ function showBase(): void {
     baseAnswers.set(baseKey(repoField.value, base), asked);
     basesAsked.add(asked.requestId);
     send({ type: "fetchBase", requestId: asked.requestId, repo: repoField.value.trim(), base });
-    // A daemon of an earlier build ignores the message, so the form stops saying that it fetches. An answer that comes later is shown.
+    // Where no answer came by the daemon's own limit for a fetch and two seconds more, the form stops saying that it fetches. An answer that comes later is shown. A daemon of a build before the fetch ignores the message, and the window's wait (./view, `answerWaits`) ends that request first, with a refusal shown under the menu.
     const timer = setTimeout(() => {
       baseTimers.delete(timer);
       asked.answer = unanswered(asked.answer);
@@ -1891,10 +1895,14 @@ function registerRepository(): void {
 }
 
 function onMessage(message: ServerMessage): void {
+  // An answer that names a request ends that request's wait (./view, `answerWaits`).
+  waits.answered(message);
   switch (message.type) {
     case "ready": {
       // The states as the window finds them, so no notification. Nothing is attached and nothing started.
       held.ready = true;
+      // A daemon of a build before `answersUnknown` leaves a request it does not know unanswered, so each request sent to it from now on but a creation has a wait (./view, `answerWaits`).
+      waits.ready(message);
       held.paneKinds = message.paneKinds;
       held.sessions = message.sessions;
       held.workItems = message.workItems;
@@ -2065,50 +2073,52 @@ function onMessage(message: ServerMessage): void {
       // The daemon drops only a session that ended, so no dialog that names the running sessions changes.
       dropHeadless(message.id);
       return;
-    case "error":
-      // Nothing was created or started.
+    case "error": {
+      // Nothing was created or started. Where the daemon does not know the request, each place below shows the window's sentence, which names "Restart Daemon…", in place of the daemon's (./view, `refusalSays`).
+      const said = refusalSays(message);
       requestRefused(message.requestId);
-      // A refresh's refusal is said in the status line in the daemon's words, and the lists stand as they were.
-      if (refreshing.refused(message.requestId, message.message)) return;
+      // A refresh's refusal is said in the status line, and the lists stand as they were.
+      if (refreshing.refused(message.requestId, said)) return;
       // A plan's refusal is the form's to show, under the name, and an earlier plan's is shown nowhere.
-      if (takePlan(message.requestId, { error: message.message })) return;
+      if (takePlan(message.requestId, { error: said })) return;
       // The refusal of a base's fetch is the form's to show, under the menu.
-      if (takeBase(message.requestId, { error: message.message })) return;
+      if (takeBase(message.requestId, { error: said })) return;
       // So is the refusal of a rename's plan the rename dialog's, and the refusal of the rename itself.
-      if (takeRenamePlan(message.requestId, { error: message.message })) return;
+      if (takeRenamePlan(message.requestId, { error: said })) return;
       // The refusal of the plan that lists a repository's bases is the settings dialog's, and so is a refusal of what a dialog sent that dialog's.
-      if (takeSettingsPlan(message.requestId, { error: message.message })) return;
+      if (takeSettingsPlan(message.requestId, { error: said })) return;
       // A read of a loss that was refused is its dialog's to show.
-      if (takeDeleteLoss(message.requestId, { error: message.message }) || takeRemoveLoss(message.requestId, { error: message.message })) return;
+      if (takeDeleteLoss(message.requestId, { error: said }) || takeRemoveLoss(message.requestId, { error: said })) return;
       // The refusal of the answers to a parked work item's questions is its view's section's to show, and the refusal of a pane's new name the rename dialog's.
-      if (takeAnswers(message.requestId, message.message) || takeAccountChange(message.requestId, message.message) || takePaneName(message.requestId, message.message)) return;
+      if (takeAnswers(message.requestId, said) || takeAccountChange(message.requestId, said) || takePaneName(message.requestId, said)) return;
       // The refusal of a read of the records or of the ledger is the back's to show, in its place.
-      if (takeBackRefusal(message.requestId, message.message)) return;
+      if (takeBackRefusal(message.requestId, said)) return;
       // A refused plan of the records place is its dialog's to show.
-      if (takeRecordsPlan(message.requestId, { error: message.message })) return;
+      if (takeRecordsPlan(message.requestId, { error: said })) return;
       // A refused request of the Accounts dialog is said in it.
-      if (takeAccountsAnswer(message.requestId, message.message)) return;
+      if (takeAccountsAnswer(message.requestId, said)) return;
       if (registering?.requestId === message.requestId) registering = undefined;
       // A removal that was refused moves no folder to the Trash.
       if (trashing?.requestId === message.requestId) trashing = undefined;
-      if (answered(message.requestId, message.message)) {
+      if (answered(message.requestId, said)) {
         readAgain();
         return;
       }
       if (message.requestId === renameRequest && renameDialog.open) {
         renameRequest = undefined;
-        renameError.textContent = message.message;
+        renameError.textContent = said;
         renameButton.disabled = false;
         return;
       }
       if (message.requestId === formRequest && workItemDialog.open) {
         formRequest = undefined;
-        formError.textContent = message.message;
+        formError.textContent = said;
         createButton.disabled = false;
       } else {
-        tell(message.message);
+        tell(said);
       }
       return;
+    }
     case "replay":
     case "output":
       write(message.id, message.type, message.data);
