@@ -7,6 +7,7 @@
 // the cases' own, so nothing is read from the person's.
 // One start of the app serves every case, so the cases run in the order
 // they stand in.
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -109,6 +110,39 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
   afterEach(atRestAfterFailure(() => app));
 
   it("asks which chain runs over the form before a new work item's Claude Code pane opens, with the owl chain chosen, opens no pane where the dialog is cancelled, and at the answer launches the pane with the bundle and a settings file of its own that turns the plugin off", async () => {
+    // TEMPORARY DIAGNOSTIC (#328): notes every frame the window sends and the answers of plans and errors it receives.
+    await value(`(() => {
+      window.__probe = [];
+      const t0 = performance.now();
+      window.__probeTypes = {};
+      const note = (dir, text) => { try { const m = JSON.parse(text); if (dir === "in") window.__probeTypes[m.type] = [(window.__probeTypes[m.type]?.[0] ?? 0) + 1, Math.round(performance.now() - t0)]; if (dir === "out" || ["workItemPlan", "error", "baseFetched"].includes(m.type)) window.__probe.push([Math.round(performance.now() - t0), dir, text.slice(0, 1500)]); } catch {} };
+      const send = WebSocket.prototype.send;
+      const watched = new WeakSet();
+      WebSocket.prototype.send = function (data) { if (!watched.has(this)) { watched.add(this); window.__probeSocket = this; this.addEventListener("message", (event) => note("in", String(event.data))); } note("out", String(data)); return send.call(this, data); };
+      document.addEventListener("input", (event) => window.__probe.push([Math.round(performance.now() - t0), "input", event.target.id, event.target.value]), true);
+    })()`);
+    const probe = async (): Promise<string> =>
+      JSON.stringify(
+        await value<unknown>(`({
+          probe: window.__probe,
+          types: window.__probeTypes,
+          socketState: window.__probeSocket?.readyState,
+          hidden: document.hidden,
+          title: document.getElementById("work-item-title").value,
+          titleDisabled: document.getElementById("work-item-title").disabled,
+          repo: document.getElementById("work-item-repo").value,
+          active: document.activeElement && (document.activeElement.id || document.activeElement.tagName),
+          plan: document.getElementById("work-item-plan").textContent,
+          branch: document.getElementById("work-item-branch").textContent,
+          worktree: document.getElementById("work-item-worktree").textContent,
+          error: document.getElementById("work-item-error").textContent,
+          status: document.getElementById("status")?.textContent,
+          registerOnly: document.getElementById("work-item-register-only").checked,
+          dialogs: [...document.querySelectorAll("dialog[open]")].map((d) => d.id),
+        })`),
+        null,
+        1,
+      );
     await app.click("#sidebar section[data-repository] .repository-add");
     await dialogOpen("work-item-dialog");
     // The form opens to create a work item, whatever it was last used for.
@@ -117,7 +151,22 @@ describe("the choice of a chain in the built app", { timeout: 30_000 }, () => {
     await app.cdp("Input.insertText", { text: "Chosen" });
     await value(`document.getElementById("work-item-kind").value = "claude"`);
     // Create is pressed once the plan of the name typed stands (`built-app.ts#formPlanOf`).
-    await app.until(formPlanOf("Chosen"), "the plan of the folder for Chosen");
+    try {
+      await app.until(formPlanOf("Chosen"), "the plan of the folder for Chosen");
+    } catch (error) {
+      const log = join(runDir(), "daemon.log");
+      console.error(`#328 PROBE window: ${await probe()}`);
+      console.error(`#328 PROBE daemon.log: ${existsSync(log) ? readFileSync(log, "utf8").slice(-6000) : "none"}`);
+      console.error(`#328 PROBE run folder: ${JSON.stringify(readdirSync(runDir()))}`);
+      console.error(`#328 PROBE processes: ${execFileSync("ps", ["-A", "-o", "pid,ppid,etime,pcpu,rss,command"], { encoding: "utf8" }).split("\n").filter((line) => line.includes(app.userData) || line.includes(made.base) || /\/git |daemon\/main|daemon\.js/.test(line)).map((line) => line.slice(0, 300)).join("\n")}`);
+      console.error(`#328 PROBE load: ${execFileSync("sysctl", ["-n", "vm.loadavg"], { encoding: "utf8" })}`);
+      // A plan asked by the probe itself, on the window's own socket, with the fields the form sent last.
+      await value(`(() => { const last = window.__probe.filter((entry) => entry[1] === "out" && entry[2].includes('"planWorkItem"')).at(-1); const asked = last ? JSON.parse(last[2]) : {}; window.__probeSocket.send(JSON.stringify({ ...asked, requestId: 999999, title: "Chosen" })); })()`);
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      console.error(`#328 PROBE after a plan the probe asked: ${await probe()}`);
+      throw error;
+    }
+    console.error(`#328 PROBE passed: ${await probe()}`);
     await app.click("#work-item-create");
     await dialogOpen("chain-dialog");
     // The form stays under the dialog with what was typed, and the owl chain is the choice the dialog opens on.
