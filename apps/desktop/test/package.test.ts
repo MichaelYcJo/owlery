@@ -126,8 +126,8 @@ describe("packagerConfig", () => {
     expect(packagerConfig("developer-id", ICNS).extraMetadata).toEqual({ productName: "Owlery" });
   });
 
-  it("keeps the bundle identifier of the owner's default", () => {
-    expect(BUNDLE_ID).toBe("app.owlery.desktop");
+  it("keeps the bundle identifier the owner named", () => {
+    expect(BUNDLE_ID).toBe("com.akmaios.owlery");
   });
 
   it("signs ad hoc by naming the identity `-`, so no certificate of the keychain is used, and does not notarize", () => {
