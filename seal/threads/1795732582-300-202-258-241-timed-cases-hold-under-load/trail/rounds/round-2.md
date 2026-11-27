@@ -35,6 +35,12 @@ The search on the failed start's words printed `changelog.md:5` and `:6`, `frame
 - **For a contributor:** every checkout and worktree needs `pnpm install` once after this change, which builds node-pty again; until then it runs the build that leaks. `pty.test.ts` pins what a pane and a failed start leave open. The fetch cases of `worktrees.test.ts` and `daemon.test.ts` run the fetch again with a longer wait where git had not started its transport in time. The stand-in CLI of the Claude adapter's role launch case writes its error text before its first line. The cases of `describe("the inbox")` that compare the whole list of inboxes after a hello that finds a work item give that hello 5 seconds for the first read of the commits.
 ```
 
+```seal
+verdict: fixed 4ef88d47
+answer: The orchestrator replaced the two bullets of `changelog.md` with the round's paste-ready text, word for word. Records alone.
+```
+
+
 ## Confirmations
 
 ```seal
