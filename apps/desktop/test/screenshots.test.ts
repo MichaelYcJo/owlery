@@ -571,7 +571,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const show: Record<View, () => Promise<void>> = {
     summary: async () => {
       await app.click("#nav-summary");
-      await app.until(`!document.getElementById("summary-screen").hidden && document.getElementById("summary-sentence").textContent.startsWith("1 cleared, 1 inspection lapsed") && ${SUMMARY_LINES}.slice(0, 2).map((line) => line.dataset.workItem + " " + line.querySelector(".inspection").dataset.inspection).join() === "${FINISHED_ID} cleared,${BROKEN_ID} lapsed"`, `the summary, leading with the inspection given on ${FINISHED} and the inspection lapsed on ${BROKEN}`);
+      await app.until(`!document.getElementById("summary-screen").hidden && document.getElementById("summary-sentence").textContent.startsWith("1 cleared, 1 inspection lapsed") && ${SUMMARY_LINES}.slice(0, 2).map((line) => line.dataset.workItem + " " + line.querySelector(".mark").dataset.inspection).join() === "${FINISHED_ID} cleared,${BROKEN_ID} lapsed"`, `the summary, leading with the inspection given on ${FINISHED} and the inspection lapsed on ${BROKEN}`);
     },
     inbox: async () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
