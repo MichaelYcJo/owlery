@@ -51,6 +51,11 @@ apps/desktop/test/view.test.ts:1739:
 
 Where phase 3 has removed the chain dialog, `asksChain` and `chain-choice.test.ts` before the fix pass runs, the first two replacements go with them.
 
+```seal
+verdict: fixed 48dcb809
+answer: The comment at `view.ts:683`, the doc comment at `approval-line.test.ts:227` and the five places in `view.test.ts` (now at 1485, 1550, 1557, 1577 and 1682) take the round's paste-ready words, with "clears" where the rename wrote "inspections" as a verb. The first two replacements no longer apply: phase 3 removed the chain dialog's line of `index.html`, the `asksChain` docstring of `view.ts` and `chain-choice.test.ts`, and `git grep -n 'One chain' -- apps` prints nothing at the target. The class was listed from its cause: the word diff of each rename commit (`b82db21b`, `90763db0`, `f12a45ab`, `208f374d`, `c64a6912`, `ba045723`, `7dd8b781`, `7877a846`) over `apps`, `pr-check`, `docs` and the READMEs, keeping each pair that replaced `seal` or `seals` with `inspection` or `inspections`. It printed 18 `seals` pairs, and the 9 verbs among them are this finding's places. The rest are nouns or the identifier `inspections` in `daemon-restart.test.ts`. No `seal` pair after a modal, `to` or a subject is a verb, and no `sealed` or `sealing` became an `inspection` form. That list holds only pairs the word diff aligns one to one, so it is a sample of the rename's verbs, and `git grep -n -i -w inspections -- apps pr-check docs README.md README.ko.md` at HEAD was read whole beside it. The finding's evidence search, `git grep -n -i -E 'inspections (a|an|in) |verdict inspections|that inspections|case inspections' -- apps`, prints nothing after the pass's last fix commit. The narrow runs passed: `view.test.ts` 612 cases (unit) and `approval-line.test.ts` 7 cases (built app, alone).
+```
+
 ### 2. The inspection's mark took the class `mark`, which a parked question's "Default" word already carried, so that word is now laid out as an 18px disc
 
 ```seal
@@ -74,25 +79,29 @@ choice(String(index), index === question.chosen, part("label", option.label), pa
 #questions .option .default:empty { display: none; }
 ```
 
+```seal
+verdict: fixed c54b4db7
+location: `apps/desktop/test/decisions-and-questions.test.ts`
+answer: The option's span takes the class `default` (`work-item-view.ts`), and its two rules read `#questions .option .default` (`index.html`), the round's paste-ready text. The inspection's `.mark` rules and every query of `.mark` stand as they were. The case went to `decisions-and-questions.test.ts`, a path the finding's `location:` does not name. In the view of the parked work item, the span that reads "Default" has the class `default`, holds its word within its own box and its row, and takes the size of the question's `.by` caption. The file passed alone in the built app, 2 cases. With `seal mutate` putting `part("mark", option.mark)` back, the case was red on `{ className: "mark", inside: false, caption: false }`, so the 18px box the word ran out of is what fails. With the style rule put back as `.mark`, it was red on `caption: false` alone. The finding's evidence search, `git grep -n -E 'option \.mark|\.option \.mark|"mark", option' -- apps`, prints nothing after the pass's last fix commit.
+```
+
 ### 3. `frame/questions.md` keeps Q10 open, though phase 2 answered it and pinned the answer
 
 ```seal
 severity: should
 location: `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:28`
-evidence: read `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:26-28`, `seal/threads/1795797447-322-workflows-compose-around-iadd/trail/phases/phase-2.md:39`, `apps/desktop/src/daemon/last-look.ts:100-131`, `apps/desktop/src/daemon/last-look.ts:156-198`, `apps/desktop/test/last-look.test.ts:385-394`; executed the narrow run of `last-look.test.ts` named in `
-
-```seal
-verdict: fixed acee1116
-answer: frame/questions.md's Q10 Status cell now carries the round's paste-ready text, answered by the work in phase 2. The orchestrator made the repair, since the questions are a frame file.
-```
-
-## Probes`
+evidence: read `seal/threads/1795797447-322-workflows-compose-around-iadd/frame/questions.md:26-28`, `seal/threads/1795797447-322-workflows-compose-around-iadd/trail/phases/phase-2.md:39`, `apps/desktop/src/daemon/last-look.ts:100-131`, `apps/desktop/src/daemon/last-look.ts:156-198`, `apps/desktop/test/last-look.test.ts:385-394`; executed the narrow run of `last-look.test.ts` named in `## Probes`
 ```
 
 Why it matters: Q10's answerer is "the work", and its default says phase 2 pins the scenario with a look file an earlier build wrote and records what it found in its phase record. Phase 2 did both. `phase-2.md:39` records that the reader takes such a look, and the case "reads a look a build before the rename to IADD wrote" (`last-look.test.ts:385-394`) pins it with `toStrictEqual`, which also fails if the reader carries `seal` across under the new key. The code agrees: `last-look.ts#isWorkItem` no longer reads `seal`, and `lookOf` copies the fields it names alone. The row's Status cell still reads `open`, beside Q8 and Q9, which are measurements phase 4 owes. A reader of the frame takes an open row as a question that still waits on its answerer, so this one sends the orchestrator and the inspector of this branch to a question that nobody owes. The frame is the orchestrator's to edit, as round 1's findings 2 and 6 were. The Status cell:
 
 ```markdown
 answered 2026-11-28 by the work, in phase 2 (`trail/phases/phase-2.md`, the paragraph on Q10): the reader takes it. `last-look.ts` checks and copies only the fields it names, so a look whose work items hold `seal` and no `inspection` reads as one with no inspection, and the case of `last-look.test.ts` that reads a look a build before the rename to IADD wrote pins it. Nothing was built.
+```
+
+```seal
+verdict: fixed acee1116
+answer: frame/questions.md's Q10 Status cell now carries the round's paste-ready text, answered by the work in phase 2. The orchestrator made the repair, since the questions are a frame file.
 ```
 
 ## Confirmations
