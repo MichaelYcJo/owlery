@@ -197,7 +197,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.querySelector("#back .lapsed-by")`, "the cleared work item's back drawn again as lapsed", 30_000);
     expect(await sent()).toEqual({ readBackRecords: 3, readLedger: 3 });
     const laterBack = await backShown();
-    expect(laterBack.text).toContain(`Broken by ${later.slice(0, 7)}`);
+    expect(laterBack.text).toContain(`Lapsed by ${later.slice(0, 7)}`);
     expect(await app.evaluate<string | undefined>(`document.querySelector("#back .lapsed-by .subject code")?.textContent`)).toBe("later");
     expect(laterBack.text).not.toContain("`");
 
@@ -205,7 +205,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.querySelector("#back .lapsed-by")`, "the back of the lapsed work item drawn");
     expect((await tabs())[0]).toEqual({ label: "Inspection sheet", active: true, closes: false });
     const brokenBack = await backShown();
-    expect(brokenBack.text).toContain(`Broken by ${lapsedBy.slice(0, 7)}`);
+    expect(brokenBack.text).toContain(`Lapsed by ${lapsedBy.slice(0, 7)}`);
     expect(brokenBack.text).toContain("add avatars.ts");
     expect(brokenBack.text).toContain("The review rounds caught nothing.");
 

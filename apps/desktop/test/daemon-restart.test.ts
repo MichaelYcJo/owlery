@@ -422,7 +422,7 @@ describe("the inspection after a restart of the daemon", { timeout: 60_000 }, ()
     // The daemon stores neither state: what the second daemon sends, it read again from the repository.
     const files = (readdirSync(stood.runDir, { recursive: true, withFileTypes: true }) as { name: string; parentPath: string; isFile(): boolean }[]).filter((entry) => entry.isFile()).map((entry) => join(entry.parentPath, entry.name));
     expect(files.map((file) => relative(stood.runDir, file))).toContain("repositories.json");
-    expect(files.flatMap((file) => (/\b(?:cleared|broken)\b/iu.test(readFileSync(file, "utf8")) ? [relative(stood.runDir, file)] : []))).toEqual([]);
+    expect(files.flatMap((file) => (/\b(?:cleared|lapsed)\b/iu.test(readFileSync(file, "utf8")) ? [relative(stood.runDir, file)] : []))).toEqual([]);
 
     const c = await client(await stood.start(), cleanups);
     await c.message("ready");
