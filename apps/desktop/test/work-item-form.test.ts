@@ -1,7 +1,9 @@
 // The "New work item" form in the built app. It starts the app once, in the
 // background, on a temporary clone, and drives the form through Electron's
 // debugging port: the name the window generates, the branch and the base the
-// daemon's plan gives, what the form says of the fetch of a remote's branch,
+// daemon's plan gives, the plan of a name typed in a form opened again
+// before the close event of the last opening came, what the form says of
+// the fetch of a remote's branch,
 // a creation from a base the person chose, which adds no branch, and how the
 // window draws the work item it made with no branch, a creation on a local
 // branch the person picked, and a branch a worktree holds, which the form
@@ -222,6 +224,22 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     // Each opening forgets what the last one asked, so the commit the remote gained since is fetched.
     await says(`Fetched: origin/main is at ${laterCommit.slice(0, 7)}.`);
     expect(remoteMain()).toBe(laterCommit);
+    await app.click("#work-item-cancel");
+    await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
+  });
+
+  it("shows the plan of a name typed in a form opened again before the page delivered the close event of the last opening", async () => {
+    // The page delivers a dialog's close event in a task of its own after the close, and on the hosted runner it came after the next opening and the name typed in it (issue #328). Here the form is closed, opened again by its button and given a name in one task, so the close's event comes after all three.
+    await openForm();
+    await app.evaluate(`(() => {
+      document.getElementById("work-item-dialog").close();
+      document.getElementById("new-work-item").click();
+      const title = document.getElementById("work-item-title");
+      title.value = "Late close";
+      title.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await shows(later("owlery/late-close"));
+    expect(await text("work-item-worktree")).toBe(join(clone.root, "project", "late-close"));
     await app.click("#work-item-cancel");
     await app.until(`!document.getElementById("work-item-dialog").open`, "the form closed");
   });
