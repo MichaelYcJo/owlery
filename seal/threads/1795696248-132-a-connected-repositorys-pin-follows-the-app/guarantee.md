@@ -62,3 +62,25 @@ The closing memo now agrees with HEAD and with the other parties. `gaps.md:12` s
 target: 0ac71364 against 450c6e09
 Verdict: sealed
 ```
+
+## Re-audit at `b867082d`
+
+The base `release/v0.1.0` now resolves to `b5444f57` through `origin/release/v0.1.0`. Since `0ac71364` came the seal record `d11dc115`, the test fix `d0554e3b`, made outside a round, round 7 `8017924a`, the merge `1c3b3da4` of the release with #315, and the gate record `b867082d`. Round 7 read `d0554e3b` and opened no finding. Its record holds no `fixed` finding, so no fix of a finding comes to the sealer unread. The re-runs below were made in the scratch clone at `b867082d`, through the session's lock, with Electron's `dist` from the main checkout.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git merge-base --is-ancestor 1c3b3da4 HEAD`; `git log --no-merges --name-only 1c3b3da4..HEAD ^b5444f57` | Holds (executed): `1c3b3da4` is an ancestor of HEAD, and only `b867082d` follows it, touching `trail/gate.md` alone. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0. |
+| The chain of records holds at HEAD | `trail/rounds/round-7.md` | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| The merge `1c3b3da4` changed no line of this work | the spawn | `git show --remerge-diff 1c3b3da4`; the changed lines of `git diff 450c6e09 8017924a -- apps docs` set against those of `git diff b5444f57 HEAD -- apps docs` | Holds (executed): no resolution hunk, and the two lists of changed lines are equal. |
+| The case on records git could not read passes on this Mac's git and expects the daemon's opening sentence followed by the `fatal:` line of the same `ls-tree` | `d0554e3b`; `trail/rounds/round-7.md`, the claims | `test/daemon.test.ts -t "whose records git could not read"` at `b867082d` | Holds (executed): 1 passed. |
+| That case is red where git's words are dropped from the daemon's sentence (round 7 read this and did not run it) | `trail/rounds/round-7.md`, the fourth claim | HEAD's code with `${said}` removed from `daemon.ts:3014` alone (counted 0 after), and the same case | Holds (executed): it fails at `daemon.test.ts:2187`, the `toEqual` on `unread`, which is the line that pins git's words. |
+| The broad gate `trail/gate.md` records ran at `42b7f4d2` against `450c6e09`, and the row is answered by that gate | `gaps.md:11` | `cat trail/gate.md` | Does not hold (executed): `trail/gate.md` records `run: 1c3b3da4 against b5444f57`. |
+| The later merges of `release/v0.1.0` are `0a51bbcc` (#308) and `42b7f4d2` (#311), and they bring the release's own changes | `gaps.md:29` | `git log --merges --format=%h 2218e562..HEAD` | Does not hold as a whole account (executed): it lists `1c3b3da4` (#315) too, which the sentence leaves out. The commits up to `2218e562` still change only this directory (executed earlier, unchanged). |
+
+The parties: the design, the changelog and `pr.md` are unchanged since `0ac71364`, and round 7 read the changed case against `frame/design.md:38`, scenario G and `changelog.md:8`, which still say what the case holds. The build's account of `d0554e3b`, its commit message, agrees with the case and with round 7's reading of the runner's log. The closing memo disagrees with HEAD at `gaps.md:11` and `gaps.md:29`. The first is the same kind of defect as this file's first verdict: a sentence naming the gate's commit goes stale at each new gate run. A sentence that names the gate by `trail/gate.md` and no commit would not.
+
+```seal
+target: b867082d against b5444f57
+Verdict: withheld reason: the orchestrator's closing memo gaps.md, copied into the pull request body, states the gate and the merges as they stood at 0ac71364. gaps.md:11 says trail/gate.md records a broad gate run at 42b7f4d2 against 450c6e09, and trail/gate.md records 1c3b3da4 against b5444f57. gaps.md:29 names 0a51bbcc and 42b7f4d2 as the later merges of the release and leaves out 1c3b3da4 (#315)
+```
