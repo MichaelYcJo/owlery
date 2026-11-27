@@ -4,17 +4,21 @@
 // Electron's debugging port: what it says before anything is written, the
 // commit its button makes, and what it shows of a repository that holds
 // every part, with how an administrator makes the seal check required in
-// both. The commit lands in the temporary repository alone.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+// both. It then registers a second temporary repository whose committed
+// workflow fetches the check of an older Owlery, presses the button its row
+// holds, and makes the move the dialog shows. Each commit lands in its
+// temporary repository alone.
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { SUBJECT } from "../src/daemon/records-place";
+import { MARKER, moveSubject, SUBJECT, workflowText } from "../src/daemon/records-place";
 import { BuiltApp, buildApp } from "./built-app";
 import { git, temporaryRepository } from "./repositories";
 
 describe("the dialog of the records place in the built app", { timeout: 60_000 }, () => {
   let app: BuiltApp;
   let made: ReturnType<typeof temporaryRepository>;
+  let pinned: ReturnType<typeof temporaryRepository> | undefined;
 
   const WORKFLOW = ".github/workflows/owlery-seal.yml";
   /** What the dialog says of the seal check Owlery's workflow posts, and how an administrator makes it required. */
@@ -41,6 +45,7 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
   afterAll(async () => {
     await app?.stop();
     made?.remove();
+    pinned?.remove();
   }, 30_000);
 
   it("opens when a repository with no place for records is registered: it says what is out of scope and shows the plan before anything is written, Set up and commit makes the one commit, and the repository's menu then shows what the repository holds, with no button to commit", async () => {
@@ -91,5 +96,51 @@ describe("the dialog of the records place in the built app", { timeout: 60_000 }
     expect(await value<unknown[]>(`[document.getElementById("records-required").hidden, document.getElementById("records-required").textContent]`)).toEqual([false, REQUIRED]);
     await app.click("#records-cancel");
     await dialogClosed("records-dialog");
+  });
+
+  it("shows a button Check and the version on the row of a repository whose workflow fetches the check of an older Owlery, opens the move from it with both versions and the workflow whole, and Move and commit makes the one commit, after which the button is gone", async () => {
+    const { version } = JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")) as { version: string };
+    const repository = temporaryRepository("pinned");
+    pinned = repository;
+    mkdirSync(join(repository.repo, "seal"));
+    writeFileSync(join(repository.repo, "seal", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(repository.repo, "seal", "config.json"), `${JSON.stringify({ "Broad gate": "make check" })}\n`);
+    mkdirSync(join(repository.repo, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(repository.repo, WORKFLOW), workflowText("0.0.1"));
+    git(repository.repo, "add", "seal", ".github");
+    git(repository.repo, "commit", "--quiet", "-m", "chore: the records place of Owlery 0.0.1");
+    const before = git(repository.repo, "rev-parse", "HEAD").trim();
+
+    // The repository holds every part, so its registration opens no dialog.
+    await app.click("#new-work-item");
+    await dialogOpen("work-item-dialog");
+    await app.click("#work-item-register-only");
+    await value(`(() => { const field = document.getElementById("work-item-repo"); field.value = ${JSON.stringify(repository.repo)}; field.dispatchEvent(new Event("input", { bubbles: true })); })()`);
+    await app.click("#work-item-create");
+    await dialogClosed("work-item-dialog");
+
+    const button = `#repositories section[data-repository="2"] .repository-check`;
+    await app.until(`document.querySelector('${button}')?.textContent === "Check 0.0.1"`, "the button of the older check on the row");
+    const says = "The pull request check of pinned is Owlery 0.0.1's, older than this app. Open to read the commit that moves it.";
+    expect(await value<unknown[]>(`[document.querySelector('${button}').title, document.querySelector('${button}').getAttribute("aria-label"), document.querySelector('${button}').nextElementSibling.classList.contains("repository-add")]`)).toEqual([says, says, true]);
+    expect(await value<boolean>(`document.getElementById("records-dialog").open`)).toBe(false);
+
+    await app.click(button);
+    await dialogOpen("records-dialog");
+    await app.until(`!document.getElementById("records-submit").disabled`, "the plan of the move");
+    expect(await text("records-move")).toBe(`\`${WORKFLOW}\` fetches the pull request check of Owlery 0.0.1, older than this app. The commit moves it to Owlery ${version}.`);
+    expect(await text("records-commit")).toBe(`This makes one commit on \`main\`: \`${moveSubject(version)}\`. Nothing is pushed.`);
+    expect(await value<unknown[]>(`[[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent), [...document.querySelectorAll("#records-files pre")].map((file) => file.textContent), document.querySelector("#records-files .says").textContent]`)).toEqual([[WORKFLOW], [workflowText(version)], `The commit writes this text over the committed \`${WORKFLOW}\`, whole.`]);
+    expect(await value<unknown[]>(`[document.getElementById("records-unread").hidden, document.getElementById("records-unread-list").hidden, document.getElementById("records-unread-says").textContent.startsWith("Owlery read the round records")]`)).toEqual([false, true, true]);
+    expect(await value<unknown[]>(`[document.getElementById("records-gate-label").hidden, document.getElementById("records-submit").textContent]`)).toEqual([true, "Move and commit"]);
+    // Nothing is written until the person confirms.
+    expect([git(repository.repo, "rev-parse", "HEAD").trim(), git(repository.repo, "status", "--porcelain=v1", "--untracked-files=all")]).toEqual([before, ""]);
+
+    await app.click("#records-submit");
+    await dialogClosed("records-dialog");
+    expect(git(repository.repo, "rev-parse", "HEAD~1").trim()).toBe(before);
+    expect(git(repository.repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([moveSubject(version), WORKFLOW]);
+    expect([readFileSync(join(repository.repo, WORKFLOW), "utf8"), git(repository.repo, "status", "--porcelain=v1", "--untracked-files=all")]).toEqual([workflowText(version), ""]);
+    await app.until(`document.querySelector('#repositories section[data-repository="2"]') && !document.querySelector('${button}')`, "the row with no button of an older check");
   });
 });

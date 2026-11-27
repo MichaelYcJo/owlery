@@ -1,0 +1,121 @@
+# Guarantee: 1795696248-132-a-connected-repositorys-pin-follows-the-app
+
+Audited at `3d4f7271` against `450c6e09`, which `origin/release/v0.1.0` resolves to (`release/v0.1.0@{upstream}` answers nothing in this clone). Each seen-red and guard-removed run below was made in a scratch clone at `3d4f7271`, with `apps/desktop/src` alone restored from the commit the row names, and the tree under audit was not changed. Each run went through `node scripts/test-in-electron.mjs --project unit` in `apps/desktop`, behind the session's lock, with Electron taken from the main checkout through `ELECTRON_OVERRIDE_DIST_PATH`.
+
+## Claims re-run
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git merge-base --is-ancestor 42b7f4d2 HEAD`; `git log --no-merges --name-only 42b7f4d2..HEAD ^450c6e09` | Holds (executed): `42b7f4d2` is an ancestor of HEAD, and only `3d4f7271` follows it, touching `trail/gate.md` alone. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0, "matches". |
+| The chain of records holds at HEAD | `trail/rounds/round-6.md:52` | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. It names only the guarantee this file supplies. |
+| The merges after round 6, `0a51bbcc` (#308) and `42b7f4d2` (#311), changed no line of this work | the spawn; `trail/rounds/round-6.md:9` | `git show --remerge-diff` of each merge; the changed lines of `git diff e7737b7e 2218e562 -- apps docs` set against those of `git diff 450c6e09 HEAD -- apps docs` | Holds (executed): neither merge prints a resolution hunk, and the two lists of changed lines are equal. |
+| Every new case of `records-place.test.ts` fails against the code before the work (12 of the file at phase 1) | `trail/phases/phase-1.md:19` | `apps/desktop/src` from `450c6e09`; `test/records-place.test.ts test/view.test.ts` | Holds (executed): the 8 new move cases fail, among them `pinnedVersion is not a function`, `olderVersion is not a function` and `expected undefined to deeply equal { from: '1.2.2', to: '1.2.3' }`, and the 5 cases whose expected shape gained `olderCheck` fail on that shape. That is 13 failures, because the case of round 1's finding 3 was added after phase 1. The named-pipe case passes there, and its seen red is the row of round 2's finding 3 below. |
+| The six new cases of `view.test.ts` fail against the code before the work | `trail/phases/phase-2.md:19` | the same run | Holds (executed): all six fail, among them `checkButton is not a function`, `olderCheck` undefined in `sidebarTree`, and `move` and `unread` undefined in `recordsDialog`. |
+| The case on an edit saved while the plan is made again was red against the code before round 1's fix | `trail/rounds/round-1.md`, finding 3's close | `apps/desktop/src` from `5c5bbd6e^`; `test/records-place.test.ts -t "changed while the plan was made again"` | Holds (executed): `promise resolved "undefined" instead of rejecting` at `records-place.test.ts:1025`. |
+| The two cases on a work item not read (a broken `.git` link, a deleted branch ref) were red with `unread` `[]` against the code before round 1's fix | `trail/rounds/round-1.md`, finding 1's close | `apps/desktop/src` from `5c5bbd6e^`; `test/daemon.test.ts -t "whose records git could not read\|head the daemon holds no reading of"` | Holds (executed): both fail with `expected [] to deeply equal [ { id: 1, … } ]`, at `daemon.test.ts:2160` and `:2198`. |
+| The named-pipe case timed out against the code before round 2's fix | `trail/rounds/round-2.md`, finding 3's close | `apps/desktop/src` from `34829cb3^`; `test/records-place.test.ts -t "named pipe"` | Holds (executed): `Test timed out in 2000ms` after 3291ms. No `perl` process stands after the run (`pgrep`). |
+| The case on a worktree whose folder is gone was red with `unread` `[]` against the code before round 2's fix | `trail/rounds/round-2.md`, finding 2's close | `apps/desktop/src` from `34829cb3^`; `test/daemon.test.ts -t "worktree's folder is gone"` | Holds (executed): `expected [] to deeply equal [ { id: 1, title: 'Gone work', … } ]` at `daemon.test.ts:2179`. |
+| Dropping the moved workflow from `keptFiles` lets through an edit that git's status does not see under `--skip-worktree` | `trail/phases/phase-1.md:7` | HEAD's code with `keptFiles` read as `file.text === null` alone (the one line replaced, counted before 1 and after 0); `test/records-place.test.ts -t "blocks a move where the checkout"` | Holds (executed): it fails at `records-place.test.ts:968`, the assertion after `update-index --skip-worktree`, with `expected null to be 'This checkout does not hold .github/w…'`. The failing line is that guard's. |
+| The cases of this work pass at HEAD | `gaps.md:29`; `trail/rounds/round-4.md:179-180` | HEAD's `apps/desktop/src`; `test/records-place.test.ts test/view.test.ts`, then `test/daemon.test.ts -t "check is older than the daemon\|plan that moves the check"` | Holds (executed): 658 passed; 5 passed. |
+| `frame/design.md` *Removes*: the three sentences are rewritten in place | `frame/design.md:133-135` | `git grep -n -e "The workflow that is kept" -e "replaces no file" -e "which is kept" -- apps/desktop/src`, read against the same lines at `450c6e09` | Holds (executed, read): `records-place.ts:376-378` keeps Owlery's workflow only where the plan does not move it; `records-place.ts:545-549` scopes "replaces no file" to the setup's files and names the moved workflow as the one file written over; `protocol.ts:104` adds the text a move gives the committed workflow. None of the old sentences stands alone. |
+| The out-of-scope items each have the issue the orchestrator files | `frame/design.md:47`, `:49` | `gh issue list --state all --search "132 in:body"` | Holds (executed): #276 (running the newer check before the move) and #277 (a pin with neither tag nor branch) are open. |
+| The shots show the row's button and the dialog of the move | `gaps.md:31-41`; `changelog.md:11` | opened `screenshots/register-dark-check-move.png` | Holds (read): "Check 0.0.4" on the row of "project" before "+", both versions, the branch `main`, the move's subject, the workflow with the sentence that it is written over, the sentence of what was read with no work item named, and "Move and commit". The shot names Owlery 0.0.5 as the target. It was taken at `55670289`, before the release's merge made the app's version 0.1.0, and the alt text says 0.0.5, which is true of the image. Round 4 opened two other shots, so the reading covers three of six. |
+| The broad gate `trail/gate.md` records ran against `f683c693`, before the merge | `gaps.md:11` | `cat trail/gate.md` | Does not hold (executed): `trail/gate.md` records `run: 42b7f4d2 against 450c6e09`, after both merges of the release. |
+| The commits after `ec72ff39` change only this work item's directory | `gaps.md:29` | `git diff --stat ec72ff39 HEAD -- apps docs patches package.json pnpm-lock.yaml` | Does not hold (executed): it lists 10 paths outside the directory, among them `apps/desktop/test/daemon.test.ts`, `patches/node-pty@1.1.0.patch` and `docs/roadmap.md`, which the merges `0a51bbcc` (#308) and `42b7f4d2` (#311) bring. Round 6 found the sentence true at `2218e562`, and the merges after it made it false. |
+
+Not re-run: scenario J's built-app case, the screenshot run in every theme, and the phases' other mutants. The broad gate at `42b7f4d2` ran the `app` project with the unit project. Whether the gate's run took Electron from a checkout that holds its own binary, as `gaps.md:12` asks, is not read here (`unverified`, the orchestrator answers).
+
+## The parties
+
+| Party | Says | Agrees with | Disagrees with |
+|---|---|---|---|
+| the design | `frame/design.md` *Scope* items 1 to 11: the daemon reads the pin, tells the window an older check, the plan offers the move, the setup makes it as one commit the person reads first, and the dialog names the work items whose records the app's readers refuse or did not read; three *Removes* rows; six *Rule changes* operations left to the settle | the issue: its first *Done when* item as written; its second through the new version's own readers of the round records, the gate's run and the guarantee, with what the check's other arms would refuse left to #276. The diff, the phase records, the changelog, and `docs/architecture.md` and its Korean edition, which still hold each operation's `from:` (round 4, round 5) | none |
+| the build | the diff of `450c6e09...HEAD` (`records-place.ts`, `daemon.ts`, `seal-state.ts`, `protocol.ts`, `sidebar.ts`, `view.ts`, `renderer.ts`, `index.html`, both editions of `docs/design.md`, and the tests), and `trail/phases/phase-1.md` and `phase-2.md`, one for each phase whose Status cell in `frame/plan.md` holds a commit | the design item by item; `frame/questions.md` Q1's default words, which `checkButton`, `moveSubject` and "Move and commit" spell; the claims re-run above | none. `phase-1.md:11` says a reading that throws other than a `ChainStop` is left out and logged, which is what phase 1 built; round 1's finding 1 changed it, and `daemon.ts#unreadRecords` now names such a work item |
+| the last round | `trail/rounds/round-6.md`: no finding; confirms round 5's finding 1; leaves the suite at `2218e562`, `/usr/bin/perl` on every machine, and Q3 to others | the tree: the gate at `42b7f4d2` answers its suite row, and the named-pipe case passed on this Mac in the gate and in the run above. Q3 stays open in `frame/questions.md:16` and `gaps.md:8` | none |
+| the changelog | `changelog.md`: the row's button, the one commit read first, the refusals, the named work items and their caption, what is not offered, the daemon of an earlier build, and the screenshot view | the code: `checkButton`, `recordsDialog`, `setUpRecords`, `planRecords`, `unreadRecords` and `screenshots.ts#VIEWS`, read at HEAD | none |
+| the orchestrator's part of the pull request body | `pr.md`: `Closes #132.` and seven quotes, each with its coordinate | each quote stands word for word at its coordinate (`frame/design.md:33`, `:35`, `:37`, `:38`, `:39`, `:40` and `:120`). Both language keys of `config.json` read English, so no `pr.<lang>.md` is owed | none |
+| the routing | `routing.md` *Why this way*: the orchestrator chose every row under `agentic`; the crafter because the daemon, the window and the workflow change together | the diff changes the daemon, the window and the workflow a connected repository holds. `workflowText` itself is unchanged, and the grounds read as the workflow the move rewrites | none |
+| the closing memo | `gaps.md`, the orchestrator's account of the merges and of what stays unverified, copied into the pull request body | its other rows: the merge of `ec72ff39` and its resolutions, which round 4 read, and the *Not done* limits, which the code states | HEAD, at `gaps.md:11` and `gaps.md:29` (the two rows above that do not hold) |
+
+```seal
+target: 3d4f7271 against 450c6e09
+Verdict: withheld reason: the orchestrator's closing memo gaps.md, copied into the pull request body, states two facts HEAD contradicts. gaps.md:11 says trail/gate.md records a broad gate run against f683c693 before the merge, and trail/gate.md records 42b7f4d2 against 450c6e09. gaps.md:29 says the commits after ec72ff39 change only this work item's directory, and the merges 0a51bbcc (#308) and 42b7f4d2 (#311) bring changes to 10 paths outside it
+```
+
+## Re-audit at `0ac71364`
+
+`0ac71364` is the one commit after `3d4f7271`. It touches `gaps.md` and this file alone. `git diff --quiet 3d4f7271 HEAD -- apps docs patches package.json pnpm-lock.yaml .github` exits 0, so no coordinate of a claim re-run above changed, and none was run again. The parties above were read again with the change.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git log --no-merges --name-only 42b7f4d2..HEAD ^450c6e09` | Holds (executed): `3d4f7271` and `0ac71364` follow it, and they touch only `trail/gate.md`, `gaps.md` and this file. |
+| The broad gate that `trail/gate.md` records ran at `42b7f4d2` against `450c6e09`, and passed | `gaps.md:11` | `cat trail/gate.md` | Holds: the record names `42b7f4d2 against 450c6e09` (executed). That it passed is read from the record standing, which the gate writes on a pass (read). |
+| The commits after `ec72ff39` up to `2218e562` change only this directory, and the later merges `0a51bbcc` and `42b7f4d2` bring the release's own changes and resolve no hunk of this work | `gaps.md:29` | `git diff --quiet ec72ff39 2218e562 -- apps docs patches package.json pnpm-lock.yaml pr-check`; the earlier `--remerge-diff` and changed-line comparison above | Holds (executed): exit 0. Neither merge prints a resolution hunk, and this work's changed lines are unchanged. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0. The body carries the corrected rows. |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| No other statement of the old facts stands in a record that states the present | `gaps.md` | `git grep -n -e "f683c693" -e "change only this directory"` over this directory, the round records and this file left out | Holds (executed): it prints `gaps.md:29`, the corrected sentence, and the phase records' lines 5, which are dated to their phases. This is a sample: a statement in other words escapes it. |
+
+The closing memo now agrees with HEAD and with the other parties. `gaps.md:12` stays open, naming the orchestrator's broad gate from a checkout that holds its own Electron binary (`unverified`, the orchestrator answers it). That row states what is not verified, and HEAD does not contradict it.
+
+```seal
+target: 0ac71364 against 450c6e09
+Verdict: sealed
+```
+
+## Re-audit at `b867082d`
+
+The base `release/v0.1.0` now resolves to `b5444f57` through `origin/release/v0.1.0`. Since `0ac71364` came the seal record `d11dc115`, the test fix `d0554e3b`, made outside a round, round 7 `8017924a`, the merge `1c3b3da4` of the release with #315, and the gate record `b867082d`. Round 7 read `d0554e3b` and opened no finding. Its record holds no `fixed` finding, so no fix of a finding comes to the sealer unread. The re-runs below were made in the scratch clone at `b867082d`, through the session's lock, with Electron's `dist` from the main checkout.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git merge-base --is-ancestor 1c3b3da4 HEAD`; `git log --no-merges --name-only 1c3b3da4..HEAD ^b5444f57` | Holds (executed): `1c3b3da4` is an ancestor of HEAD, and only `b867082d` follows it, touching `trail/gate.md` alone. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0. |
+| The chain of records holds at HEAD | `trail/rounds/round-7.md` | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| The merge `1c3b3da4` changed no line of this work | the spawn | `git show --remerge-diff 1c3b3da4`; the changed lines of `git diff 450c6e09 8017924a -- apps docs` set against those of `git diff b5444f57 HEAD -- apps docs` | Holds (executed): no resolution hunk, and the two lists of changed lines are equal. |
+| The case on records git could not read passes on this Mac's git and expects the daemon's opening sentence followed by the `fatal:` line of the same `ls-tree` | `d0554e3b`; `trail/rounds/round-7.md`, the claims | `test/daemon.test.ts -t "whose records git could not read"` at `b867082d` | Holds (executed): 1 passed. |
+| That case is red where git's words are dropped from the daemon's sentence (round 7 read this and did not run it) | `trail/rounds/round-7.md`, the fourth claim | HEAD's code with `${said}` removed from `daemon.ts:3014` alone (counted 0 after), and the same case | Holds (executed): it fails at `daemon.test.ts:2187`, the `toEqual` on `unread`, which is the line that pins git's words. |
+| The broad gate `trail/gate.md` records ran at `42b7f4d2` against `450c6e09`, and the row is answered by that gate | `gaps.md:11` | `cat trail/gate.md` | Does not hold (executed): `trail/gate.md` records `run: 1c3b3da4 against b5444f57`. |
+| The later merges of `release/v0.1.0` are `0a51bbcc` (#308) and `42b7f4d2` (#311), and they bring the release's own changes | `gaps.md:29` | `git log --merges --format=%h 2218e562..HEAD` | Does not hold as a whole account (executed): it lists `1c3b3da4` (#315) too, which the sentence leaves out. The commits up to `2218e562` still change only this directory (executed earlier, unchanged). |
+
+The parties: the design, the changelog and `pr.md` are unchanged since `0ac71364`, and round 7 read the changed case against `frame/design.md:38`, scenario G and `changelog.md:8`, which still say what the case holds. The build's account of `d0554e3b`, its commit message, agrees with the case and with round 7's reading of the runner's log. The closing memo disagrees with HEAD at `gaps.md:11` and `gaps.md:29`. The first is the same kind of defect as this file's first verdict: a sentence naming the gate's commit goes stale at each new gate run. A sentence that names the gate by `trail/gate.md` and no commit would not.
+
+```seal
+target: b867082d against b5444f57
+Verdict: withheld reason: the orchestrator's closing memo gaps.md, copied into the pull request body, states the gate and the merges as they stood at 0ac71364. gaps.md:11 says trail/gate.md records a broad gate run at 42b7f4d2 against 450c6e09, and trail/gate.md records 1c3b3da4 against b5444f57. gaps.md:29 names 0a51bbcc and 42b7f4d2 as the later merges of the release and leaves out 1c3b3da4 (#315)
+```
+
+## Re-audit at `dc29cd0c`
+
+`dc29cd0c` is the one commit after `b867082d`. It touches `gaps.md` and this file alone (`git diff --quiet b867082d HEAD` outside this directory exits 0), so no claim re-run above was run again. The base still resolves to `b5444f57`, and the gate's run at `1c3b3da4` is followed only by `b867082d` and `dc29cd0c`, both inside this directory (executed).
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate `trail/gate.md` records ran later, at a merge of `release/v0.1.0`, and passed | `gaps.md:11` | `cat trail/gate.md`; `git log -1 --format=%P 1c3b3da4` | Holds (executed): the record names `1c3b3da4`, whose second parent is `b5444f57`, the release. That it passed is read from the record standing (read). |
+| The later merges, which `git log --merges 2218e562..HEAD` lists, bring the release's own changes and resolve no hunk of this work's | `gaps.md:29` | that command; `git show --remerge-diff` of each merge it lists | Holds (executed): it lists `1c3b3da4`, `42b7f4d2` and `0a51bbcc`, and none prints a resolution hunk. |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Does not hold (executed): exit 1. The body file was last written at 13:47:55, before `dc29cd0c` (13:49:45), and it still carries the old `gaps.md:11` and `gaps.md:29`. |
+
+The records now agree with HEAD. The body file does not carry them, so step 2 withholds with the command's first line.
+
+```seal
+target: dc29cd0c against b5444f57
+Verdict: withheld reason: refused: 132-body.md:358: reads `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at `42b7f4d2`, the merge of `release/v0.1.0` with #308 and #311, against `450c6e09`, and passed | answered by the orchestrator's broad gate at `42b7f4d2` |`; the records give `| The full suite, the typecheck of every package and the documents' check over the merge of `release/v0.0.5` at `a7d194f9` (`ec72ff39`). The merge ran `screenshots.test.ts`, `view.test.ts` and `records-place.test.ts` whole, `records-dialog.test.ts`, `work-item-menu.test.ts` and `refresh.test.ts` whole in the built app, `daemon.test.ts` by the names of this work's cases and the release's `readLists` cases, the screenshot run in every theme, and `tsc --noEmit` of `apps/desktop`. The broad gate `trail/gate.md` records ran later, at a merge of `release/v0.1.0`, and passed | answered by the broad gate `trail/gate.md` records |` at `gaps.md:11`
+```
+
+## Re-audit at `2ae492cc`
+
+`2ae492cc` is the one commit after `dc29cd0c`, and it touches this file alone (`git diff --name-only dc29cd0c HEAD`, executed). The records, the code and the gate's run are as the audit at `dc29cd0c` read them, so no claim was run again.
+
+| Claim | Source | Command | Result |
+|---|---|---|---|
+| The broad gate ran at a commit that only this directory's records follow | `trail/gate.md:4` | `git log --no-merges --name-only 1c3b3da4..HEAD ^b5444f57` | Holds (executed): `b867082d`, `dc29cd0c` and `2ae492cc` follow it, touching only `trail/gate.md`, `gaps.md` and this file. |
+| The pull request body is `pr.md` above the records' heading and the records' text below it | the body file of the spawn | `seal pr-body <item> --body <file> --check` | Holds (executed): exit 0, "matches". |
+| The chain of records holds at HEAD | this file | `chain_check.py --baseline origin/release/v0.1.0 --worktree` | Holds (executed): exit 0. |
+
+Every party agrees with the issue and the tree, as the audits at `3d4f7271`, `0ac71364`, `b867082d` and `dc29cd0c` found them, and the closing memo and the body now agree with HEAD. `gaps.md:12` stays open for the orchestrator (`unverified`), and Q3 for a measurement on GitHub.
+
+```seal
+target: 2ae492cc against b5444f57
+Verdict: sealed
+```

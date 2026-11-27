@@ -1,14 +1,15 @@
 // The place for work records in a person's repository, and the pull request
 // check beside it: what a repository's main checkout holds of them, what a
-// setup would write, and the setup itself, which is the one commit Owlery
-// makes in a repository at its connection (docs/architecture.md, "Records
-// are committed to the repository"). Git runs with arguments, never through
-// a shell: the setup's `git add` and `git commit` through
+// setup would write, and the setup itself, which is the commit Owlery makes
+// in a repository at its connection, and the commit that moves the check
+// to the app's version once the person read it (docs/architecture.md,
+// "Records are committed to the repository"). Git runs with arguments,
+// never through a shell: the setup's `git add` and `git commit` through
 // `worktrees.ts#commitRunner`, under its limit, and every other git with
 // execFile.
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { RecordsPlace, RecordsPlan } from "../shared/protocol";
 import { repositoryFileText } from "./repository-file";
@@ -18,6 +19,11 @@ import { commitRunner } from "./worktrees";
 export const MARKER = "# What AgenticSeal maintains in seal/";
 /** The subject of the commit a setup makes. */
 export const SUBJECT = "chore: add the place for work records and the pull request check";
+
+/** The subject of the commit that moves the workflow's check to a version of Owlery. */
+export function moveSubject(version: string): string {
+  return `chore: move the pull request check to Owlery ${version}`;
+}
 /** The two names a records root takes: the first, and the second where the repository keeps a `seal/` of its own. */
 const ROOTS = ["seal", "agentic-seal"] as const;
 /** The workflow a setup writes, and the one of AgenticSeal's that is kept in its place where it stands. */
@@ -115,6 +121,46 @@ jobs:
 `;
 }
 
+/**
+ * The version of Owlery a workflow's clone step fetches the check at, read
+ * in the one spelling `workflowText` writes: the tag's line,
+ * `--branch v<version> \`, and the release branch's,
+ * `--branch release/v<version> \`. Null where either line is missing, where
+ * the lines name different versions, and for no text. Nothing guesses the
+ * version of a step a person rewrote.
+ */
+export function pinnedVersion(text: string | null): string | null {
+  if (text === null) return null;
+  const named = (pattern: RegExp): string[] => [...text.matchAll(pattern)].map((match) => match[1] ?? "");
+  const [tags, branches] = [named(/--branch v([^\s\\]+) \\$/gmu), named(/--branch release\/v([^\s\\]+) \\$/gmu)];
+  const [first] = tags;
+  if (first === undefined || branches.length === 0) return null;
+  return [...tags, ...branches].every((version) => version === first) ? first : null;
+}
+
+/** A version's three numbers and whether a suffix follows them, or null where the text is no version: three numbers joined by dots, and an optional suffix that starts at `-`. */
+function versionParts(version: string): { numbers: number[]; suffixed: boolean } | null {
+  const match = /^(\d+)\.(\d+)\.(\d+)(-.*)?$/u.exec(version);
+  if (match === null) return null;
+  return { numbers: [match[1], match[2], match[3]].map(Number), suffixed: match[4] !== undefined };
+}
+
+/**
+ * Whether the version `a` is older than `b`: its first number that differs
+ * is smaller, or the numbers are equal and only `a` carries a suffix. A
+ * text that is no version is older than none, and none is older than it;
+ * two versions of equal numbers that both carry a suffix are neither older.
+ */
+export function olderVersion(a: string, b: string): boolean {
+  const [older, newer] = [versionParts(a), versionParts(b)];
+  if (older === null || newer === null) return false;
+  for (const [at, number] of older.numbers.entries()) {
+    const other = newer.numbers[at] ?? 0;
+    if (number !== other) return number < other;
+  }
+  return older.suffixed && !newer.suffixed;
+}
+
 /** Whether anything stands at a path of the repository, a link that leads nowhere among it. */
 function stands(folder: string, path: string): boolean {
   try {
@@ -172,12 +218,18 @@ export function onOwlChain(folder: string): boolean {
 /**
  * What the repository's main checkout holds of the records place, read from
  * its working tree, committed or not. Git is not asked, and a folder that
- * holds none of it, or does not stand, gives null three times.
+ * holds none of it, or does not stand, gives null four times. The older
+ * check is the version `pinnedVersion` reads in Owlery's workflow where it
+ * is older than `version`, the daemon's own, and null where no version is
+ * given, for AgenticSeal's `hygiene.yml` and for a workflow whose version
+ * is not read.
  */
-export function readRecordsPlace(folder: string): RecordsPlace {
+export function readRecordsPlace(folder: string, version?: string): RecordsPlace {
   const root = rootOf(folder);
   const value = root === null ? undefined : configOf(folder, root)?.["Broad gate"];
-  return { root, check: checkOf(folder), broadGate: typeof value === "string" ? value : null };
+  const check = checkOf(folder);
+  const pinned = version === undefined ? null : pinnedVersion(textOf(join(folder, WORKFLOW)));
+  return { root, check, broadGate: typeof value === "string" ? value : null, olderCheck: pinned !== null && version !== undefined && olderVersion(pinned, version) ? pinned : null };
 }
 
 /** The keys of the root's `config.json` in a working tree, or null where it holds no JSON object. A config.json that is no JSON holds no key. */
@@ -322,9 +374,16 @@ function shows(folder: string, path: string): boolean {
  * holds as a file that opens with the marker, with its `config.json` where
  * the commit holds one. A new root is planned at the first name the commit
  * holds nothing at or below. The workflow that is kept is Owlery's where
- * the commit holds it as a file, or AgenticSeal's `hygiene.yml` where the
- * commit's text of it runs the check, and Owlery's is planned where the
- * commit holds neither.
+ * the commit holds it as a file and the plan does not move its check, or
+ * AgenticSeal's `hygiene.yml` where the commit's text of it runs the
+ * check, and Owlery's is planned where the commit holds neither.
+ *
+ * Where the plan writes no other file, the commit holds Owlery's workflow
+ * as a file, and the version `pinnedVersion` reads in the commit's text of
+ * it is older than `version`, the plan moves the check: the workflow's
+ * entry carries `workflowText(version)`, the plan carries `move` with both
+ * versions, and the subject is `moveSubject(version)`. The moved workflow
+ * is compared below as a kept file.
  *
  * The checkout then has to hold the place as the commit does, since the
  * setup writes into the checkout and the daemon reads the place from it.
@@ -348,16 +407,16 @@ function shows(folder: string, path: string): boolean {
  * the sample of record paths below it; something other than a folder is at
  * `threads` of the root, where each work item's records go, in the
  * checkout, the index or the commit; something other than a folder is at a
- * folder above a path the plan writes, in the same three; the disk finds a
+ * folder above a path the setup creates, in the same three; the disk finds a
  * path the setup needs under the same name in other letters; the commit
- * holds a link, a submodule or a folder at a path the plan writes; the
+ * holds a link, a submodule or a folder at a path the setup creates; the
  * checkout differs from the commit as above, and each such path is named;
  * the plan writes a file and no branch is checked out. Where none of them
  * holds and git could not say whether it ignores a record path, no plan is
  * made: this throws with git's words.
  * The stamp is made of the commit the checkout stands at, the branch and
- * the files, so it is another once a commit lands, the branch changes or
- * the command is another.
+ * the files, so it is another once a commit lands, the branch changes, the
+ * command is another or a move is to another version.
  */
 export async function planRecords(folder: string, broadGate: string, version: string): Promise<RecordsPlan> {
   const inside = await git(folder, ["rev-parse", "--is-inside-work-tree"]);
@@ -391,8 +450,15 @@ export async function planRecords(folder: string, broadGate: string, version: st
     files.push({ path: `${root}/README.md`, text: kept === null ? readmeText() : null });
     files.push({ path: `${root}/config.json`, text: holdsFile(`${root}/config.json`) ? null : configText(broadGate.trim()) });
   }
-  files.push({ path: check ?? WORKFLOW, text: check === null ? workflowText(version) : null });
+  // The move: where the plan writes no file of the setup and the commit's text of Owlery's workflow pins an older version than this one, the workflow is written whole for this version.
+  const pinned = root !== null && check === WORKFLOW && files.every((file) => file.text === null) ? pinnedVersion(await committed(WORKFLOW)) : null;
+  const move = pinned !== null && olderVersion(pinned, version) ? { from: pinned, to: version } : null;
+  files.push({ path: check ?? WORKFLOW, text: check === null || move !== null ? workflowText(version) : null });
+  /** Whether the plan writes the file over the commit's: the moved workflow, which is compared below as a kept file, since the commit holds it. */
+  const moved = (path: string): boolean => move !== null && path === WORKFLOW;
+  // Every file the commit writes, and the ones of them the setup creates where nothing stands, which the arms on folders, letters and what the commit holds read.
   const written = files.filter((file) => file.text !== null).map((file) => file.path);
+  const created = written.filter((path) => !moved(path));
 
   const planned = files.map((file) => file.path);
 
@@ -403,7 +469,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const reported = status.stdout.split("\0").filter((entry) => entry !== "").map((entry) => entry.slice(3));
   const apart = new Set(own.filter((path) => reported.includes(path)));
   // A kept file as the checkout holds it, against the commit's: one at whose path no file stands, which status does not report of a sparse checkout, and one whose text, hashed as git would store it, is another. Status is not the reading of that text: it reports no change of a path whose index entry is flagged skip-worktree or assume-unchanged, whatever the checkout holds.
-  const keptFiles = files.filter((file) => file.text === null).map((file) => file.path);
+  const keptFiles = files.filter((file) => file.text === null || moved(file.path)).map((file) => file.path);
   const standing = keptFiles.filter((path) => standsAsFile(folder, path));
   for (const path of keptFiles) if (!standing.includes(path)) apart.add(path);
   if (standing.length > 0) {
@@ -423,14 +489,14 @@ export async function planRecords(folder: string, broadGate: string, version: st
   }
   const differing = [...[...new Set([...planned, ...readmes, WORKFLOW, PLUGIN_WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
 
-  // The folders above the written paths at which the checkout, the index or the commit holds a file, a link or a submodule.
+  // The folders above the created paths at which the checkout, the index or the commit holds a file, a link or a submodule.
   const above = new Set<string>();
-  for (const path of written) for (let at = dirname(path); at !== "."; at = dirname(at)) above.add(at);
+  for (const path of created) for (let at = dirname(path); at !== "."; at = dirname(at)) above.add(at);
   const notFolders = [...above].filter((at) => standsAsNoFolder(folder, at) || inCommit.has(at) || inIndex.has(at));
-  // A written path or a folder above one that the disk finds and the folder's own listing does not name: it stands under other letters, on a disk that takes the two names for one. The highest such name of a path is the one named. On a disk that tells them apart nothing stands there, and none is named.
-  const otherLetters = [...above, ...written].filter((at) => stands(folder, at) && !shows(folder, at) && (dirname(at) === "." || shows(folder, dirname(at))));
-  // A path the plan writes at which the commit holds a link, a submodule or a folder: the checkout may hold it as the commit does, and the setup still has no place for its file.
-  const occupied = written.filter(holds);
+  // A created path or a folder above one that the disk finds and the folder's own listing does not name: it stands under other letters, on a disk that takes the two names for one. The highest such name of a path is the one named. On a disk that tells them apart nothing stands there, and none is named.
+  const otherLetters = [...above, ...created].filter((at) => stands(folder, at) && !shows(folder, at) && (dirname(at) === "." || shows(folder, dirname(at))));
+  // A path the setup creates at which the commit holds a link, a submodule or a folder: the checkout may hold it as the commit does, and the setup still has no place for its file.
+  const occupied = created.filter(holds);
   // Where git cannot say whether it ignores a path, behind a link for one, the path is among those that differ or below a folder that is none.
   const ignored = await ignoredAmong(folder, planned).catch(() => []);
   // Where a work item's records go is asked too: a rule over it leaves a root that cannot keep a record, though git ignores none of the root's own files. The paths asked are the folder and RECORDS below a work item's directory, a sample, since the patterns of a `.gitignore` have no end: a rule that names a work item's id or another record is not found.
@@ -466,7 +532,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   }
   if (blocked === null && asked.unanswered !== null) throw asked.unanswered;
   const writesConfig = files.some((file) => file.path.endsWith("/config.json") && file.text !== null);
-  return { branch, subject: SUBJECT, files, blocked, proposedBroadGate: writesConfig ? proposedBroadGate(folder) : null, stamp: createHash("sha256").update(JSON.stringify([head, branch, files])).digest("hex") };
+  return { branch, subject: move === null ? SUBJECT : moveSubject(version), files, blocked, proposedBroadGate: writesConfig ? proposedBroadGate(folder) : null, move, stamp: createHash("sha256").update(JSON.stringify([head, branch, files])).digest("hex") };
 }
 
 /**
@@ -476,16 +542,21 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * and the command is empty. A plan that writes no file changes nothing and
  * makes no commit.
  *
- * Each file is created only where nothing stands at its path, and the plan
- * is blocked where the commit or the index holds one of the paths, so the
- * commit replaces no file and its cleanup unstages nothing of the
- * person's. Those paths
+ * Each file of the setup is created only where nothing stands at its path,
+ * and the plan is blocked where the commit or the index holds one of the
+ * paths, so the setup replaces no file and its cleanup unstages nothing of
+ * the person's. The one file written over is the workflow of a plan that
+ * moves the check, which the plan found as the commit holds it. The move is
+ * refused where the workflow's text just before the write is not the one
+ * read before the plan was made again, as the plan reads a person's file,
+ * so an edit saved while the plan ran is not written over. Those paths
  * alone are staged and those paths alone are committed, on the branch the
  * checkout stands on, with the person's git identity and the repository's
  * hooks: no option skips a hook or a signature, and nothing is pushed. What
  * else is staged stays staged. Where a write or the commit fails, those
  * paths are unstaged, the files and the folders this call created are
- * removed, and the error holds git's words, a hook's output among them.
+ * removed, a moved workflow is written back as it stood, and the error
+ * holds git's words, a hook's output among them.
  *
  * The `git add` and the `git commit` run together under `limitMs`,
  * `COMMIT_LIMIT_MS` where none is given, as `worktrees.ts#commitRunner`
@@ -496,6 +567,14 @@ export async function planRecords(folder: string, broadGate: string, version: st
  * does, and the setup stands as after a commit that ended by itself.
  */
 export async function setUpRecords(folder: string, broadGate: string, version: string, stamp: string, limitMs?: number): Promise<void> {
+  // The workflow's text before the plan compares the file with the commit's. A move writes over it only where the file still holds that text, so an edit saved while the plan runs git is refused, not replaced. It is read as the plan reads a person's file (`repositoryFileText`): no link is opened, no pipe is waited on, nothing over `REPOSITORY_FILE_BYTES` is read, and what it refuses is null here, which refuses a move.
+  const beforePlan = ((): string | null => {
+    try {
+      return repositoryFileText(join(folder, WORKFLOW));
+    } catch {
+      return null;
+    }
+  })();
   const plan = await planRecords(folder, broadGate, version);
   if (plan.stamp !== stamp) throw new Error("The repository changed since the plan was read. Read the plan again.");
   if (plan.blocked !== null) throw new Error(plan.blocked);
@@ -505,9 +584,21 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
   const paths = writes.map((file) => file.path);
   const madeFiles: string[] = [];
   const madeFolders: string[] = [];
+  /** The moved workflow as it stood before it was written over, which a failure writes back. */
+  let replaced: { path: string; bytes: Buffer } | null = null;
   let staged = false;
   try {
     for (const { path, text } of writes) {
+      if (plan.move !== null && path === WORKFLOW) {
+        const bytes = readFileSync(join(folder, path));
+        // Thrown before anything is staged or replaced, so the cleanup below writes nothing back and unstages nothing.
+        // The two reads are compared as UTF-8 text, so two files that differ only in bytes that are no UTF-8 compare equal.
+        if (beforePlan === null || bytes.toString("utf8") !== beforePlan) throw new Error("The repository changed since the plan was read. Read the plan again.");
+        // The plan found the checkout's file as the commit holds it, so what is written back is the commit's text as the checkout holds it.
+        replaced = { path, bytes };
+        writeFileSync(join(folder, path), text);
+        continue;
+      }
       // The folders above the file that do not stand yet, the highest first, so a failure removes them and no other.
       const missing: string[] = [];
       for (let above = dirname(path); above !== "." && !stands(folder, above); above = dirname(above)) missing.unshift(above);
@@ -533,6 +624,7 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
     // A checkout with no commit has no state to reset a path to, so the paths leave the index by name.
     if (staged) await git(folder, (await git(folder, ["rev-parse", "--verify", "--quiet", "HEAD"])).code === 0 ? ["reset", "--quiet", "--", ...paths] : ["rm", "--cached", "--quiet", "--ignore-unmatch", "--", ...paths]).catch(() => undefined);
     for (const path of madeFiles) rmSync(join(folder, path), { force: true });
+    if (replaced !== null) writeFileSync(join(folder, replaced.path), replaced.bytes);
     for (const made of madeFolders.reverse()) {
       try {
         // Only an empty folder goes: one that gained a file meanwhile stays.
