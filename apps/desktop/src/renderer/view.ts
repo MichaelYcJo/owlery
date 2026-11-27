@@ -680,7 +680,7 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
       return { state: "finished", note, label: note, since: null, text: null };
     }
     case "inspector": {
-      // Whether an inspection holds is the inspection the branch's head holds, and a verdict that inspections in the worktree alone is no verdict.
+      // Whether an inspection holds is the inspection the branch's head holds, and a verdict that clears in the worktree alone is no verdict.
       const inspection = workItem.inspection ?? null;
       if (inspection !== null) return { ...(inspection.state === "lapsed" ? { state: "waiting", note: INSPECTION_LAPSED } : { state: "finished", note: "Cleared" }), label: inspectionShown(inspection).words, since: null, text: inspection.why };
       const verdict = recorded.verdict;

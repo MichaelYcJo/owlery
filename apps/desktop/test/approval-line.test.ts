@@ -224,7 +224,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === ${JSON.stringify(title)}`, `the preview of ${title}`);
   };
 
-  /** The second work item, whose branch the next case inspections and the one after it breaks, and the commit its inspection names. */
+  /** The second work item, whose branch the next case clears and the one after it lapses, and the commit its inspection names. */
   let gamma: WorkItem;
   let clearedAt: string;
 

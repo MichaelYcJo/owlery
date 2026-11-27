@@ -1482,7 +1482,7 @@ describe("the approval line", () => {
   const TARGET = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   /** What the daemon sends for a work item with no directory of its own. */
   const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
-  /** A work item's records with the frame, three round records, a gate's run and a last verdict that inspections. */
+  /** A work item's records with the frame, three round records, a gate's run and a last verdict that clears. */
   const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "cleared", commit: TARGET, says: null } };
   /** The inspection of that verdict, which holds at the branch's head, and the same inspection once a later commit lapsed it. */
   const HOLDS: Inspection = { state: "cleared", commit: TARGET, why: null };
@@ -1547,14 +1547,14 @@ describe("the approval line", () => {
     expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
   });
 
-  it("marks the inspector's place finished with the cleared commit where the inspection holds at the branch's head, waiting with the note Inspection lapsed and the inspection's sentence under the line where a later commit lapsed it, and reads a verdict that inspections in the worktree while the head holds no inspection as no verdict", () => {
+  it("marks the inspector's place finished with the cleared commit where the inspection holds at the branch's head, waiting with the note Inspection lapsed and the inspection's sentence under the line where a later commit lapsed it, and reads a verdict that clears in the worktree while the head holds no inspection as no verdict", () => {
     expect(read(RECORDED)?.[3]).toEqual(["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"]);
     expect(under(RECORDED)).toEqual([]);
     const lapsed: WorkItem = { ...RECORDED, inspection: BROKE };
     expect(read(lapsed)?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
     expect(under(lapsed)).toEqual(["Inspector: `src/app.ts` changed after the cleared commit `2222222`."]);
     expect(read(lapsed)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    // The worktree's verdict inspections and the head holds no inspection: the gate's run says the place, or nothing does. A daemon of an earlier build sends no inspection.
+    // The worktree's verdict clears and the head holds no inspection: the gate's run says the place, or nothing does. A daemon of an earlier build sends no inspection.
     const { inspection: _seal, ...unread } = RECORDED;
     for (const none of [{ ...RECORDED, inspection: null }, unread as WorkItem]) {
       expect(read(none)?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
@@ -1574,7 +1574,7 @@ describe("the approval line", () => {
     expect(read({ ...RECORDED, questions: [{ ...ASKS, since: null }] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you"]);
     // Of two open questions of the role, the first stands under the line.
     expect(under({ ...RECORDED, questions: [ASKS, { ...ASKS, id: 2, asks: "And a failed one?" }] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
-    // An open question marks the place over what the records say: the inspector waits on a question while its verdict inspections.
+    // An open question marks the place over what the records say: the inspector waits on a question while its verdict clears.
     expect(read({ ...RECORDED, questions: [{ ...ASKS, by: "inspector" }] })?.[3]).toEqual(["inspector", "waiting", "Needs you", "Inspector: Needs you, 12 min"]);
     for (const by of ["orchestrator", "Proofer", " proofer", null]) {
       expect(read({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual(read(RECORDED));
@@ -1679,7 +1679,7 @@ describe("the approval line", () => {
     expect(read(gated)?.[3]).toEqual(["inspector", "waiting", "Gate failed", "Inspector: Gate failed"]);
     expect(read(gated)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     expect(under(gated)).toEqual(["Inspector: The command exited with code 3."]);
-    // The records of this work item hold a verdict that inspections an earlier commit, and the failed gate stands over it.
+    // The records of this work item hold a verdict that clears an earlier commit, and the failed gate stands over it.
     expect(read(RECORDED)?.[3]).toEqual(["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"]);
     const judged = chained("stopped", ROUND_ONE, stage({ kind: "inspection", state: "failed", failure: "the session reached its time limit and was stopped", endedAt: NOW - MINUTE }));
     expect(read(judged)?.[3]).toEqual(["inspector", "failed", "Failed", "Inspector: Judging failed"]);
