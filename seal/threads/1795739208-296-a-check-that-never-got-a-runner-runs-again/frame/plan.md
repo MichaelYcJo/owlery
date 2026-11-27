@@ -34,7 +34,7 @@ Constraints the build meets:
 
 | Phase | Delivers | Verified by | Status |
 |---|---|---|---|
-| 1 | `frame/design.md` *Scope* items 1, 2, 3, 4 and 5, test first: the cases of item 5, then the command, then the workflow. The fixtures are the answers GitHub gave for the runs and jobs that *User scenarios & acceptance* names, read with `gh api` and stored under `apps/desktop/test/fixtures/`, with nothing but the fields the command reads. | The cases of `apps/desktop/test/rerun-unstarted.test.ts` pass, run narrow through the runner of heavy commands, and each case that *User scenarios & acceptance* marks "shown red" was seen red as its cell says. Scenario J is read at review. Scenario K stays `unverified`, and `frame/questions.md` Q1 names its answerer. The broad gate is the orchestrator's. | |
+| 1 | `frame/design.md` *Scope* items 1, 2, 3, 4 and 5, test first: the cases of item 5, then the command, then the workflow. The fixtures are the answers GitHub gave for the runs and jobs that *User scenarios & acceptance* names, read with `gh api` and stored under `apps/desktop/test/fixtures/`, with nothing but the fields the command reads. | The cases of `apps/desktop/test/rerun-unstarted.test.ts` pass, run narrow through the runner of heavy commands, and each case that *User scenarios & acceptance* marks "shown red" was seen red as its cell says. Scenario J is read at review. Scenario K stays `unverified`, and `frame/questions.md` Q1 names its answerer. The broad gate is the orchestrator's. | `62e49f41` |
 
 ## Overlap with the release
 
