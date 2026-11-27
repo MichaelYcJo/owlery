@@ -23,11 +23,14 @@ export const KILL_AFTER_MS = 2000;
 
 /**
  * The oldest version of Claude Code that Owlery's role sessions were checked
- * on: the options of a launch and its detachment were confirmed on it
- * (docs/architecture.md, "Options for launching Claude Code"). An older one
- * is launched all the same, and the person is told to update.
+ * on: the oldest on which a run of `role:refusal` showed the sandbox refusing
+ * a role's write (docs/architecture.md, "Options for launching Claude Code").
+ * A role launch on an older one fails (`roleCheck`), since a Claude Code that
+ * ignored the launch's `sandbox` block would run a role's allowed commands
+ * bounded by nothing. A pane is launched on any version, and the person is
+ * told to update.
  */
-export const MIN_CLAUDE_VERSION = "2.1.326";
+export const MIN_CLAUDE_VERSION = "2.1.329";
 
 /** How much of a call a permission request tells a person, in a string's characters. */
 export const PERMISSION_TEXT_CHARS = 2000;
@@ -422,8 +425,13 @@ export function eventsForLine(line: string, held?: readonly string[], keyed = fa
 }
 
 /**
- * Reads one line of a role launch's output for whether the session holds the
- * role's agent. Claude Code starts a plain session, with no error, for an
+ * Reads one line of a role launch's output for whether the session runs on a
+ * checked version of Claude Code and holds the role's agent. The `init` line
+ * names the version as `claude_code_version`, and it is read first: a version
+ * older than `MIN_CLAUDE_VERSION` fails the launch with `versionNotice`'s
+ * sentence, and a line that names none fails it too, since an older Claude
+ * Code starts with no error whatever it does with the launch's `sandbox`
+ * block. Claude Code starts a plain session, with no error, for an
  * agent's name it does not hold and for a plugin folder that is not there
  * (2.1.330, probed 2026-11-22), and only its `init` line shows it: the
  * session's agents, and the plugins that did not load. The agent's name
@@ -440,6 +448,10 @@ export function roleCheck(line: string, agent: string): { seen: boolean; failure
   if (!record) return { seen: false, failure: null };
   if (record.type === "result") return { seen: true, failure: "the session did not say which agents it holds" };
   if (record.type !== "system" || record.subtype !== "init") return { seen: false, failure: null };
+  const version: unknown = record.claude_code_version;
+  if (typeof version !== "string" || !/\d+\.\d+\.\d+/.test(version)) return { seen: true, failure: "the session did not say which version of Claude Code it is, so its sandbox was not checked" };
+  const older = versionNotice(version);
+  if (older !== null) return { seen: true, failure: older };
   if (Array.isArray(record.agents) && record.agents.includes(agent)) return { seen: true, failure: null };
   // The agent is missing. A plugin that did not load is the likelier cause, and its message says more than the name does.
   const errors: unknown = record.plugin_errors;
@@ -590,7 +602,7 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
           await exit;
           clearTimeout(kill);
         })());
-      // A role launch is not the role's until its first line says the session holds the agent. `unchecked` is that
+      // A role launch is not the role's until its first line names a checked version and says the session holds the agent. `unchecked` is that
       // agent until the line that settles it, and `refused` is set where it failed the launch: the listener then
       // hears the reason as the run's result, the CLI is stopped, and nothing more of its output is reported.
       let unchecked = launch === "refresh" ? undefined : launch.agent;

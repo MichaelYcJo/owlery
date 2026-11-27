@@ -3639,7 +3639,7 @@ describe("daemonNotice", () => {
 describe("statusNotice", () => {
   const OWN = "The theme could not be saved.";
   const DAEMON = daemonNotice(true);
-  const AGENT = `Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
+  const AGENT = `Claude Code 2.1.300 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`;
 
   it("says the agent's notice where the window and the daemon have none", () => {
     expect(statusNotice("", "", AGENT)).toBe(AGENT);

@@ -452,7 +452,7 @@ describe("the built app's role bundle", () => {
       [
         `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        `echo '{"type":"system","subtype":"init","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
+        `echo '{"type":"system","subtype":"init","claude_code_version":"2.1.330","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
         `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
         // It exits at the end of its input, which the daemon ends once the result has arrived.
         "cat > /dev/null",
@@ -546,7 +546,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
     // Stands for the login shell: it names the CLI and ends.
     const shell = script("shell", `printf '\\n__owlery_cli=%s\\n__owlery_path=%s\\n__owlery_config=%s\\n' '${cli}' '/usr/bin:/bin' "\${CLAUDE_CONFIG_DIR:-}"`);
     const old = versionNotice("2.1.300 (Claude Code)");
-    expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.326, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
+    expect(old).toBe(`Claude Code 2.1.300 is older than 2.1.329, the oldest version Owlery's role sessions were checked on. Run "claude update" in a terminal.`);
     /** What the status line says, and whether it is drawn as a notice. */
     const status = (): Promise<{ text: string; notice: boolean }> => app.evaluate(`({ text: document.getElementById("status").textContent, notice: document.getElementById("status").classList.contains("notice") })`);
     const app = await BuiltApp.start({ SHELL: shell });
@@ -558,7 +558,7 @@ describe("the built app's notice of an old CLI", { timeout: 120_000 }, () => {
 
       // The person updates. The daemon reads the version again as a window connects, and that read is held here, so the page loaded anew has the sentence from the daemon's `ready` alone.
       writeFileSync(hold, "");
-      writeFileSync(version, "2.1.326 (Claude Code)\n");
+      writeFileSync(version, "2.1.329 (Claude Code)\n");
       await app.evaluate(`window.__beforeReload = true`);
       await app.cdp("Page.reload");
       await app.until(`window.__beforeReload === undefined && document.getElementById("status")?.textContent === ${JSON.stringify(old)}`, "the notice in the page loaded anew");
