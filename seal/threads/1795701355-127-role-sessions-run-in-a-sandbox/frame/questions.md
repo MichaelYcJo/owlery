@@ -17,7 +17,7 @@ The ticket left these judgments open, and the tree or a probe answered each. The
 - Whether the crafter's launch names the worktree's `.git` file, `commondir` and `config.worktree` as refused: `frame/plan.md` *Alternatives considered*, the row on deny entries for them; `frame/design.md` *Grounding*, the probe of what git reads at the daemon's commit.
 - Whether this work bounds what the daemon itself runs from the worktree, its commit's hooks and the broad gate: `frame/design.md` *Out*, the row on what the daemon runs from the worktree, which reads the issue's *Done when* as naming a role session's commands.
 
-Q1 and Q2 are the owner's. Neither blocks the build: under `agentic` the run goes on with each default. Q3 to Q6 are answered by phase 3's runs, and each `Status` cell says what the frame took from the answer. Q7 came from the fold after the fix pass of review round 1 and waits for a run.
+Q1 and Q2 are the owner's. Neither blocks the build: under `agentic` the run goes on with each default. Q3 to Q6 are answered by phase 3's runs, and each `Status` cell says what the frame took from the answer. Q7 came from the fold after the fix pass of review round 1 and is answered by the run of `trail/phases/phase-5.md`.
 
 | # | Question | Who can answer | Options & what each implies | Default until answered | Status |
 |---|---|---|---|---|---|
