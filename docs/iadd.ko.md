@@ -12,12 +12,12 @@
 |---|---|
 | harness | 데스크톱 앱의 데몬. 단계마다 자기 샌드박스 안의 역할 세션으로 띄웁니다. 그리고 Claude Code 세션이 Owl Chain을 싣는 칸 |
 | 참여자 | orchestrator, crafter, proofer, 검수자(inspector). 역할 묶음에 framer와 tracer가 없으므로, 원칙 2의 framer에 대한 절반은 생기지 않습니다 |
-| 실행이 끝나는 곳 | PR. Owlery는 모든 작업의 `Destination`에 `open the pull request`를 쓰고, 브랜치를 돌려주는 끝은 제공하지 않습니다 |
+| 실행이 끝나는 곳 | PR. Owlery는 자기가 라우팅하는 모든 작업의 `Destination`에 `open the pull request`를 씁니다. 라우팅이 `stop before the pull request`를 밝히면 체인은 합격한 브랜치에서 서고 PR을 열지 않지만, 아직 어느 화면도 그것을 제공하지 않습니다 |
 | 질문 묶음을 언제 묻는지 | 아직 만들지 않았습니다. 최초의 묶음은 마일스톤 3의 몫입니다([docs/roadmap.ko.md](roadmap.ko.md#마일스톤)). 나중에 생긴 질문은 코드와 정책으로 정해 `decisions.md`에 기록하거나, 그 작업 하나를 세워 둡니다([순서는 코드가, 판단은 orchestrator가](architecture.ko.md#순서는-코드가-판단은-orchestrator가)) |
 | 누가 기록을 쓰고 순서를 지키는지 | Owlery의 코드가 커밋된 기록에서 합니다([모든 워크플로에 성립하는 것](#모든-워크플로에-성립하는-것)) |
-| 검수한 커밋 뒤의 base 머지 | 마감 기록보다 많이 바꾼 다른 커밋처럼 검수가 효력을 잃습니다. 그 작업 자신의 디렉터리만 건드린 base의 커밋은 그렇지 않습니다 |
-| `undecided` 판정에 누가 먼저 답하는지 | orchestrator 에이전트이고, 그 판단은 `decisions.md`에 커밋됩니다. `undecided` 판정이 두 번 나온 뒤에는 작업이 사람을 기다리며 섭니다 |
-| 모드와 설정 키 | `shared`뿐입니다. 루트는 커밋됩니다. Owlery는 `Commit and pull request language`, `Record language`, `Broad gate`를 쓰고, `Mode`는 쓰지 않으며, `Broad gate`와 `Heavy commands`를 읽습니다 |
+| 검수한 커밋 뒤의 base 머지 | 마감 기록 말고 다른 경로를 바꾸면, 다른 모든 커밋처럼 검수가 효력을 잃습니다 |
+| `undecided` 판정에 누가 먼저 답하는지 | orchestrator 에이전트이고, 그 판단은 `decisions.md`에 커밋됩니다. 처음 두 번은 orchestrator가 판단하고, 세 번째부터는 작업이 사람을 기다리며 섭니다 |
+| 모드와 설정 키 | `shared`뿐입니다. 루트는 커밋됩니다. Owlery는 `Commit and pull request language`, `Record language`, `Broad gate`를 쓰고, `Mode`는 쓰지 않으며, `Broad gate`와 `Heavy commands`를 읽습니다. PR 검사는 `Policy root`도 읽습니다 |
 
 ## Owlery가 각 원칙을 지키는 곳
 
@@ -32,7 +32,7 @@
 | 5. 정확한 것은 스크립트가 답한다 | Owlery의 코드가 전체 검사를 돌리고 그 종료 코드를 읽습니다. `executed`, `read`, `unverified` 표시는 역할 묶음의 proofer와 agent contract에 있고, 어떤 코드도 그것을 읽지 않습니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 6번) |
 | 6. 판단은 원천 문서에 기댄다 | `decisions.md`의 결정, 판단, 질문은 모두 `grounds:`를 가지고, 역할 묶음의 core가 그 규칙을 밝힙니다 |
 | 7. 규칙은 판단을 위한 지침이다 | 역할 묶음의 core. 묶음의 어떤 문서도 순서를 다시 쓰지 않고, 순서는 코드가 지킵니다([순서는 코드가, 판단은 orchestrator가](architecture.ko.md#순서는-코드가-판단은-orchestrator가)) |
-| 8. 어느 쪽도 건너뛰지 못하는 연결이 있다 | 아래 불변식 1부터 7. 하나하나를 코드가 지킵니다 |
+| 8. 어느 쪽도 건너뛰지 못하는 연결이 있다 | 아래 불변식 1부터 7. 데몬의 체인에서는 하나하나를 코드가 지킵니다. 칸에서는 그 가운데 몇은 검사만 지킵니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 8번) |
 | 9. 메커니즘은 비용에 비춰 남긴다 | 역할 묶음의 core, 그리고 작업의 비용을 그 회차들이 찾은 것 옆에 보여 주는 검수 시트([상태는 세 곳에 둡니다](architecture.ko.md#상태는-세-곳에-둡니다)) |
 | 10. 문서는 누가 여는지에 따라 자른다 | Owl Chain의 두 파일은 단계마다 띄울 때 싣는 문서를 밝힙니다([세션마다 싣는 것](architecture.ko.md#세션마다-싣는-것)) |
 | 11. 기록은 임시이다 | settle. Owlery 자신의 명령은 settle이 남길 것을 보여 줄 뿐 아직 아무것도 지우지 않고, 나머지는 이슈 #139가 만듭니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 9번) |
@@ -63,6 +63,9 @@ AgenticSeal 플러그인이 0.40.0 전의 릴리스에서 `seal/` 아래에 쓴 
 - **판정 블록**은 여섯 줄을 더합니다. `built-by:`(작업을 만든 세션 하나하나), `inspected-by:`(검수한 세션), `model:`(그 모델), `rules:`(`owlery <version>`), 그리고 `workflow:`와 `inspector:`(Owl Chain이면 둘 다 `owl-chain`)입니다.
 - **trailer `IADD-Built-By:`**는 수정 패스를 기록하는 커밋에 그 패스를 만든 세션을 밝힙니다.
 - `agentory/config.json`의 **키 `Heavy commands`**는 기기에서 차례를 기다리는 명령을 밝힙니다.
+- **`routing.md`**에는 `Review`, `Destination`, `Planning`, `Implementation`, `Automation`, `Branch` 행이 있고, 작업 디렉터리의 이름은 `<seconds>-<issue>-<slug>`입니다.
+- **orchestrator는 작업을 돌리는 세션이면서 역할 묶음의 에이전트이기도 합니다.** 데몬의 체인에서는 질문과 `undecided` 판정을 판단합니다.
+- **라운드 기록을 읽는 쪽은 §8.4보다 많이 받습니다.** 닫는 블록의 `location:` 줄, `answer:` 없는 닫는 블록, `severity:`의 아무 낱말, `confirms: none`입니다.
 
 ### 검수와 그 검사
 

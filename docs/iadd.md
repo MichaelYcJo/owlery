@@ -12,12 +12,12 @@
 |---|---|
 | The harness | a desktop app's daemon, which starts each stage as a role session in its own sandbox, and the panes, whose Claude Code session carries the Owl Chain |
 | The parties | the orchestrator, the crafter, the proofer and the inspector. The role bundle holds no framer and no tracer, so the framer's half of principle 2 does not arise |
-| How a run ends | at a pull request. Owlery writes `open the pull request` as the `Destination` of every work item, and offers no handed-back branch |
+| How a run ends | at a pull request. Owlery writes `open the pull request` as the `Destination` of every work item it routes. Where a routing names `stop before the pull request`, the chain rests at the cleared branch and opens none, and no screen offers that yet |
 | When the question batch is asked | not built yet: the batch at the outset is milestone 3's ([docs/roadmap.md](roadmap.md#milestones)). A later question is decided from the code and the policy and recorded in `decisions.md`, or parks its one work item ([Code runs the order, the orchestrator judges](architecture.md#code-runs-the-order-the-orchestrator-judges)) |
 | Who writes the records and keeps the order | Owlery's code, from the committed records ([What holds for every workflow](#what-holds-for-every-workflow)) |
-| A merge of the base after the inspected commit | it lapses the inspection, as every other commit that changes more than the closing records does. A commit of the base that touches only the work item's own directory does not |
-| Who answers an `undecided` verdict first | the orchestrator agent, whose ruling is committed to `decisions.md`. After two `undecided` verdicts the work item parks for the person |
-| The modes and the configuration keys | `shared` alone: the root is committed. Owlery writes `Commit and pull request language`, `Record language` and `Broad gate`, writes no `Mode`, and reads `Broad gate` and `Heavy commands` |
+| A merge of the base after the inspected commit | it lapses the inspection where it changes a path other than the closing records, as every other commit does |
+| Who answers an `undecided` verdict first | the orchestrator agent, whose ruling is committed to `decisions.md`. It rules on the first two, and from the third the work item parks for the person |
+| The modes and the configuration keys | `shared` alone: the root is committed. Owlery writes `Commit and pull request language`, `Record language` and `Broad gate`, writes no `Mode`, and reads `Broad gate` and `Heavy commands`. The pull request check also reads `Policy root` |
 
 ## Where Owlery holds each principle
 
@@ -32,7 +32,7 @@ The specification's eleven principles, and the documents and code of Owlery that
 | 5. A script answers what is exact | Owlery's code runs the broad gate and reads its exit code. The labels `executed`, `read` and `unverified` stand in the role bundle's proofer and agent contract, and no code reads them ([Where Owlery departs](#where-owlery-departs), item 6) |
 | 6. A judgment stands on a source document | every decision, ruling and question of `decisions.md` holds its `grounds:`, and the role bundle's core states the rule |
 | 7. A rule is guidance for a judgment | the role bundle's core. No document of the bundle restates the order, which code keeps ([Code runs the order, the orchestrator judges](architecture.md#code-runs-the-order-the-orchestrator-judges)) |
-| 8. Some links no party skips | invariants 1 to 7 below, each held by code |
+| 8. Some links no party skips | invariants 1 to 7 below, each held by code in the daemon's chain. In a pane the check alone holds some of them ([Where Owlery departs](#where-owlery-departs), item 8) |
 | 9. A mechanism is kept against its cost | the role bundle's core, and the inspection sheet, which shows a work item's cost beside what its rounds found ([State lives in three places](architecture.md#state-lives-in-three-places)) |
 | 10. A document is cut by who opens it | each stage of the Owl Chain's two files names the documents its launch carries ([What each session loads](architecture.md#what-each-session-loads)) |
 | 11. Records are temporary | the settle. Owlery's own command lists what a settle keeps and removes nothing yet, and issue #139 builds the rest ([Where Owlery departs](#where-owlery-departs), item 9) |
@@ -63,6 +63,9 @@ Records in the form the AgenticSeal plugin wrote before its release 0.40.0, unde
 - **The verdict block** adds six lines: `built-by:`, each session that built the work; `inspected-by:`, the session that inspected it; `model:`, its model; `rules:`, `owlery <version>`; `workflow:` and `inspector:`, both `owl-chain` for the Owl Chain.
 - **The trailer `IADD-Built-By:`** names the building session on the commit that records a fix pass.
 - **The key `Heavy commands`** of `agentory/config.json` names the commands that take their turn on the machine.
+- **`routing.md`** holds the rows `Review`, `Destination`, `Planning`, `Implementation`, `Automation` and `Branch`, and a work item's directory is named `<seconds>-<issue>-<slug>`.
+- **The orchestrator is an agent of the role bundle** as well as the session that runs the work: in the daemon's chain it rules on questions and `undecided` verdicts.
+- **The round record's readers take more than §8.4 gives:** a `location:` line in a close block, a close block with no `answer:`, any word as `severity:`, and `confirms: none`.
 
 ### The inspection and its check
 
