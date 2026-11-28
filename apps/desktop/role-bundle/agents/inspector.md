@@ -84,7 +84,7 @@ read: the routing, and the frame where one stands, say what was asked.
    row and what the diff changed.
    A finding of the last record that reads `fixed <commit>`, which the pull
    request check passes only where the finding is located in
-   `iadd/threads/<item>/` alone and its commit touched nothing outside it,
+   `agentory/threads/<item>/` alone and its commit touched nothing outside it,
    was read by no round: it is the fix pass's claim with you as its reader,
    so read the record at the audited commit against what the finding asked,
    and a record that does not say it is a disagreement like any other.

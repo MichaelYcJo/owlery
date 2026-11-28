@@ -311,8 +311,8 @@ export async function standing(cleanups: Cleanups, titles: string[], options: Pa
     const repo = temporaryRepository();
     cleanups.push(repo.remove);
     if (root) {
-      write(repo.repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-      write(repo.repo, "iadd/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
+      write(repo.repo, "agentory/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+      write(repo.repo, "agentory/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", ...(gate === null ? {} : { "Broad gate": gate }) }, null, 2)}\n`);
       commitAll(repo.repo, "chore: add the place for work records");
     }
     return repo;
@@ -472,7 +472,7 @@ export function inspectionWith(before: string | null, workItem: string, run: num
  * names, the cleared commit where none is given.
  */
 export function commitInspection(folder: string, given: { workItem: string; branch: string; base: string; inspection?: boolean; verdict?: string; target?: string }): string {
-  const directory = `iadd/threads/${given.workItem}`;
+  const directory = `agentory/threads/${given.workItem}`;
   write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
   const routed = commitAll(folder, "chore: declare the work item's routing");
   write(folder, `${directory}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${given.workItem}`, `${routed} against main`));
@@ -497,7 +497,7 @@ export function commitInspection(folder: string, given: { workItem: string; bran
  * finding.
  */
 export function commitClearedAfterAFix(folder: string, given: { workItem: string; branch: string; base: string; symptom?: string }): string {
-  const directory = `iadd/threads/${given.workItem}`;
+  const directory = `agentory/threads/${given.workItem}`;
   const record = `${directory}/trail/rounds/round-1.md`;
   write(folder, `${directory}/routing.md`, routingText(given.workItem, given.branch, TODAY));
   const routed = commitAll(folder, "chore: declare the work item's routing");
@@ -533,7 +533,7 @@ export function commitClearedAfterAFix(folder: string, given: { workItem: string
  */
 export async function parkedOnAQuestion(given: { repo: string; root: string; id: number; title: string; workItem: string; asks: string; at: number }): Promise<{ stored: { id: number; title: string; branch: string; worktree: string; createdAt: number; baseCommit: string | null; baseBranch: string | null; pinned: false; muted: false; groupId: null; archivedAt: null; chain: Chain }; questionId: number }> {
   const at = await branchedWorktree({ folder: given.repo, title: given.title, root: given.root });
-  const directory = `iadd/threads/${given.workItem}`;
+  const directory = `agentory/threads/${given.workItem}`;
   write(at.worktree, `${directory}/routing.md`, routingText(given.workItem, at.branch, TODAY));
   commitAll(at.worktree, "chore: declare the work item's routing");
   const record = withQuestion("", { asks: given.asks, grounds: "No document of the repository answers it.", by: "proofer" });

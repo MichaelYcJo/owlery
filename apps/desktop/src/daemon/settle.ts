@@ -30,7 +30,7 @@ export interface KeptRow {
   why: string;
 }
 
-/** A directory the settle keeps, relative to the folder, such as `iadd/threads/<id>`, with each row that keeps it. */
+/** A directory the settle keeps, relative to the folder, such as `agentory/threads/<id>`, with each row that keeps it. */
 export interface KeptDirectory {
   directory: string;
   rows: KeptRow[];

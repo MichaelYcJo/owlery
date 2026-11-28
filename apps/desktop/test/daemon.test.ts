@@ -2053,12 +2053,12 @@ describe("the records place of a repository", () => {
     const answer = await c.message("recordsPlan");
     expect(answer).toMatchObject({ requestId: 2, id: 1, plan: { branch: "main", subject: SUBJECT, blocked: null, proposedBroadGate: null } });
     expect(answer.plan.stamp).toMatch(/^[0-9a-f]{64}$/);
-    expect(answer.plan.files.map((file) => file.path)).toEqual(["iadd/README.md", "iadd/config.json", WORKFLOW]);
+    expect(answer.plan.files.map((file) => file.path)).toEqual(["agentory/README.md", "agentory/config.json", WORKFLOW]);
     expect(answer.plan.files[1]?.text).toContain('"Broad gate": "pnpm test"');
     // The workflow is written for the version the daemon was given.
     expect(answer.plan.files[2]?.text).toBe(workflowText("1.2.3"));
     expect(status(repo)).toBe("");
-    expect(existsSync(join(repo, "iadd"))).toBe(false);
+    expect(existsSync(join(repo, "agentory"))).toBe(false);
     c.send({ type: "planRecords", requestId: 3, id: 9, broadGate: "pnpm test" });
     expect(await c.message("error", (m) => m.requestId === 3)).toMatchObject({ message: "no repository 9" });
     c.send({ type: "setUpRecords", requestId: 4, id: 9, broadGate: "pnpm test", stamp: answer.plan.stamp });
@@ -2088,16 +2088,16 @@ describe("the records place of a repository", () => {
     expect(plan.migration).toEqual({
       from: "seal",
       moves: [
-        { from: "seal/README.md", to: "iadd/README.md", rewritten: true },
-        { from: "seal/config.json", to: "iadd/config.json", rewritten: false },
-        { from: "seal/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+        { from: "seal/README.md", to: "agentory/README.md", rewritten: true },
+        { from: "seal/config.json", to: "agentory/config.json", rewritten: false },
+        { from: "seal/threads/1-x/guarantee.md", to: "agentory/threads/1-x/inspection.md", rewritten: true },
       ],
       removes: [".github/workflows/owlery-seal.yml"],
     });
     c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "", stamp: plan.stamp });
     expect(await c.message("done", (m) => m.requestId === 3)).toEqual({ type: "done", requestId: 3 });
     const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
-    expect(inbox.repositories[0]?.records).toEqual({ root: "iadd", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
+    expect(inbox.repositories[0]?.records).toEqual({ root: "agentory", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
     expect(git(repo, "log", "-1", "--format=%s").trim()).toBe("chore: move the work records and the pull request check to IADD's forms");
     expect([existsSync(join(repo, "seal")), existsSync(join(repo, ".github", "workflows", "owlery-seal.yml")), status(repo)]).toEqual([false, false, ""]);
   });
@@ -2111,11 +2111,11 @@ describe("the records place of a repository", () => {
     const { plan } = await c.message("recordsPlan");
     c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
     const inbox = await c.message("inbox", (m) => m.repositories[0]?.records.root !== null);
-    expect(inbox.repositories[0]?.records).toEqual({ root: "iadd", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
+    expect(inbox.repositories[0]?.records).toEqual({ root: "agentory", check: WORKFLOW, broadGate: "pnpm test", olderCheck: null, earlier: null });
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "done", "inbox", "recordsPlan", "done", "inbox"]);
     expect(c.messages[4]).toEqual({ type: "done", requestId: 3 });
     expect(git(repo, "rev-parse", "HEAD~1").trim()).toBe(before);
-    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "iadd/README.md", "iadd/config.json"]);
+    expect(git(repo, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n").filter((line) => line !== "")).toEqual([SUBJECT, WORKFLOW, "agentory/README.md", "agentory/config.json"]);
     expect(status(repo)).toBe("A  other.txt\n");
   });
 
@@ -2127,7 +2127,7 @@ describe("the records place of a repository", () => {
     c.send({ type: "setUpRecords", requestId: 3, id: 1, broadGate: "pnpm test", stamp: plan.stamp });
     expect(await c.message("error", (m) => m.requestId === 3)).toEqual({ type: "error", requestId: 3, message: "The repository changed since the plan was read. Read the plan again." });
     expect(git(repo, "rev-parse", "HEAD").trim()).toBe(landed);
-    expect(existsSync(join(repo, "iadd"))).toBe(false);
+    expect(existsSync(join(repo, "agentory"))).toBe(false);
     expect(existsSync(join(repo, ".github"))).toBe(false);
     expect(status(repo)).toBe("");
     // A setup that names no stamp is refused before git is asked.
@@ -2137,31 +2137,31 @@ describe("the records place of a repository", () => {
 
   it("reads what a repository holds of the records place at its addition and in the pass that reads the branches, from the working tree, and a daemon given no version refuses the plan", async () => {
     const made = repository();
-    mkdirSync(join(made.repo, "iadd"));
-    writeFileSync(join(made.repo, "iadd", "README.md"), "# What IADD keeps in iadd/\n");
+    mkdirSync(join(made.repo, "agentory"));
+    writeFileSync(join(made.repo, "agentory", "README.md"), "# What IADD keeps in agentory/\n");
     const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 30 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "addRepository", requestId: 1, folder: made.repo });
     // Not committed: the place is read from the working tree.
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null, earlier: null });
-    writeFileSync(join(made.repo, "iadd", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
-    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null, earlier: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentory", check: null, broadGate: null, olderCheck: null, earlier: null });
+    writeFileSync(join(made.repo, "agentory", "config.json"), JSON.stringify({ "Broad gate": "make check" }));
+    expect((await c.message("inbox", (m) => m.repositories[0]?.records.broadGate !== null)).repositories[0]?.records).toEqual({ root: "agentory", check: null, broadGate: "make check", olderCheck: null, earlier: null });
     // A client that connects later is told the same in its `ready`.
-    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: "make check", olderCheck: null, earlier: null });
+    expect((await (await client(url)).message("ready")).repositories[0]?.records).toEqual({ root: "agentory", check: null, broadGate: "make check", olderCheck: null, earlier: null });
     c.send({ type: "planRecords", requestId: 2, id: 1, broadGate: "" });
     expect(await c.message("error", (m) => m.requestId === 2)).toMatchObject({ message: "This build of Owlery names no version, so it cannot write the workflow of the pull request check." });
   });
 
   it("reads the records place of a repository a creation adds, so the inbox that lists the repository says what it holds", async () => {
     const made = repository();
-    mkdirSync(join(made.repo, "iadd"));
-    writeFileSync(join(made.repo, "iadd", "README.md"), "# What IADD keeps in iadd/\n");
+    mkdirSync(join(made.repo, "agentory"));
+    writeFileSync(join(made.repo, "agentory", "README.md"), "# What IADD keeps in agentory/\n");
     const { url } = await daemon({ worktreesRoot: made.root, commitPollMs: 60_000 });
     const c = await client(url);
     await c.message("ready");
     c.send({ type: "createWorkItem", requestId: 1, repo: made.repo, title: "First", kind: "shell", cols: 80, rows: 24 });
-    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "iadd", check: null, broadGate: null, olderCheck: null, earlier: null });
+    expect((await c.message("inbox")).repositories[0]?.records).toEqual({ root: "agentory", check: null, broadGate: null, olderCheck: null, earlier: null });
   });
 
   it("tells the window that a repository's check is older than the daemon: the version Owlery's workflow in the main checkout pins, read again in the pass that reads the branches, and none once it pins the daemon's version or once it is gone, though AgenticSeal's hygiene.yml stands in its place", async () => {
@@ -2187,7 +2187,7 @@ describe("the records place of a repository", () => {
     const { made, c, workItems } = await standing(cleanups, ["Refused work", "Plain work"], { version: "1.2.3", commitPollMs: 50 });
     const [a] = workItems as [(typeof workItems)[number]];
     commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
-    const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
+    const record = `agentory/threads/${NAME}/trail/rounds/round-2.md`;
     writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x"));
     git(a.worktree, "add", record);
     git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
@@ -2224,7 +2224,7 @@ describe("the records place of a repository", () => {
     if (moving.type !== "recordsPlan") throw new Error(`no plan: ${JSON.stringify(moving)}`);
     expect([moving.plan.move, moving.plan.blocked]).toEqual([{ from: "1.2.2", to: "1.2.3" }, null]);
     // Git's words for the broken link differ between git's versions, so the case reads them from the same git, by the command the daemon's reading of the records runs first (`filesAt`).
-    const said = spawnSync("git", ["ls-tree", "-z", "--name-only", head, "--", `iadd/threads/${NAME}/trail/rounds/`], { cwd: a.worktree, encoding: "utf8" }).stderr.trim();
+    const said = spawnSync("git", ["ls-tree", "-z", "--name-only", head, "--", `agentory/threads/${NAME}/trail/rounds/`], { cwd: a.worktree, encoding: "utf8" }).stderr.trim();
     expect(said).toMatch(/^fatal: /u);
     expect(moving.plan.unread).toEqual([{ id: a.id, title: "Unreadable work", why: `Owlery could not read these records, so whether the moved check refuses them is not known: ${said}` }]);
   });
@@ -4372,9 +4372,9 @@ async function settled(c: Awaited<ReturnType<typeof client>>): Promise<void> {
 
 /** Makes a work item's directory in its worktree, uncommitted: the records root with its marker, and a `routing.md` under `threads/<name>` that names the work item's branch. Gives the directory. */
 function withDirectory(workItem: { worktree: string; branch: string | null }, name = "1-item"): string {
-  const directory = join(workItem.worktree, "iadd", "threads", name);
+  const directory = join(workItem.worktree, "agentory", "threads", name);
   mkdirSync(directory, { recursive: true });
-  writeFileSync(join(workItem.worktree, "iadd", "README.md"), `${MARKER}\n`);
+  writeFileSync(join(workItem.worktree, "agentory", "README.md"), `${MARKER}\n`);
   writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${branchOf(workItem)} |\n`);
   return directory;
 }
@@ -4465,7 +4465,7 @@ describe("the decisions made without asking", () => {
     expect([directory, ...twice].map(bytesIn)).toEqual([null, null, null]);
     // Each was refused before the record's writer was asked, so the log holds no line of a write that failed.
     expect(said).toEqual([]);
-    expect(readdirSync(join(none.worktree)).includes("iadd")).toBe(false);
+    expect(readdirSync(join(none.worktree)).includes("agentory")).toBe(false);
     expect(["decisions.json", "asked.json"].map((file) => existsSync(join(runDir, file)))).toEqual([false, false]);
     expect((await (await client(url)).message("ready")).workItems.map(({ decisions, questions, unread }) => ({ decisions, questions, unread }))).toEqual([NO_RECORD, NO_RECORD, NO_RECORD]);
     // The call as the refusals above would have it taken, so the method is the one under test.
@@ -4491,7 +4491,7 @@ describe("the decisions made without asking", () => {
     const question = { id: 3, asks: "May it push?", grounds: "A push needs the person's approval.", by: "inspector", options: [], default: null, answer: null, since: 1000 };
     expect(itemOf(ready, a.id)).toMatchObject({ decisions: held, questions: [question], unread: [] });
     expect(["decisions.json", "asked.json"].map((name) => existsSync(join(runDir, name)))).toEqual([false, false]);
-    expect(git(a.worktree, "status", "--porcelain", "--", "iadd")).toContain("iadd/");
+    expect(git(a.worktree, "status", "--porcelain", "--", "agentory")).toContain("agentory/");
 
     // A stage writes a block without the daemon's method: the next pass reads it.
     writeFileSync(file, withDecision(readFileSync(file, "utf8"), { kind: "scope", decided: "Leave the phone out.", grounds: "docs/roadmap.md, milestone 2." }));
@@ -5012,7 +5012,7 @@ describe("what a work item's records say of its chain", () => {
     for (const n of [1, 2, 3]) put(directory, `trail/rounds/round-${n}.md`, `# Round ${n}\n`);
     put(directory, "trail/gate.md", `${run(A)}\n${run(B)}`);
     put(directory, "inspection.md", `${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`);
-    expect(git(a.worktree, "status", "--porcelain", "--", "iadd")).toContain("?? iadd/");
+    expect(git(a.worktree, "status", "--porcelain", "--", "agentory")).toContain("?? agentory/");
     const said = { framed: true, rounds: 3, gate: B, verdict: { is: "cleared", commit: B, says: null } };
     for (const told of [c, other]) {
       const inbox = await told.message("inbox", (m) => itemOf(m, a.id)?.recorded?.rounds === 3);
@@ -5020,7 +5020,7 @@ describe("what a work item's records say of its chain", () => {
     }
 
     // Committed, the records read the same: the inbox the new commit sends carries them as they were.
-    git(a.worktree, "add", "iadd");
+    git(a.worktree, "add", "agentory");
     git(a.worktree, "commit", "--quiet", "-m", "records");
     const committed = await c.message("inbox", (m) => itemOf(m, a.id)?.newCommits === 1);
     expect(itemOf(committed, a.id)?.recorded).toEqual(said);
@@ -5075,7 +5075,7 @@ describe("the inspection a work item's head holds", { timeout: 60_000 }, () => {
 
   it("sends a lapsed inspection's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
     const { c, a, gate } = await cleared();
-    const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
+    const record = `agentory/threads/${NAME}/trail/rounds/round-2.md`;
     mkdirSync(join(a.worktree, record, ".."), { recursive: true });
     writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x".repeat(3000)));
     git(a.worktree, "add", record);
@@ -5216,8 +5216,8 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
 
     // An archived work item's records are not read again at a `stage-ended` line.
     expect((await on.c.asked({ type: "archiveWorkItem", requestId: 2, id: a.id, running })).type).toBe("done");
-    write(a.worktree, "iadd/threads/1-work/routing.md", routingText("1-work", branchOf(a), "2026-11-26"));
-    write(a.worktree, "iadd/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    write(a.worktree, "agentory/threads/1-work/routing.md", routingText("1-work", branchOf(a), "2026-11-26"));
+    write(a.worktree, "agentory/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
     on.d.stageTold({ is: "stage-ended", folder: a.worktree });
     on.d.stageTold({ is: "stage", folder: b.worktree, pane: other, kind: "fix-pass", round: 1 });
     await on.carried(b.id, (stage) => stage?.kind === "fix-pass");
@@ -5232,8 +5232,8 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
     on.d.stageTold({ is: "stage", folder: item.worktree, pane, kind: "round", round: 1 });
     await on.carried(item.id, (stage) => stage !== null);
     // The proofer's answer, as `round` commits it.
-    write(item.worktree, "iadd/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
-    write(item.worktree, "iadd/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    write(item.worktree, "agentory/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
+    write(item.worktree, "agentory/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
     commitAll(item.worktree, "chore: record review round 1");
     expect(on.c.workItem(item.id)?.recorded?.rounds).toBe(0);
     on.d.stageTold({ is: "stage-ended", folder: item.worktree });
@@ -5263,8 +5263,8 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
   it("carries a broad gate that asks for its turn in the worktree as a stage of the kind `gate` of the rounds recorded, from its ask's time, while it waits and while it runs, over the stage the daemon holds, which stands again once the gate's turn ends (issue #223)", async () => {
     const on = await stagesOn(["Built work"]);
     const [item] = on.workItems as [(typeof on.workItems)[number]];
-    write(item.worktree, "iadd/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
-    write(item.worktree, "iadd/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
+    write(item.worktree, "agentory/threads/1-work/routing.md", routingText("1-work", branchOf(item), "2026-11-26"));
+    write(item.worktree, "agentory/threads/1-work/trail/rounds/round-1.md", "# Review round 1: 1-work\n");
     commitAll(item.worktree, "chore: record review round 1");
     const pane = await on.opened(item.id);
     on.d.stageTold({ is: "stage-ended", folder: item.worktree });
@@ -5323,7 +5323,7 @@ describe("the records of the back of an inspection", { timeout: 60_000 }, () => 
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const lapsedBy = headOf(a.worktree);
     // A round recorded after the commit that lapsed the inspection, whose finding's symptom and severity are long.
-    const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
+    const record = `agentory/threads/${NAME}/trail/rounds/round-2.md`;
     const fence = "```";
     writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}iadd`, `target: ${lapsedBy} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}iadd`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
     git(a.worktree, "add", record);
@@ -5354,7 +5354,7 @@ describe("the commit of a person's word", () => {
   /** The limit the cases of a commit that does not end give, in milliseconds: long enough that git reaches the hook while other suites load the machine. */
   const LIMIT_MS = 2000;
   /** The record's path in the worktree of a work item whose directory `withDirectory` made under its default name. */
-  const RECORD = "iadd/threads/1-item/decisions.md";
+  const RECORD = "agentory/threads/1-item/decisions.md";
   /** What a work item's word waits for while a pane or a headless session of it works. */
   const WORKING = { waits: "session", why: "a session of the work item is working" } as const;
   type Client = Awaited<ReturnType<typeof client>>;
@@ -5399,14 +5399,14 @@ describe("the commit of a person's word", () => {
     const { d, c, workItems } = await withWorkItems(["Reversed"]);
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795330500-reversed");
-    const record = "iadd/threads/1795330500-reversed/decisions.md";
+    const record = "agentory/threads/1795330500-reversed/decisions.md";
     d.decided(a.id, DEFAULT);
     d.park(a.id, { by: "inspector", questions: [{ asks: "May the session push?", grounds: "A push needs the person's approval." }] });
     writeFileSync(join(a.worktree, "staged.txt"), "staged\n");
     git(a.worktree, "add", "staged.txt");
     writeFileSync(join(a.worktree, "README.md"), "changed and not staged\n");
     const stood = status(a.worktree);
-    expect(stood).toEqual([" M README.md", "?? iadd/README.md", `?? ${record}`, "?? iadd/threads/1795330500-reversed/routing.md", "A  staged.txt"]);
+    expect(stood).toEqual([" M README.md", "?? agentory/README.md", `?? ${record}`, "?? agentory/threads/1795330500-reversed/routing.md", "A  staged.txt"]);
     expect(commitsIn(a.worktree)).toBe(1);
 
     c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "기본값 말고 main에서 시작해 주세요" });
@@ -5433,7 +5433,7 @@ describe("the commit of a person's word", () => {
     const { d, c, url, workItems } = await withWorkItems(["First name"], { commitPollMs: 30 });
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
-    const routing = "iadd/threads/1795388700-renamed/routing.md";
+    const routing = "agentory/threads/1795388700-renamed/routing.md";
     const stood = readFileSync(join(directory, "routing.md"), "utf8");
     d.decided(a.id, DEFAULT);
     await c.message("inbox", (m) => m.workItems[0]?.decisions.length === 1);
@@ -5450,7 +5450,7 @@ describe("the commit of a person's word", () => {
     expect(readFileSync(join(directory, "routing.md"), "utf8")).toBe(stood.replace(`| Branch | ${a.branch} |`, "| Branch | owlery/second-name |"));
     expect(newest(a.worktree)).toEqual({ subject: "chore: name the renamed branch in the work item's routing", body: "IADD-Routing: 1795388700-renamed", by: WHO, paths: [routing] });
     expect(git(a.worktree, "show", `HEAD:${routing}`)).toBe(readFileSync(join(directory, "routing.md"), "utf8"));
-    expect(status(a.worktree)).toEqual(["?? iadd/README.md", "?? iadd/threads/1795388700-renamed/decisions.md"]);
+    expect(status(a.worktree)).toEqual(["?? agentory/README.md", "?? agentory/threads/1795388700-renamed/decisions.md"]);
     // The record is read again at each interval, by the branch's new name.
     await new Promise((resolve) => setTimeout(resolve, 200));
     const later = (await (await client(url)).message("ready")).workItems[0];
@@ -5463,7 +5463,7 @@ describe("the commit of a person's word", () => {
     const a = workItems[0]!;
     const directory = withDirectory(a, "1795388700-renamed");
     // A chain starts only on a branch whose records name a broad gate command.
-    writeFileSync(join(a.worktree, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
+    writeFileSync(join(a.worktree, "agentory", "config.json"), '{ "Broad gate": "true" }\n');
     git(a.worktree, "add", "--all");
     git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
     const stood = readFileSync(join(directory, "routing.md"), "utf8");
@@ -5654,7 +5654,7 @@ describe("the commit of a person's word", () => {
     withDirectory(a);
     d.decided(a.id, DEFAULT);
     // A chain starts only on a branch whose records name a broad gate command.
-    writeFileSync(join(a.worktree, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
+    writeFileSync(join(a.worktree, "agentory", "config.json"), '{ "Broad gate": "true" }\n');
     git(a.worktree, "add", "--all");
     git(a.worktree, "commit", "--quiet", "-m", "chore: add the records and declare the routing");
     const chainOf = (): WorkItem["chain"] | undefined => c.messages.flatMap((m) => (m.type === "inbox" ? m.workItems : [])).at(-1)?.chain;
@@ -5751,9 +5751,9 @@ describe("the commit of a person's word", () => {
     writeFileSync(go, "");
     await d.close();
     expect(git(a.worktree, "log", "--format=%s").trim().split("\n")).toEqual(["chore: record the person's word", "chore: record the person's reversal of decision 1", "first"]);
-    const committed = (commit: string): unknown[] => readDecisionRecord(git(a.worktree, "show", `${commit}:iadd/threads/1-item/decisions.md`)).decisions.map(({ state }) => state.is);
+    const committed = (commit: string): unknown[] => readDecisionRecord(git(a.worktree, "show", `${commit}:agentory/threads/1-item/decisions.md`)).decisions.map(({ state }) => state.is);
     expect([committed("HEAD~1"), committed("HEAD")]).toEqual([["reversed", "decided", "decided"], ["reversed", "reversed", "reversed"]]);
-    expect(git(a.worktree, "show", "HEAD:iadd/threads/1-item/decisions.md")).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
+    expect(git(a.worktree, "show", "HEAD:agentory/threads/1-item/decisions.md")).toBe(readFileSync(join(directory, RECORD_FILE), "utf8"));
     expect(said).toEqual([]);
   });
 
@@ -5762,7 +5762,7 @@ describe("the commit of a person's word", () => {
     const a = workItems[0]!;
     const directory = withDirectory(a);
     writeFileSync(join(directory, RECORD_FILE), withDecision("", { kind: "default", decided: DEFAULT.says, grounds: DEFAULT.grounds }));
-    writeFileSync(join(repository.repo, ".git", "info", "exclude"), "iadd/\n");
+    writeFileSync(join(repository.repo, ".git", "info", "exclude"), "agentory/\n");
     const said = logged();
     c.send({ type: "reverseDecision", requestId: 1, workItemId: a.id, decisionId: 1, message: "No." });
     expect(await c.message("done", (m) => m.requestId === 1)).toEqual({ type: "done", requestId: 1 });

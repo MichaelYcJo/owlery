@@ -110,9 +110,9 @@ describe("carriedIn", () => {
     const folder = scratch();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
     writeFileSync(join(folder, ".github", "workflows", "owlery-inspection.yml"), "name: inspection\n");
-    // The folder's own settings enable the plugin that becomes `iadd`, as a project's may.
+    // The folder's own settings enable the AgenticSeal plugin, as a project's may.
     mkdirSync(join(folder, ".claude"));
-    for (const file of ["settings.json", "settings.local.json"]) writeFileSync(join(folder, ".claude", file), `${JSON.stringify({ enabledPlugins: { "agentic@agenticseal": true, "iadd@iadd": true } })}\n`);
+    for (const file of ["settings.json", "settings.local.json"]) writeFileSync(join(folder, ".claude", file), `${JSON.stringify({ enabledPlugins: { "agentic@agenticseal": true } })}\n`);
     const carries = carriedIn(chain);
     expect(carries(start(folder))).toEqual(chain);
     expect(carries({ ...start(folder), accountDir: "/accounts/handed" })).toEqual(chain);

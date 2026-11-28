@@ -1,7 +1,7 @@
 ---
 name: implement
 description: |
-  Spec-driven implementation methodology: document layout (docs/ + iadd/), policy-first
+  Spec-driven implementation methodology: document layout (docs/ + agentory/), policy-first
   judgment, the test-first cadence, and review incorporation.
   Use when: implementing a feature, starting a ticket — including deciding how to
   start one, incorporating review feedback, or when a repo needs its document
@@ -69,9 +69,9 @@ laid out by **lifetime**, not by who wrote it:
 
 | Root | Lifetime | Test | Authority |
 |---|---|---|---|
-| `docs/` | Permanent, cumulative | Must still be true in 6 months | **Norms, ratified by humans.** Read when the repository has them; the documentation convention is the project's. The policy root (`docs/` unless `iadd/config.json`'s `Policy root` names another) is the baseline. A work item whose subject is the policy root itself, its structure or its documents' text, edits the policy root directly in its pull request, as the settle does, and re-points in that pull request every unsettled design's `## Rule changes` operation that names a document or a section it moved. A work item whose subject is the code states the rules its work changes in `## Rule changes`, for the settle, so that work items running side by side do not each rewrite the same section. Which subject a work item has is the framer's judgment, read by the proofer at review. The settle after the release writes each section as the latest decision the released designs state, checked against the code (`skills/settle/SKILL.md`), and the policy in force is the baseline plus the latest decision the unsettled designs' rule changes state at each section, in merge order |
-| `iadd/threads/<work-item-id>/` | One work item | Its role ends when this work ships (the frame, the trail, the closing memo) | The contract this work executes against. A human approves `frame/plan.md`, which is why this is a repository document and not tool state |
-| `iadd/`, everything above `threads/` | Permanent | Everything this plugin maintains | Written and read by machines |
+| `docs/` | Permanent, cumulative | Must still be true in 6 months | **Norms, ratified by humans.** Read when the repository has them; the documentation convention is the project's. The policy root (`docs/` unless `agentory/config.json`'s `Policy root` names another) is the baseline. A work item whose subject is the policy root itself, its structure or its documents' text, edits the policy root directly in its pull request, as the settle does, and re-points in that pull request every unsettled design's `## Rule changes` operation that names a document or a section it moved. A work item whose subject is the code states the rules its work changes in `## Rule changes`, for the settle, so that work items running side by side do not each rewrite the same section. Which subject a work item has is the framer's judgment, read by the proofer at review. The settle after the release writes each section as the latest decision the released designs state, checked against the code (`skills/settle/SKILL.md`), and the policy in force is the baseline plus the latest decision the unsettled designs' rule changes state at each section, in merge order |
+| `agentory/threads/<work-item-id>/` | One work item | Its role ends when this work ships (the frame, the trail, the closing memo) | The contract this work executes against. A human approves `frame/plan.md`, which is why this is a repository document and not tool state |
+| `agentory/`, everything above `threads/` | Permanent | Everything this plugin maintains | Written and read by machines |
 
 A `specs/` the project kept before the plugin is neither root: it is a
 **reference root**, as `templates/setup/config.md` *Reference specs* says — history
@@ -85,12 +85,12 @@ them, and policy outranks everything else when a repository has it.)
 Inside the policy root, documents are grouped by who opens them and at which
 step, and any party may open any group.
 
-`iadd/` lives at one of two places, and its presence at either, with a
+`agentory/` lives at one of two places, and its presence at either, with a
 `README.md` that opens with the marker `lib/optin.py#MARKER` holds, is what
-tells the gates this repository runs the workflow. **Every `iadd/…` path in
-this plugin's skills and agents means `<repo>/iadd/` where that directory
+tells the gates this repository runs the workflow. **Every `agentory/…` path in
+this plugin's skills and agents means `<repo>/agentory/` where that directory
 exists with the marker, and
-`$(git rev-parse --git-common-dir)/iadd/` otherwise.** `iadd/` there is
+`$(git rev-parse --git-common-dir)/agentory/` otherwise.** `agentory/` there is
 the records root's name, as the opening paragraph of `skills/core/SKILL.md`
 defines it. The first is
 shared mode: committed, because gitignored files do not follow worktrees or
@@ -98,10 +98,10 @@ other machines. The second is local mode: under the common git directory, so
 every linked worktree of the clone shares it, and never a commit candidate.
 A repository with both is shared, and nothing else — no config key — is
 read. What sits directly under it is permanent; what sits under
-`iadd/threads/` lives as long as its work item. Each file the root holds,
+`agentory/threads/` lives as long as its work item. Each file the root holds,
 and the question it answers, is in `docs/layout/the-record-layout.md`
-*iadd/*, and each file of a work item's directory is in
-`docs/layout/the-record-layout.md` *iadd/threads/<work-item-id>/*.
+*agentory/*, and each file of a work item's directory is in
+`docs/layout/the-record-layout.md` *agentory/threads/<work-item-id>/*.
 
 The review round records live beside the work item they are about, with the
 routing declaration and the rest of the SDD set
@@ -132,7 +132,7 @@ keep.
 
 ### 1. Read the documents that outrank the code first
 
-Judgment precedence: **policy (`docs/`) > SDD (`iadd/threads/`) > the ticket >
+Judgment precedence: **policy (`docs/`) > SDD (`agentory/threads/`) > the ticket >
 existing code** — and, where the repository declares a migration config, the
 original sits between the ticket and the existing code, because policy being
 silent is what makes the original decide (see `legacy-parity`).
@@ -146,7 +146,7 @@ it or dropping it.
 
 - Policy documents delegate to each other. "This document doesn't answer it"
   is not a policy gap until sibling documents in the same domain are checked.
-- Read `iadd/follow-up.md` before starting. It holds items
+- Read `agentory/follow-up.md` before starting. It holds items
   whose answer exists but which waited on prerequisite work — **this work may
   be that prerequisite.** If so, include the item in this change and delete its
   row; what remains in that file is the definition of remaining scope.
@@ -276,8 +276,8 @@ decision in its phase record, and it does not travel back to the framer. **The f
 opens rows and does not own their answers**: the `Status` column is written
 by whoever answered, as `answered <date> by <who>`, never by whoever asked.
 
-A work item's directory is `iadd/threads/<unix-epoch-seconds>-<slug>/` (e.g.
-`iadd/threads/1784780439-center-list-sort/`), bootstrapped from `templates/`. The
+A work item's directory is `agentory/threads/<unix-epoch-seconds>-<slug>/` (e.g.
+`agentory/threads/1784780439-center-list-sort/`), bootstrapped from `templates/`. The
 timestamp prefix keeps directories in creation order and collision-free
 without a registry — take it from `date +%s` when creating the directory.
 
@@ -345,7 +345,7 @@ work item whose mark names anyone else.
 
 ### 4. The closing memo — only what the diff cannot show
 
-`iadd/threads/<work-item>/gaps.md` is not a summary of the work. `git diff --stat`
+`agentory/threads/<work-item>/gaps.md` is not a summary of the work. `git diff --stat`
 already holds the file list and the diff holds the detail; re-deriving them at
 the end costs a re-read of your own change and lands further from the truth
 than the command would.

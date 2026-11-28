@@ -11,12 +11,12 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { RecordsPlace, RecordsPlan } from "../shared/protocol";
+import { MARKER, ROOT, type RecordsPlace, type RecordsPlan } from "../shared/protocol";
 import { repositoryFileText } from "./repository-file";
 import { commitRunner } from "./worktrees";
 
-/** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
-export const MARKER = "# What IADD keeps in iadd/";
+// The marker and the root's name are declared once, beside `RecordsPlace` in `shared/protocol.ts`, which the renderer reads too; the daemon's readers import them from here.
+export { MARKER, ROOT };
 /** The subject of the commit a setup makes. */
 export const SUBJECT = "chore: add the place for work records and the pull request check";
 
@@ -24,8 +24,6 @@ export const SUBJECT = "chore: add the place for work records and the pull reque
 export function moveSubject(version: string): string {
   return `chore: move the pull request check to Owlery ${version}`;
 }
-/** The one name a records root takes. A repository that keeps an `iadd/` of its own has no place for the records. */
-export const ROOT = "iadd";
 /** The workflow a setup writes, which is the check. */
 export const WORKFLOW = ".github/workflows/owlery-inspection.yml";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
@@ -182,7 +180,7 @@ function opensWithMarker(text: string | null): boolean {
   return text?.split("\n", 1)[0]?.replace(/\r+$/, "") === MARKER;
 }
 
-/** The root that stands in a working tree: `iadd` where its `README.md` is a root's, and null where it is not. */
+/** The root that stands in a working tree: `agentory` where its `README.md` is a root's, and null where it is not. */
 export function rootOf(folder: string): string | null {
   return opensWithMarker(textOf(join(folder, ROOT, "README.md"))) ? ROOT : null;
 }
@@ -498,7 +496,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const ignoredRecords = asked.ignored;
   let blocked: string | null = null;
   if (root === null) {
-    blocked = "iadd/ holds something of this repository's own, so Owlery has no folder to keep work records in. Rename that folder in a commit, and open this again.";
+    blocked = `${ROOT}/ holds something of this repository's own, so Owlery has no folder to keep work records in. Rename that folder in a commit, and open this again.`;
   } else if (ignored.length > 0) {
     blocked = `Git ignores ${named(ignored)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
   } else if (ignoredRecords.length > 0) {

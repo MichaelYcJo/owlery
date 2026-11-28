@@ -140,9 +140,9 @@ above, and the chain goes on.
 
 **A question is first decided from the code and the policy.** For each
 question your prompt gives, read what could answer it before you rule: the
-repository's policy documents under `docs/`, the `iadd/` root's
+repository's policy documents under `docs/`, the `agentory/` root's
 `config.json`, the work item's frame and its `decisions.md`, the records of
-earlier work items under `iadd/threads/`, and the code the question is
+earlier work items under `agentory/threads/`, and the code the question is
 about. Rule on each question once, by its number in the prompt, with one of
 four words:
 

@@ -20,7 +20,7 @@ afterEach(async () => {
 });
 
 const NAME = "1795396351-cleared-work";
-const DIRECTORY = `iadd/threads/${NAME}`;
+const DIRECTORY = `agentory/threads/${NAME}`;
 const BRANCH = "feat/cleared-work";
 const INSPECTION = `${DIRECTORY}/inspection.md`;
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
@@ -34,8 +34,8 @@ function clearedBranch(options: { inspection?: boolean; verdict?: string; target
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
-  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "iadd/config.json", `${JSON.stringify({ "Record language": "English" }, null, 2)}\n`);
+  write(repo, "agentory/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "agentory/config.json", `${JSON.stringify({ "Record language": "English" }, null, 2)}\n`);
   write(repo, ".gitignore", "ignored.log\n");
   const base = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
@@ -193,7 +193,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   it("is none for a work item whose worktree holds no directory that names its branch, and for one whose worktree holds two", async () => {
     const { repo, item } = clearedBranch();
     expect(await workItemInspection({ ...item, branch: "feat/another" }, head(repo))).toBeNull();
-    write(repo, "iadd/threads/1795396352-twin/routing.md", routingText("1795396352-twin", BRANCH, "2026-11-23"));
+    write(repo, "agentory/threads/1795396352-twin/routing.md", routingText("1795396352-twin", BRANCH, "2026-11-23"));
     expect(await workItemInspection(item, head(repo))).toBeNull();
   });
 
@@ -217,7 +217,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     const repo = made.repo;
-    write(repo, "iadd/README.md", `${MARKER}\n`);
+    write(repo, "agentory/README.md", `${MARKER}\n`);
     const base = commitAll(repo, "chore: add the place for work records");
     git(repo, "checkout", "--quiet", "-b", BRANCH);
     write(repo, "feature.txt", "A greeting\n");

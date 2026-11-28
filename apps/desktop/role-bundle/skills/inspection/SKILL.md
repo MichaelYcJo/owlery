@@ -49,7 +49,7 @@ work around it.
 **Records in the earlier form are moved with `migrate`.** Where the
 worktree's work records stand in the form Owlery read before IADD, `owed`
 refuses with a sentence that names `migrate`. Run `migrate`, which takes no
-option. It moves those records to IADD's forms under `iadd/` in one commit
+option. It moves those records to IADD's forms under `agentory/` in one commit
 on the branch, removes the earlier pull request check's workflow where the
 worktree holds it, writes Owlery's of the app's version where the worktree
 holds none, and prints `migrated`, `moved`, `removed`, `written` and

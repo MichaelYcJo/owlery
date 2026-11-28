@@ -144,7 +144,7 @@ describe("where the branch goes", () => {
 });
 
 const NAME = "1-x";
-const DIRECTORY = `iadd/threads/${NAME}`;
+const DIRECTORY = `agentory/threads/${NAME}`;
 const GATE = "a".repeat(40);
 const OLDER = "b".repeat(40);
 const BASE = "c".repeat(40);

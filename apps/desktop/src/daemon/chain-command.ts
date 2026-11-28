@@ -42,7 +42,7 @@ import { backSection, bodyRecords, inspectionSection } from "./github";
 import { shellQuote } from "./hooks";
 import { BROAD_GATE_NAME, type TurnPlace } from "./machine-turns";
 import { ROUND_BASE, THE_SESSION, isSessionId, listed } from "./record-blocks";
-import { readRecordsPlace, rootOf } from "./records-place";
+import { ROOT, readRecordsPlace, rootOf } from "./records-place";
 import { earlierRecordsSays, heavyCommandsOf, migrateRecords, planMigration } from "./records-migration";
 import { repositoryFileText } from "./repository-file";
 import { backRecords } from "./inspection-sheet-records";
@@ -717,7 +717,7 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   const { root, commands } = heavyCommandsOf(worktree);
   const line = commands[name];
   const names = Object.keys(commands);
-  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${root ?? "iadd"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
+  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${root ?? ROOT}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
   const turn = await inTurn(context, { folder: worktree, name, place: await turnPlace(worktree), alone: false });
   // The launcher sets ELECTRON_RUN_AS_NODE for the Node it runs this script with (`pane-chain.ts`). The command runs in the session's environment, which a pane gives without it (`pty.ts#terminalEnv`), so an Electron program it starts runs as Electron.
   const env: NodeJS.ProcessEnv = { ...context.env };

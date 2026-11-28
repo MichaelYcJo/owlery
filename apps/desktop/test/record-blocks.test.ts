@@ -75,7 +75,7 @@ const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]
   { name: "a second workflow line, and an inspector line that names no module", text: `${judged("workflow: owl-chain", "workflow: other")}\n${judged("inspector:")}`, blocks: 0, refusals: [5, 11], notices: [] },
   { name: "a judge named as the session, two judges on one line, and a judge with no id", text: `${judged("inspected-by: the session")}\n${judged("inspected-by: s-1, s-2")}\n${judged("inspected-by:")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
   { name: "a model with no name, and one that ends with a no-break space", text: `${judged("model:")}\n${judged("model: owl\u00a0")}`, blocks: 0, refusals: [4, 10], notices: [] },
-  { name: "rules of another product, rules with no version, and a version of two words", text: `${judged("rules: iadd 0.0.2")}\n${judged("rules: owlery")}\n${judged("rules: owlery 0.0.2 beta")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
+  { name: "rules of another product, rules with no version, and a version of two words", text: `${judged("rules: agentic 0.0.2")}\n${judged("rules: owlery")}\n${judged("rules: owlery 0.0.2 beta")}`, blocks: 0, refusals: [4, 10, 16], notices: [] },
   { name: "a fence of tildes named iadd", text: `~~~iadd\nrun: 0123abc against 89abcde\n~~~\n`, blocks: 0, refusals: [], notices: [1] },
   { name: "the opener in capitals", text: `${F}IADD\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [1] },
   { name: "the opener with a dotless i, which Python's case fold keeps and an upper case and back would turn into an i", text: `${F}\u0131add\nrun: 0123abc against 89abcde\n${F}\n`, blocks: 0, refusals: [], notices: [] },

@@ -20,7 +20,7 @@ const PR_CHECK = join(__dirname, "..", "..", "..", "pr-check");
 const CHAIN_CHECK = join(PR_CHECK, "skills", "code-review", "scripts", "chain_check.py");
 
 /** The first line of a records root's `README.md`, which the check tells a root by. */
-const MARKER = "# What IADD keeps in iadd/";
+const MARKER = "# What IADD keeps in agentory/";
 
 /** Writes a file in a repository, with the folders above it. */
 function write(repo: string, path: string, text: string): void {
@@ -36,8 +36,8 @@ function commitAll(repo: string, subject: string, workItem?: string): void {
 
 /** Commits a records root on the checked-out branch: the marked `README.md`, and a `config.json` that names both languages. */
 function commitRoot(repo: string): void {
-  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "iadd/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
+  write(repo, "agentory/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "agentory/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
   commitAll(repo, "chore: add the place for work records");
 }
 
@@ -126,7 +126,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = repository();
     commitRoot(made.repo);
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature"));
+    write(made.repo, "agentory/threads/1-x/routing.md", routing("1-x", "feature"));
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     return made;
@@ -169,7 +169,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   it("fails a ready pull request whose branch declares a work item through the review chain and holds no round record, names its routing.md, and passes the same pull request as a draft", () => {
     const made = declared();
     const ready = check(made, "ready");
-    expect(ready.output).toContain("iadd/threads/1-x/routing.md:0  declares `through the review chain` and iadd/threads/1-x/trail/rounds/ holds no `round-N.md`");
+    expect(ready.output).toContain("agentory/threads/1-x/routing.md:0  declares `through the review chain` and agentory/threads/1-x/trail/rounds/ holds no `round-N.md`");
     expect(ready.exit).toBe(1);
     // The root names both languages, so no refusal is about the root's `config.json`.
     expect(ready.output).not.toContain("config.json");
@@ -180,14 +180,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = repository();
     const plan = await planRecords(made.repo, "true", "1.2.3");
     await setUpRecords(made.repo, "true", "1.2.3", plan.stamp);
-    expect(existsSync(join(made.repo, "iadd", "config.json"))).toBe(true);
+    expect(existsSync(join(made.repo, "agentory", "config.json"))).toBe(true);
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature"));
+    write(made.repo, "agentory/threads/1-x/routing.md", routing("1-x", "feature"));
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     const ready = check(made, "ready");
     // The check tells the written root by its marker, so it judges the branch its `routing.md` names.
-    expect(ready.output).toContain("iadd/threads/1-x/routing.md:0  declares `through the review chain` and iadd/threads/1-x/trail/rounds/ holds no `round-N.md`");
+    expect(ready.output).toContain("agentory/threads/1-x/routing.md:0  declares `through the review chain` and agentory/threads/1-x/trail/rounds/ holds no `round-N.md`");
     expect(ready.exit).toBe(1);
     // The written `config.json` names both languages, so the check refuses nothing of it.
     expect(ready.output).not.toContain("config.json");
@@ -222,7 +222,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const after = earlier();
     await migrateRecords(after.repo, "1.2.3", (await planMigration(after.repo, "1.2.3")).stamp);
     git(after.repo, "checkout", "--quiet", "-b", "feature");
-    const gate = cleared(after, "iadd", "```iadd", ["Verdict: cleared", ...DAEMONS_LINES]);
+    const gate = cleared(after, "agentory", "```iadd", ["Verdict: cleared", ...DAEMONS_LINES]);
     const passed = check(after, "ready");
     expect(passed.exit, passed.output).toBe(0);
     expect(passed.output).not.toContain(gate.slice(0, 7));
@@ -233,7 +233,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const earlierGate = cleared(before, "seal", "```seal", ["Verdict: sealed", "built-by: the session, s-1", "judged-by: s-2", "model: owl-large", "rules: owlery 0.1.0"]);
     await migrateRecords(before.repo, "1.2.3", (await planMigration(before.repo, "1.2.3")).stamp);
     const lapsed = check(before, "ready");
-    expect(lapsed.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \``);
+    expect(lapsed.output).toContain(`agentory/threads/1-x/inspection.md:0  the inspection lapsed: \``);
     expect(lapsed.output).toContain(`\` changed after the cleared commit \`${earlierGate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD`);
     expect(lapsed.exit).toBe(1);
   });
@@ -259,9 +259,9 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const cleared = check(worktree, "ready", false, false);
     expect(cleared.exit, cleared.output).toBe(0);
     for (const file of ["round-", "gate.md", "inspection.md:"]) expect(cleared.output, file).not.toContain(file);
-    expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the inspector's verdict", "", "iadd/threads/1795388700-cleared-work/inspection.md", "iadd/threads/1795388700-cleared-work/trail/refusals.md"]);
-    expect(readFileSync(join(a.worktree, "iadd/threads/1795388700-cleared-work/trail/refusals.md"), "utf8")).toMatch(/\n\| inspection 2 \| inspector \| Write \| writes a file \| no-write \|\n$/u);
-    expect(readFileSync(join(a.worktree, "iadd/threads/1795388700-cleared-work/inspection.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\ninspected-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\nworkflow: owl-chain\ninspector: owl-chain\n```\n/u);
+    expect(git(a.worktree, "show", "--name-only", "--format=%s", "HEAD").trim().split("\n")).toEqual(["chore: record the inspector's verdict", "", "agentory/threads/1795388700-cleared-work/inspection.md", "agentory/threads/1795388700-cleared-work/trail/refusals.md"]);
+    expect(readFileSync(join(a.worktree, "agentory/threads/1795388700-cleared-work/trail/refusals.md"), "utf8")).toMatch(/\n\| inspection 2 \| inspector \| Write \| writes a file \| no-write \|\n$/u);
+    expect(readFileSync(join(a.worktree, "agentory/threads/1795388700-cleared-work/inspection.md"), "utf8")).toMatch(/\nbuilt-by: the session, fake-\d+\ninspected-by: fake-\d+\nmodel: fake\nrules: owlery 0\.0\.2\nworkflow: owl-chain\ninspector: owl-chain\n```\n/u);
     // A body with no inspection section is named as not read, and the same records pass with it.
     const ready = check(worktree, "ready");
     expect(ready.exit, ready.output).toBe(0);
@@ -276,14 +276,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   const reviewed = (): { base: string; repo: string; gate: string } => {
     const made = declared();
     const target = git(made.repo, "rev-parse", "HEAD").trim();
-    write(made.repo, "iadd/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${target} against main`, "```", "", "## Findings", "", "## Confirmations", ""].join("\n"));
     commitAll(made.repo, "chore: record review round 1", "1-x");
     return { ...made, gate: git(made.repo, "rev-parse", "HEAD").trim() };
   };
 
   /** Commits the gate's record as the daemon writes it: one run block that names the gate's commit against the base's commit. */
   const gated = (made: { repo: string; gate: string }): void => {
-    write(made.repo, "iadd/threads/1-x/trail/gate.md", ["# Broad gate: 1-x", "", "```iadd", `run: ${made.gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/trail/gate.md", ["# Broad gate: 1-x", "", "```iadd", `run: ${made.gate} against ${git(made.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
     commitAll(made.repo, "chore: record the broad gate's run", "1-x");
   };
 
@@ -292,7 +292,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
   /** Commits an inspection of the sections given, with whatever else the case wrote. */
   const inspected = (made: { repo: string }, ...sections: string[]): void => {
-    write(made.repo, "iadd/threads/1-x/inspection.md", ["# Inspection: 1-x", "", sections.join("\n")].join("\n"));
+    write(made.repo, "agentory/threads/1-x/inspection.md", ["# Inspection: 1-x", "", sections.join("\n")].join("\n"));
     commitAll(made.repo, "chore: record the inspector's verdict", "1-x");
   };
 
@@ -312,7 +312,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     "<!-- owlery:inspection -->",
     "## Inspection",
     "",
-    "The newest verdict of `iadd/threads/1-x/inspection.md`. An inspection binds the commit it names, and the check `inspection` says whether it holds at this pull request's head commit:",
+    "The newest verdict of `agentory/threads/1-x/inspection.md`. An inspection binds the commit it names, and the check `inspection` says whether it holds at this pull request's head commit:",
     "",
     "```iadd",
     ...block,
@@ -389,7 +389,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     near.splice(-1, 0, "```Iadd", "x", "```");
     const named = await run(made, { body: near.join("\n") });
     expect(named.exit, named.output).toBe(0);
-    expect(named.output).toContain("iadd/threads/1-x:0  the pull request's body, line 16: not read: ````Iadd` opens a fence like an `iadd` block and is not one");
+    expect(named.output).toContain("agentory/threads/1-x:0  the pull request's body, line 16: not read: ````Iadd` opens a fence like an `iadd` block and is not one");
   });
 
   it("passes a ready pull request whose body is the one the daemon's pull request stage wrote for a cleared chain of two rounds and one fix pass, the back of the inspection with each stage's cost among it, and names no line of it", async () => {
@@ -412,15 +412,15 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const base = git(made.repo, "rev-parse", "main").trim();
     const refused = async (lines: string[], said: string): Promise<void> => {
       const answer = await run(made, { body: ["A person's line.", ...lines].join("\n") });
-      expect(answer.output).toContain(`iadd/threads/1-x:0  the pull request's body, ${said}; ${SECTION_IS}\n`);
+      expect(answer.output).toContain(`agentory/threads/1-x:0  the pull request's body, ${said}; ${SECTION_IS}\n`);
       expect(answer.exit).toBe(1);
     };
     // The person's line is the body's first, so the section's marker is its second and the block's opener its seventh.
-    await refused(bodySection(`target: ${base} against main`, ...made.block.slice(1)), `line 8: the section's verdict block holds \`target: ${base} against main\` where the newest verdict block of \`iadd/threads/1-x/inspection.md\` at the head commit holds \`target: ${made.gate} against main\``);
-    await refused(bodySection(made.block[0] ?? "", "Verdict: withheld reason: x", ...made.block.slice(2)), "line 9: the section's verdict block holds `Verdict: withheld reason: x` where the newest verdict block of `iadd/threads/1-x/inspection.md` at the head commit holds `Verdict: cleared`");
+    await refused(bodySection(`target: ${base} against main`, ...made.block.slice(1)), `line 8: the section's verdict block holds \`target: ${base} against main\` where the newest verdict block of \`agentory/threads/1-x/inspection.md\` at the head commit holds \`target: ${made.gate} against main\``);
+    await refused(bodySection(made.block[0] ?? "", "Verdict: withheld reason: x", ...made.block.slice(2)), "line 9: the section's verdict block holds `Verdict: withheld reason: x` where the newest verdict block of `agentory/threads/1-x/inspection.md` at the head commit holds `Verdict: cleared`");
     await refused(bodySection(...made.block.slice(0, 2), "colour: blue", ...made.block.slice(2)), "line 10: `colour: blue` is no field of a verdict block, which takes `target:`, `original:`, `Verdict:`, `built-by:`, `inspected-by:`, `model:`, `rules:`, `workflow:` and `inspector:`, each written `<key>: <value>`");
     // A block whose daemon's lines are gone differs from the record's by their absence.
-    await refused(bodySection(...made.block.slice(0, 2)), "line 7: the section's verdict block holds no `built-by:` line, no `inspected-by:` line, no `model:` line, no `rules:` line, no `workflow:` line and no `inspector:` line where the newest verdict block of `iadd/threads/1-x/inspection.md` at the head commit holds `built-by: the session, s-1`, `inspected-by: s-2`, `model: owl-large`, `rules: owlery 0.0.2`, `workflow: owl-chain` and `inspector: owl-chain`");
+    await refused(bodySection(...made.block.slice(0, 2)), "line 7: the section's verdict block holds no `built-by:` line, no `inspected-by:` line, no `model:` line, no `rules:` line, no `workflow:` line and no `inspector:` line where the newest verdict block of `agentory/threads/1-x/inspection.md` at the head commit holds `built-by: the session, s-1`, `inspected-by: s-2`, `model: owl-large`, `rules: owlery 0.0.2`, `workflow: owl-chain` and `inspector: owl-chain`");
     const twice = bodySection(...made.block);
     twice.splice(-1, 0, "", "```iadd", ...made.block, "```");
     await refused(twice, "line 18: the inspection section holds a second verdict block");
@@ -430,7 +430,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const uninspected = reviewed();
     gated(uninspected);
     const none = await run(uninspected, { body: ["A person's line.", ...bodySection(...made.block)].join("\n") });
-    expect(none.output).toContain(`iadd/threads/1-x:0  the pull request's body, line 7: the section's verdict block copies none, since no judged work item's \`inspection.md\` holds a verdict block that reads at the head commit; ${SECTION_IS}\n`);
+    expect(none.output).toContain(`agentory/threads/1-x:0  the pull request's body, line 7: the section's verdict block copies none, since no judged work item's \`inspection.md\` holds a verdict block that reads at the head commit; ${SECTION_IS}\n`);
     expect(none.exit).toBe(1);
   }, 60_000);
 
@@ -458,7 +458,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     }
 
     // A declaration that does not read judges no work item, so the section has no record to be compared with.
-    write(made.repo, "iadd/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");
+    write(made.repo, "agentory/threads/1-x/routing.md", "# Routing: 1-x\n\nNo table.\n");
     commitAll(made.repo, "chore: break the declaration", "1-x");
     const unjudged = await run(made, { body: bodySection(...made.block).join("\n") });
     expect(unjudged.output).toContain("not read: the pull request's body, since no declaration of this pull request reads, so no inspection section of it is compared with `inspection.md`");
@@ -484,19 +484,19 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const other = await run(made, { body: bodySection(`target: ${base} against main`, ...made.block.slice(1)).join("\n"), args: ["--post"], env });
     expect(other.exit).toBe(1);
     expect(last()).toMatchObject({ head_sha: head, conclusion: "failure", output: { title: "The records are refused" } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x:0  the pull request's body, line 7: the section's verdict block holds \`target: ${base} against main\``);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x:0  the pull request's body, line 7: the section's verdict block holds \`target: ${base} against main\``);
 
     const uninspected = reviewed();
     gated(uninspected);
     const none = await run(uninspected, { args: ["--post"], env });
     expect(none.exit).toBe(1);
     expect(last()).toMatchObject({ head_sha: git(uninspected.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
-    expect(last()?.output.summary).toContain("- iadd/threads/1-x/inspection.md:0  git carries no inspection file");
+    expect(last()?.output.summary).toContain("- agentory/threads/1-x/inspection.md:0  git carries no inspection file");
 
     const draft = await run(uninspected, { draft: true, args: ["--post"], env });
     expect(draft.exit).toBe(0);
     expect(last()).toMatchObject({ conclusion: "neutral", output: { title: "Draft: judged when it is ready" } });
-    expect(last()?.output.summary).toContain("- iadd/threads/1-x/inspection.md:0  git carries no inspection file");
+    expect(last()?.output.summary).toContain("- agentory/threads/1-x/inspection.md:0  git carries no inspection file");
 
     const outside = repository();
     commitRoot(outside.repo);
@@ -549,7 +549,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const lapsed = await run(changed, { body: null, args: ["--post"], env });
     expect(lapsed.exit, lapsed.output).toBe(1);
     expect(last()).toMatchObject({ head_sha: git(changed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: LAPSED(changed.gate) } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${changed.gate.slice(0, 7)}\``);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${changed.gate.slice(0, 7)}\``);
     expect(lapsed.output).toContain(`chain-check: posted \`inspection\`, failure: ${LAPSED(changed.gate)}\n`);
 
     // A verdict block that names no workflow is not the Owl Chain's, though it holds Owlery's `rules:` line, so the title of its lapsed inspection names no workflow.
@@ -570,15 +570,15 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Inspection lapsed: a commit landed after ${plugins.gate.slice(0, 7)}` } });
     // Nor where one of two lapsed inspections is the owl chain's: a second work item on the branch, cleared at the same commit by a block with no `rules:` line.
     const two = clearedBranch();
-    write(two.repo, "iadd/threads/2-y/routing.md", routing("2-y", "feature"));
-    write(two.repo, "iadd/threads/2-y/trail/gate.md", ["# Broad gate: 2-y", "", "```iadd", `run: ${two.gate} against ${git(two.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
-    write(two.repo, "iadd/threads/2-y/inspection.md", ["# Inspection: 2-y", "", section(1, two.gate)].join("\n"));
+    write(two.repo, "agentory/threads/2-y/routing.md", routing("2-y", "feature"));
+    write(two.repo, "agentory/threads/2-y/trail/gate.md", ["# Broad gate: 2-y", "", "```iadd", `run: ${two.gate} against ${git(two.repo, "rev-parse", "main").trim()}`, "```", ""].join("\n"));
+    write(two.repo, "agentory/threads/2-y/inspection.md", ["# Inspection: 2-y", "", section(1, two.gate)].join("\n"));
     commitAll(two.repo, "chore: record the second work item's inspection", "2-y");
     write(two.repo, "x", "x, changed\n");
     commitAll(two.repo, "fix: x", "1-x");
     const both = await run(two, { body: null, args: ["--post"], env });
     expect(both.exit).toBe(1);
-    expect(both.output).toContain("iadd/threads/2-y/inspection.md:0  the inspection lapsed");
+    expect(both.output).toContain("agentory/threads/2-y/inspection.md:0  the inspection lapsed");
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: `Inspection lapsed: a commit landed after ${two.gate.slice(0, 7)}` } });
 
     // The tree at the head is the cleared tree, and the rounds arm and the gate arm read the two commits after the inspection.
@@ -591,7 +591,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(taken.exit, taken.output).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED(back.gate) } });
     expect(last()?.output.summary).not.toContain("inspection.md:");
-    expect(last()?.output.summary).toContain("- iadd/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
+    expect(last()?.output.summary).toContain("- agentory/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
 
     const draft = await run(changed, { draft: true, body: null, args: ["--post"], env });
     expect(draft.exit).toBe(0);
@@ -609,7 +609,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     commitAll(withheld.repo, "fix: x", "1-x");
     expect((await run(withheld, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x/inspection.md:0  the inspection is behind HEAD: \`x\` changed after the commit it names, \`${withheld.gate.slice(0, 7)}\`, outside the closing records\n`);
     expect(last()?.output.summary).not.toContain("the inspection lapsed");
     // A withheld verdict and a merge of the base after it whose commits leave the tree as it was: no inspection lapsed, and the arm names the path the base's commit touched.
     const withheldMerged = reviewed();
@@ -618,7 +618,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     mergeAsCleared(withheldMerged.repo, "revert");
     expect((await run(withheldMerged, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: "Not cleared: no inspection at the head commit" } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x/inspection.md:0  the inspection is behind HEAD: a commit of the base that a merge brought after the commit it names, \`${withheldMerged.gate.slice(0, 7)}\`, touches \`other.txt\`, outside the work item's records\n`);
 
     // An inspection whose commit HEAD does not descend from, and one whose commit the repository does not hold, have lapsed, as the daemon reads them.
     const off = reviewed();
@@ -631,13 +631,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     inspected(off, section(1, aside, ...DAEMONS_LINES));
     expect((await run(off, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED(aside) } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: HEAD does not descend from the cleared commit \`${aside.slice(0, 7)}\`; a new inspection is owed at HEAD`);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x/inspection.md:0  the inspection lapsed: HEAD does not descend from the cleared commit \`${aside.slice(0, 7)}\`; a new inspection is owed at HEAD`);
     const nowhere = reviewed();
     gated(nowhere);
     inspected(nowhere, section(1, "d".repeat(40), ...DAEMONS_LINES));
     expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
     expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED("d".repeat(40)) } });
-    expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: this repository cannot resolve the cleared commit \`${"d".repeat(40)}\`; a new inspection is owed at HEAD`);
+    expect(last()?.output.summary).toContain(`- agentory/threads/1-x/inspection.md:0  the inspection lapsed: this repository cannot resolve the cleared commit \`${"d".repeat(40)}\`; a new inspection is owed at HEAD`);
     expect(sent).toHaveLength(11);
   }, 60_000);
 
@@ -647,45 +647,45 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     commitRoot(made.repo);
     const base = git(made.repo, "rev-parse", "--short=7", "main").trim();
     git(made.repo, "checkout", "--quiet", "-b", "feature");
-    write(made.repo, "iadd/threads/1-x/routing.md", routing("1-x", "feature", "framer", "crafter"));
+    write(made.repo, "agentory/threads/1-x/routing.md", routing("1-x", "feature", "framer", "crafter"));
     commitAll(made.repo, "docs: route the 1-x work item", "1-x");
-    write(made.repo, "iadd/threads/1-x/frame/design.md", ["# Design: x (#1)", "", "## Scope", "", "1. **x holds one line.**", "", "## Rule changes", "", "- nothing", "  why: The work states no rule.", "", "## Removes", "", "| Removes | Coordinate | Where it lands, or why it can go |", "|---|---|---|", "| nothing | | |", "", "Framed 2026-11-24 by framer, before the build.", ""].join("\n"));
-    write(made.repo, "iadd/threads/1-x/frame/plan.md", ["# Implementation Plan: x (#1)", "", "## Phases", "", "| Phase | Delivers | Verified by | Status |", "|---|---|---|---|", "| 1 | x | Scenario 1 | |", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/frame/design.md", ["# Design: x (#1)", "", "## Scope", "", "1. **x holds one line.**", "", "## Rule changes", "", "- nothing", "  why: The work states no rule.", "", "## Removes", "", "| Removes | Coordinate | Where it lands, or why it can go |", "|---|---|---|", "| nothing | | |", "", "Framed 2026-11-24 by framer, before the build.", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/frame/plan.md", ["# Implementation Plan: x (#1)", "", "## Phases", "", "| Phase | Delivers | Verified by | Status |", "|---|---|---|---|", "| 1 | x | Scenario 1 | |", ""].join("\n"));
     commitAll(made.repo, "docs: frame the 1-x work item", "1-x");
     write(made.repo, "x", "x\n");
     commitAll(made.repo, "feat: x", "1-x");
     const built = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
-    write(made.repo, "iadd/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${built} against ${base}`, "```", "", "The round read the diff whole.", "", "## Findings", "", "## Confirmations", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/trail/rounds/round-1.md", ["# Review round 1: 1-x", "", "```iadd", `target: ${built} against ${base}`, "```", "", "The round read the diff whole.", "", "## Findings", "", "## Confirmations", ""].join("\n"));
     commitAll(made.repo, "chore: record review round 1", "1-x");
     const gate = git(made.repo, "rev-parse", "--short=7", "HEAD").trim();
-    write(made.repo, "iadd/threads/1-x/trail/gate.md", ["# 1-x — broad gate", "", "```iadd", `run: ${gate} against ${base}`, "```", ""].join("\n"));
+    write(made.repo, "agentory/threads/1-x/trail/gate.md", ["# 1-x — broad gate", "", "```iadd", `run: ${gate} against ${base}`, "```", ""].join("\n"));
     commitAll(made.repo, "chore: record the broad gate's run", "1-x");
     const inspection = ["# Inspection: 1-x", "", `Audited at \`${gate}\` against the base \`main\`, resolved to \`${base}\`.`, "", "## The parties", "", "| Party | Says | Agrees with | Disagrees with |", "|---|---|---|---|", "| The design | x | the diff | none |", "", "```iadd", `target: ${gate} against ${base}`, "Verdict: cleared", "```", ""];
-    write(made.repo, "iadd/threads/1-x/inspection.md", inspection.join("\n"));
+    write(made.repo, "agentory/threads/1-x/inspection.md", inspection.join("\n"));
     commitAll(made.repo, "chore: record the inspector's verdict", "1-x");
     const body = ["x holds one line.", "", "## From the records", "", "## Broad gate", "", "From `trail/gate.md`.", "", "```iadd", `run: ${gate} against ${base}`, "```", ""].join("\n");
 
     const passed = await run(made, { body, args: ["--post"], env: posting(url) });
     expect(passed.exit, passed.output).toBe(0);
     expect(passed.output).toContain("not read: the pull request's body, since it holds no `<!-- owlery:inspection -->` line and no `<!-- /owlery:inspection -->` line");
-    expect(passed.output).not.toContain("iadd/threads/1-x/");
+    expect(passed.output).not.toContain("agentory/threads/1-x/");
     expect(sent.map((request) => request.body)).toMatchObject([{ conclusion: "success", output: { title: `Cleared at ${gate}` } }]);
   }, 60_000);
 
   it("passes the gate's record and the inspection as the daemon writes them: a run block that names the head, then a verdict block with the lines on who built and who judged that targets the same commit, in a commit that also carries trail/refusals.md, and fails where that commit carries another file of the work item", () => {
     const made = reviewed();
     gated(made);
-    write(made.repo, "iadd/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+    write(made.repo, "agentory/threads/1-x/trail/refusals.md", REFUSED_CALLS);
     inspected(made, section(1, made.gate, ...DAEMONS_LINES));
     const cleared = check(made, "ready", false, false);
     expect(cleared.exit, cleared.output).toBe(0);
     expect(cleared.output).not.toContain("inspection.md:");
 
     // Only the closing records follow the cleared commit: a decision committed after it lapses the inspection.
-    write(made.repo, "iadd/threads/1-x/decisions.md", DECISIONS);
+    write(made.repo, "agentory/threads/1-x/decisions.md", DECISIONS);
     commitAll(made.repo, "chore: record a decision and a question", "1-x");
     const behind = check(made, "ready", false, false);
-    expect(behind.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`iadd/threads/1-x/decisions.md\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
+    expect(behind.output).toContain(`agentory/threads/1-x/inspection.md:0  the inspection lapsed: \`agentory/threads/1-x/decisions.md\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     expect(behind.exit).toBe(1);
   });
 
@@ -735,12 +735,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
   };
 
   /** The inspection arm's line for a commit of the base, touching `path`, that a merge brought after the inspection of `gate`. */
-  const BROUGHT = (path: string, gate: string): string => `iadd/threads/1-x/inspection.md:0  the inspection lapsed: a commit of the base that a merge brought after the cleared commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new inspection is owed at HEAD\n`;
+  const BROUGHT = (path: string, gate: string): string => `agentory/threads/1-x/inspection.md:0  the inspection lapsed: a commit of the base that a merge brought after the cleared commit \`${gate.slice(0, 7)}\` touches \`${path}\`, outside the work item's records; a new inspection is owed at HEAD\n`;
 
   it("fails a merge of the base after the inspection, though the merge commit and the base's commit are read by no walk of the branch's commits: the inspection arm compares the cleared commit's tree with HEAD's, says that the inspection lapsed, and names the path that changed and the cleared commit", () => {
     const made = mergedAfterInspection(false);
     const merged = check(made, "ready", false, false);
-    expect(merged.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`other.txt\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
+    expect(merged.output).toContain(`agentory/threads/1-x/inspection.md:0  the inspection lapsed: \`other.txt\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
     expect(merged.output).not.toContain("round-1.md:0");
     expect(merged.output).not.toContain("gate.md:0");
@@ -749,9 +749,9 @@ describe("the pull request check", { timeout: 30_000 }, () => {
 
   it("fails a merge commit after the inspection that itself changes a source file, where the base's commit it merges changes nothing", () => {
     const made = mergedAfterInspection(true);
-    expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n")).toEqual(["iadd/threads/1-x/inspection.md", "iadd/threads/1-x/trail/gate.md", "x"]);
+    expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n")).toEqual(["agentory/threads/1-x/inspection.md", "agentory/threads/1-x/trail/gate.md", "x"]);
     const edited = check(made, "ready", false, false);
-    expect(edited.output).toContain(`iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
+    expect(edited.output).toContain(`agentory/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${made.gate.slice(0, 7)}\`, outside the closing records; a new inspection is owed at HEAD\n`);
     expect(edited.exit).toBe(1);
   });
 
@@ -760,7 +760,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     for (const [how, path] of [["same file", "x"], ["revert", "other.txt"]] as const) {
       const made = clearedBranch();
       mergeAsCleared(made.repo, how);
-      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["iadd/threads/1-x/inspection.md", "iadd/threads/1-x/trail/gate.md"]);
+      expect(git(made.repo, "diff", "--name-only", made.gate, "HEAD").trim().split("\n"), how).toEqual(["agentory/threads/1-x/inspection.md", "agentory/threads/1-x/trail/gate.md"]);
       const merged = await run(made, { body: null, args: ["--post"], env: posting(url) });
       expect(merged.output, how).toContain(BROUGHT(path, made.gate));
       // The rounds arm and the gate arm walk the branch's own commits, and a merge brings none.
@@ -783,7 +783,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       const gate = commitInspection(made.repo, { workItem: "1-x", branch: "feature", base, ...given });
       return { ...made, gate, item: { worktree: made.repo, branch: "feature", baseBranch: "main", baseCommit: base } };
     };
-    const INSPECTION_AT = "iadd/threads/1-x/inspection.md";
+    const INSPECTION_AT = "agentory/threads/1-x/inspection.md";
     const merge = (repo: string, edit: boolean): void => {
       git(repo, "checkout", "--quiet", "main");
       if (edit) git(repo, "commit", "--quiet", "--allow-empty", "-m", "chore: nothing changed");
@@ -803,7 +803,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         commitAll(repo, "docs: note below the verdict");
       }, "cleared"],
       ["a commit of the refused calls", ({ repo }) => {
-        write(repo, "iadd/threads/1-x/trail/refusals.md", REFUSED_CALLS);
+        write(repo, "agentory/threads/1-x/trail/refusals.md", REFUSED_CALLS);
         commitAll(repo, "chore: record the refusals");
       }, "cleared"],
       ["a commit that changes a source file", ({ repo }) => {
@@ -811,12 +811,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
         commitAll(repo, "fix: x");
       }, "lapsed"],
       ["a commit that changes decisions.md", ({ repo }) => {
-        write(repo, "iadd/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
+        write(repo, "agentory/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
         commitAll(repo, "chore: record a decision");
       }, "lapsed"],
       ["a commit that adds a round record", ({ repo }) => {
         const at = git(repo, "rev-parse", "HEAD").trim();
-        write(repo, "iadd/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
+        write(repo, "agentory/threads/1-x/trail/rounds/round-2.md", roundRecord("# Review round 2: 1-x", `${at}, fixes ${at}..${at}`));
         commitAll(repo, "chore: record review round 2");
       }, "lapsed"],
       ["a merge of a base that gained a commit", ({ repo }) => merge(repo, false), "lapsed"],
@@ -825,9 +825,9 @@ describe("the pull request check", { timeout: 30_000 }, () => {
       ["a merge of a base that gained a commit and its revert", ({ repo }) => mergeAsCleared(repo, "revert"), "lapsed", undefined, ({ gate }) => BROUGHT("other.txt", gate)],
       ["a merge of a base whose commits add and take back a file of the work item's directory alone", ({ repo }) => {
         git(repo, "checkout", "--quiet", "main");
-        write(repo, "iadd/threads/1-x/notes.md", "notes\n");
+        write(repo, "agentory/threads/1-x/notes.md", "notes\n");
         commitAll(repo, "docs: notes");
-        git(repo, "rm", "--quiet", "iadd/threads/1-x/notes.md");
+        git(repo, "rm", "--quiet", "agentory/threads/1-x/notes.md");
         git(repo, "commit", "--quiet", "-m", "revert: notes");
         git(repo, "checkout", "--quiet", "feature");
         git(repo, "merge", "--quiet", "--no-ff", "--no-edit", "main");
@@ -880,14 +880,14 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const same = check(made, "ready", false, false);
     // The file's heading, a blank line, the run's heading and a blank line stand above the block, whose fourth line names the judge.
     expect(same.output).toContain(
-      "iadd/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session that the block's `built-by:` line names too: the session that inspects a work item built none of it, so this verdict block clears nothing",
+      "agentory/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session that the block's `built-by:` line names too: the session that inspects a work item built none of it, so this verdict block clears nothing",
     );
     expect(same.exit).toBe(1);
 
     // The judge is found wherever the line names it, before `the session` too.
     inspected(made, section(1, made.gate, "built-by: s-1, the session", "inspected-by: s-1"));
     const first = check(made, "ready", false, false);
-    expect(first.output).toContain("iadd/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session");
+    expect(first.output).toContain("agentory/threads/1-x/inspection.md:9  `inspected-by: s-1` names a session");
     expect(first.exit).toBe(1);
 
     // A second run by another session: the first block still stands above it, and only the newest is read for its judge.
@@ -925,12 +925,12 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     gated(made);
     inspected(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: withheld reason: the changelog names `gone.ts`, which the tree does not hold"));
     const withheld = check(made, "ready", false, false);
-    expect(withheld.output).toContain(`iadd/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: withheld reason: the changelog names \`gone.ts\`, which the tree does not hold\`${next}\n`);
+    expect(withheld.output).toContain(`agentory/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: withheld reason: the changelog names \`gone.ts\`, which the tree does not hold\`${next}\n`);
     expect(withheld.exit).toBe(1);
 
     inspected(made, section(1, made.gate, ...DAEMONS_LINES).replace("Verdict: cleared", "Verdict: undecided question: does item 4 cover a renamed branch?"));
     const undecided = check(made, "ready", false, false);
-    expect(undecided.output).toContain(`iadd/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: undecided question: does item 4 cover a renamed branch?\`${next}\n`);
+    expect(undecided.output).toContain(`agentory/threads/1-x/inspection.md:7  the inspector's verdict reads \`Verdict: undecided question: does item 4 cover a renamed branch?\`${next}\n`);
     expect(undecided.exit).toBe(1);
     for (const said of [withheld.output, undecided.output]) for (const word of ["below the newest block", "seal gate", "templates/", "new HEAD"]) expect(said, word).not.toContain(word);
   });
@@ -940,20 +940,20 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const none = check(made, "ready", false, false);
     expect(none.exit).toBe(1);
     expect(none.output).toContain(
-      "iadd/threads/1-x/trail/gate.md:0  git carries no gate record: once the review rounds settle, Owlery's daemon runs the repository's broad gate on the branch's head and commits this record where the run passes",
+      "agentory/threads/1-x/trail/gate.md:0  git carries no gate record: once the review rounds settle, Owlery's daemon runs the repository's broad gate on the branch's head and commits this record where the run passes",
     );
-    expect(none.output).toContain("iadd/threads/1-x/inspection.md:0  git carries no inspection file: the inspector's stage of Owlery's daemon writes it once the broad gate has passed on the branch's head");
+    expect(none.output).toContain("agentory/threads/1-x/inspection.md:0  git carries no inspection file: the inspector's stage of Owlery's daemon writes it once the broad gate has passed on the branch's head");
 
-    write(made.repo, "iadd/threads/1-x/trail/gate.md", "# Broad gate: 1-x\n\nThe run passed.\n");
-    write(made.repo, "iadd/threads/1-x/inspection.md", "# Inspection: 1-x\n\nVerdict: cleared\n");
+    write(made.repo, "agentory/threads/1-x/trail/gate.md", "# Broad gate: 1-x\n\nThe run passed.\n");
+    write(made.repo, "agentory/threads/1-x/inspection.md", "# Inspection: 1-x\n\nVerdict: cleared\n");
     commitAll(made.repo, "chore: write both records with no block", "1-x");
     const empty = check(made, "ready", false, false);
     expect(empty.exit).toBe(1);
     expect(empty.output).toContain(
-      "iadd/threads/1-x/trail/gate.md:0  no run block: a passed run of the broad gate stands in an `iadd` block holding `run: <tree> against <base commit>`, which Owlery's daemon appends below the text already there",
+      "agentory/threads/1-x/trail/gate.md:0  no run block: a passed run of the broad gate stands in an `iadd` block holding `run: <tree> against <base commit>`, which Owlery's daemon appends below the text already there",
     );
     expect(empty.output).toContain(
-      "iadd/threads/1-x/inspection.md:0  no verdict block: the inspector's verdict stands in an `iadd` block holding `target: <sha> against <base>`, the `original:` line where one is owed and `Verdict:`, which the inspector's stage of Owlery's daemon appends below the text already there once the broad gate has passed on the branch's head",
+      "agentory/threads/1-x/inspection.md:0  no verdict block: the inspector's verdict stands in an `iadd` block holding `target: <sha> against <base>`, the `original:` line where one is owed and `Verdict:`, which the inspector's stage of Owlery's daemon appends below the text already there once the broad gate has passed on the branch's head",
     );
     for (const said of [none.output, empty.output]) for (const word of ["seal gate", "orchestrator", "templates/", "#1198"]) expect(said, word).not.toContain(word);
   });
@@ -962,7 +962,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     const made = declared();
     const before = check(made, "ready");
     expect(before.exit).toBe(1);
-    write(made.repo, "iadd/threads/1-x/decisions.md", DECISIONS);
+    write(made.repo, "agentory/threads/1-x/decisions.md", DECISIONS);
     commitAll(made.repo, "chore: record a decision and a question", "1-x");
     const after = check(made, "ready");
     expect(after.output).not.toContain("decisions.md");

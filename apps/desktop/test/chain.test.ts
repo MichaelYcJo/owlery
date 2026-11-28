@@ -74,7 +74,7 @@ const A = "a".repeat(40);
 const B = "b".repeat(40);
 const HEAD = "c".repeat(40);
 const NAME = "1795388700-cleared-work";
-const DIRECTORY = `iadd/threads/${NAME}`;
+const DIRECTORY = `agentory/threads/${NAME}`;
 /** The top of the work item's worktree, which a stage's prompt names by its absolute path. */
 const WORKTREE = "/repos/owlery-wt-2";
 const TRAILER = `IADD-Routing: ${NAME}`;
@@ -178,7 +178,7 @@ describe("the step a chain owes", () => {
       expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [...CLOSING, path] }), path).toEqual(gate);
     }
     // A closing record is a file of this work item's directory, at its own path.
-    for (const path of ["trail/gate.md", "inspection.md", `${DIRECTORY}-other/trail/gate.md`, `${DIRECTORY}/frame/inspection.md`, `${DIRECTORY}/trail/gate.md.orig`, `${DIRECTORY}/trail/refusals`, `iadd/threads/other/inspection.md`]) {
+    for (const path of ["trail/gate.md", "inspection.md", `${DIRECTORY}-other/trail/gate.md`, `${DIRECTORY}/frame/inspection.md`, `${DIRECTORY}/trail/gate.md.orig`, `${DIRECTORY}/trail/refusals`, `agentory/threads/other/inspection.md`]) {
       expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [path] }), path).toEqual(gate);
     }
   });
@@ -1147,18 +1147,18 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     // No record of decisions stands, so no prompt of a round names one.
     expect(started[0]?.prompt).not.toContain("decisions.md");
     expect(started[0]?.prompt.startsWith(`${sessions[0]?.prompt ?? "none"}\nTheir diff:`)).toBe(true);
-    expect(sessions[0]?.prompt).toContain("- The work item's directory: `iadd/threads/1795388700-listed`\n");
-    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `feature.txt`\n- `iadd/threads/1795388700-listed/routing.md`\n");
+    expect(sessions[0]?.prompt).toContain("- The work item's directory: `agentory/threads/1795388700-listed`\n");
+    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `feature.txt`\n- `agentory/threads/1795388700-listed/routing.md`\n");
     // Round 2 is given the commits after round 1's target: the record's two commits and the fix.
     expect(started[2]?.prompt).toContain("+A greeting.\n");
-    expect(started[2]?.prompt).toContain("- Earlier round records: `iadd/threads/1795388700-listed/trail/rounds/round-1.md`\n");
+    expect(started[2]?.prompt).toContain("- Earlier round records: `agentory/threads/1795388700-listed/trail/rounds/round-1.md`\n");
     expect(started[1]?.prompt).toBe(sessions[1]?.prompt);
     // The proofer's write was refused by its grant in each round, and nothing was written.
     expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 0], ["round", 1], ["gate", 0], ["inspection", 0], ["pull-request", 0]]);
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     // The inspector is given the commit the gate passed on, the records to read, and the diff of what the branch changed since it left its base, as round 1 was: nothing the base gained since.
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const directory = "iadd/threads/1795388700-listed";
+    const directory = "agentory/threads/1795388700-listed";
     for (const absent of ["decisions.md", "/frame/", "/trail/phases/", "changelog.md"]) expect(sessions[3]?.prompt, absent).not.toContain(absent);
     expect(sessions[3]?.prompt).toContain(`- Your section's heading: \`## Run 1\`\n- Your verdict's target line: \`target: ${gate} against main\`\n- The routing: \`${directory}/routing.md\`\n- The round records, the oldest first: \`${directory}/trail/rounds/round-1.md\`, \`${directory}/trail/rounds/round-2.md\`\n- The broad gate's record: \`${directory}/trail/gate.md\`\n- The issue: `);
     expect(sessions[3]?.prompt).toContain(`The branch changed these paths since it left its base:\n- \`feature.txt\`\n- \`${directory}/routing.md\`\n- \`${directory}/trail/refusals.md\`\n- \`${directory}/trail/rounds/round-1.md\`\n- \`${directory}/trail/rounds/round-2.md\`\n`);
@@ -1172,7 +1172,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Decided"], { roleAdapter: roles() });
     const { c, d } = stood;
     const a = stood.workItems[0]!;
-    const directory = "iadd/threads/1795388700-decided";
+    const directory = "agentory/threads/1795388700-decided";
     write(a.worktree, `${directory}/routing.md`, routingText("1795388700-decided", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
@@ -1226,8 +1226,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       roleAdapter: roles({
         crafter: (cwd, prompt) => {
           fixes(cwd, prompt);
-          write(cwd, "iadd/threads/2-second/routing.md", routingText("2-second", git(cwd, "symbolic-ref", "--short", "HEAD").trim(), TODAY));
-          git(cwd, "add", "iadd/threads/2-second");
+          write(cwd, "agentory/threads/2-second/routing.md", routingText("2-second", git(cwd, "symbolic-ref", "--short", "HEAD").trim(), TODAY));
+          git(cwd, "add", "agentory/threads/2-second");
           git(cwd, "commit", "--quiet", "-m", "chore: declare the routing twice");
         },
       }),
@@ -1275,7 +1275,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["First name"], { roleAdapter: roles() });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "iadd/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", branchOf(a), TODAY));
+    write(a.worktree, "agentory/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // The commit of the routing's new row is held, and the start waits for it.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1328,7 +1328,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await started).toBe("done");
     await c.chain(a.id, "rested");
     expect(git(a.worktree, "symbolic-ref", "--short", "HEAD").trim()).toBe("owlery/second-name");
-    expect(declaredBranch(git(a.worktree, "show", "HEAD:iadd/threads/1795388700-second-name/routing.md"))).toBe("owlery/second-name");
+    expect(declaredBranch(git(a.worktree, "show", "HEAD:agentory/threads/1795388700-second-name/routing.md"))).toBe("owlery/second-name");
   });
 
   it("starts no stage in a work item that was archived between two stages: the chain stops and says so, with the round's record committed", async () => {
@@ -1336,7 +1336,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Shelved"], { roleAdapter: adapter });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "iadd/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", branchOf(a), TODAY));
+    write(a.worktree, "agentory/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // Round 1's session has ended, and the chain is held at the commit of its record.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1376,7 +1376,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const nameOf = (slug: string): string => `1795388700-${slug}`;
     /** Whether the worktree's branch holds a round record, committed or written. */
     const noRecord = (worktree: string, slug: string): void => {
-      expect(existsSync(join(worktree, "iadd", "threads", nameOf(slug), "trail"))).toBe(false);
+      expect(existsSync(join(worktree, "agentory", "threads", nameOf(slug), "trail"))).toBe(false);
       expect(commitsAfterMain(worktree).map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the work item's routing"]);
       expect(status(worktree)).toEqual([]);
     };
@@ -1537,13 +1537,13 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       await refusedWith(stood, a.id, "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.", stands(a.worktree));
       rmSync(join(a.worktree, "notes.txt"));
       // With no directory of the work item yet, a file under the records root is outside it too.
-      write(a.worktree, "iadd/threads/9-other/notes.md", "notes\n");
-      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at iadd\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
-      rmSync(join(a.worktree, "iadd/threads/9-other"), { recursive: true });
+      write(a.worktree, "agentory/threads/9-other/notes.md", "notes\n");
+      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at agentory\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
+      rmSync(join(a.worktree, "agentory/threads/9-other"), { recursive: true });
       // Inside the work item's directory a file no commit holds refuses nothing.
-      write(a.worktree, "iadd/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
+      write(a.worktree, "agentory/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
       commitAll(a.worktree, "chore: declare the routing by hand");
-      write(a.worktree, "iadd/threads/1795388700-changed/notes.md", "notes\n");
+      write(a.worktree, "agentory/threads/1795388700-changed/notes.md", "notes\n");
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.chain(a.id, "rested");
     });
@@ -1555,10 +1555,10 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Twice named"]);
       const b = stood.workItems[0]!;
-      write(b.worktree, "iadd/threads/1-one/routing.md", routingText("1-one", branchOf(b), TODAY));
-      write(b.worktree, "iadd/threads/2-two/routing.md", routingText("2-two", branchOf(b), TODAY));
+      write(b.worktree, "agentory/threads/1-one/routing.md", routingText("1-one", branchOf(b), TODAY));
+      write(b.worktree, "agentory/threads/2-two/routing.md", routingText("2-two", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing twice");
-      await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: iadd/threads/1-one and iadd/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
+      await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: agentory/threads/1-one and agentory/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
     });
 
     it("refuses a worktree whose records stand in the earlier form, a root of it in place of the records root or the work item's own directory under one, with the sentence that names the chain command's `migrate`", async () => {
@@ -1574,7 +1574,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const b = stood.workItems[0]!;
       write(b.worktree, "seal/threads/1-kept/routing.md", routingText("1-kept", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: the routing a merge left under the earlier root");
-      await refusedWith(stood, b.id, `This work item's records stand in seal/threads/1-kept/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. ${migrate}`, stands(b.worktree));
+      await refusedWith(stood, b.id, `This work item's records stand in seal/threads/1-kept/, in the form the AgenticSeal plugin wrote, and the branch's records root is agentory/. ${migrate}`, stands(b.worktree));
     });
 
     it("refuses a work item with no base commit, and one whose branch holds no commit after its base", async () => {
@@ -1596,7 +1596,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = stood.workItems[0]!;
       // Another line from the repository's first commit, with the records root brought onto it, which does not hold the commit the work item's branch was cut at.
       git(stood.made.repo, "checkout", "--quiet", "-b", "aside", "main~1");
-      git(stood.made.repo, "checkout", "--quiet", "main", "--", "iadd");
+      git(stood.made.repo, "checkout", "--quiet", "main", "--", "agentory");
       write(stood.made.repo, "aside.txt", "Aside\n");
       const aside = commitAll(stood.made.repo, "feat: aside");
       git(stood.made.repo, "checkout", "--quiet", "main");
@@ -1613,7 +1613,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Parked"], { roleAdapter: roles() });
       const b = stood.workItems[0]!;
-      const directory = "iadd/threads/1795388700-parked";
+      const directory = "agentory/threads/1795388700-parked";
       write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing by hand");
       stood.d.park(b.id, { by: "crafter", questions: [{ asks: "May the pass change the protocol?", grounds: "The frame names no such change." }] });
@@ -2565,7 +2565,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       expect(kinds(twice)).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
       expect(await gateEntries(c, loaded.id, 12)).toMatchObject([{ state: "failed" }, { state: "failed" }]);
       // No gate record was written in either worktree.
-      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "iadd/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
+      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "agentory/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
     });
 
     it("ends the ask of a gate that waits and starts no command, where a stopGate arrives or the worktree's head moves during the wait: neither command runs once the turn frees, no record or ledger entry is written, and each chain stops with what ended its wait", async () => {
@@ -2668,7 +2668,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       const { adapter, started } = noted(roles());
       const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, roleAdapter: adapter });
       const a = workItems[0]!;
-      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.');
+      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('agentory/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.');
       expect(started).toEqual([]);
       expect(c.workItem(a.id)?.chain).toBeNull();
       expect(subjects(a.worktree)).toEqual(["feat: greet"]);
@@ -2679,8 +2679,8 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("starts no command where the key lost its command on the branch since the start: the chain stops before the gate, and says so", async () => {
     const crafter = (cwd: string, prompt: string): void => {
       fixes(cwd, prompt);
-      write(cwd, "iadd/config.json", "{}\n");
-      git(cwd, "add", "iadd/config.json");
+      write(cwd, "agentory/config.json", "{}\n");
+      git(cwd, "add", "agentory/config.json");
       git(cwd, "commit", "--quiet", "-m", "chore: name no gate");
     };
     const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter }) });
@@ -3271,7 +3271,7 @@ describe("the inspection of a work item's chain", { timeout: 60_000 }, () => {
     const prompt = started[3]?.prompt ?? "";
     expect(givenInspection(prompt)).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against ${base}` });
     expect(prompt).toContain(`\n- The inspection this run follows: run 1 of \`${DIRECTORY}/inspection.md\` cleared \`${cleared}\`, and a commit after it lapsed that inspection\n`);
-    // Git lists the paths in their order, and `iadd/` comes before `later.txt`.
+    // Git lists the paths in their order, and `agentory/` comes before `later.txt`.
     expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 cleared:\n- \`${DIRECTORY}/inspection.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n- \`later.txt\`\n\nTheir diff:\n\ndiff --git a/${DIRECTORY}/inspection.md b/${DIRECTORY}/inspection.md\n`);
     expect(prompt).toContain("\ndiff --git a/later.txt b/later.txt\n");
     // The branch changed `feature.txt` before the inspection, and nothing of it since.
@@ -3379,7 +3379,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(a.baseBranch).toBe("main");
     // The records of a first round that a pane's chain ran against another base: the routing, and round 1 with no finding, whose target names `release/x`.
     git(made.repo, "branch", "release/x", "main");
-    const directory = "iadd/threads/1795388700-rebased-work";
+    const directory = "agentory/threads/1795388700-rebased-work";
     write(a.worktree, `${directory}/routing.md`, routingText("1795388700-rebased-work", branchOf(a), TODAY));
     const routed = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${directory}/trail/rounds/round-1.md`, roundRecord("# Review round 1: 1795388700-rebased-work", `${routed} against release/x`));

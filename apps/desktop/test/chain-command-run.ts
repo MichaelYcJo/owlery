@@ -57,8 +57,8 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const { repo, base: folder } = made;
-  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
-  write(repo, "iadd/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": options.gate ?? "true" }, null, 2)}\n`);
+  write(repo, "agentory/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "agentory/config.json", `${JSON.stringify({ "Commit and pull request language": "English", "Record language": "English", "Broad gate": options.gate ?? "true" }, null, 2)}\n`);
   const main = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");

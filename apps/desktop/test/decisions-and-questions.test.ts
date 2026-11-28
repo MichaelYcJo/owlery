@@ -56,7 +56,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   let heldInspection: ReturnType<typeof heldGit>;
 
   /** The directory of the work item whose worktree and branch are named `name`. */
-  const directoryOf = (name: string): string => join(made.root, name, "iadd", "threads", `1-${name}`);
+  const directoryOf = (name: string): string => join(made.root, name, "agentory", "threads", `1-${name}`);
   /** The record of that work item as its file reads now. */
   const recordOf = (name: string): DecisionRecord => readDecisionRecord(readFileSync(join(directoryOf(name), RECORD_FILE), "utf8"));
   /** The 1-based line of the refused block's opener in that work item's record. */
@@ -95,7 +95,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
       git(made.repo, "worktree", "add", "--quiet", "-b", `owlery/${name}`, worktree);
       // The work item's directory, uncommitted: the records root with its marker, the routing that names the branch, and the record.
       mkdirSync(directoryOf(name), { recursive: true });
-      writeFileSync(join(worktree, "iadd", "README.md"), `${MARKER}\n`);
+      writeFileSync(join(worktree, "agentory", "README.md"), `${MARKER}\n`);
       writeFileSync(join(directoryOf(name), "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | owlery/${name} |\n`);
       return { id, title, branch: `owlery/${name}`, worktree, createdAt: Date.now() - 60 * 60_000, baseCommit: null as string | null, baseBranch: null, pinned: false, muted: false, groupId: null, archivedAt: null };
     };
@@ -278,7 +278,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
       // The commit is made after the daemon's `done`, so the case waits for it.
       for (let waits = 0; waits < 50 && newest().split("\n")[0] !== subject; waits++) await new Promise((resolve) => setTimeout(resolve, 100));
       expect(newest()).toBe(`${subject}\nIADD-Routing: 1-${name}`);
-      expect(git(worktree, "show", "--name-only", "--format=", "HEAD").trim()).toBe(`iadd/threads/1-${name}/${RECORD_FILE}`);
+      expect(git(worktree, "show", "--name-only", "--format=", "HEAD").trim()).toBe(`agentory/threads/1-${name}/${RECORD_FILE}`);
       expect(git(worktree, "rev-list", "--count", "HEAD").trim()).toBe("2");
     }
   });

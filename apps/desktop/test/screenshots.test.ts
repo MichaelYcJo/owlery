@@ -798,14 +798,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     made = temporaryRepository();
     // The ignored files a setup copies, in the main checkout, and the `.gitignore` that ignores them, committed before any work item starts from the branch. The place for work records is committed with it, with the broad gate command its `config.json` names and the script that command runs, so the records the run commits in a worktree stand under a records root that is whole. Owlery's workflow is committed with it too, so the repository is on the owl chain.
     writeFileSync(join(made.repo, ".gitignore"), ".env\n.env.*\nnode_modules/\n*.pem\n");
-    mkdirSync(join(made.repo, "iadd"));
-    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(made.repo, "iadd", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
+    mkdirSync(join(made.repo, "agentory"));
+    writeFileSync(join(made.repo, "agentory", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "agentory", "config.json"), `${JSON.stringify({ "Broad gate": GATE })}\n`);
     mkdirSync(join(made.repo, "scripts"));
     writeFileSync(join(made.repo, "scripts", "check.sh"), GATE_SCRIPT);
     mkdirSync(join(made.repo, ".github", "workflows"), { recursive: true });
     writeFileSync(join(made.repo, ".github", "workflows", "owlery-inspection.yml"), "name: inspection\n");
-    git(made.repo, "add", ".gitignore", "iadd/README.md", "iadd/config.json", "scripts/check.sh", ".github/workflows/owlery-inspection.yml");
+    git(made.repo, "add", ".gitignore", "agentory/README.md", "agentory/config.json", "scripts/check.sh", ".github/workflows/owlery-inspection.yml");
     git(made.repo, "commit", "--quiet", "-m", "ignore");
     for (const [path, text] of Object.entries(IGNORED)) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
@@ -821,7 +821,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const parkedAt = await branchedWorktree({ folder: made.repo, title: PARKED, root: made.root });
     commitFile(parkedAt.worktree, "hotfix.ts");
     commitInspection(parkedAt.worktree, { workItem: PARKED_RECORDS, branch: parkedAt.branch, base: parkedAt.baseCommit, inspection: false });
-    const parkedRecord = `iadd/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
+    const parkedRecord = `agentory/threads/${PARKED_RECORDS}/${RECORD_FILE}`;
     writeFileSync(join(parkedAt.worktree, parkedRecord), withReversal(withDecision(ASKED_OF_PARKED.reduce(withQuestion, ""), DECIDED_FOR_PARKED), ASKED_OF_PARKED.length + 1, REVERSED_SAYS));
     // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
     writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
@@ -986,9 +986,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     for (const deadline = Date.now() + 10_000; (await panesOf()).map((pane) => pane.colour ?? "").join() !== `,${TAB_COLOURS.join()}`; await new Promise((resolve) => setTimeout(resolve, 100))) {
       if (Date.now() >= deadline) throw new Error(`the tabs of ${AT_REVIEW} never held their colours: ${JSON.stringify(await panesOf())}`);
     }
-    write(shown.worktree, `iadd/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
+    write(shown.worktree, `agentory/threads/${SHOWN_RECORDS}/routing.md`, routingText(SHOWN_RECORDS, branchOf(shown), TODAY));
     const routed = commitAll(shown.worktree, "chore: declare the work item's routing");
-    write(shown.worktree, `iadd/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
+    write(shown.worktree, `agentory/threads/${SHOWN_RECORDS}/trail/rounds/round-1.md`, roundRecord(`# Review round 1: ${SHOWN_RECORDS}`, `${routed} against main`));
     commitAll(shown.worktree, "chore: record review round 1");
     await app.until(`document.querySelector('${place("proofer")} .note')?.textContent === "1 round" && document.querySelectorAll("#view-detail .commit").length === 4`, "the shown work item's round as recorded, and the two commits of its records", 20_000);
 
