@@ -30,6 +30,8 @@
 
 **PR 페이지에서, Claude Code 안에서, 체인의 문서에서 읽는 사람이 만나는 이름은 한 가지로만 읽힙니다.** 그 자리에서 이미 다른 뜻을 가진 쉬운 낱말은 쓰지 않습니다. 따져 보고 내려놓은 이름은 아래에 적어, 아무도 다시 제안하지 않게 합니다.
 
+**IADD는 더 위의 개념이고, 제품은 그것을 드러낼 뿐입니다.** 소유자가 2026-11-28에 이 규칙을 정했습니다(이슈 #344). Owlery는 IADD를 돌리는 제품 가운데 하나이고, AgenticSeal 플러그인도 그렇습니다. 그래서 IADD의 이름은 어느 제품과 짝을 맞추어 고르지 않고, 어느 제품도 방법론의 이름을 받지 않습니다. 플러그인은 이름 `agentic`을 그대로 씁니다. 기록 폴더는 방법론이 아니라 자리이므로, 자리의 이름인 `agentory/`로 부릅니다. *directory*와 *repository*처럼 만든 말이고, 에이전트의 설정과 워크플로와 스레드를 두는 곳이라는 뜻입니다. 방법론의 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다.
+
 ### 이름
 
 | 무엇 | 이름 |
@@ -39,9 +41,9 @@
 | 역할 | framer, crafter, proofer, orchestrator, tracer는 그대로이고, 마지막 역할은 검수하는 검수자(`inspector`)입니다. Owlery의 역할 묶음에는 tracer가 없습니다 |
 | 검수자의 기록 | 검수, `inspection.md` |
 | 검수의 상태 | 검수 통과, 검수 실효, 그리고 검수가 서 있지 않은 검수 없음 |
-| 기록 폴더 | `iadd/`. `README.md`의 첫 줄 `# What IADD keeps in iadd/`로 알아봅니다 |
-| 릴리스의 기록을 정책 문서에 접어 넣는 단계 | settle. `iadd/threads/`에 작용합니다 |
-| 작업 하나의 디렉터리 | thread, `iadd/threads/<작업>/` |
+| 기록 폴더 | `agentory/`. `README.md`의 첫 줄 `# What IADD keeps in agentory/`로 알아봅니다 |
+| 릴리스의 기록을 정책 문서에 접어 넣는 단계 | settle. `agentory/threads/`에 작용합니다 |
+| 작업 하나의 디렉터리 | thread, `agentory/threads/<작업>/` |
 | Owlery가 쓰는 트레일러 | `IADD-Routing:`과 `IADD-Built-By:` |
 | PR 검사 | `inspection` |
 | 앱 | IADD를 돌리는 도구 가운데 하나인 Owlery |
@@ -56,6 +58,7 @@
 - **마지막 역할의 기록이나 그 상태로:** *approval*과 *approved*(GitHub의 리뷰 승인과 Claude Approvals), *passed*와 *not passed*(같은 페이지의 "All checks have passed"), *judgment*(에이전트가 뜻이 문제인 곳에 쓰는 것을 가리키는 말), 그리고 *verdict*, *clearance*, *guarantee*.
 - **방법론의 이름으로:** spec-driven(진실은 명세가 아니라 코드와 정책입니다), Evidence-Driven, Trust Engineering, ACE(ICLR 2026의 Agentic Context Engineering, 그리고 어느 에이전트 코딩 도구의 `.ace/`), AIDD(O'Reilly의 AI-Driven Development, 그리고 신약 개발), ACODE(Acode 편집기), AAD(Azure Active Directory), AADD, Merge on Seal, Delegated Judgment, AI-Judged, ABIC, ACOD, ACRD, AI Turnkey.
 - **settle의 이름으로:** resolve-threads. PR 페이지에서 GitHub의 리뷰 스레드(`resolveReviewThread`)로 읽힙니다.
+- **기록 폴더의 이름으로:** 방법론의 이름 그대로. 방법론은 자리가 아니고, 그 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다. 그리고 다른 것과 겹치는 `agentics`(githubnext/agentics), `agency`(agency-agents와 Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections`, `iagentics`.
 
 IADD는 2026-11-28에 웹, GitHub, npm, PyPI, arXiv에서 찾아보았고, 이 이름을 쓰는 방법론이나 AI 도구는 없었습니다. 소문자 `iadd`는 Python의 제자리 덧셈이고, git과 hledger의 작은 플러그인 둘의 이름입니다.
 
@@ -63,13 +66,13 @@ IADD는 2026-11-28에 웹, GitHub, npm, PyPI, arXiv에서 찾아보았고, 이 �
 
 ### 기록 폴더
 
-**저장소의 작업 기록은 `iadd/` 아래에 커밋되어 있고, `iadd/README.md`의 첫 줄이 이 폴더를 알려 줍니다.** 저장소를 연결하면 이 폴더와 그 안의 `README.md`, `config.json`을 씁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)). 폴더의 이름은 하나이고, 그 첫 줄 없이 자기 `iadd/`를 두는 저장소는 설정에서 거절됩니다.
+**저장소의 작업 기록은 `agentory/` 아래에 커밋되어 있고, `agentory/README.md`의 첫 줄이 이 폴더를 알려 줍니다.** 저장소를 연결하면 이 폴더와 그 안의 `README.md`, `config.json`을 씁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)). 폴더의 이름은 하나이고, 그 첫 줄 없이 자기 `agentory/`를 두는 저장소는 설정에서 거절됩니다.
 
 - `config.json`에는 저장소가 스스로에 대해 말하는 것이 있습니다. `Broad gate` 명령, 그리고 커밋과 기록의 언어입니다.
 - `threads/<작업>/`에는 작업 하나의 기록이 있습니다. `routing.md`, `frame/`, 리뷰 회차와 전체 검사(broad gate)의 실행을 담은 `trail/`, `decisions.md`, `inspection.md`, `changelog.md`, `gaps.md`, `pr.md`입니다.
 - `workflows/<이름>.json`과 `inspectors/<이름>.json`에는 저장소가 직접 둔 워크플로와 검수자 모듈이 들어갈 자리입니다. 아직 Owlery의 어떤 코드도 이것들을 읽지 않습니다([아직 어떤 코드도 읽지 않는 것](#아직-어떤-코드도-읽지-않는-것)).
 
-AgenticSeal 플러그인이 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 기록으로 읽습니다. 마이그레이션은 그 기록을 사람이 먼저 읽는 커밋 하나로 `iadd/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
+AgenticSeal 플러그인이 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 기록으로 읽습니다. 마이그레이션은 그 기록을 사람이 먼저 읽는 커밋 하나로 `agentory/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
 
 ### 검수와 그 검사
 
@@ -104,9 +107,9 @@ check: apps/desktop/test/workflow.test.ts apps/desktop/test/claude-adapter.test.
 
 ### 워크플로를 두는 곳과 나누는 법
 
-Owl Chain의 두 파일은 앱에 실려 나가고, 앱의 버전이 곧 두 파일의 버전입니다. 저장소가 직접 둔 파일은 `iadd/workflows/<이름>.json`과 `iadd/inspectors/<이름>.json`에 커밋되어 설 자리입니다. 그래서 팀은 저장소로 그 파일을 나누고, 검수한 커밋은 읽은 그대로의 파일을 담습니다. 사람이 단계에 정한 기본 모델은 데몬의 상태이고, 작업 하나의 선택은 그 작업의 `routing.md`에 한 줄로 적습니다. `owl-chain`이라는 이름은 두 폴더 모두에서 앱만 씁니다.
+Owl Chain의 두 파일은 앱에 실려 나가고, 앱의 버전이 곧 두 파일의 버전입니다. 저장소가 직접 둔 파일은 `agentory/workflows/<이름>.json`과 `agentory/inspectors/<이름>.json`에 커밋되어 설 자리입니다. 그래서 팀은 저장소로 그 파일을 나누고, 검수한 커밋은 읽은 그대로의 파일을 담습니다. 사람이 단계에 정한 기본 모델은 데몬의 상태이고, 작업 하나의 선택은 그 작업의 `routing.md`에 한 줄로 적습니다. `owl-chain`이라는 이름은 두 폴더 모두에서 앱만 씁니다.
 
-나눠 쓰는 워크플로나 검수자 모듈은 저장소에 있는 그 파일들입니다. 사람은 그 파일의 사본을 자기 `iadd/` 아래에 커밋해서 받아들이고, 사본에는 어디서 왔는지를 적습니다. Owlery는 어떤 모듈이 좋은지 막아 서는 문을 두지 않습니다. 판단은 사람이 하고, 모듈의 값어치는 누가 받아들이는지로 드러납니다.
+나눠 쓰는 워크플로나 검수자 모듈은 저장소에 있는 그 파일들입니다. 사람은 그 파일의 사본을 자기 `agentory/` 아래에 커밋해서 받아들이고, 사본에는 어디서 왔는지를 적습니다. Owlery는 어떤 모듈이 좋은지 막아 서는 문을 두지 않습니다. 판단은 사람이 하고, 모듈의 값어치는 누가 받아들이는지로 드러납니다.
 
 **검수가 무엇을 뜻하는지는 그 블록에서 읽습니다.** 블록은 워크플로와 검수자 모듈을 밝힙니다. 읽는 사람은 검수한 커밋에서 그 모듈의 파일을 열거나, `owl-chain`이면 `rules:` 줄이 밝히는 Owlery 버전의 역할 묶음을 엽니다. 검사의 제목은, 제목이 가리키는 판정 블록마다 `workflow: owl-chain`이 있으면 Owl Chain을 밝힙니다.
 
@@ -129,4 +132,4 @@ check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/d
 
 ### 아직 어떤 코드도 읽지 않는 것
 
-Owlery의 데몬과 체인 명령은 앱에 든 두 파일을 싣고, 다른 파일은 싣지 않습니다. `iadd/workflows/`, `iadd/inspectors/`, `routing.md`의 워크플로 줄, `config.json`의 워크플로 키는 읽지 않고, 불러오는 코드는 워크플로 하나와 모듈 하나, `owl-chain`만 밝힙니다. 사람이 만든 워크플로와 검수자 모듈, 다른 뼈대, 창에서 워크플로를 고치는 편집기, 나눠 쓰는 워크플로를 펴내고 받아들이는 일은 이슈 #324가 자리를 정합니다.
+Owlery의 데몬과 체인 명령은 앱에 든 두 파일을 싣고, 다른 파일은 싣지 않습니다. `agentory/workflows/`, `agentory/inspectors/`, `routing.md`의 워크플로 줄, `config.json`의 워크플로 키는 읽지 않고, 불러오는 코드는 워크플로 하나와 모듈 하나, `owl-chain`만 밝힙니다. 사람이 만든 워크플로와 검수자 모듈, 다른 뼈대, 창에서 워크플로를 고치는 편집기, 나눠 쓰는 워크플로를 펴내고 받아들이는 일은 이슈 #324가 자리를 정합니다.
