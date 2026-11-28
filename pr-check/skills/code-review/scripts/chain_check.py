@@ -2620,7 +2620,7 @@ def outcome(judged):
 
 
 # The name of the Owl Chain's workflow, as a verdict block's `workflow:` line
-# names it (`apps/desktop/src/daemon/inspection-records.ts#OWL_CHAIN`).
+# names it (`apps/desktop/src/daemon/workflow.ts#OWL_CHAIN`).
 OWL_CHAIN = "owl-chain"
 
 
