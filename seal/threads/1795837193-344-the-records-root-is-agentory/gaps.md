@@ -9,4 +9,4 @@
 
 ## Not done
 
-nothing
+Phase 1's read of its range against HEAD read every section of `seal range`'s output but the hunks of `apps/desktop/test/`, which hold 1231 changed lines at `e1d0414a`: their changed words were read through the word check (c) and their kept lines through the census (a), and their surrounding units were not read. The orchestrator decides whether a round reads them whole.
