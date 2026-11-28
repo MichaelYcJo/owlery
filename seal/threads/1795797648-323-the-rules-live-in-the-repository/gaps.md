@@ -8,7 +8,7 @@ The rules of #323's merged list that no open issue owns and that every session h
 
 | Item | Who must answer |
 |---|---|
-| The suite and the rest of `seal/config.json` `Broad gate` were not run; only its documents leg was run, as its loop and its `git grep` (phase 1) | the orchestrator, at the broad gate |
+| closed The suite and the rest of `seal/config.json` `Broad gate` were not run; only its documents leg was run, as its loop and its `git grep` (phase 1) | answered: #323's broad gate at `57f49425` (`trail/gate.md`) ran `seal/config.json` `Broad gate` whole. From it to #341's head `95c90799` only this work item's records changed (`git diff --name-only 57f49425 95c90799`), and #341's `check` run 46047935394 passed on its first attempt |
 | closed whether an open issue owns one of the written rules in words the keyword search did not meet (phase 1 calls the search a sample) | round 1 searched the 109 open issues for 34 terms, read each hit in context and found no owner phase 1 missed, `trail/rounds/round-1.md` *Confirmations*; that search is a sample too |
 
 ## Not done

@@ -4,8 +4,8 @@
 
 | Item | Who must answer |
 |---|---|
-| `apps/desktop/test/pane-session.test.ts`'s renamed lines, which run only under `pnpm run pane:run`, a real Claude Code session on the person's login (phase 1) | the orchestrator |
-| The typecheck of phase 1's TypeScript changes, among them `ROOT` imported into `renderer/view.ts` and `chain-command.ts`, which is the broad gate's | the orchestrator, at the broad gate |
+| closed `apps/desktop/test/pane-session.test.ts`'s renamed lines, which run only under `pnpm run pane:run`, a real Claude Code session on the person's login (phase 1) | a measurement no record asks for: it would decide whether the renamed lines of a hand check's file still run. No failure, issue or rule on record rests on them, and #355's run of `pane:run`, opened for #322's Q8, reads them |
+| closed The typecheck of phase 1's TypeScript changes, among them `ROOT` imported into `renderer/view.ts` and `chain-command.ts`, which is the broad gate's | answered: #344's broad gate at `9784503a` (`trail/gate.md`) ran `seal/config.json` `Broad gate` whole, every package's typecheck among it. From it to #346's head `8dc6e397` only this work item's records changed (`git diff --name-only 9784503a 8dc6e397`), and #346's `check` run 46113802351 passed on its first attempt |
 
 ## Not done
 
