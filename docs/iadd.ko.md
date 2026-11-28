@@ -36,7 +36,7 @@
 |---|---|
 | 방법론 | IADD. 대문자로 쓰고, *Zero Self-Approval*을 한 줄 문구로 붙입니다 |
 | 기본 워크플로 | 문장에서는 Owl Chain, 워크플로와 검수자 모듈의 이름으로는 `owl-chain` |
-| 역할 | framer, crafter, proofer, orchestrator는 그대로이고, 마지막 역할은 검수하는 검수자(`inspector`)입니다 |
+| 역할 | framer, crafter, proofer, orchestrator, tracer는 그대로이고, 마지막 역할은 검수하는 검수자(`inspector`)입니다. Owlery의 역할 묶음에는 tracer가 없습니다 |
 | 검수자의 기록 | 검수, `inspection.md` |
 | 검수의 상태 | 검수 통과, 검수 실효, 그리고 검수가 서 있지 않은 검수 없음 |
 | 기록 폴더 | `iadd/`. `README.md`의 첫 줄 `# What IADD keeps in iadd/`로 알아봅니다 |

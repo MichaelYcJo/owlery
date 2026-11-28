@@ -36,7 +36,7 @@ The definitions of Agent Driven Development read on 2026-11-28 (agentdriven.dev,
 |---|---|
 | The method | IADD, in capitals, with *Zero Self-Approval* as its line |
 | The default workflow | the Owl Chain in prose, and `owl-chain` as the name of a workflow and of an inspector module |
-| The roles | framer, crafter, proofer and orchestrator, as before, and the inspector, the final role, which inspects |
+| The roles | framer, crafter, proofer, orchestrator and tracer, as before, and the inspector, the final role, which inspects. Owlery's role bundle holds no tracer |
 | The inspector's record | the inspection, `inspection.md` |
 | The states of an inspection | cleared, lapsed, and not cleared where no inspection stands |
 | The records folder | `iadd/`, told by the first line of its `README.md`, `# What IADD keeps in iadd/` |
