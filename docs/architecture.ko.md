@@ -198,7 +198,7 @@ check: apps/desktop/test/hooks.test.ts apps/desktop/test/pane-chain.test.ts apps
 
 ## Owlery가 출발한 곳
 
-Owlery는 같은 방법론 IADD를 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했습니다([docs/iadd.ko.md](iadd.ko.md)). 소유자는 2026-11-28에 그 플러그인이 이름 `agentic`과 명령 `agentic`을 그대로 쓰고, 방법론과 그 기록에는 IADD의 이름을 받아 뿌리 `agentory/`에 두도록 정했고, 그래서 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰며 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표를 두지 않습니다. Owlery는 그 플러그인을 싣거나 그 버전에 기대어 돌지 않습니다. AgenticSeal의 각 부분을 Owlery의 것으로 가져와 제품에 맞는 자리에 두었습니다. AgenticSeal은 MIT 라이선스이므로, 가져온 파일에는 그 저작권 고지를 남깁니다.
+Owlery는 같은 방법론 IADD를 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했습니다([docs/iadd.ko.md](iadd.ko.md)). 소유자는 2026-11-28에 그 플러그인이 이름 `agentic`을 그대로 쓰고 방법론과 그 기록에는 IADD의 이름을 받도록 정했습니다. 플러그인은 릴리스 0.40.0부터 명령 `seal` 대신 `agentic`을 쓰고 기록을 뿌리 `agentory/`에 둡니다. 그래서 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰며 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표를 두지 않습니다. Owlery는 그 플러그인을 싣거나 그 버전에 기대어 돌지 않습니다. AgenticSeal의 각 부분을 Owlery의 것으로 가져와 제품에 맞는 자리에 두었습니다. AgenticSeal은 MIT 라이선스이므로, 가져온 파일에는 그 저작권 고지를 남깁니다.
 
 **이 저장소의 기록은 이 저장소가 직접 옮길 때까지 AgenticSeal 플러그인의 형식에 남습니다.** 이 저장소는 그 플러그인으로 만들고, 플러그인은 기록을 `seal/` 아래에 예전 형식으로 씁니다. 이 저장소의 PR은 Owlery 자신의 워크플로 `.github/workflows/owlery-seal.yml`이 검사하고, 그 워크플로는 검사 `seal`을 올립니다. 이 저장소의 기록이 플러그인의 뿌리 `seal/`에 있는 동안에는 그 워크플로의 고정 버전을 0.1.0에 그대로 둡니다. 더 뒤 릴리스의 검사는 IADD의 형식만 읽기 때문입니다. 플러그인이 IADD의 이름을 받으면 이슈 #322의 *When it lands* 4단계가 뿌리와 고정 버전을 한 커밋에서 함께 옮기므로, 제품은 한 형식을 두 가지 철자로 읽지 않습니다. IADD로 이름을 바꾼 앱은 이 저장소에 기록을 옮기자고 내놓지만, 그때까지 여기서는 받지 않습니다.
 check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
