@@ -75,4 +75,4 @@ The spawn names no other open work item by a list. The routing names two of the 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-28 | The pull request's title takes the prefix `feat` and the issue's own title | The work adds what a person can use: Owlery's definition of IADD, a connected repository's migration to `iadd/`, the check `inspection`, and the Owl Chain as a workflow file the app reads; the rename and the docs serve it. `fix` would name a defect, and no single defect is the subject | the plugin's `skills/commit-pr-convention/SKILL.md` prefix vocabulary |
