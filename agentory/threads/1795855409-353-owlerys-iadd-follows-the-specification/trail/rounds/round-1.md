@@ -33,6 +33,11 @@ The fix rewrites the three lines of the workflow file that name the version, lin
           || git clone --quiet --depth 1 --branch release/v0.2.1 \
 ```
 
+```iadd
+verdict: fixed 7a1f62df
+answer: The three version strings of `.github/workflows/owlery-inspection.yml` read 0.2.1.
+```
+
 ### 2. Five Korean sentences still name an inspection's state 통과, which row C7 replaced with 합격 and 합격 아님
 
 ```iadd
@@ -57,6 +62,11 @@ docs/design.ko.md:470     검수가 head에서 통과했으면:  ->  검수가 h
 docs/product.ko.md:9      검수자가 통과시켜야만 PR이 열립니다  ->  검수자가 합격시켜야만 PR이 열립니다
 docs/product.ko.md:96     만든 쪽은 자기 작업을 통과시키지 못합니다.  ->  만든 쪽은 자기 작업을 합격시키지 못합니다.
 docs/roadmap.ko.md:24     목록 밖 모듈이 검수한 PR은 통과하지 않습니다  ->  목록 밖 모듈이 검수한 PR은 합격 아님으로 읽힙니다
+```
+
+```iadd
+verdict: fixed 7a1f62df
+answer: The five sentences read 합격시켰다는, 합격했으면, 합격시켜야만, 합격시키지 and 합격하지.
 ```
 
 ### 3. Other documents still say that docs/iadd.md defines the method and holds its concept, principles and names, and README.md says an inspection lapses at the next commit
@@ -112,6 +122,11 @@ apps/desktop/role-bundle/README.md:3, the sentence that opens "`docs/iadd.md` at
 The [IADD specification](SPEC_EN) defines the method, `docs/iadd.md` at the top of Owlery's repository states Owlery's side of it, and the app ships neither document.
 ```
 
+```iadd
+verdict: fixed 7a1f62df
+answer: README.md and its twin, docs/product.md, docs/architecture.md, docs/name.md with their twins, and the role bundle's README now say that the specification defines the method and docs/iadd.md states how Owlery follows it, and README.md no longer says an inspection lapses at the next commit.
+```
+
 ### 4. The row on how a run ends says Owlery offers no branch end, and the daemon rests at the cleared branch where the routing says to stop before the pull request
 
 ```iadd
@@ -128,6 +143,11 @@ docs/iadd.md:15:
 
 docs/iadd.ko.md:15:
 | 실행이 끝나는 곳 | 작업의 `routing.md`가 `Destination`에 `open the pull request`라고 답하면 PR. Owlery는 체인을 처음 시작하며 만드는 `routing.md`마다 이 답을 씁니다. 답이 `stop before the pull request`이면 체인은 합격한 브랜치에서 멈추고 PR을 열지 않습니다 |
+```
+
+```iadd
+verdict: fixed 7a1f62df
+answer: The row says Owlery writes `open the pull request` for every item it routes, that a routing naming `stop before the pull request` rests the chain at the cleared branch, and that no screen offers it yet.
 ```
 
 ### 5. The row on a merge of the base says a base commit that touches only the work item's own directory does not lapse the inspection, and the code lapses it unless the change is to a closing record
@@ -148,6 +168,11 @@ docs/iadd.ko.md:18:
 | 검수한 커밋 뒤의 base 머지 | 다른 커밋과 똑같이 읽습니다. 검수한 커밋과 head의 트리가 마감 기록보다 많이 다르면 검수는 효력을 잃습니다. 머지가 들여온 base의 커밋도 하나하나 살피고, 그 작업 자신의 디렉터리 밖의 경로를 건드린 커밋이 있으면 두 트리가 같아도 검수는 효력을 잃습니다 |
 ```
 
+```iadd
+verdict: fixed 7a1f62df
+answer: The row says a merge lapses the inspection where it changes a path other than the closing records, as every other commit does, and drops the exception.
+```
+
 ### 6. The row on an undecided verdict says the work item parks after two, and the daemon rules on the first two and parks at the third
 
 ```iadd
@@ -164,6 +189,11 @@ docs/iadd.md:19:
 
 docs/iadd.ko.md:19:
 | `undecided` 판정에 누가 먼저 답하는지 | 검수 하나의 처음 두 `undecided` 판정에는 orchestrator 에이전트가 답하고, 그 판단은 `decisions.md`에 커밋됩니다. 그 뒤의 `undecided` 판정은 판단을 묻지 않은 채 그 질문으로 작업을 사람을 기다리며 세워 둡니다 |
+```
+
+```iadd
+verdict: fixed 7a1f62df
+answer: The row says the orchestrator rules on the first two, and from the third the work item parks.
 ```
 
 ### 7. The lists of what Owlery adds and where it departs leave out lines and a party that the code has, which §9 of the specification asks each product to list
@@ -212,6 +242,11 @@ docs/iadd.ko.md, after item 9 of Owlery가 벗어나는 곳:
 changelog.md:5: the parenthesis names the added close-block line and routing rows beside the others, and "the nine places" becomes "the eleven places".
 ```
 
+```iadd
+verdict: fixed 7a1f62df
+answer: The additions list names the routing rows and the directory's name, the orchestrator as an agent, and what the round record's readers take beyond §8.4. The modes row names `Policy root`. The changelog fragment drops the counts.
+```
+
 The two documents' headings, table rows and `check:` lines stay paired: the snippet adds two bullets and two list items to each.
 
 ### 8. The row of principle 8 says code holds each invariant, and the document says a pane holds invariants 3 and 7 otherwise
@@ -230,6 +265,11 @@ docs/iadd.md:35:
 
 docs/iadd.ko.md:35:
 | 8. 어느 쪽도 건너뛰지 못하는 연결이 있다 | 아래 불변식 1부터 7. 데몬의 체인에서는 하나하나를 Owlery의 코드가 지키고, 칸에서 불변식 3과 7을 무엇이 지키는지는 [Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 8번에 있습니다 |
+```
+
+```iadd
+verdict: fixed 7a1f62df
+answer: The row says code holds each in the daemon's chain, and points at departure 8 for the pane.
 ```
 
 ## Confirmations
