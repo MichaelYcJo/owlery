@@ -1,3 +1,4 @@
+// layer: pty
 // A work item's chain: the review rounds, the fix passes, the orchestrator's
 // judgments, the broad gate and the inspection the daemon runs from
 // `Daemon#startChain`, which each case calls through its client.

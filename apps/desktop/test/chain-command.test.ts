@@ -1,3 +1,4 @@
+// layer: process
 // The chain command, which a pane's session runs the owl chain through
 // (`src/daemon/chain-command.ts`): each case calls its subcommands in a
 // temporary repository, in the case's own process, and reads the commits

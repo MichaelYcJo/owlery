@@ -1,3 +1,4 @@
+// layer: pty
 // The pull request check: the scripts under `pr-check/` at the top of the
 // repository, which the workflow of a connected repository fetches and runs
 // on GitHub. Each case runs the check as that workflow does, with `python3`

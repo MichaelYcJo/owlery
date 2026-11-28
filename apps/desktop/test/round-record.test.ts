@@ -1,3 +1,4 @@
+// layer: process
 // The daemon's reader of a round record. The pull request check reads the same
 // record in Python (`pr-check/skills/code-review/scripts/chain_check.py#round_read`),
 // so the first case hands one set of records to both readers and compares what

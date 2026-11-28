@@ -1,3 +1,4 @@
+// layer: logic
 // The inspection sheet as one function composes it, for the window and for
 // the pull request's body alike, from what the committed records say and
 // the ledger's entries. It reads no file and no clock, so each case hands it

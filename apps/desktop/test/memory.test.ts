@@ -1,3 +1,4 @@
+// layer: app
 // The memory measurement: the built app's memory, read with macOS's
 // `footprint`, one launch for each scenario and run. `pnpm run measure:memory`
 // sets `OWLERY_MEASURE_MEMORY` and takes it. Without the variable the file is

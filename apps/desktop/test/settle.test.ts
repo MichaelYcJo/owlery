@@ -1,3 +1,4 @@
+// layer: process
 // The release's settle: what it reads of every work item's `decisions.md`,
 // which directories it keeps and why, and the list of the release's decisions
 // made without asking. The cases read temporary repositories and never

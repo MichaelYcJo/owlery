@@ -1,3 +1,4 @@
+// layer: logic
 // What a work item's records say of its chain, as the daemon reads them in
 // the work item's directory: whether the frame stands, how many rounds are
 // recorded, the gate's last run and the inspector's last verdict.

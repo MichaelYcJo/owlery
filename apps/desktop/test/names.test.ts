@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { slugFor } from "../src/daemon/worktrees";
 import { FIRST_WORDS, generateName, SECOND_WORDS } from "../src/shared/names";

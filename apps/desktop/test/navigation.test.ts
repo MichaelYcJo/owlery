@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { staysOnPage } from "../src/main/navigation";
 

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { StoredWorkItem } from "../src/daemon/repositories";
@@ -45,11 +45,15 @@ export async function branchedWorktree(options: Parameters<typeof createWorktree
   return { ...place, branch, ownsBranch: true };
 }
 
-/** Gives the repository the name its commits are made under, and no signing. */
+/**
+ * Gives the repository the name its commits are made under, and no signing,
+ * in its own configuration file, written with no process. The suite's git is
+ * given the same in its global configuration (scripts/test-in-electron.mjs),
+ * and a case that hands a command an environment of its own still finds them here.
+ */
 function identify(repo: string): void {
-  git(repo, "config", "user.name", "Owlery Test");
-  git(repo, "config", "user.email", "test@owlery.invalid");
-  git(repo, "config", "commit.gpgsign", "false");
+  // The repository is one `git init` or `git clone` made, so its configuration file is `.git/config`.
+  appendFileSync(join(repo, ".git", "config"), "[user]\n\tname = Owlery Test\n\temail = test@owlery.invalid\n[commit]\n\tgpgsign = false\n");
 }
 
 /**

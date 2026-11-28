@@ -1,3 +1,4 @@
+// layer: process
 // The move of a repository's work records from the earlier form, which the
 // AgenticSeal plugin wrote under `seal/`, to IADD's under `agentory/`: what the
 // plan names, what the one commit holds, how each record is rewritten, what

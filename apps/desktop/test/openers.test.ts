@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { appFolders, copyText, EDITOR_COMMANDS, installedApps, KNOWN_APPS, openFolder, openInEditor, trashFolder, type Openers } from "../src/main/openers";
 

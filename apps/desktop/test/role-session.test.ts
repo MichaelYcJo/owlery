@@ -1,3 +1,4 @@
+// layer: app
 // Role sessions of the person's own `claude`, launched by the daemon as a
 // role at its stage with the built bundle. The suite runs neither case:
 // `pnpm run role:run` sets `OWLERY_ROLE_RUN` and takes the first, and

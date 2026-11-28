@@ -1,3 +1,4 @@
+// layer: process
 // The package command's decisions: the way of signing the variables give,
 // the check of a release's tag against the app's version, the configuration
 // the packager is handed, the images of the icon file, and the Dock's image

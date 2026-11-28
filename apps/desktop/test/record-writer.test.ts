@@ -1,3 +1,4 @@
+// layer: process
 // The one way the daemon writes a file of a work item's directory. A worktree
 // is a checkout the daemon did not write, so a folder on the way to a record,
 // or the record's own path, may be a link that leaves the worktree. Each case

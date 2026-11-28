@@ -1,3 +1,4 @@
+// layer: pty
 // The runner of heavy commands (`chain-command.ts#run`), which a session
 // starts through the launcher `OWLERY_RUN` names: it looks a name up in the
 // worktree's `Heavy commands`, asks the daemon for a turn on the turn socket

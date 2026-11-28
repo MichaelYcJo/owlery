@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { chooseNotifier, type Raised } from "../src/renderer/notifier";
 

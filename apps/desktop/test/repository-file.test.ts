@@ -1,3 +1,4 @@
+// layer: process
 // The daemon's read of a file a person's repository holds: a plain file of a
 // bounded size, and never what a link, a pipe or a device stands for.
 import { execFileSync, spawn } from "node:child_process";

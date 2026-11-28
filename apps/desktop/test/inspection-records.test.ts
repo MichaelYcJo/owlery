@@ -1,3 +1,4 @@
+// layer: logic
 // The text of the two records the daemon writes at the end of a chain: the
 // broad gate's runs in `trail/gate.md` and the inspector's verdicts in
 // `inspection.md`. The module reads no file, so each case hands it a text. The

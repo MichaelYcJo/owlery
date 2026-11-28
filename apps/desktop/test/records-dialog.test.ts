@@ -1,3 +1,4 @@
+// layer: app
 // The dialog of the records place in the built app. It starts the app once,
 // in the background, on a temporary repository with no place for records,
 // registers the repository through the form, and drives the dialog through

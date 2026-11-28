@@ -1,3 +1,4 @@
+// layer: app
 // The role bundle: the plugin folder the app ships, which a role session of
 // the daemon and a Claude Code pane on the Owl Chain each load for that
 // session alone. Its files started from AgenticSeal and are Owlery's own, and

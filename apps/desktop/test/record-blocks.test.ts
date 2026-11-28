@@ -1,3 +1,4 @@
+// layer: process
 // The daemon's reader and writer of an `iadd` block. The pull request check
 // reads the same blocks in Python (`pr-check/lib/fields.py`), so the first
 // case hands one set of fixtures to both readers and compares what they

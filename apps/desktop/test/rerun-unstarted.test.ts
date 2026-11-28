@@ -1,3 +1,4 @@
+// layer: process
 // The command `.github/scripts/rerun-unstarted.mjs`, which the workflow
 // `.github/workflows/rerun-unstarted.yml` runs when a run of `check` or of
 // `package` completes. Each case runs the command as a process, with the

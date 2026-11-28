@@ -1,3 +1,4 @@
+// layer: pty
 import { spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";

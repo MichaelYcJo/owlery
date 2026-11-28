@@ -1,3 +1,4 @@
+// layer: app
 // A click on a notification in the built app. It starts the app once, in the
 // background, on a temporary repository, where the page raises nothing of
 // the system's and keeps each notification in `window.__notifications`

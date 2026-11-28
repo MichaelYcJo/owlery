@@ -5,7 +5,8 @@
 // for waits, and runs once in a task after the release, by which time the
 // click has reached the element that was pressed. A task and not a microtask:
 // a microtask queued at the release runs before the click is sent. The module
-// touches no page when it is imported, so the unit project imports it.
+// touches no page when it is imported, so a test file of the layer `logic`
+// imports it.
 
 /** Runs a function in a later task of the page. */
 export type Schedule = (run: () => void) => void;

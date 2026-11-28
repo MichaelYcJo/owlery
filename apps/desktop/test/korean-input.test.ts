@@ -1,3 +1,4 @@
+// layer: app
 // The Korean input regression test's replayed case. It starts the built app,
 // opens a shell pane whose process is the receiver, replays each line's
 // composition into the pane through Electron's debugging port, and reads the

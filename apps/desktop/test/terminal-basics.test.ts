@@ -1,3 +1,4 @@
+// layer: app
 // What a terminal pane and the window around it do for a person, read in the
 // built app: the window stays on its own page, the menu leaves the page its
 // keys, the Command key with W closes the pane in front, a pane whose

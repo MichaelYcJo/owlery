@@ -1,3 +1,4 @@
+// layer: app
 // The "New work item" form in the built app. It starts the app once, in the
 // background, on a temporary clone, and drives the form through Electron's
 // debugging port: the name the window generates, the branch and the base the

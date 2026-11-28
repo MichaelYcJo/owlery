@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { PANE_KINDS } from "../src/daemon/pane-kinds";
 

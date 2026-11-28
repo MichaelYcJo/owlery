@@ -24,8 +24,15 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  */
 const SUITE_MACHINE = { memoryBytes: 38_654_705_664, cores: 12, performanceCores: 6, freeBytes: 25_088_950_272, totalBytes: 494_384_795_648 };
 
+/** The guard of the `pty` layer (scripts/layers.mjs): it throws unless the running file is of the layer `app`, whose project sets `OWLERY_TEST_LAYER`. */
+function appLayerOnly(what: string): void {
+  const layer = process.env.OWLERY_TEST_LAYER;
+  if (layer !== "app") throw new Error(`A case of a \`${layer}\` file started the built app with ${what}. A file whose cases start the built app opens with \`// layer: app\`.`);
+}
+
 /** Builds `dist/` from the tree as it stands, so a case never reads a stale build. */
 export function buildApp(): void {
+  appLayerOnly("buildApp");
   // The suite's binary is Electron, which runs the build script as Node while the variable is set.
   execFileSync(process.execPath, ["build.mjs"], { cwd: APP_DIR, env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" }, stdio: "pipe" });
 }
@@ -199,6 +206,7 @@ export class BuiltApp {
    * function wrote there.
    */
   static async start(env: Record<string, string>, { keepBackground = false, inspectMain = false, writeRun }: { keepBackground?: boolean; inspectMain?: boolean; writeRun?: (runDir: string) => void } = {}): Promise<BuiltApp> {
+    appLayerOnly("BuiltApp.start");
     const userData = realpathSync(mkdtempSync(join(tmpdir(), "owlery-app-")));
     if (writeRun) {
       const runDir = join(userData, "run");

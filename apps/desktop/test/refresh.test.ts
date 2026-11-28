@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import type { ClientMessage } from "../src/shared/protocol";
 import { NO_ANSWER_SAYS, REFRESH_ANSWER_MS, refresher } from "../src/renderer/refresh";

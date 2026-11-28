@@ -1,3 +1,4 @@
+// layer: process
 // The inspection a work item's branch holds at its head commit, as the daemon reads
 // it: `cleared`, `lapsed` or none, from git and the committed records alone.
 // Each case commits the records to a temporary repository as the daemon's

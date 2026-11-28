@@ -13,7 +13,8 @@
 // sentence of this module's own end keeps the notice after it. The answer's
 // lists arrive in
 // an `inbox` before the `done`, and the window draws them as any `inbox`. The
-// module touches no page when it is imported, so the unit project imports it.
+// module touches no page when it is imported, so a test file of the layer
+// `logic` imports it.
 import type { ClientMessage } from "../shared/protocol";
 
 /** How long the window waits for the daemon's answer to a press. */

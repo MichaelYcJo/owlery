@@ -13,6 +13,7 @@
     "package:verify": "node scripts/verify-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/test-in-electron.mjs",
+    "test:unit": "node scripts/test-in-electron.mjs --project logic --project process --project pty",
     "test:app": "node scripts/test-in-electron.mjs --project app",
     "check": "pnpm run typecheck && pnpm run test",
     "korean:typed": "OWLERY_KOREAN_TYPED=1 node scripts/test-in-electron.mjs test/korean-input.test.ts",

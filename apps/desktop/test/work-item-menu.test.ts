@@ -1,3 +1,4 @@
+// layer: app
 // The menus in the built app. It starts the app once, in the background, on a
 // temporary clone with two work items, and drives the window through
 // Electron's debugging port: a work item's menu from the right button and

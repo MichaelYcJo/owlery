@@ -1,3 +1,4 @@
+// layer: pty
 // The broad gate's run: one command handed to `/bin/sh -c` with no terminal,
 // what it printed, and the end of its process group at a stop. Every command
 // is a stand-in the case writes, run in a temporary folder: no case runs a

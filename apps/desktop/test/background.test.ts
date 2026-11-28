@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { closeHides, quitsWithLastWindow, showInBackground, startsInBackground, takeBackground } from "../src/main/background";
 

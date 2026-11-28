@@ -1,3 +1,4 @@
+// layer: logic
 import { describe, expect, it } from "vitest";
 import { daemonControl } from "../src/main/daemon-control";
 

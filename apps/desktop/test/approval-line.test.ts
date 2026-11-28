@@ -1,3 +1,4 @@
+// layer: app
 // The approval line in the built app. It starts the app once, in the
 // background, on a temporary repository that holds the place for work
 // records. The login shell is a script that names a script CLI, so no real

@@ -1,3 +1,4 @@
+// layer: app
 // The screenshot command: `pnpm run screenshots` sets `OWLERY_SCREENSHOTS`
 // and this file then starts the built app in the background, on a temporary
 // repository with seven work items, one in each state a work item has, one

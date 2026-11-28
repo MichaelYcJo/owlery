@@ -1,3 +1,4 @@
+// layer: app
 // The launch measurement: what a launch of the built app costs, against a
 // reset of one app left open, as many times each as the run names.
 // `pnpm run measure:launch` sets `OWLERY_MEASURE_LAUNCH` and takes it. Without

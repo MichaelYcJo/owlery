@@ -1,3 +1,4 @@
+// layer: app
 // A real pane: the person's own `claude`, on their login, started as the
 // daemon starts a Claude Code pane that carries the owl chain, with the built
 // bundle, the pane's head, the hook settings and the chain command's

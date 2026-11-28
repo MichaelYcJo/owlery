@@ -1,3 +1,4 @@
+// layer: app
 // The controls of the sidebar's foot in the built app: the one that chooses
 // the theme, the one that chooses the appearance, and the one that opens the
 // Accounts dialog, where an account is added with no folder. The app starts

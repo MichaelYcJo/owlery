@@ -1,3 +1,4 @@
+// layer: app
 // The menu's two entries that end the daemon, the status line's sentence
 // for a daemon of another build, and the load's replacement of one that
 // runs nothing, in the built app. The app is started
