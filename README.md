@@ -4,11 +4,15 @@
 
 *English · [한국어](./README.ko.md)*
 
-**Answer once, and come back to a pull request sealed by a party that did not build it.**
+**Answer once, and come back to a pull request cleared by an AI that did not build it.**
 
-Owlery (OWL-er-ee) is a desktop app, built on AgenticSeal's workflow, that puts a seal on agent work, and the seal breaks. A party independent of the one that built the work judges it and binds the seal to one commit. If even one commit lands after that, the seal breaks, and everyone looking at the PR sees it. A person answers the questions about one issue once and walks away. Design, implementation, review rounds and the verdict then follow without a person, and a PR comes back carrying the seal.
+Owlery (OWL-er-ee) is a desktop app that runs IADD on your repositories. A person answers the questions about one issue once and walks away. Design, implementation, review rounds and the inspection then follow without a person, and a pull request comes back carrying an inspection that anyone can read on GitHub.
 
-An owlery is a place where owls live. The owls are the agents. Owlery's emblem is the owl without the wax, and the owl on a wax seal stays AgenticSeal's mark of a guarantee. The details are in [docs/name.md](docs/name.md).
+**IADD, Independent AI-Driven Development, is the method.** Its line is *Zero Self-Approval*: no AI approves its own work. The AIs that frame, craft, proof and inspect the work are independent of one another, and the inspector built none of what it inspects. The inspection is bound to one commit and lapses at the next, so a commit that lands after it shows on the pull request as a lapsed inspection. [docs/iadd.md](docs/iadd.md) is Owlery's definition of the method: its principles, its names, its records and what a workflow is.
+
+**Owlery is one tool that runs IADD, and the Owl Chain is its default workflow.** The Owl Chain is the workflow Owlery ships and keeps up: review rounds by a proofer, fix passes by a crafter, the repository's broad gate, and the inspector's verdict. A Claude Code pane of a repository on the Owl Chain carries it today, and milestone 3 of the [roadmap](docs/roadmap.md#milestones) has Owlery's daemon run it for an issue a person hands over.
+
+An owlery is a place where owls live. The owls are the agents. Owlery's emblem is the owl without the wax, and the owl on red wax is the inspection's mark, which the window draws at a cleared inspection's place. The details are in [docs/name.md](docs/name.md).
 
 ## Install
 
@@ -29,7 +33,7 @@ Owlery opens on the inbox. It runs your own `claude`, `git` and `gh` through you
 
 ## Run it
 
-Release 0.0.1 runs this much. The window opens on the inbox. A work item gets a branch and a worktree of its own, terminal panes open in that worktree, and one question can be put to a headless Claude session. No seal exists yet: the review rounds and the seal come with milestone 2 of the [roadmap](docs/roadmap.md#milestones).
+Release 0.0.1 runs this much. The window opens on the inbox. A work item gets a branch and a worktree of its own, terminal panes open in that worktree, and one question can be put to a headless Claude session. The review rounds and the inspection came with milestone 2 of the [roadmap](docs/roadmap.md#milestones).
 
 You need macOS, Node.js and pnpm 10.33.0. The commands below were run with Node.js 26.13.1. Run them from the top of the repository:
 
@@ -40,21 +44,23 @@ pnpm --filter @owlery/desktop start
 
 The first start downloads Electron's binary, and then the window opens.
 
-## The seal check on GitHub
+## The inspection check on GitHub
 
-When a repository is connected, Owlery commits a workflow to it, `.github/workflows/owlery-seal.yml`. On each pull request the workflow runs Owlery's pull request check, which reads the records the work item committed. The check posts its verdict as a GitHub check named `seal` on the pull request's head commit. The workflow's own job, `records`, fails where `seal` fails and passes where it passes or is neutral. A person without the app reads the verdict there, and in the seal section at the top of the pull request's body, which is a copy of the newest verdict block of the work item's `guarantee.md`. A commit pushed after the seal fails the check until a new seal is given. The check reads the same committed records as the app, and the two judge alike what lands after a seal the app gave. Records that no chain of the app commits, written by hand or by another tool, can be judged apart by the two. The title of a seal and of a broken seal names the owl chain, Owlery's chain of agents, where every verdict block the title names holds the `rules:` line the owl chain writes, and names no chain where one holds none, as a block the AgenticSeal plugin's sealer wrote.
+When a repository is connected, Owlery commits a workflow to it, `.github/workflows/owlery-inspection.yml`. On each pull request the workflow runs Owlery's pull request check, which reads the records the work item committed under `iadd/`. The check posts its verdict as a GitHub check named `inspection` on the pull request's head commit. The workflow's own job, `records`, fails where `inspection` fails and passes where it passes or is neutral. A person without the app reads the verdict there, and in the inspection section at the top of the pull request's body, which is a copy of the newest verdict block of the work item's `inspection.md`. A commit pushed after the inspection lapses it, and the check fails until a new inspection is cleared. The check reads the same committed records as the app, and the two judge alike what lands after an inspection the app cleared. Records that no chain of the app commits, written by hand or by another tool, can be judged apart by the two. The title of a cleared and of a lapsed inspection names the Owl Chain where every verdict block the title names holds `workflow: owl-chain`, the line Owlery writes to name the workflow that produced the inspection, and names no workflow otherwise.
 
-| Result of `seal` | Title | When |
+| Result of `inspection` | Title | When |
 |---|---|---|
-| Passed | "Sealed by the owl chain at" and the sealed commit, or "Sealed at" and the sealed commit for a seal the owl chain did not give | A ready pull request whose head commit carries a seal, and a draft that would pass once ready |
-| Failed | "Seal of the owl chain broken: a commit landed after" and the sealed commit, or "Seal broken: a commit landed after" and the sealed commit for a seal the owl chain did not give | A ready pull request whose head commit holds a seal that a later commit broke, a merge of the base among them |
-| Failed | "No seal at the head commit" | A ready pull request whose head commit holds no seal |
+| Passed | "Cleared by the Owl Chain at" and the inspected commit, or "Cleared at" and the inspected commit for an inspection of no named workflow | A ready pull request whose head commit carries a cleared inspection, and a draft that would pass once ready |
+| Failed | "Inspection of the Owl Chain lapsed: a commit landed after" and the inspected commit, or "Inspection lapsed: a commit landed after" and the inspected commit for an inspection of no named workflow | A ready pull request whose head commit holds an inspection that a later commit lapsed, a merge of the base among them |
+| Failed | "Not cleared: no inspection at the head commit" | A ready pull request whose head commit holds no cleared inspection |
 | Failed | "The records are refused" | A ready pull request whose records fail another part of the check |
 | Neutral | "Draft: judged when it is ready" | A draft that would be refused once ready |
 | Passed | "Not judged: no work item is declared" | A pull request that declares no work item |
-| Failed | "The seal check could not run" | The check could not read the checkout or the base branch it is judged against |
+| Failed | "The inspection check could not run" | The check could not read the checkout or the base branch it is judged against |
 
-**An administrator of the repository makes the check required.** In the repository's rules for the base branch on GitHub, under the rule that requires status checks to pass, the administrator adds `seal`. Owlery changes no setting of the repository, and the app's dialog "Records and check" says the same. A pull request from a fork gets no `seal` check, because GitHub gives its workflow run a token that cannot write one, so a required check holds that pull request until an administrator lets it through. A repository that keeps AgenticSeal's `hygiene.yml` in place of Owlery's workflow posts no `seal` check.
+**An administrator of the repository makes the check required.** In the repository's rules for the base branch on GitHub, under the rule that requires status checks to pass, the administrator adds `inspection`. Owlery changes no setting of the repository, and the app's dialog "Records and check" says the same. A pull request from a fork gets no `inspection` check, because GitHub gives its workflow run a token that cannot write one, so a required check holds that pull request until an administrator lets it through.
+
+**A repository connected by an earlier Owlery moves to IADD's forms in one commit.** Owlery reads no record of the earlier form and runs no chain on it, and the repository's row says that its records are in the earlier form. The dialog "Records and check" shows the commit that moves the records to `iadd/` in IADD's forms and replaces the earlier workflow with `owlery-inspection.yml`, and writes nothing until the person confirms. An inspection cleared before the move lapses at the move's commit. A rule that required the check the earlier workflow posted has to require `inspection` in its place, since no workflow posts that check after the move. [docs/architecture.md](docs/architecture.md#records-are-committed-to-the-repository) names the earlier forms. A work item's branch that held records before the move moves its own with the chain command's `migrate`.
 
 **The verdict is a check, and never an approving review.** Owlery writes no review and merges nothing. The person merges.
 
@@ -62,15 +68,16 @@ When a repository is connected, Owlery commits a workflow to it, `.github/workfl
 
 | Document | What it holds |
 |---|---|
-| [docs/product.md](docs/product.md) | The promise, who it is for, the three places the seal is shown, performance hypotheses and the benchmark plan, what we deliberately don't do, the first session |
-| [docs/architecture.md](docs/architecture.md) | How the app, the daemon, the agent adapters and the AgenticSeal process fit together, what we take from AgenticSeal, how order and judgment are split, the rule for the first milestone's shape and what follows the first version, memory design, the screen framework, what to measure before building |
+| [docs/iadd.md](docs/iadd.md) | IADD, the method Owlery runs: its concept, its principles, its names and the names set aside, its records and its check, what a workflow is, and what holds for every workflow |
+| [docs/product.md](docs/product.md) | The promise, who it is for, the three places the inspection is shown, performance hypotheses and the benchmark plan, what we deliberately don't do, the first session |
+| [docs/architecture.md](docs/architecture.md) | How the app, the daemon, the agent adapters and the Owl Chain fit together, where Owlery started, how order and judgment are split, the rule for the first milestone's shape and what follows the first version, memory design, the screen framework, what to measure before building |
 | [docs/roadmap.md](docs/roadmap.md) | What Owlery builds, in what order, and when it is done: the five milestones of the first version, the grounds for their order, the done criteria, and the decisions left open |
 | [docs/name.md](docs/name.md) | The meaning and origin of the name, its pronunciation, what to keep in mind, and the emblem |
 | [docs/design.md](docs/design.md) | How the window looks and speaks: its principles, the three themes and every value each draws with, the forms of its parts and their states, the voice of its words, what it stays clear of, and the screenshots a pull request that changes the window carries |
 
-## Relationship to AgenticSeal
+## Where Owlery started
 
-AgenticSeal is the original Owlery draws on, and Owlery is the product that extends it. Owlery does not run on the AgenticSeal plugin. It takes the principles, invariants, roles and record format and makes them its own; the app's code runs the order; and the roles' agent definitions and skills ship inside the app as the defaults. AgenticSeal plugin users keep using it in Claude Code as they do now. What was taken where, and the compatibility of the record format, are in [docs/architecture.md](docs/architecture.md).
+Owlery started from AgenticSeal, a Claude Code plugin that runs the same method, and the owner set on 2026-11-28 that it takes IADD's names and becomes the plugin `iadd` (MichaelYcJo/AgenticSeal#1651). Owlery does not run on that plugin. Its role bundle and its pull request check started from the plugin's files and are Owlery's own, and Owlery's code runs the order. What was taken, and the licence of the taken files, are in [docs/architecture.md](docs/architecture.md#where-owlery-started).
 
 ## License
 
