@@ -81,12 +81,15 @@ describe("the guards of the layers", () => {
   beforeAll(() => {
     const builtApp = JSON.stringify(join(APP_DIR, "test", "built-app"));
     const root = appFolder({
-      "vitest.config.mts": `import { defineConfig } from "vitest/config";\nimport { projectsOf } from ${JSON.stringify(join(APP_DIR, "vitest.config.mts"))};\nexport default defineConfig({ test: { projects: projectsOf(${JSON.stringify("ROOT")}) } });\n`,
+      // A package of the fixture's own, which vitest leaves to Node to load, as it does each package of `node_modules`.
+      "node_modules/starts-a-process/package.json": JSON.stringify({ name: "starts-a-process", type: "module", exports: "./index.js" }),
+      "node_modules/starts-a-process/index.js": 'import { execFileSync } from "node:child_process";\nexport const run = () => execFileSync("/usr/bin/true");\n',
       "test/logic.test.ts": [
         "// layer: logic",
         'import * as imported from "node:child_process";',
         'import { createRequire } from "node:module";',
         'import { spawn as spawnPty } from "node-pty";',
+        'import { run } from "starts-a-process";',
         'import { it } from "vitest";',
         `import { buildApp } from ${builtApp};`,
         'const required = createRequire(import.meta.url)("node:child_process");',
@@ -94,6 +97,7 @@ describe("the guards of the layers", () => {
         '  it(`imported ${name}`, () => { imported[name]("/usr/bin/true", [], () => {}); });',
         '  it(`required ${name}`, () => { required[name]("/usr/bin/true", [], () => {}); });',
         "}",
+        'it("a package Node loads", () => { run(); });',
         'it("logic: a pty", () => { spawnPty("/bin/echo", [], {}); });',
         'it("logic: the built app", () => { buildApp(); });',
         "",
@@ -119,10 +123,10 @@ describe("the guards of the layers", () => {
         "",
       ].join("\n"),
     });
-    // The configuration names the folder it reads, and the folder's name is known once it stands.
-    const config = join(root, "vitest.config.mts");
-    writeFileSync(config, readFileSync(config, "utf8").replace('"ROOT"', JSON.stringify(root)));
-    symlinkSync(join(APP_DIR, "node_modules"), join(root, "node_modules"));
+    // The configuration names the folder it reads, whose name is known once it stands.
+    writeFileSync(join(root, "vitest.config.mts"), `import { defineConfig } from "vitest/config";\nimport { projectsOf } from ${JSON.stringify(join(APP_DIR, "vitest.config.mts"))};\nexport default defineConfig({ test: { projects: projectsOf(${JSON.stringify(root)}) } });\n`);
+    // The packages the configuration and the fixture files import are the app's.
+    for (const name of ["vitest", "node-pty"]) symlinkSync(join(APP_DIR, "node_modules", name), join(root, "node_modules", name));
     // The fixture run is a vitest of its own, so it is given none of the variables this run's vitest set for its worker.
     const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("VITEST") && name !== "OWLERY_TEST_LAYER" && name !== "NODE_ENV" && name !== "TEST"));
     const report = join(root, "report.json");
@@ -140,10 +144,11 @@ describe("the guards of the layers", () => {
     return one?.failureMessages[0]?.split("\n")[0] ?? "";
   }
 
-  it("makes each starter of `node:child_process` throw in a case of a `logic` file, imported or required, with the sentence that names `process`", () => {
+  it("makes each starter of `node:child_process` throw in a case of a `logic` file, imported, required or reached through a package Node loads, with the sentence that names `process`", () => {
     for (const name of STARTERS) {
       for (const how of ["imported", "required"]) expect(failure(`${how} ${name}`)).toBe(`Error: A case of a \`logic\` file started a process with ${name}. A file whose cases start git or another process opens with \`// layer: process\`.`);
     }
+    expect(failure("a package Node loads")).toBe("Error: A case of a `logic` file started a process with execFileSync. A file whose cases start git or another process opens with `// layer: process`.");
   });
 
   it("lets a case of a `process` file start git, and makes node-pty's `spawn` throw in a case of a `logic` or a `process` file with the sentence that names `pty`", () => {
