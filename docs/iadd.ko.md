@@ -2,7 +2,7 @@
 
 *[English](./iadd.md) · 한국어*
 
-이 문서는 Owlery가 돌리는 방법론 IADD를 Owlery가 정의한 것입니다. Owlery는 이 방법론을 돌리는 도구 가운데 하나이고, Owl Chain은 Owlery가 이 방법론을 위해 싣는 워크플로입니다. 개념, 원칙, 이름은 소유자가 2026-11-28에 정했습니다(이슈 #322, *Concept and names*). Owlery가 출발한 AgenticSeal 플러그인도 같은 이름으로 같은 방법론의 정의를 따로 씁니다(MichaelYcJo/AgenticSeal#1651). 소유자는 두 정의가 다 서면 둘을 나란히 놓고 견준 뒤 하나로 합치기로 정했습니다. 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰고, 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표는 두지 않습니다.
+이 문서는 Owlery가 돌리는 방법론 IADD를 Owlery가 정의한 것입니다. Owlery는 이 방법론을 돌리는 도구 가운데 하나이고, Owl Chain은 Owlery가 이 방법론을 위해 싣는 워크플로입니다. 개념, 원칙, 이름은 소유자가 2026-11-28에 정했습니다(이슈 #322, *Concept and names*). Owlery가 출발한 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal) 플러그인도 같은 이름으로 같은 방법론의 정의를 따로 씁니다(MichaelYcJo/AgenticSeal#1651). 소유자는 두 정의가 다 서면 둘을 나란히 놓고 견준 뒤 하나로 합치기로 정했습니다. 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰고, 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표는 두지 않습니다.
 
 ## 개념
 

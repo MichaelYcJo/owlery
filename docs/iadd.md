@@ -2,7 +2,7 @@
 
 *English · [한국어](./iadd.ko.md)*
 
-This document is Owlery's definition of IADD, the method Owlery runs. Owlery is one tool that runs it, and the Owl Chain is the workflow Owlery ships for it. The owner set the concept, the principles and the names on 2026-11-28 (issue #322, *Concept and names*). The AgenticSeal plugin, where Owlery started, writes its own definition of the same method under the same names (MichaelYcJo/AgenticSeal#1651), and the owner set that the two definitions are compared and merged once both stand. The two tools share one vocabulary and one records folder, and no table maps one tool's names onto the other's.
+This document is Owlery's definition of IADD, the method Owlery runs. Owlery is one tool that runs it, and the Owl Chain is the workflow Owlery ships for it. The owner set the concept, the principles and the names on 2026-11-28 (issue #322, *Concept and names*). The [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal) plugin, where Owlery started, writes its own definition of the same method under the same names (MichaelYcJo/AgenticSeal#1651), and the owner set that the two definitions are compared and merged once both stand. The two tools share one vocabulary and one records folder, and no table maps one tool's names onto the other's.
 
 ## The concept
 

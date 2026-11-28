@@ -77,7 +77,7 @@ When a repository is connected, Owlery commits a workflow to it, `.github/workfl
 
 ## Where Owlery started
 
-Owlery started from AgenticSeal, a Claude Code plugin that runs the same method. On 2026-11-28 the owner set that IADD is the method and a product only expresses it, that the plugin keeps its name `agentic`, and that both tools keep their records under `agentory/` (MichaelYcJo/AgenticSeal#1651, MichaelYcJo/AgenticSeal#1658). Owlery does not run on that plugin. Its role bundle and its pull request check started from the plugin's files and are Owlery's own, and Owlery's code runs the order. What was taken, and the licence of the taken files, are in [docs/architecture.md](docs/architecture.md#where-owlery-started).
+Owlery started from [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal), a Claude Code plugin that runs the same method. On 2026-11-28 the owner set that IADD is the method and a product only expresses it, that the plugin keeps its name `agentic`, and that both tools keep their records under `agentory/` (MichaelYcJo/AgenticSeal#1651, MichaelYcJo/AgenticSeal#1658). Owlery does not run on that plugin. Its role bundle and its pull request check started from the plugin's files and are Owlery's own, and Owlery's code runs the order. What was taken, and the licence of the taken files, are in [docs/architecture.md](docs/architecture.md#where-owlery-started).
 
 ## License
 
