@@ -2,7 +2,7 @@
 
 *English · [한국어](./iadd.ko.md)*
 
-**Owlery is a product built on IADD, Independent AI-Driven Development, the method the [IADD specification](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.md) defines.** The specification holds the method's principles. Owlery takes from it what serves Owlery, and a change to it is weighed like any other source, not followed by rule. This document states how Owlery runs IADD, what it takes from each principle, its own names and its own record forms, and the Owl Chain as data. Owlery started from the AgenticSeal plugin, another product built on IADD ([Where Owlery started](architecture.md#where-owlery-started)), and is defined by neither the plugin nor the specification.
+**Owlery is a tool that makes development convenient, and its default workflow, the Owl Chain, runs IADD, Independent AI-Driven Development, the method the [IADD specification](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.md) defines.** Owlery does not force it: a person may also give a small change to one agent directly, knowing that it is not IADD work ([docs/product.md](product.md#what-we-promise)). The specification holds the method's principles. Owlery takes from it what serves Owlery, and a change to it is weighed like any other source, not followed by rule. This document states how Owlery runs IADD, what it takes from each principle, its own names and its own record forms, and the Owl Chain as data. Owlery started from the AgenticSeal plugin, another product built on IADD ([Where Owlery started](architecture.md#where-owlery-started)), and is defined by neither the plugin nor the specification.
 
 ## How Owlery runs IADD
 
@@ -42,9 +42,9 @@ The method's names are the specification's ([Names](https://github.com/MichaelYc
 | Owlery's default workflow | the Owl Chain in prose, and `owl-chain` as the name of a workflow and of an inspector module |
 | The records folder | `agentory/`, formed like *directory* and *repository*, the place where the agents' work is kept |
 | The pull request check | `inspection` |
-| The app | Owlery, one product built on IADD |
+| The app | Owlery, a development tool whose default workflow runs IADD |
 
-The app keeps the name Owlery, which the owner set on 2026-11-28 with the concept. IADD is the method and Owlery one product built on it, and "owl" alone collides with W3C's OWL, Odoo's OWL and Owl Carousel ([docs/name.md](name.md)).
+The app keeps the name Owlery, which the owner set on 2026-11-28 with the concept. IADD is the method and Owlery a development tool whose default workflow runs it, and "owl" alone collides with W3C's OWL, Odoo's OWL and Owl Carousel ([docs/name.md](name.md)).
 
 ## The records
 
