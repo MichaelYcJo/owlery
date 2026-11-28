@@ -9,7 +9,7 @@
 - **Owlery는 자체 데스크톱 앱입니다.** 다른 앱 위의 플러그인으로 두지 않습니다. 사용자의 Claude Code를 데몬이 직접 띄우고 역할 세션은 사용자 환경에서 떼어 띄우므로, 세션과 터미널을 다른 앱에 맡길 까닭이 없습니다. 작업함, Owl Chain, 장부가 한 제품 안에서 같은 기록을 읽습니다.
 - **화면은 Electron으로 만들고, 일은 데몬이 합니다.** 화면은 데몬에 WebSocket으로만 붙는 얇은 껍데기입니다. 나중에 다른 화면 프레임워크로 바꿀 길을 남겨 두려는 것입니다.
 - **Owl Chain의 순서는 데몬의 체인에서도 칸의 체인에서도 Owlery의 코드가 실행하고, 판단만 에이전트에게 남깁니다.**
-- **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** 방법론과 그 기록, 그리고 워크플로가 무엇인지는 [docs/iadd.ko.md](iadd.ko.md)가 정의합니다. Owlery는 같은 방법론의 Claude Code 플러그인 AgenticSeal에서 출발했고, 그것에 기대어 돌지 않습니다. 역할의 에이전트 정의와 스킬, 그리고 Owl Chain의 워크플로 파일과 검수자 모듈은 Owlery가 앱에 함께 넣어 역할 세션의 기본값으로 씁니다([Owlery가 출발한 곳](#owlery가-출발한-곳)).
+- **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** 방법론과 그 기록, 그리고 워크플로가 무엇인지는 [docs/iadd.ko.md](iadd.ko.md)가 정의합니다. Owlery는 같은 방법론의 Claude Code 플러그인 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal)에서 출발했고, 그것에 기대어 돌지 않습니다. 역할의 에이전트 정의와 스킬, 그리고 Owl Chain의 워크플로 파일과 검수자 모듈은 Owlery가 앱에 함께 넣어 역할 세션의 기본값으로 씁니다([Owlery가 출발한 곳](#owlery가-출발한-곳)).
 - **가볍게 두는 것이 목표이고, 그것은 프레임워크가 아니라 앱의 범위와 구조에서 나옵니다.** 가벼움은 상대적인 것입니다. 채팅 화면, 터미널, IDE 수준의 편집기, 브라우저, 팀 관리, 클라우드를 함께 얹는 제품보다 Owlery가 얹는 것이 적다는 뜻입니다. 창은 하나만 쓰고, 터미널은 보이는 것만 그리고, 일하지 않는 Claude 프로세스는 끝냅니다.
 
 ## 전체 구성
@@ -200,7 +200,7 @@ check: apps/desktop/test/hooks.test.ts apps/desktop/test/pane-chain.test.ts apps
 
 Owlery는 같은 방법론 IADD를 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했습니다([docs/iadd.ko.md](iadd.ko.md)). 소유자는 2026-11-28에 그 플러그인이 이름 `agentic`을 그대로 쓰고 방법론과 그 기록에는 IADD의 이름을 받도록 정했습니다. 플러그인은 릴리스 0.40.0부터 명령 `seal` 대신 `agentic`을 쓰고 기록을 뿌리 `agentory/`에 둡니다. 그래서 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰며 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표를 두지 않습니다. Owlery는 그 플러그인을 싣거나 그 버전에 기대어 돌지 않습니다. AgenticSeal의 각 부분을 Owlery의 것으로 가져와 제품에 맞는 자리에 두었습니다. AgenticSeal은 MIT 라이선스이므로, 가져온 파일에는 그 저작권 고지를 남깁니다.
 
-**이 저장소의 기록은 이 저장소가 직접 옮길 때까지 AgenticSeal 플러그인의 형식에 남습니다.** 이 저장소는 그 플러그인의 0.40.0 전 릴리스로 만들고, 그 릴리스는 기록을 `seal/` 아래에 예전 형식으로 씁니다. 이 저장소의 PR은 Owlery 자신의 워크플로 `.github/workflows/owlery-seal.yml`이 검사하고, 그 워크플로는 검사 `seal`을 올립니다. 이 저장소의 기록이 플러그인의 뿌리 `seal/`에 있는 동안에는 그 워크플로의 고정 버전을 0.1.0에 그대로 둡니다. 더 뒤 릴리스의 검사는 IADD의 형식만 읽기 때문입니다. 플러그인의 릴리스 0.40.0이 IADD의 이름을 받았으므로, 이슈 #354가 태그 `v0.2.0` 바로 뒤에 뿌리와 고정 버전을 한 커밋에서 함께 옮기고, 그래서 제품은 한 형식을 두 가지 철자로 읽지 않습니다. IADD로 이름을 바꾼 앱은 이 저장소에 기록을 옮기자고 내놓지만, 그때까지 여기서는 받지 않습니다.
+**이 저장소의 기록은 이슈 #354로 IADD의 형식으로 옮겼습니다.** 이 저장소는 AgenticSeal 플러그인으로 만들고, 그 플러그인은 릴리스 0.40.0부터 기록을 `agentory/` 아래에 둡니다. 태그 `v0.2.0` 바로 뒤에 이슈 #354가 Owlery 자신의 마이그레이션이 만든 커밋 하나로, 이 저장소의 뿌리를 `seal/`에서 `agentory/`로, PR 검사를 0.1.0에서 검사 `seal`을 올리던 `.github/workflows/owlery-seal.yml`에서 0.2.0에서 검사 `inspection`을 올리는 `.github/workflows/owlery-inspection.yml`로 옮겼습니다. 그 앞의 PR은 받았던 검사를 그대로 지닙니다.
 check: apps/desktop/test/pr-check.test.ts apps/desktop/test/records-place.test.ts
 
 **Owlery가 AgenticSeal에서 가져온 것은 가져온 날부터 Owlery의 것이고, Owlery는 AgenticSeal의 릴리스를 따라가지 않습니다.** AgenticSeal은 Owlery가 출발한 자리입니다. Owlery는 역할 묶음과 PR 검사의 스크립트를 비롯한 사본을 자기 데몬에 맞게 고치고, 어떤 테스트도 사본을 AgenticSeal의 바이트에 묶지 않습니다. AgenticSeal에서 뒤에 나온 생각은 다른 생각과 똑같이 Owlery의 이슈로 들어옵니다. 역할 묶음은 앱과 함께 릴리스되므로 앱이 실행하는 순서와 묶음이 어긋나지 않고, 묶음이나 PR 검사의 스크립트를 고치는 일은 Owlery의 작업이며 그때 테스트를 함께 돌립니다. 가져온 파일을 둔 폴더마다 AgenticSeal의 라이선스 전문과, 그 파일이 어디서 출발했는지 밝히는 고지를 둡니다. 아래 표는 AgenticSeal의 각 부분을 Owlery가 가져온 0.40.0 전 릴리스의 말로 적습니다. sealer, `guarantee.md`, Stop 훅이 그리는 인장, `seal` 명령이 그렇습니다.

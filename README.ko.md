@@ -77,7 +77,7 @@ pnpm --filter @owlery/desktop start
 
 ## Owlery가 출발한 곳
 
-Owlery는 같은 방법론을 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했습니다. 소유자는 2026-11-28에 IADD는 방법론이고 제품은 그것을 드러낼 뿐이라고 정했습니다. 그래서 그 플러그인은 이름 `agentic`을 그대로 쓰고, 두 도구 모두 기록을 `agentory/`에 두기로 했습니다(MichaelYcJo/AgenticSeal#1651, MichaelYcJo/AgenticSeal#1658). Owlery는 그 플러그인에 기대어 돌지 않습니다. 역할 묶음과 PR 검사는 그 플러그인의 파일에서 출발한 Owlery의 것이고, 순서는 Owlery의 코드가 실행합니다. 무엇을 가져왔는지와 가져온 파일의 라이선스는 [docs/architecture.ko.md](docs/architecture.ko.md#owlery가-출발한-곳)에 있습니다.
+Owlery는 같은 방법론을 돌리는 Claude Code 플러그인 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal)에서 출발했습니다. 소유자는 2026-11-28에 IADD는 방법론이고 제품은 그것을 드러낼 뿐이라고 정했습니다. 그래서 그 플러그인은 이름 `agentic`을 그대로 쓰고, 두 도구 모두 기록을 `agentory/`에 두기로 했습니다(MichaelYcJo/AgenticSeal#1651, MichaelYcJo/AgenticSeal#1658). Owlery는 그 플러그인에 기대어 돌지 않습니다. 역할 묶음과 PR 검사는 그 플러그인의 파일에서 출발한 Owlery의 것이고, 순서는 Owlery의 코드가 실행합니다. 무엇을 가져왔는지와 가져온 파일의 라이선스는 [docs/architecture.ko.md](docs/architecture.ko.md#owlery가-출발한-곳)에 있습니다.
 
 ## 라이선스
 
