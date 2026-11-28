@@ -57,4 +57,4 @@ The spawn names no other open work item of the release, and `gh pr list --state 
 
 | Date | Judgment | Grounds | Judged against |
 |---|---|---|---|
-| | | | |
+| 2026-11-28 | The pull request's title takes the prefix `feat` and the issue's own title | The change renames what a person meets and types: the records folder a connected repository holds and the plugin's name the documents give. The plugin's own 0.40.0 judged a rename a user meets to take `feat` (AgenticSeal#1663) | the plugin's `skills/commit-pr-convention/SKILL.md` prefix vocabulary |
