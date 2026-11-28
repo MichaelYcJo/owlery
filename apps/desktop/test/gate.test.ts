@@ -269,8 +269,8 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
   it("keeps what the command printed in memory where the daemon was given no run folder, and drops it with the work item", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    write(made.repo, "iadd/README.md", `${MARKER}\n`);
-    write(made.repo, "iadd/config.json", '{ "Broad gate": "echo kept; exit 1" }\n');
+    write(made.repo, "agentory/README.md", `${MARKER}\n`);
+    write(made.repo, "agentory/config.json", '{ "Broad gate": "echo kept; exit 1" }\n');
     commitAll(made.repo, "chore: add the place for work records");
     const d = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: roles({ proofer: clean }), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), worktreesRoot: made.root, now: () => NOW, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
     const port = await d.listen(0);

@@ -3,7 +3,7 @@
 are in the tree and agree with HEAD.
 
 Run by CI on every pull request (`.github/workflows/owlery-inspection.yml`).
-It judges the `iadd/threads/<id>/routing.md` naming the pull request's branch and
+It judges the `agentory/threads/<id>/routing.md` naming the pull request's branch and
 every one its own commits add or change. One that reached the branch inside
 another pull request's squash was judged at that pull request and is named,
 not judged (`carried_by`). The arms are nine:
@@ -55,7 +55,7 @@ not judged (`carried_by`). The arms are nine:
                 (`records_only`), which the inspector reads; the
                 last record's `target:` commit is HEAD, or every commit after
                 it touches only the work item's own directory
-  original      where git carries `iadd/parity.json` at HEAD and the pull
+  original      where git carries `agentory/parity.json` at HEAD and the pull
                 request changes a path outside the document roots
                 `lib/gate.py#touches_code` reads: the config's `Baseline
                 commit` key names a SHA (`lib/config.py#baseline_commit`),
@@ -310,7 +310,7 @@ try:
     # `lib/gitcmd.py`, which builds every git command `git` runs and spells
     # a path as git does.
     GITCMD = sibling.load("lib/gitcmd.py")
-    # `lib/optin.py`, which finds the repository and its `iadd/` root.
+    # `lib/optin.py`, which finds the repository and its `agentory/` root.
     OPTIN = sibling.load("lib/optin.py")
     # `lib/console.py`, whose `annotate` prints a line about a file.
     CONSOLE = sibling.load("lib/console.py")
@@ -1461,7 +1461,7 @@ def rule_changes_reader():
 
 def policy_root(root):
     """The policy root of the repository at ROOT: `lib/config.py#policy_root`
-    of the `iadd/` root `lib/optin.py#home_at` resolves there."""
+    of the `agentory/` root `lib/optin.py#home_at` resolves there."""
     config = sibling.load("lib/config.py")
     return config.policy_root(OPTIN.home_at(root, OPTIN.git_common_dir(root)))
 
@@ -2058,7 +2058,7 @@ def local_root(root, routing):
 def root_name(routing, root, fork):
     """The root's repository-relative name the check reads the declarations
     under: the name `lib/optin.py#home_name_in` gives for the tree the check
-    reads, `iadd`. That
+    reads, `agentory`. That
     tree is HEAD, and the working tree under `WORKTREE`, as
     `read_record` reads it.
 
@@ -2066,7 +2066,7 @@ def root_name(routing, root, fork):
     FORK gives, so a pull request that deletes only the marker keeps its
     declarations judged, and one that deletes the root is read under the
     name the root had. Where neither has one, or FORK is None, it is
-    `lib/optin.py#HOME`: a committed `iadd/` with no marker is still read
+    `lib/optin.py#HOME`: a committed `agentory/` with no marker is still read
     under that name, and a repository whose root is local has nothing
     committed under any name.
 
@@ -2416,7 +2416,7 @@ def judge(args):
     # from. An entry is anything at that name, a file or a link as much as a
     # directory, so a root that is not a directory, or one whose marker alone
     # left, keeps the declarations judged. A root that left is named by the
-    # merge base (`root_name`), so a project's own `iadd/` at HEAD is not the
+    # merge base (`root_name`), so a project's own `agentory/` at HEAD is not the
     # root that stayed. Where git cannot answer, `git()` is None and
     # the declarations stay judged.
     if WORKTREE:

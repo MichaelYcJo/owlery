@@ -3,17 +3,17 @@
 Imported by the gates rather than copied into each, because where the answer
 moves, divergent copies are how half of them keep the old one.
 
-The signal is `iadd/`, the records root, whose existence is the declaration,
+The signal is `agentory/`, the records root, whose existence is the declaration,
 at the first of two places that has it with its `README.md` opening with
-`MARKER`: `<repo>/iadd/`, which shared mode commits, then
-`<git-common-dir>/iadd/`, where local mode keeps it. One root, read one
-way, under one name, and no config key. An `iadd/` without the marker is a
+`MARKER`: `<repo>/agentory/`, which shared mode commits, then
+`<git-common-dir>/agentory/`, where local mode keeps it. One root, read one
+way, under one name, and no config key. An `agentory/` without the marker is a
 directory the project keeps for itself and declares nothing, and the root
 has no second name to move to.
 
 `<git-common-dir>/agentic-scratch` takes that declaration back. A repository
 that exists for thirty seconds, a fixture built by hand to reproduce a gate
-decision, carries the same `iadd/` as a repository under review, and the
+decision, carries the same `agentory/` as a repository under review, and the
 gates cannot tell them apart. The opt-out file is written once, by a person,
 in the repository being thrown away. It lives under the git directory
 rather than inside the root because the root is committed: a file committed
@@ -29,7 +29,7 @@ nothing rather than act on a guess.
 import os
 import subprocess
 
-HOME = "iadd"
+HOME = "agentory"
 # The sub-directory of the root that holds the work items.
 WORK_ITEMS = "threads"
 # Where each record sits in a thread, `/`-joined and relative to the thread's
@@ -57,9 +57,9 @@ PARITY_CONFIG = "parity.json"
 # test. A directory of this name is not the opt-out — see `home_at()` below.
 SCRATCH = "agentic-scratch"
 # The first line of the `README.md` Owlery's setup writes into every root
-# (`apps/desktop/src/daemon/records-place.ts#MARKER`): an `iadd/` is the
+# (`apps/desktop/src/shared/protocol.ts#MARKER`): an `agentory/` is the
 # records root only where its `README.md` opens with this line.
-MARKER = "# What IADD keeps in iadd/"
+MARKER = "# What IADD keeps in agentory/"
 README = "README.md"
 
 
@@ -96,7 +96,7 @@ def repo_root(cwd):
     # someone who has to recognise their own repository in it. git answers
     # with forward slashes on every platform, so on Windows the root would
     # arrive in one dialect and be joined in another -- `C:/proj` and then
-    # `C:/proj\iadd\parity.json`. Both halves work; neither
+    # `C:/proj\agentory\parity.json`. Both halves work; neither
     # equals a path the caller built, and the address is the whole point of a
     # module named for having ONE.
     #
@@ -138,11 +138,11 @@ def git_common_dir(root):
 
 
 def home_paths(root, common=None):
-    """The two places `iadd/` is read from at `root`, shared first then local.
+    """The two places `agentory/` is read from at `root`, shared first then local.
 
     `("", "")` for no root, and the local entry is "" where the common git
-    directory could not be resolved. The local entry is `<common>/iadd`, and
-    the shared entry `<root>/iadd`. Neither entry is tested for being the
+    directory could not be resolved. The local entry is `<common>/agentory`, and
+    the shared entry `<root>/agentory`. Neither entry is tested for being the
     root: this answers *where would it be*, and `home_at` below answers
     *where is it*.
 
@@ -156,7 +156,7 @@ def home_paths(root, common=None):
         common = git_common_dir(root)
     # `normpath` on the git-derived half, and it is not tidying. `git
     # rev-parse --git-common-dir` answers with `/` on Windows as well, so
-    # joining `iadd` onto it would produce `C:/Users/x/repo\.git\iadd` -- one
+    # joining `agentory` onto it would produce `C:/Users/x/repo\.git\agentory` -- one
     # path spelled two ways, printed to a person in the gate's question and
     # in chain-check's local-mode sentence. Nothing here hands `home` to
     # git, so the native spelling is the right one, and normalising at the
@@ -244,13 +244,13 @@ def marked(path):
 
 
 def home_at(root, common=None):
-    """The `iadd/` of the repository at `root`, or "" — for a caller that has
+    """The `agentory/` of the repository at `root`, or "" — for a caller that has
     already resolved the root and should not pay for a second `git` call.
 
-    The places are read in order, `<root>/iadd/`, then
-    `<git-common-dir>/iadd/`, and the first that is a directory whose
+    The places are read in order, `<root>/agentory/`, then
+    `<git-common-dir>/agentory/`, and the first that is a directory whose
     `README.md` opens with `MARKER` is the answer; nothing else is read. A
-    `<root>/iadd/` without the marker is passed over, so a project that keeps
+    `<root>/agentory/` without the marker is passed over, so a project that keeps
     a directory of that name for itself keeps no shared root, and its local
     root under the git directory. The opt-out is read once, here, so it
     cannot be honoured by one arm of a gate and missed by the other — the
@@ -287,7 +287,7 @@ def home_at(root, common=None):
 
 
 def home(cwd):
-    """This repository's `iadd/`, or "" when it keeps no IADD records."""
+    """This repository's `agentory/`, or "" when it keeps no IADD records."""
     return home_at(repo_root(cwd))
 
 

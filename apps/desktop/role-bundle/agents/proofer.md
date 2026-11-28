@@ -42,12 +42,12 @@ its runs stand in a scratch folder.** below.
    hold to each decision and each answer it records.
 4. Review the target your prompt names: the branch against its base, or in a
    verifying round the diff of the last fixes.
-5. Where `iadd/parity.json` is declared, open `skills/legacy-parity/SKILL.md`
+5. Where `agentory/parity.json` is declared, open `skills/legacy-parity/SKILL.md`
    and compare the behaviour with the original, recording it as that
    skill's *Recording the comparison* states.
 6. Before writing the record, open `skills/writing-style/SKILL.md` and read
    the section for the record's language: `## English prose rules`, or
-   `## 문장 규칙` where `Record language` in the `iadd/` root's
+   `## 문장 규칙` where `Record language` in the `agentory/` root's
    `config.json` is Korean.
 7. Answer with the record, from `templates/records/sdd-round.md`: its first
    line is the heading your prompt gives, its round block holds the
@@ -80,7 +80,7 @@ its runs stand in a scratch folder.** below.
 
 **The record is your answer, and Owlery writes it.** It writes the
 answer's text unchanged to
-`iadd/threads/<work-item-id>/trail/rounds/round-<n>.md` in the work item's
+`agentory/threads/<work-item-id>/trail/rounds/round-<n>.md` in the work item's
 worktree, and commits that file. It writes the record only where the
 worktree's head is still the round's target and the worktree holds no
 change outside the work item's directory, so a round changes nothing of the
@@ -117,10 +117,10 @@ stands deferred: say where, and do not write it up again.
 | Carried, and re-derived only when its check fails | Re-derived every round |
 |---|---|
 | A rule's `check:` target, which AgenticSeal's `seal rules --check` fails when it is gone | Whether the new code satisfies the clause |
-| What the original does, which `iadd/parity.json` pins to a baseline SHA | Whether the new code matches it |
+| What the original does, which `agentory/parity.json` pins to a baseline SHA | Whether the new code matches it |
 | Where a subsystem lives, what a helper is for | Any verdict, on any axis |
 
-A carried fact is re-derived when its check fails, or where `iadd/parity.json`
+A carried fact is re-derived when its check fails, or where `agentory/parity.json`
 lists its path under `Coordinate-trust exceptions`.
 
 **Every round reads the work item's records that state the present, whole,

@@ -66,8 +66,8 @@ describe.skipIf(!RUN)("a real Claude Code pane on the owl chain, on the person's
       mkdirSync(join(repo, path, ".."), { recursive: true });
       writeFileSync(join(repo, path), text);
     };
-    write("iadd/README.md", `${MARKER}\n`);
-    write("iadd/config.json", '{ "Mode": "shared", "Record language": "English", "Broad gate": "true" }\n');
+    write("agentory/README.md", `${MARKER}\n`);
+    write("agentory/config.json", '{ "Mode": "shared", "Record language": "English", "Broad gate": "true" }\n');
     write(".github/workflows/owlery-inspection.yml", workflowText("0.0.0"));
     git(repo, "add", "--all");
     git(repo, "commit", "--quiet", "-m", "chore: the records place");

@@ -14,7 +14,7 @@ arrived before your first tool call.
 ## Job
 
 You build one phase of one work item, or run one fix pass. Your writes are the
-code and tests of the phase, `iadd/threads/<work-item-id>/trail/phases/phase-N.md`,
+code and tests of the phase, `agentory/threads/<work-item-id>/trail/phases/phase-N.md`,
 `frame/plan.md`'s Status cell for the phase, `gaps.md` from its template when
 the first phase closes and its rows in every later phase and fix pass,
 `changelog.md` in the last phase and in every fix pass, its
@@ -32,8 +32,8 @@ what was built into it. A write not named here is a write you do not make.
 1. Open `skills/implement/SKILL.md` and follow it: the precedence, the ladder,
    the file set, test-first, the closing memo and the fix pass.
 2. Read the work item: `routing.md`, `frame/design.md`, `frame/plan.md`,
-   `frame/questions.md`, the earlier `trail/phases/`, `iadd/follow-up.md`, and
-   every coordinate the handoff names. Where `iadd/parity.json` is declared, open
+   `frame/questions.md`, the earlier `trail/phases/`, `agentory/follow-up.md`, and
+   every coordinate the handoff names. Where `agentory/parity.json` is declared, open
    `skills/legacy-parity/SKILL.md` before judging anything.
 3. Say whether the frame holds before you build to it.
 4. Where `routing.md` declares a framer and no `frame/design.md` is there,
@@ -55,7 +55,7 @@ what was built into it. A write not named here is a write you do not make.
 8. Close the phase: before writing the record, open
    `skills/writing-style/SKILL.md` and read the section for the record's
    language, `## English prose rules`, or `## 문장 규칙` where `Record
-   language` in the `iadd/` root's `config.json` is Korean; then write
+   language` in the `agentory/` root's `config.json` is Korean; then write
    `trail/phases/phase-N.md` from `templates/records/sdd-phase.md`, each
    decision in it with its grounds and the document it was judged against,
    and in the first phase `gaps.md` from `templates/records/sdd-gaps.md`.
@@ -78,7 +78,7 @@ what was built into it. A write not named here is a write you do not make.
     instruction you declined as rule 3 asks, the account the rule *Before
     you hand back, your range and the work item's records are read whole
     against HEAD* asks for, what this file does not let you record
-    yourself (a leftover for `iadd/follow-up.md`) with who answers it, and
+    yourself (a leftover for `agentory/follow-up.md`) with who answers it, and
     changed files by absolute path. In a fix pass, a question that the
     code, the policy, the work item's frame and `decisions.md` do not
     answer goes into your answer as one `iadd` block: `asks:` the question,
@@ -175,7 +175,7 @@ yourself before treating it as either.
 whole against HEAD.** In a phase and in a fix pass, after your last
 commit, read every hunk of your range's diff with the paragraph or unit
 around it, a case's name, docstring and comments among them. Read whole
-each file of `iadd/threads/<work-item-id>/` that states the present:
+each file of `agentory/threads/<work-item-id>/` that states the present:
 `routing.md`, the three frame files, `gaps.md` and `changelog.md`. A
 coordinate or a statement of the tree in a frame section dated to the
 commit the framer read states that commit, not the present, and a sentence

@@ -379,7 +379,7 @@ describe("the writer of a work item's record", () => {
     const directory = (): string => {
       const made = temporaryRepository();
       cleanups.push(made.remove);
-      const path = join(made.repo, "iadd", "threads", "1-x");
+      const path = join(made.repo, "agentory", "threads", "1-x");
       mkdirSync(path, { recursive: true });
       return path;
     };
@@ -492,7 +492,7 @@ describe("a work item's directory", () => {
     ]);
 
   /** A temporary repository holding a records root of that name and those files under its `threads/`. */
-  const worktree = (files: Record<string, string>, root = "iadd"): string => {
+  const worktree = (files: Record<string, string>, root = "agentory"): string => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     write(made.repo, `${root}/README.md`, `${MARKER}\n`);
@@ -525,7 +525,7 @@ describe("a work item's directory", () => {
   ];
 
   // Each case starts Python, which takes seconds while the rest of the suite runs beside it.
-  it.each(TREES)("is found by its branch as the pull request check finds it: $name", { timeout: 30_000 }, ({ files, root = "iadd", found }) => {
+  it.each(TREES)("is found by its branch as the pull request check finds it: $name", { timeout: 30_000 }, ({ files, root = "agentory", found }) => {
     const folder = worktree(files, root);
     const expected = found === null ? null : join(folder, root, "threads", found);
     expect(workItemDirectory(folder, "feature")).toBe(expected);
@@ -534,8 +534,8 @@ describe("a work item's directory", () => {
 
   it("is none where the `routing.md` that names the branch is a link, or holds more than the daemon reads of a file: the daemon reads neither, though the pull request check reads both", () => {
     const linked = worktree({ "elsewhere.md": declares("feature") });
-    mkdirSync(join(linked, "iadd", "threads", "2-b"));
-    symlinkSync("../elsewhere.md", join(linked, "iadd", "threads", "2-b", "routing.md"));
+    mkdirSync(join(linked, "agentory", "threads", "2-b"));
+    symlinkSync("../elsewhere.md", join(linked, "agentory", "threads", "2-b", "routing.md"));
     expect(workItemDirectory(linked, "feature")).toBeNull();
     const large = worktree({ "2-b/routing.md": `${declares("feature")}${"a".repeat(REPOSITORY_FILE_BYTES)}\n` });
     expect(workItemDirectory(large, "feature")).toBeNull();
@@ -543,12 +543,12 @@ describe("a work item's directory", () => {
     expect(workItemDirectory(worktree({ "2-b/routing.md": declares("feature") }), "feature")).not.toBeNull();
   });
 
-  it("is none in a folder with no records root, in one whose `iadd/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
+  it("is none in a folder with no records root, in one whose `agentory/` is the project's own, and for no branch: an empty name, and a work item with no branch yet, for which a routing whose `Branch` row the reader refuses names none", { timeout: 30_000 }, () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
-    write(made.repo, "iadd/README.md", "# The project's own notes\n");
-    write(made.repo, "iadd/threads/2-b/routing.md", declares("feature"));
+    write(made.repo, "agentory/README.md", "# The project's own notes\n");
+    write(made.repo, "agentory/threads/2-b/routing.md", declares("feature"));
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
     expect(checkFinds(made.repo, "feature")).toBeNull();
 
@@ -568,7 +568,7 @@ describe("a work item's directory", () => {
     expect(withBranch(declares("feature").trimEnd().replace(/ \|$/, ""), "second")).toBe(declares("second").trimEnd().replace(/ \|$/, ""));
 
     const folder = worktree({ "2-b/routing.md": withBranch(padded.join("\n"), "owlery/second-name") });
-    const expected = join(folder, "iadd", "threads", "2-b");
+    const expected = join(folder, "agentory", "threads", "2-b");
     expect([workItemDirectory(folder, "feature"), workItemDirectory(folder, "owlery/second-name"), checkFinds(folder, "owlery/second-name")]).toEqual([null, expected, expected]);
   });
 

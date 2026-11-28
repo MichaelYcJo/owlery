@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 const NAME = "1795400730-cleared-work";
-const DIRECTORY = `iadd/threads/${NAME}`;
+const DIRECTORY = `agentory/threads/${NAME}`;
 const BRANCH = "feat/cleared-work";
 const F = "```";
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
@@ -34,7 +34,7 @@ function clearedBranch(options: { inspection?: boolean; verdict?: string; before
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
-  write(repo, "iadd/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
+  write(repo, "agentory/README.md", `${MARKER}\n\nOwlery keeps the work records of this repository here.\n`);
   const base = commitAll(repo, "chore: add the place for work records");
   git(repo, "checkout", "--quiet", "-b", BRANCH);
   write(repo, "feature.txt", "A greeting\n");

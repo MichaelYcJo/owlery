@@ -31,8 +31,8 @@ const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ -
 
 /** Writes the records root's config.json of a folder with these heavy commands, and commits it. */
 function naming(folder: string, heavy: unknown): void {
-  write(folder, "iadd/README.md", `${MARKER}\n`);
-  write(folder, "iadd/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
+  write(folder, "agentory/README.md", `${MARKER}\n`);
+  write(folder, "agentory/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
   commitAll(folder, "chore: name the heavy commands");
 }
 
@@ -78,7 +78,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const out = stood.made.base;
     const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
     for (const [index, item] of [reviewed, built].entries()) {
-      const directory = `iadd/threads/${String(index + 1)}-work`;
+      const directory = `agentory/threads/${String(index + 1)}-work`;
       write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, branchOf(item), "2026-11-25"));
       if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
       naming(item.worktree, { mark: appends });
@@ -235,11 +235,11 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
       return end.err;
     };
     expect(RUN_REFUSED).toBe(64);
-    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of iadd/config.json. It names `test` and `install`.\n');
+    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of agentory/config.json. It names `test` and `install`.\n');
     expect(await refused([])).toBe(`\`run\` takes the name of a heavy command the repository names.\n${USAGE}`);
     expect(await refused(["test", "a.test.ts"])).toBe(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
     naming(on.repo, "pnpm test");
-    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of iadd/config.json. It names none.\n');
+    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of agentory/config.json. It names none.\n');
     expect(existsSync(join(on.folder, "ran"))).toBe(false);
   });
 

@@ -46,7 +46,7 @@ pnpm --filter @owlery/desktop start
 
 ## GitHub의 검수 검사
 
-저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-inspection.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 `iadd/` 아래에 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `inspection`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `records`는 `inspection`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 검수 구역에서도 읽습니다. 검수 구역은 작업의 `inspection.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 검수 뒤에 커밋을 올리면 검수가 실효되고, 새 검수가 통과할 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 통과시킨 검수 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다. 통과한 검수와 실효된 검수의 제목은, 제목이 가리키는 판정 블록마다 `workflow: owl-chain` 줄이 있으면 Owl Chain을 밝히고, 그렇지 않으면 어떤 워크플로도 밝히지 않습니다. 이 줄은 검수를 낸 워크플로를 밝히려고 Owlery가 쓰는 줄입니다.
+저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-inspection.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 `agentory/` 아래에 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `inspection`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `records`는 `inspection`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 검수 구역에서도 읽습니다. 검수 구역은 작업의 `inspection.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 검수 뒤에 커밋을 올리면 검수가 실효되고, 새 검수가 통과할 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 통과시킨 검수 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다. 통과한 검수와 실효된 검수의 제목은, 제목이 가리키는 판정 블록마다 `workflow: owl-chain` 줄이 있으면 Owl Chain을 밝히고, 그렇지 않으면 어떤 워크플로도 밝히지 않습니다. 이 줄은 검수를 낸 워크플로를 밝히려고 Owlery가 쓰는 줄입니다.
 
 | `inspection`의 결과 | 제목 | 언제 |
 |---|---|---|
@@ -60,7 +60,7 @@ pnpm --filter @owlery/desktop start
 
 **검사를 필수로 정하는 것은 저장소의 관리자입니다.** 관리자는 GitHub에서 base 브랜치에 걸린 저장소 규칙 가운데 상태 검사 통과를 요구하는 규칙에 `inspection`을 넣습니다. Owlery는 저장소의 설정을 하나도 바꾸지 않고, 앱의 "Records and check" 대화 상자도 같은 것을 말합니다. 포크에서 온 PR은 `inspection` 검사를 받지 않습니다. GitHub가 그 워크플로 실행에 검사를 쓸 수 없는 토큰을 주기 때문입니다. 그래서 필수 검사는 관리자가 통과시킬 때까지 그 PR을 붙잡아 둡니다.
 
-**예전 Owlery로 연결한 저장소는 커밋 하나로 IADD의 형식으로 옮깁니다.** Owlery는 예전 형식의 기록을 하나도 읽지 않고 거기서 체인을 돌리지 않으며, 저장소의 줄은 기록이 예전 형식이라고 말합니다. "Records and check" 대화 상자는 기록을 IADD의 형식으로 `iadd/`에 옮기고 예전 워크플로를 `owlery-inspection.yml`로 바꾸는 커밋을 보여 주고, 사람이 확인할 때까지 아무것도 쓰지 않습니다. 옮기기 전에 통과한 검수는 옮기는 커밋에서 실효됩니다. 예전 워크플로가 올리던 검사를 요구하던 규칙은 그 자리에 `inspection`을 요구해야 합니다. 옮긴 뒤에는 어떤 워크플로도 그 검사를 올리지 않기 때문입니다. 옮기기 전에 기록을 가졌던 작업의 브랜치는 체인 명령의 `migrate`로 자기 기록을 옮깁니다. 예전 형식이 무엇인지는 [docs/architecture.ko.md](docs/architecture.ko.md#기록은-저장소에-커밋합니다)가 밝힙니다.
+**예전 Owlery로 연결한 저장소는 커밋 하나로 IADD의 형식으로 옮깁니다.** Owlery는 예전 형식의 기록을 하나도 읽지 않고 거기서 체인을 돌리지 않으며, 저장소의 줄은 기록이 예전 형식이라고 말합니다. "Records and check" 대화 상자는 기록을 IADD의 형식으로 `agentory/`에 옮기고 예전 워크플로를 `owlery-inspection.yml`로 바꾸는 커밋을 보여 주고, 사람이 확인할 때까지 아무것도 쓰지 않습니다. 옮기기 전에 통과한 검수는 옮기는 커밋에서 실효됩니다. 예전 워크플로가 올리던 검사를 요구하던 규칙은 그 자리에 `inspection`을 요구해야 합니다. 옮긴 뒤에는 어떤 워크플로도 그 검사를 올리지 않기 때문입니다. 옮기기 전에 기록을 가졌던 작업의 브랜치는 체인 명령의 `migrate`로 자기 기록을 옮깁니다. 예전 형식이 무엇인지는 [docs/architecture.ko.md](docs/architecture.ko.md#기록은-저장소에-커밋합니다)가 밝힙니다.
 
 **판정은 검사이고, 승인 리뷰가 아닙니다.** Owlery는 리뷰를 쓰지 않고 아무것도 머지하지 않습니다. 머지는 사람이 합니다.
 
@@ -77,7 +77,7 @@ pnpm --filter @owlery/desktop start
 
 ## Owlery가 출발한 곳
 
-Owlery는 같은 방법론을 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했고, 소유자는 2026-11-28에 그 플러그인이 IADD의 이름을 받아 플러그인 `iadd`가 되도록 정했습니다(MichaelYcJo/AgenticSeal#1651). Owlery는 그 플러그인에 기대어 돌지 않습니다. 역할 묶음과 PR 검사는 그 플러그인의 파일에서 출발한 Owlery의 것이고, 순서는 Owlery의 코드가 실행합니다. 무엇을 가져왔는지와 가져온 파일의 라이선스는 [docs/architecture.ko.md](docs/architecture.ko.md#owlery가-출발한-곳)에 있습니다.
+Owlery는 같은 방법론을 돌리는 Claude Code 플러그인 AgenticSeal에서 출발했습니다. 소유자는 2026-11-28에 IADD는 방법론이고 제품은 그것을 드러낼 뿐이라고 정했습니다. 그래서 그 플러그인은 이름 `agentic`을 그대로 쓰고, 두 도구 모두 기록을 `agentory/`에 두기로 했습니다(MichaelYcJo/AgenticSeal#1651, MichaelYcJo/AgenticSeal#1658). Owlery는 그 플러그인에 기대어 돌지 않습니다. 역할 묶음과 PR 검사는 그 플러그인의 파일에서 출발한 Owlery의 것이고, 순서는 Owlery의 코드가 실행합니다. 무엇을 가져왔는지와 가져온 파일의 라이선스는 [docs/architecture.ko.md](docs/architecture.ko.md#owlery가-출발한-곳)에 있습니다.
 
 ## 라이선스
 

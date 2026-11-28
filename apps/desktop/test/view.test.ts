@@ -1241,7 +1241,7 @@ describe("the decisions made without asking", () => {
       decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", since: NOW - 3 * 60 * MINUTE }),
       decision(2, REVERSAL),
       decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", by: "orchestrator", since: NOW - 5 * MINUTE }),
-      decision(4, { kind: "answered", says: "The base is main.", grounds: "iadd/config.json names no other.", since: NOW }),
+      decision(4, { kind: "answered", says: "The base is main.", grounds: "agentory/config.json names no other.", since: NOW }),
       decision(5, { ...REVERSAL, state: "applied", landed: "abc1234", since: null }),
       decision(6, { ...REVERSAL, state: "carried", landed: "#53", since: NOW - 2 * MINUTE }),
     ];
@@ -1249,7 +1249,7 @@ describe("the decisions made without asking", () => {
     expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
       { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
-      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: iadd/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: agentory/config.json names no other.", by: "", age: "less than a minute", reversed: null },
       { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
       { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },
@@ -1753,7 +1753,7 @@ describe("the approval line", () => {
     expect(says("is the CLI signed in?")).toEqual(["Proofer: Is the CLI signed in?"]);
     expect(says("the CLI said: no!")).toEqual(["Proofer: The CLI said: no!"]);
     // A first word that is a path, a file's name or a number is no word to give a capital.
-    expect(says("iadd/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: iadd/threads/one/trail/rounds/round-2.md was written and not committed."]);
+    expect(says("agentory/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: agentory/threads/one/trail/rounds/round-2.md was written and not committed."]);
     expect(says("round-2.md holds no target line")).toEqual(["Proofer: round-2.md holds no target line."]);
     expect(says("2 blocks open with a verdict")).toEqual(["Proofer: 2 blocks open with a verdict."]);
     // A first word that a mark ends, before a space or the text's end, is a word of letters alone.
@@ -5314,8 +5314,8 @@ describe("the dialog of the records place", () => {
     branch: "main",
     subject: "chore: add the place for work records and the pull request check",
     files: [
-      { path: "iadd/README.md", text: "# What IADD keeps in iadd/\n" },
-      { path: "iadd/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
+      { path: "agentory/README.md", text: "# What IADD keeps in agentory/\n" },
+      { path: "agentory/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
       { path: ".github/workflows/owlery-inspection.yml", text: "name: inspection\n" },
     ],
     blocked: null,
@@ -5332,7 +5332,7 @@ describe("the dialog of the records place", () => {
     expect(words.blocked).toBe("");
     expect(words.files).toEqual(PLAN.files.map((file) => ({ path: file.path, text: file.text, says: "" })));
     expect(words.holds).toEqual([]);
-    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `iadd/config.json`, under `Broad gate`." });
+    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `agentory/config.json`, under `Broad gate`." });
     expect(words.submit).toEqual({ shown: true, enabled: true, label: "Set up and commit" });
     expect(words.cancel).toBe("Not now");
   });
@@ -5343,31 +5343,31 @@ describe("the dialog of the records place", () => {
     expect(recordsDialog(PROJECT, PLAN, "pnpm tes", "pnpm test").submit.enabled).toBe(false);
     expect(recordsDialog(PROJECT, PLAN, "  ", "  ").submit.enabled).toBe(false);
     // A setup that writes no config.json needs no command.
-    expect(recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: null } }, kept(PLAN, "iadd/README.md", "iadd/config.json"), "", "").submit.enabled).toBe(true);
+    expect(recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: null } }, kept(PLAN, "agentory/README.md", "agentory/config.json"), "", "").submit.enabled).toBe(true);
   });
 
   it("says of a file that stands that it is kept, and turns the field off where config.json stands: it shows the key's value, or says that the file holds no such key", () => {
-    const plan = kept(PLAN, "iadd/README.md", "iadd/config.json");
+    const plan = kept(PLAN, "agentory/README.md", "agentory/config.json");
     const valued = recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: "make check" } }, plan, "", "");
     expect(valued.files).toEqual([
-      { path: "iadd/README.md", text: null, says: "`iadd/README.md` stands and is kept." },
-      { path: "iadd/config.json", text: null, says: "`iadd/config.json` stands and is kept." },
+      { path: "agentory/README.md", text: null, says: "`agentory/README.md` stands and is kept." },
+      { path: "agentory/config.json", text: null, says: "`agentory/config.json` stands and is kept." },
       { path: ".github/workflows/owlery-inspection.yml", text: "name: inspection\n", says: "" },
     ]);
-    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `iadd/config.json`, under `Broad gate`." });
+    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `agentory/config.json`, under `Broad gate`." });
     expect(valued.submit.enabled).toBe(true);
     const keyless = recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: null } }, plan, "", "");
-    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `iadd/config.json`." });
+    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `agentory/config.json`." });
   });
 
   it("shows, for a repository that holds every part, the root, the workflow and the command with the file that holds it, and offers no commit", () => {
-    const plan = kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml");
-    const whole = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, plan, "", "");
+    const plan = kept(PLAN, "agentory/README.md", "agentory/config.json", ".github/workflows/owlery-inspection.yml");
+    const whole = recordsDialog({ ...PROJECT, records: { root: "agentory", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, plan, "", "");
     expect(whole.scope).toBe(OUT_OF_SCOPE);
-    expect(whole.holds).toEqual(["Records: `iadd/`", "Check: `.github/workflows/owlery-inspection.yml`", "Broad gate: `make check`, kept in `iadd/config.json` under `Broad gate`"]);
+    expect(whole.holds).toEqual(["Records: `agentory/`", "Check: `.github/workflows/owlery-inspection.yml`", "Broad gate: `make check`, kept in `agentory/config.json` under `Broad gate`"]);
     expect([whole.commit, whole.files, whole.gate.shown, whole.submit.shown, whole.cancel]).toEqual(["", [], false, false, "Close"]);
-    const keyless = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: null } }, plan, "", "");
-    expect(keyless.holds[2]).toBe("No `Broad gate` key in `iadd/config.json`.");
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "agentory", check: ".github/workflows/owlery-inspection.yml", broadGate: null } }, plan, "", "");
+    expect(keyless.holds[2]).toBe("No `Broad gate` key in `agentory/config.json`.");
     expect(keyless.submit.shown).toBe(false);
   });
 
@@ -5383,7 +5383,7 @@ describe("the dialog of the records place", () => {
   it("tells an administrator how to make the inspection check required, in a plan and in a repository that holds every part", () => {
     const REQUIRED = "The workflow posts its verdict as the check `inspection` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires `inspection` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `inspection` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
     expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
-    const owlery = recordsDialog({ ...PROJECT, records: { root: "inspection", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml"), "", "");
+    const owlery = recordsDialog({ ...PROJECT, records: { root: "inspection", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, kept(PLAN, "agentory/README.md", "agentory/config.json", ".github/workflows/owlery-inspection.yml"), "", "");
     expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
     // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
     expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
@@ -5391,8 +5391,8 @@ describe("the dialog of the records place", () => {
 
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
-    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
-    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `agentory/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `agentory/config.json`, under `Broad gate`.");
   });
 
   describe("a move of the records from the earlier form", () => {
@@ -5408,9 +5408,9 @@ describe("the dialog of the records place", () => {
       migration: {
         from: "seal",
         moves: [
-          { from: "seal/README.md", to: "iadd/README.md", rewritten: true },
-          { from: "seal/config.json", to: "iadd/config.json", rewritten: false },
-          { from: "seal/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+          { from: "seal/README.md", to: "agentory/README.md", rewritten: true },
+          { from: "seal/config.json", to: "agentory/config.json", rewritten: false },
+          { from: "seal/threads/1-x/guarantee.md", to: "agentory/threads/1-x/inspection.md", rewritten: true },
         ],
         removes: [".github/workflows/owlery-seal.yml"],
       },
@@ -5421,13 +5421,13 @@ describe("the dialog of the records place", () => {
     it("says where the records stand and what the commit does with them, names each file that moves and where, the earlier workflow it removes and the workflow it writes whole, hides the field, and offers the move's commit", () => {
       const words = recordsDialog(EARLIER, MIGRATION, "", "");
       expect(words.move).toBe(
-        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `iadd/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
+        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `agentory/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
       );
       expect(words.commit).toBe("This makes one commit on `main`: `chore: move the work records and the pull request check to IADD's forms`. Nothing is pushed.");
       expect(words.files).toEqual([
-        { path: "seal/README.md", text: null, says: "`seal/README.md` moves to `iadd/README.md`, rewritten in IADD's forms." },
-        { path: "seal/config.json", text: null, says: "`seal/config.json` moves to `iadd/config.json` as it stands." },
-        { path: "seal/threads/1-x/guarantee.md", text: null, says: "`seal/threads/1-x/guarantee.md` moves to `iadd/threads/1-x/inspection.md`, rewritten in IADD's forms." },
+        { path: "seal/README.md", text: null, says: "`seal/README.md` moves to `agentory/README.md`, rewritten in IADD's forms." },
+        { path: "seal/config.json", text: null, says: "`seal/config.json` moves to `agentory/config.json` as it stands." },
+        { path: "seal/threads/1-x/guarantee.md", text: null, says: "`seal/threads/1-x/guarantee.md` moves to `agentory/threads/1-x/inspection.md`, rewritten in IADD's forms." },
         { path: ".github/workflows/owlery-seal.yml", text: null, says: "The commit removes `.github/workflows/owlery-seal.yml`." },
         { path: WORKFLOW, text: "name: inspection\n", says: "The commit writes this file whole." },
       ]);
@@ -5445,13 +5445,13 @@ describe("the dialog of the records place", () => {
   describe("a move of the check", () => {
     const WORKFLOW = ".github/workflows/owlery-inspection.yml";
     const HOLDING: Repository = { ...PROJECT, records: { root: "inspection", check: WORKFLOW, broadGate: "make check", olderCheck: "0.0.4" } };
-    const REFUSED = "the reader refuses line 4 of iadd/threads/1-refused/trail/rounds/round-1.md: a round block needs a `target:` line";
+    const REFUSED = "the reader refuses line 4 of agentory/threads/1-refused/trail/rounds/round-1.md: a round block needs a `target:` line";
     const MOVE: RecordsPlan = {
       branch: "main",
       subject: "chore: move the pull request check to Owlery 0.1.0",
       files: [
-        { path: "iadd/README.md", text: null },
-        { path: "iadd/config.json", text: null },
+        { path: "agentory/README.md", text: null },
+        { path: "agentory/config.json", text: null },
         { path: WORKFLOW, text: "name: inspection\n# --branch v0.1.0\n" },
       ],
       blocked: null,

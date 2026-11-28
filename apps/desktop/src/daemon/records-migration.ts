@@ -1,11 +1,11 @@
 // The move of a repository's work records from the earlier form, the one the
-// AgenticSeal plugin wrote under `seal/`, to IADD's under `iadd/`, in one
+// AgenticSeal plugin wrote under `seal/`, to IADD's under `agentory/`, in one
 // commit the person reads first (frame of issue #322, "The migration of a
 // connected repository"). This is the one module that holds the earlier
 // spellings of the records' forms: the earlier root's names and marker, the
 // earlier fence, `guarantee.md`, the earlier verdict's words and keys, and
 // the earlier names of the inspection's stage and role in two record cells.
-// Every other reader reads `iadd/` alone, and a root in the earlier form is
+// Every other reader reads `agentory/` alone, and a root in the earlier form is
 // read here for two things and no more: that it stands, so the repository's
 // row and the chain command can name it, and its `Heavy commands`, so the
 // runner of a repository that has not moved keeps its turn on the machine.
@@ -308,7 +308,7 @@ function named(names: readonly string[]): string {
 
 /**
  * The path a file of the earlier root moves to, by its path below that
- * root: the same path below `iadd/`, but for a work item's `guarantee.md`,
+ * root: the same path below `agentory/`, but for a work item's `guarantee.md`,
  * which moves to its `inspection.md`.
  */
 function movedPath(below: string): string {
@@ -349,7 +349,7 @@ function rewrite(below: string, text: string, stray = false): string | null {
  * holds IADD's root, the first under whose `threads/` it holds a file, of
  * which the plan moves that `threads/` alone: what a branch kept of the
  * earlier root after it merged a base that moved. Each file the commit holds
- * below what the plan moves goes to the same path below `iadd/`, a work
+ * below what the plan moves goes to the same path below `agentory/`, a work
  * item's `guarantee.md` to its `inspection.md`. Where the commit holds IADD's
  * root, each file of a work item's directory below it that is a
  * `guarantee.md` moves to that directory's `inspection.md`, and each record
@@ -369,7 +369,7 @@ function rewrite(below: string, text: string, stray = false): string | null {
  * The plan is blocked by the first of these that holds: the commit holds no
  * root in the earlier form and no record of that form below IADD's root; it
  * holds something other than a file below that
- * root; it holds a whole root in the earlier form and something at `iadd/`;
+ * root; it holds a whole root in the earlier form and something at `agentory/`;
  * it holds something at a path a file moves to; it holds something other
  * than a file at Owlery's workflow; the earlier grammar refuses a line of a
  * record, which is named with its file and its line, as is a record that

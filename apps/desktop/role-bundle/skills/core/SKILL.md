@@ -17,11 +17,11 @@ plugin does with one issue from the routing question to the inspector's
 inspection; a session doing other work is not bound by it to start the
 process. Each path this file cites is relative to the plugin's root, the
 directory holding this file's `skills/`, never to the session's repository,
-except `iadd/`, the records root `skills/implement/SKILL.md` *Document
-layout — two roots, three lifetimes* places. `iadd/` is that root's name in
-every text this plugin ships, except where a text says an `iadd/` is the
+except `agentory/`, the records root `skills/implement/SKILL.md` *Document
+layout — two roots, three lifetimes* places. `agentory/` is that root's name in
+every text this plugin ships, except where a text says an `agentory/` is the
 project's own or that its `README.md` does not open with the marker: that is
-the directory named `iadd`. The root has one name, and the same marker,
+the directory named `agentory`. The root has one name, and the same marker,
 `lib/optin.py#MARKER`, as the first line of its `README.md`, tells it.
 
 ## The first value: efficient development through the AgenticSeal process
@@ -78,7 +78,7 @@ The source documents are this file and the ones that outrank the code, in
 the order `skills/implement/SKILL.md` *1. Read the documents that outrank
 the code first* gives. Whoever judges, the orchestrator or an agent, writes
 the decision, its grounds and the document it judged against into the work
-item's records under `iadd/threads/`, where the next session reads it and
+item's records under `agentory/threads/`, where the next session reads it and
 nothing else has to remember it. The guidance improves from that record,
 not from memory: the settle, or a command run by the owner of the
 repository whose release made the judgments, reads them against what they
@@ -103,7 +103,7 @@ one of those protections, is guidance.
 |---|---|---|
 | No review without a build | a round reads a committed tree and its record names the commit | `skills/code-review/scripts/chain_check.py`'s records arm: every record carries one `target:` line, and HEAD descends from the last record's commit and from every `fixed` commit |
 | No fix that no round reads | every change after the last round is read by a round, or by the inspector where it touched the work item's records alone and each finding it closed is located in those records alone | the same check: the last record is at HEAD or only the work item's records follow it, and every `fixed` or `rejected` finding is named by the next record |
-| No inspection without the broad run at HEAD | the inspector clears a tree the command in the repository's `Broad gate` key of `iadd/config.json` passed at HEAD | Owlery's order owes the inspector's stage only where the newest run of `trail/gate.md` holds at the branch's head, and Owlery writes no verdict where the head moved (`agents/inspector.md` *Owlery holds that the gate passed on the audited commit*); the same check's broad gate arm |
+| No inspection without the broad run at HEAD | the inspector clears a tree the command in the repository's `Broad gate` key of `agentory/config.json` passed at HEAD | Owlery's order owes the inspector's stage only where the newest run of `trail/gate.md` holds at the branch's head, and Owlery writes no verdict where the head moved (`agents/inspector.md` *Owlery holds that the gate passed on the audited commit*); the same check's broad gate arm |
 | No pull request without a cleared inspection | nothing reaches the base that the last independent party did not clear | the same check's inspection arm: a ready pull request fails without `Verdict: cleared` at HEAD; and its body arm: a ready pull request fails where its body's inspection section, which Owlery composes, holds a verdict block other than the newest of the work item's `inspection.md` at HEAD |
 
 The check refuses only a ready pull request, where its GitHub Actions

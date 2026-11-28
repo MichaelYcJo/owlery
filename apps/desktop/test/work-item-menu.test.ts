@@ -693,7 +693,7 @@ describe("the menus in the built app", { timeout: 30_000 }, () => {
     expect(await value<string>(`document.getElementById("records-head").textContent`)).toBe("Records and check: second");
     // The dialog opens before the daemon's plan and grows when the plan is drawn, which moves "Not now": it is pressed once the plan's files stand.
     await app.until(`document.querySelectorAll("#records-files .path").length > 0`, "the plan's files in the dialog records-dialog");
-    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml"]);
+    expect(await value<string[]>(`[...document.querySelectorAll("#records-files .path")].map((path) => path.textContent)`)).toEqual(["agentory/README.md", "agentory/config.json", ".github/workflows/owlery-inspection.yml"]);
     await app.click("#records-cancel");
     await dialogClosed("records-dialog");
     expect(git(second.repo, "status", "--porcelain=v1", "--untracked-files=all")).toBe("");

@@ -1225,21 +1225,21 @@ describe("committing files of a worktree", () => {
 
   it("commits the paths given together and nothing else: one commit that holds them, with the subject and the one trailer as its two paragraphs, under the person's identity, while a change staged beside them and one not staged stand as they stood", async () => {
     const { repo } = repository();
-    write(repo, "iadd/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
-    write(repo, "iadd/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
+    write(repo, "agentory/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
+    write(repo, "agentory/threads/1-x/decisions.md", "# Decisions and questions: 1-x\n");
     write(repo, "staged.txt", "staged\n");
     git(repo, "add", "staged.txt");
     write(repo, "README.md", "changed and not staged\n");
-    await commitPaths(repo, "main", ["iadd/threads/1-x/trail/rounds/round-1.md", "iadd/threads/1-x/decisions.md"], "chore: record review round 1", [TRAILER]);
+    await commitPaths(repo, "main", ["agentory/threads/1-x/trail/rounds/round-1.md", "agentory/threads/1-x/decisions.md"], "chore: record review round 1", [TRAILER]);
     expect(commitsIn(repo)).toBe(2);
-    expect(newest(repo)).toEqual({ subject: "chore: record review round 1", body: TRAILER, by: WHO, paths: ["iadd/threads/1-x/decisions.md", "iadd/threads/1-x/trail/rounds/round-1.md"] });
+    expect(newest(repo)).toEqual({ subject: "chore: record review round 1", body: TRAILER, by: WHO, paths: ["agentory/threads/1-x/decisions.md", "agentory/threads/1-x/trail/rounds/round-1.md"] });
     expect(status(repo)).toEqual([" M README.md", "A  staged.txt"]);
   });
 
   it("writes two trailers as the two lines of the commit's second paragraph, in the order given, and git reads each back as a trailer by its key", async () => {
     const { repo } = repository();
-    write(repo, "iadd/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
-    await commitPaths(repo, "main", ["iadd/threads/1-x/trail/rounds/round-1.md"], "chore: record the fix pass of round 1", [TRAILER, "IADD-Built-By: s-1"]);
+    write(repo, "agentory/threads/1-x/trail/rounds/round-1.md", "# Review round 1: 1-x\n");
+    await commitPaths(repo, "main", ["agentory/threads/1-x/trail/rounds/round-1.md"], "chore: record the fix pass of round 1", [TRAILER, "IADD-Built-By: s-1"]);
     expect(newest(repo)).toMatchObject({ subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nIADD-Built-By: s-1` });
     expect(git(repo, "log", "-1", "--format=%(trailers:key=IADD-Built-By,valueonly)").trim()).toBe("s-1");
     expect(git(repo, "log", "-1", "--format=%(trailers:key=IADD-Routing,valueonly)").trim()).toBe(TRAILER.slice("IADD-Routing: ".length));
@@ -1247,17 +1247,17 @@ describe("committing files of a worktree", () => {
 
   it("commits one path alone, and of two paths the one that differs from the newest commit; where none differs it commits nothing", async () => {
     const { repo } = repository();
-    write(repo, "iadd/threads/1-x/decisions.md", "one\n");
-    write(repo, "iadd/threads/1-x/routing.md", "routing\n");
-    await commitPaths(repo, "main", ["iadd/threads/1-x/decisions.md"], "chore: record a word", [TRAILER]);
-    expect(newest(repo)).toMatchObject({ subject: "chore: record a word", body: TRAILER, paths: ["iadd/threads/1-x/decisions.md"] });
-    expect(status(repo)).toEqual(["?? iadd/threads/1-x/routing.md"]);
+    write(repo, "agentory/threads/1-x/decisions.md", "one\n");
+    write(repo, "agentory/threads/1-x/routing.md", "routing\n");
+    await commitPaths(repo, "main", ["agentory/threads/1-x/decisions.md"], "chore: record a word", [TRAILER]);
+    expect(newest(repo)).toMatchObject({ subject: "chore: record a word", body: TRAILER, paths: ["agentory/threads/1-x/decisions.md"] });
+    expect(status(repo)).toEqual(["?? agentory/threads/1-x/routing.md"]);
 
-    await commitPaths(repo, "main", ["iadd/threads/1-x/decisions.md", "iadd/threads/1-x/routing.md"], "chore: declare the routing", [TRAILER]);
+    await commitPaths(repo, "main", ["agentory/threads/1-x/decisions.md", "agentory/threads/1-x/routing.md"], "chore: declare the routing", [TRAILER]);
     expect(commitsIn(repo)).toBe(3);
-    expect(newest(repo)).toMatchObject({ subject: "chore: declare the routing", paths: ["iadd/threads/1-x/routing.md"] });
+    expect(newest(repo)).toMatchObject({ subject: "chore: declare the routing", paths: ["agentory/threads/1-x/routing.md"] });
 
-    await commitPaths(repo, "main", ["iadd/threads/1-x/decisions.md", "iadd/threads/1-x/routing.md"], "chore: nothing to carry", [TRAILER]);
+    await commitPaths(repo, "main", ["agentory/threads/1-x/decisions.md", "agentory/threads/1-x/routing.md"], "chore: nothing to carry", [TRAILER]);
     expect(commitsIn(repo)).toBe(3);
     expect(status(repo)).toEqual([]);
   });

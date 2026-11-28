@@ -35,7 +35,7 @@ afterEach(() => {
 function repository(): string {
   const made = temporaryRepository();
   cleanups.push(made.remove);
-  write(made.repo, "iadd/README.md", `${MARKER}\n`);
+  write(made.repo, "agentory/README.md", `${MARKER}\n`);
   commit(made.repo, "chore: add the records root");
   return made.repo;
 }
@@ -62,38 +62,38 @@ describe("the directories a settle keeps", () => {
   it("keeps a directory whose record holds a reversed decision, and names the decision's id, its line and the reversal's message, in a record whose lines end with a carriage return too", () => {
     const repo = repository();
     for (const end of ["\n", "\r\n"]) {
-      write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED).replaceAll("\n", end));
+      write(repo, "agentory/threads/1-a/decisions.md", record(REVERSED).replaceAll("\n", end));
       const reading = readSettle(repo);
-      expect(reading.root, end).toBe("iadd");
+      expect(reading.root, end).toBe("agentory");
       expect(reading.kept, end).toEqual([
         {
-          directory: "iadd/threads/1-a",
+          directory: "agentory/threads/1-a",
           rows: [{ line: 3, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." }],
         },
       ]);
       const got = run(repo);
       expect(got.code, end).toBe(1);
       expect(got.out, end).toContain(
-        "kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
+        "kept agentory/threads/1-a/\n  agentory/threads/1-a/decisions.md:3: decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol.\n",
       );
     }
   });
 
   it("is run by the package's script, which prints the reading and exits 1 where it keeps a directory", () => {
     const repo = repository();
-    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "agentory/threads/1-a/decisions.md", record(REVERSED));
     const got = spawnSync(process.execPath, [SCRIPT], { cwd: repo, encoding: "utf8", env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" } });
     expect(got.stderr).toBe("");
-    expect(got.stdout).toContain("kept iadd/threads/1-a/\n");
+    expect(got.stdout).toContain("kept agentory/threads/1-a/\n");
     expect(got.status).toBe(1);
   });
 
   it("keeps a directory whose record holds an open question, and names the question's id and its text, each row in the record's order", () => {
     const repo = repository();
-    write(repo, "iadd/threads/1-a/decisions.md", record(OPEN, REVERSED));
+    write(repo, "agentory/threads/1-a/decisions.md", record(OPEN, REVERSED));
     expect(readSettle(repo).kept).toEqual([
       {
-        directory: "iadd/threads/1-a",
+        directory: "agentory/threads/1-a",
         rows: [
           { line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" },
           { line: 10, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." },
@@ -102,15 +102,15 @@ describe("the directories a settle keeps", () => {
     ]);
     const got = run(repo);
     expect(got.code).toBe(1);
-    expect(got.out).toContain("kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
+    expect(got.out).toContain("kept agentory/threads/1-a/\n  agentory/threads/1-a/decisions.md:3: question 2 is open; asks: May the run push the branch to `origin`?\n");
   });
 
   it("keeps a directory whose record holds a block the reader refuses, and names the refusal's line and reason", () => {
     const repo = repository();
-    write(repo, "iadd/threads/1-a/decisions.md", record(["decision: 1 scope", "decided: No push.", "grounds: None asked.", "state: undone"]));
+    write(repo, "agentory/threads/1-a/decisions.md", record(["decision: 1 scope", "decided: No push.", "grounds: None asked.", "state: undone"]));
     expect(readSettle(repo).kept).toEqual([
       {
-        directory: "iadd/threads/1-a",
+        directory: "agentory/threads/1-a",
         rows: [
           {
             line: 7,
@@ -124,28 +124,28 @@ describe("the directories a settle keeps", () => {
 
   it("stops with exit 2 and names the record where a `decisions.md` cannot be read, and keeps reading nothing as a record with nothing open", () => {
     const repo = repository();
-    mkdirSync(join(repo, "iadd/threads/1-a/decisions.md"), { recursive: true });
-    expect(() => readSettle(repo)).toThrow("iadd/threads/1-a/decisions.md cannot be read");
+    mkdirSync(join(repo, "agentory/threads/1-a/decisions.md"), { recursive: true });
+    expect(() => readSettle(repo)).toThrow("agentory/threads/1-a/decisions.md cannot be read");
     const got = run(repo);
     expect([got.code, got.out]).toEqual([2, ""]);
-    expect(got.err).toContain("iadd/threads/1-a/decisions.md cannot be read");
+    expect(got.err).toContain("agentory/threads/1-a/decisions.md cannot be read");
   });
 
   it("stops with exit 2 and names the link where a `decisions.md` links to nothing, `threads/` links to nothing, or a work item's directory is a link, and reads none of them as nothing", () => {
     for (const [made, said] of [
-      [(repo: string) => symlinkSync("nowhere.md", join(repo, "iadd/threads/1-a/decisions.md")), "iadd/threads/1-a/decisions.md cannot be read: it is a link to nothing"],
-      [(repo: string) => symlinkSync("nowhere", join(repo, "iadd/threads")), "iadd/threads cannot be read: it is a link to nothing"],
+      [(repo: string) => symlinkSync("nowhere.md", join(repo, "agentory/threads/1-a/decisions.md")), "agentory/threads/1-a/decisions.md cannot be read: it is a link to nothing"],
+      [(repo: string) => symlinkSync("nowhere", join(repo, "agentory/threads")), "agentory/threads cannot be read: it is a link to nothing"],
       [
         (repo: string) => {
           // The directory behind the link holds a reversal, which a settle that passed the link over would neither keep nor name.
           write(repo, "elsewhere/decisions.md", record(REVERSED));
-          symlinkSync("../../elsewhere", join(repo, "iadd/threads/2-b"));
+          symlinkSync("../../elsewhere", join(repo, "agentory/threads/2-b"));
         },
-        "iadd/threads/2-b is a link, and the settle reads a work item's directory only where one stands",
+        "agentory/threads/2-b is a link, and the settle reads a work item's directory only where one stands",
       ],
     ] as const) {
       const repo = repository();
-      if (said.startsWith("iadd/threads/")) write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
+      if (said.startsWith("agentory/threads/")) write(repo, "agentory/threads/1-a/routing.md", "# Routing: 1-a\n");
       made(repo);
       expect(() => readSettle(repo), said).toThrow(said);
       const got = run(repo);
@@ -155,27 +155,27 @@ describe("the directories a settle keeps", () => {
 
   it("names a notice of the reader at its line and keeps nothing for it", () => {
     const repo = repository();
-    write(repo, "iadd/threads/1-a/decisions.md", ["# Decisions and questions", "", `${F}iadd decision`, "decision: 1 route", F, ""].join("\n"));
+    write(repo, "agentory/threads/1-a/decisions.md", ["# Decisions and questions", "", `${F}iadd decision`, "decision: 1 route", F, ""].join("\n"));
     const reading = readSettle(repo);
     expect(reading.kept).toEqual([]);
     expect(reading.notices).toEqual([
       {
-        directory: "iadd/threads/1-a",
+        directory: "agentory/threads/1-a",
         line: 3,
         why: "not read: `" + F + "iadd decision` opens a fence like an `iadd` block and is not one, so its lines are no fields; an `iadd` block opens with three backticks and `iadd` alone on the line",
       },
     ]);
     const got = run(repo);
     expect(got.code).toBe(0);
-    expect(got.out).toContain("notice iadd/threads/1-a/decisions.md:3: not read: ");
-    expect(got.out).not.toContain("kept iadd/threads/");
+    expect(got.out).toContain("notice agentory/threads/1-a/decisions.md:3: not read: ");
+    expect(got.out).not.toContain("kept agentory/threads/");
   });
 
   it("keeps no directory whose decisions are decided, applied or carried and whose questions are answered, nor one without a record", () => {
     const repo = repository();
     write(
       repo,
-      "iadd/threads/1-a/decisions.md",
+      "agentory/threads/1-a/decisions.md",
       record(
         ["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"],
         ["decision: 2 default", "decided: English.", "grounds: The key.", "state: applied 0123abc", "reversal: Korean."],
@@ -183,9 +183,9 @@ describe("the directories a settle keeps", () => {
         ["question: 4", "asks: Go on?", "grounds: None stands.", "state: answered", "answer: yes"],
       ),
     );
-    write(repo, "iadd/threads/2-b/routing.md", "# Routing\n");
+    write(repo, "agentory/threads/2-b/routing.md", "# Routing\n");
     // A file under `threads/` is no work item's directory.
-    write(repo, "iadd/threads/notes.md", "# Notes\n");
+    write(repo, "agentory/threads/notes.md", "# Notes\n");
     const reading = readSettle(repo);
     expect([reading.kept, reading.notices, reading.release.map((item) => item.id)]).toEqual([[], [], ["1-a", "2-b"]]);
     const got = run(repo);
@@ -194,34 +194,34 @@ describe("the directories a settle keeps", () => {
   });
 
   it("keeps a directory by the record HEAD holds where the working tree lacks the record, removed with its directory or alone, as a settle stopped before its commit leaves it, and stops where HEAD holds that record or its directory as a link", () => {
-    for (const removed of ["iadd/threads/1-a", "iadd/threads/1-a/decisions.md"]) {
+    for (const removed of ["agentory/threads/1-a", "agentory/threads/1-a/decisions.md"]) {
       const repo = repository();
-      write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
-      write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
-      write(repo, "iadd/threads/2-b/decisions.md", record(OPEN));
+      write(repo, "agentory/threads/1-a/routing.md", "# Routing: 1-a\n");
+      write(repo, "agentory/threads/1-a/decisions.md", record(REVERSED));
+      write(repo, "agentory/threads/2-b/decisions.md", record(OPEN));
       commit(repo, "chore: two kept work items");
       rmSync(join(repo, removed), { recursive: true });
       expect(readSettle(repo).kept, removed).toEqual([
         {
-          directory: "iadd/threads/1-a",
+          directory: "agentory/threads/1-a",
           rows: [{ line: 3, why: "decision 1 is reversed; decided: The work item runs through the review chain, with no framer.; reversal: Frame it first: the change reaches the protocol." }],
         },
-        { directory: "iadd/threads/2-b", rows: [{ line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" }] },
+        { directory: "agentory/threads/2-b", rows: [{ line: 3, why: "question 2 is open; asks: May the run push the branch to `origin`?" }] },
       ]);
       const got = run(repo);
       expect(got.code, removed).toBe(1);
-      expect(got.out, removed).toContain("kept iadd/threads/1-a/\n  iadd/threads/1-a/decisions.md:3: decision 1 is reversed; ");
+      expect(got.out, removed).toContain("kept agentory/threads/1-a/\n  agentory/threads/1-a/decisions.md:3: decision 1 is reversed; ");
     }
     for (const [link, target] of [
-      ["iadd/threads/1-a/decisions.md", "nowhere.md"],
-      ["iadd/threads/1-a", "../../elsewhere"],
+      ["agentory/threads/1-a/decisions.md", "nowhere.md"],
+      ["agentory/threads/1-a", "../../elsewhere"],
     ] as const) {
       const repo = repository();
       write(repo, "elsewhere/decisions.md", record(REVERSED));
       mkdirSync(dirname(join(repo, link)), { recursive: true });
       symlinkSync(target, join(repo, link));
       commit(repo, "chore: a work item that is a link");
-      rmSync(join(repo, "iadd/threads/1-a"), { recursive: true });
+      rmSync(join(repo, "agentory/threads/1-a"), { recursive: true });
       const said = `${link} is a link in HEAD, and the settle reads a record only where one stands`;
       expect(() => readSettle(repo), link).toThrow(said);
       expect(run(repo), link).toEqual({ code: 2, out: "", err: `settle: ${said}\n` });
@@ -231,7 +231,7 @@ describe("the directories a settle keeps", () => {
   it("reads nothing and keeps nothing in a repository that holds no records root, and says so", () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    write(made.repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
+    write(made.repo, "agentory/threads/1-a/decisions.md", record(REVERSED));
     expect(readSettle(made.repo)).toEqual({ root: null, kept: [], notices: [], since: null, release: [] });
     const got = run(made.repo);
     expect(got.code).toBe(0);
@@ -244,22 +244,22 @@ describe("the release's decisions made without asking", () => {
   function released(): { repo: string; before: string } {
     const repo = repository();
     const before = git(repo, "rev-parse", "HEAD").trim();
-    write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
-    write(repo, "iadd/threads/1-a/decisions.md", record(REVERSED));
+    write(repo, "agentory/threads/1-a/routing.md", "# Routing: 1-a\n");
+    write(repo, "agentory/threads/1-a/decisions.md", record(REVERSED));
     commit(repo, "feat: the first work item (#3)");
     git(repo, "tag", "v0.0.1");
-    write(repo, "iadd/threads/2-b/routing.md", "# Routing: 2-b\n");
+    write(repo, "agentory/threads/2-b/routing.md", "# Routing: 2-b\n");
     write(
       repo,
-      "iadd/threads/2-b/decisions.md",
+      "agentory/threads/2-b/decisions.md",
       record(
         ["decision: 1 default", "decided: English.", "grounds: The key is absent.", "by: framer", "state: reversed", "reversal: Korean."],
         ["decision: 2 route", "decided: No framer.", "grounds: Small.", "state: decided"],
       ),
     );
     commit(repo, "chore: frame the second work item");
-    write(repo, "iadd/threads/3-c/routing.md", "# Routing: 3-c\n");
-    write(repo, "iadd/threads/3-c/decisions.md", record(["decision: 1 default", "decided: No push.", "grounds: None asked.", "state: carried #20", "reversal: Push it."]));
+    write(repo, "agentory/threads/3-c/routing.md", "# Routing: 3-c\n");
+    write(repo, "agentory/threads/3-c/decisions.md", record(["decision: 1 default", "decided: No push.", "grounds: None asked.", "state: carried #20", "reversal: Push it."]));
     commit(repo, "feat: the third work item (#12)");
     return { repo, before };
   }
@@ -273,7 +273,7 @@ describe("the release's decisions made without asking", () => {
       ["3-c", 12, [1]],
     ]);
     // The work item of the earlier release is kept for its reversal and is not listed again.
-    expect(reading.kept.map((kept) => kept.directory)).toEqual(["iadd/threads/1-a", "iadd/threads/2-b"]);
+    expect(reading.kept.map((kept) => kept.directory)).toEqual(["agentory/threads/1-a", "agentory/threads/2-b"]);
     expect(listMarkdown(reading)).toBe(
       [
         "- `route`: 1 decision, 0 reversed by the person",
@@ -332,34 +332,34 @@ describe("the release's decisions made without asking", () => {
     const UNDONE = ["decision: 2 scope", "decided: No push.", "grounds: None asked.", "state: undone"];
     const WHY = "the reader refuses the line: `state: undone` does not read whole as `state: <value>`: a decision's state is `decided`, `reversed`, `applied <commit>` with 7 to 40 hex digits, or `carried <home>`";
     const repo = repository();
-    write(repo, "iadd/threads/1-a/decisions.md", record(["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"], UNDONE));
-    write(repo, "iadd/threads/2-b/decisions.md", record(UNDONE));
+    write(repo, "agentory/threads/1-a/decisions.md", record(["decision: 1 route", "decided: No framer.", "grounds: Small.", "state: decided"], UNDONE));
+    write(repo, "agentory/threads/2-b/decisions.md", record(UNDONE));
     const reading = readSettle(repo);
     expect(reading.release.map((item) => [item.id, item.refused])).toEqual([
       ["1-a", [{ line: 14, why: WHY }]],
       ["2-b", [{ line: 7, why: WHY }]],
     ]);
     const listed = listMarkdown(reading);
-    expect(listed.startsWith("- `route`: 1 decision, 0 reversed by the person\n- Not listed: 2 blocks the reader cannot read (`iadd/threads/1-a/decisions.md:14`, `iadd/threads/2-b/decisions.md:7`)\n\n### 1-a\n"), listed).toBe(true);
+    expect(listed.startsWith("- `route`: 1 decision, 0 reversed by the person\n- Not listed: 2 blocks the reader cannot read (`agentory/threads/1-a/decisions.md:14`, `agentory/threads/2-b/decisions.md:7`)\n\n### 1-a\n"), listed).toBe(true);
     const got = run(repo, "--list");
-    expect(got).toEqual({ code: 1, out: listed, err: `settle: not listed iadd/threads/1-a/decisions.md:14: ${WHY}\nsettle: not listed iadd/threads/2-b/decisions.md:7: ${WHY}\n` });
+    expect(got).toEqual({ code: 1, out: listed, err: `settle: not listed agentory/threads/1-a/decisions.md:14: ${WHY}\nsettle: not listed agentory/threads/2-b/decisions.md:7: ${WHY}\n` });
     // A release whose only block the reader refuses does not say it holds no decision.
-    rmSync(join(repo, "iadd/threads/1-a"), { recursive: true });
-    expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`iadd/threads/2-b/decisions.md:7`)\n");
+    rmSync(join(repo, "agentory/threads/1-a"), { recursive: true });
+    expect(listMarkdown(readSettle(repo))).toBe("- Not listed: 1 block the reader cannot read (`agentory/threads/2-b/decisions.md:7`)\n");
   });
 
   it("writes each value of the record as the record holds it, escaping outside code spans what Markdown reads as markup, and keeping the code spans the record writes", () => {
     const repo = repository();
     write(
       repo,
-      "iadd/threads/1-a/decisions.md",
+      "agentory/threads/1-a/decisions.md",
       record(
         ["decision: 1 route", "decided: Name <ref> as *a*, keep `<raw>` and ``a`b`` as typed.", "grounds: a | b & c_d, an open ` stays [x](y) ~z~ #1 \\n", "by: **orchestrator**", "state: reversed", "reversal: Use <ref> here."],
         ["decision: 2 scope", "decided: No push.", "grounds: None.", "state: carried notes`x", "reversal: Push it."],
         ["decision: 3 scope", "decided: No tag.", "grounds: None.", "state: carried notes`", "reversal: Tag it."],
       ),
     );
-    write(repo, "iadd/threads/2-*b*/decisions.md", record(["decision: 1 default", "decided: English.", "grounds: The key.", "state: decided"]));
+    write(repo, "agentory/threads/2-*b*/decisions.md", record(["decision: 1 default", "decided: English.", "grounds: The key.", "state: decided"]));
     expect(listMarkdown(readSettle(repo))).toBe(
       [
         "- `route`: 1 decision, 1 reversed by the person",
@@ -391,7 +391,7 @@ describe("the release's decisions made without asking", () => {
 
   it("says so where the release holds no decision made without asking", () => {
     const repo = repository();
-    write(repo, "iadd/threads/1-a/routing.md", "# Routing: 1-a\n");
+    write(repo, "agentory/threads/1-a/routing.md", "# Routing: 1-a\n");
     expect(listMarkdown(readSettle(repo))).toBe("No decision was made without asking in this release.\n");
   });
 });

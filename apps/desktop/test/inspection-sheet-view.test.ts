@@ -78,8 +78,8 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     buildApp();
     made = temporaryRepository();
     // The place for work records stands on the branch the work items are cut from.
-    mkdirSync(join(made.repo, "iadd"));
-    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
+    mkdirSync(join(made.repo, "agentory"));
+    writeFileSync(join(made.repo, "agentory", "README.md"), `${MARKER}\n`);
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon runs the CLI at its start, to read its version, and starts no session of it here.

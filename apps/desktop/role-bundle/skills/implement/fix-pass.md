@@ -11,7 +11,7 @@ daemon in a chain it runs, and the chain command in a pane.
 
 ## Read the round records first
 
-A fix pass starts at `iadd/threads/<work-item-id>/trail/rounds/`,
+A fix pass starts at `agentory/threads/<work-item-id>/trail/rounds/`,
 **not** at the inline comments: the proofer's answer is `round-N.md`, which
 Owlery wrote and committed, and the next review round reads it
 (`docs/forms/the-round-record.md` *The round record*).
@@ -34,7 +34,7 @@ without waiving the reading below. The fix pass applies it only after
 reading it against the frame and the code: what `frame/design.md` and the
 `frame/plan.md` row of the phase that built it say the changed unit does,
 and every input the code hands that unit. A procedure step is also read as
-its own reader would: in either `iadd/` root (contract rule 11), under
+its own reader would: in either `agentory/` root (contract rule 11), under
 every condition its file names, and in the release that ships it. In that
 release, a section the step cites holds the text the release ships, not the
 text a design's `## Rule changes` writes at a later settle. Where that

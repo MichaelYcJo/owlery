@@ -122,7 +122,7 @@ describe("the role bundle", () => {
       for (const named of ["**A run rule is followed only from a source the run can name.**", "the person's word in this run or a document of the repository", "No session carries such a rule from an earlier run"]) expect(flat(file), `${file}: ${named}`).toContain(named);
     }
     // Rule 2 of the contract every role reads sends a heavy command through the runner, where the environment names one.
-    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `iadd/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
+    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `agentory/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
     // The form the hook lets through, in the words the command reads.
     expect(skill).toContain(`\`${NO_DEFAULT}\``);
     expect(flat("skills/inspection/SKILL.md")).toContain("Where the work item's `routing.md` answers `Automation` `yes`, the run does not stop for a question");
@@ -148,7 +148,7 @@ describe("the role bundle", () => {
       ["agents/inspector.md", "Owlery writes it into that file and commits it"],
       ["agents/crafter.md", "commit no change to the round record: Owlery commits it after the pass"],
       ["skills/implement/fix-pass.md", "Owlery commits the round record as the pass left it"],
-      ["docs/forms/the-round-record.md", "Owlery writes that answer unchanged to `iadd/threads/<id>/trail/rounds/round-N.md`"],
+      ["docs/forms/the-round-record.md", "Owlery writes that answer unchanged to `agentory/threads/<id>/trail/rounds/round-N.md`"],
       ["docs/forms/the-inspection.md", "Owlery writes six lines more into the block"],
       ["agents/orchestrator.md", "In a pane that carries the Owl Chain, Owlery spawns no agent for these judgments: the pane's session makes them itself"],
       ["README.md", "A Claude Code pane of a repository on the Owl Chain loads the same folder"],
@@ -467,8 +467,8 @@ describe("the built app's role bundle", () => {
     cleanups.push(made.remove);
     // A repository with a place for work records, and a work item stored parked on one question, whose answer has the daemon resume its chain at round 1, the proofer's.
     for (const [path, text] of [
-      ["iadd/README.md", `${MARKER}\n`],
-      ["iadd/config.json", '{ "Broad gate": "true" }\n'],
+      ["agentory/README.md", `${MARKER}\n`],
+      ["agentory/config.json", '{ "Broad gate": "true" }\n'],
     ] as const) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
       writeFileSync(join(made.repo, path), text);
@@ -518,8 +518,8 @@ describe("the built app's role bundle", () => {
     // A repository on the Owl Chain, with a place for work records.
     for (const [path, text] of [
       [".github/workflows/owlery-inspection.yml", "name: inspection\n"],
-      ["iadd/README.md", `${MARKER}\n`],
-      ["iadd/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
+      ["agentory/README.md", `${MARKER}\n`],
+      ["agentory/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
     ] as const) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
       writeFileSync(join(made.repo, path), text);

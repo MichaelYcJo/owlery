@@ -26,7 +26,7 @@ afterEach(async () => {
 });
 
 /** The directory the command declares for the cases' branch, from the daemon's clock in the cases. */
-const DIRECTORY = "iadd/threads/1795388700-greet";
+const DIRECTORY = "agentory/threads/1795388700-greet";
 
 const read = (file: string | undefined): string => readFileSync(file ?? "", "utf8");
 
@@ -134,7 +134,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     git(on.repo, "checkout", "--quiet", "main");
     const linked = join(on.folder, "linked");
     git(on.repo, "worktree", "add", "--quiet", linked, BRANCH);
-    const below = join(linked, "iadd");
+    const below = join(linked, "agentory");
     const pane = { PWD: on.repo, OLDPWD: on.repo };
     expect((await on.run(["start"], pane, "", below)).code).toBe(0);
     const owed = await on.run(["owed"], pane, "", below);
@@ -453,7 +453,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.run(["start", "--base", "elsewhere"])).toEqual({ code: 1, out: "", err: `The branch and its base elsewhere share no commit, so a round has no base to read the branch against. ${BASE_OPTION}\n` });
     expect(await on.run(["start", "--base", "nowhere"])).toEqual({ code: 1, out: "", err: `The repository holds no branch and no commit named nowhere, so a round has no base to read the branch against. ${BASE_OPTION}\n` });
     expect((await on.run(["start"], { OWLERY_BASE: undefined })).err).toBe("Nothing names the base the branch is read against: the pane's environment holds no OWLERY_BASE. Name it with `--base <branch or commit>`.\n");
-    expect(existsSync(join(on.repo, "iadd/threads"))).toBe(false);
+    expect(existsSync(join(on.repo, "agentory/threads"))).toBe(false);
     expect(head(on.repo)).toBe(aside);
     // The base named anew starts the chain.
     expect(await on.said(["start", "--base", "main"])).toMatchObject({ declared: true });
@@ -484,7 +484,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
 
   it("refuses a start the daemon's chain refuses, each with the daemon's sentence and with no directory made: a records root that names no broad gate, a change no commit holds, a branch with no commit after its base, and a worktree whose HEAD names no branch yet, with what makes one", async () => {
     const gateless = commandOn(cleanups, { gate: " " });
-    expect(await gateless.run(["start"])).toEqual({ code: 1, out: "", err: 'iadd/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.\n' });
+    expect(await gateless.run(["start"])).toEqual({ code: 1, out: "", err: 'agentory/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.\n' });
     const on = commandOn(cleanups);
     writeFileSync(join(on.repo, "loose.txt"), "loose\n");
     expect(await on.run(["start"])).toEqual({ code: 1, out: "", err: "The worktree holds a change no commit holds, at loose.txt. A round reads a committed tree: commit the change or remove it first.\n" });
@@ -493,7 +493,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     const detached = commandOn(cleanups);
     git(detached.repo, "checkout", "--quiet", "--detach");
     expect(await detached.run(["start"])).toEqual({ code: 1, out: "", err: "The worktree's HEAD names no branch yet. Owlery makes the work item's branch at its first commit, within a few seconds while Owlery's window is open; run the command again once it has.\n" });
-    for (const { repo } of [gateless, on, detached]) expect(existsSync(join(repo, "iadd/threads"))).toBe(false);
+    for (const { repo } of [gateless, on, detached]) expect(existsSync(join(repo, "agentory/threads"))).toBe(false);
   });
 
   it("follows the base round 1's record names, whatever the pane's environment names afterwards: the verifying round and the inspection are read against it, and the inspection's target names it", async () => {
@@ -516,7 +516,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     await on.said(["gate"]);
     const inspection = await on.said<Owed>(["owed"]);
     expect(inspection.target).toBe(`${inspection.commit ?? ""} against release/x`);
-    expect(read(inspection.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
+    expect(read(inspection.prompt)).toMatch(/\nThe branch changed these paths since it left its base:\n(?:- `[^`\n]+`\n)*- `feature\.txt`\n/u);
   });
 
   it("goes on where the base branch round 1's record names gained a commit the branch does not hold, reading the branch from the commit the two last shared", async () => {
@@ -540,7 +540,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
   it("writes the routing's `Automation` row with the answer `start` is given and none where it is given none, and refuses an answer other than `yes` and `no` and an answer a standing routing does not hold", async () => {
     const on = commandOn(cleanups);
     expect(await on.run(["start", "--automation", "maybe"])).toEqual({ code: 1, out: "", err: "`start` takes `--automation` with `yes` or `no`: whether the run goes on without stopping for a question.\n" });
-    expect(existsSync(join(on.repo, "iadd/threads"))).toBe(false);
+    expect(existsSync(join(on.repo, "agentory/threads"))).toBe(false);
     expect(await on.said(["start", "--automation", "yes"])).toMatchObject({ step: "start", directory: DIRECTORY, declared: true });
     const routing = read(join(on.repo, DIRECTORY, "routing.md"));
     expect(routing).toContain("| Implementation | the session |\n| Automation | yes |\n| Branch | feat/greet |\n");
@@ -606,7 +606,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     git(yes.repo, "checkout", "--quiet", "--detach");
     expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
     git(yes.repo, "checkout", "--quiet", BRANCH);
-    write(yes.repo, "iadd/threads/2-twin/routing.md", read(join(yes.repo, DIRECTORY, "routing.md")));
+    write(yes.repo, "agentory/threads/2-twin/routing.md", read(join(yes.repo, DIRECTORY, "routing.md")));
     expect(await yes.run(["ask"], {}, question)).toEqual(LET_THROUGH);
   });
 
@@ -616,7 +616,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     write(on.repo, `${earlier}/routing.md`, ["# Routing: 1795388700-greet", "", "| Axis | Answer |", "|---|---|", "| Review | through the review chain |", "| Destination | open the pull request |", "| Implementation | the session |", `| Branch | ${BRANCH} |`, ""].join("\n"));
     commitAll(on.repo, "chore: declare the routing under the earlier root");
     const before = head(on.repo);
-    const says = `This work item's records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, and the branch's records root is iadd/. The chain command's \`migrate\` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.\n`;
+    const says = `This work item's records stand in ${earlier}/, in the form the AgenticSeal plugin wrote, and the branch's records root is agentory/. The chain command's \`migrate\` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.\n`;
     const answer = on.answer("answer.md", "# An answer\n");
     for (const args of [["owed"], ["start"], ["round", answer], ["fix-pass", "--by", "the session"], ["gate"], ["inspect", answer, "--inspected-by", "x", "--model", "y"], ["body"]]) expect(await on.run(args), args[0]).toEqual({ code: 1, out: "", err: says });
     expect(head(on.repo)).toBe(before);
@@ -629,15 +629,15 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.run(["migrate", "--all", "yes"])).toEqual({ code: 1, out: "", err: `The subcommand takes no option --all.\n${USAGE}` });
   });
 
-  it("refuses every subcommand of the chain in a worktree whose records root is in the earlier form alone, naming `migrate`, which moves the root to iadd/ in IADD's forms", async () => {
+  it("refuses every subcommand of the chain in a worktree whose records root is in the earlier form alone, naming `migrate`, which moves the root to agentory/ in IADD's forms", async () => {
     const on = commandOn(cleanups);
-    git(on.repo, "rm", "--quiet", "-r", "iadd");
+    git(on.repo, "rm", "--quiet", "-r", "agentory");
     write(on.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
     write(on.repo, "seal/config.json", `${JSON.stringify({ "Record language": "English", "Broad gate": "true" }, null, 2)}\n`);
     commitAll(on.repo, "chore: the plugin's root");
     expect(await on.run(["owed"])).toEqual({ code: 1, out: "", err: "The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.\n" });
     expect(await on.said(["migrate"])).toMatchObject({ migrated: "seal", moved: 2, written: [".github/workflows/owlery-inspection.yml"] });
-    expect(read(join(on.repo, "iadd/README.md")).split("\n")[0]).toBe("# What IADD keeps in iadd/");
+    expect(read(join(on.repo, "agentory/README.md")).split("\n")[0]).toBe("# What IADD keeps in agentory/");
     expect(existsSync(join(on.repo, "seal"))).toBe(false);
     expect(await on.said(["owed"])).toEqual({ step: "start" });
   });

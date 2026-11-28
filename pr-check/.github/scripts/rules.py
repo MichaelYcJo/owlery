@@ -44,7 +44,7 @@ line inside a section that an unsettled design's `remove` with no `from`
 takes out at the settle is printed as `rules.py: excused: path:line:
 heading: why; <work item> removes this section at the settle`, and is no
 refusal. The designs are read through
-`skills/settle/scripts/rule_changes.py#pending`, under `<root>/iadd/threads/`,
+`skills/settle/scripts/rule_changes.py#pending`, under `<root>/agentory/threads/`,
 the root taken under its own name (`records_root`).
 A pending `change`, or a `remove` with a `from`, whose `from` holds the line
 excuses nothing, so the test the line names stays until the settle. In local
@@ -219,9 +219,9 @@ def rule_files(root):
 
 
 def records_root(root):
-    """The `iadd/` root in the tree at `root`, under the name
+    """The `agentory/` root in the tree at `root`, under the name
     `lib/optin.py#home_name` gives, or `optin.HOME` where no shared root is
-    marked: an unmarked `iadd/` is read under the name `iadd`, and
+    marked: an unmarked `agentory/` is read under the name `agentory`, and
     a root in local mode is not in the tree a CI checkout holds."""
     optin = sibling("optin")
     return os.path.join(root, optin.home_name(root) or optin.HOME)

@@ -30,6 +30,8 @@ The definitions of Agent Driven Development read on 2026-11-28 (agentdriven.dev,
 
 **A name that a reader meets on the pull request page, inside Claude Code or in the chain's own documents reads one way.** A plain word that already means something there is not taken, and the names weighed and set aside are listed below, so that nobody proposes them again.
 
+**IADD is the higher concept, and a product only expresses it.** The owner set this rule on 2026-11-28 (issue #344). Owlery is one product that runs IADD and the AgenticSeal plugin is another, so no IADD name is chosen to pair with a product, and no product takes the method's name: the plugin keeps its name `agentic`. The records folder is named for what it is, a place: `agentory/`, formed like *directory* and *repository*, the place where the agents' settings, workflows and threads are kept. A method's acronym is hard for a newcomer to read as a folder.
+
 ### The names
 
 | What | Name |
@@ -39,9 +41,9 @@ The definitions of Agent Driven Development read on 2026-11-28 (agentdriven.dev,
 | The roles | framer, crafter, proofer, orchestrator and tracer, as before, and the inspector, the final role, which inspects. Owlery's role bundle holds no tracer |
 | The inspector's record | the inspection, `inspection.md` |
 | The states of an inspection | cleared, lapsed, and not cleared where no inspection stands |
-| The records folder | `iadd/`, told by the first line of its `README.md`, `# What IADD keeps in iadd/` |
-| The step that folds a release's records into the policy documents | settle, acting on `iadd/threads/` |
-| A work item's directory | a thread, `iadd/threads/<work item>/` |
+| The records folder | `agentory/`, told by the first line of its `README.md`, `# What IADD keeps in agentory/` |
+| The step that folds a release's records into the policy documents | settle, acting on `agentory/threads/` |
+| A work item's directory | a thread, `agentory/threads/<work item>/` |
 | The trailers Owlery writes | `IADD-Routing:` and `IADD-Built-By:` |
 | The pull request check | `inspection` |
 | The app | Owlery, one tool that runs IADD |
@@ -56,6 +58,7 @@ Each of these was weighed and failed the rule above, so none is proposed again.
 - **For the last role's record or its states:** *approval* and *approved* (GitHub's review approvals, and Claude Approvals), *passed* and *not passed* ("All checks have passed" on the same page), *judgment* (the word for what an agent spends where meaning is the question), and *verdict*, *clearance* and *guarantee*.
 - **For the method:** spec-driven (the code and the policy are the truth, not a spec), Evidence-Driven, Trust Engineering, ACE (Agentic Context Engineering, ICLR 2026, and an agentic coding tool's `.ace/`), AIDD (O'Reilly's AI-Driven Development, and drug discovery), ACODE (the Acode editor), AAD (Azure Active Directory), AADD, Merge on Seal, Delegated Judgment, AI-Judged, ABIC, ACOD, ACRD and AI Turnkey.
 - **For settle:** resolve-threads, which reads as GitHub's review threads (`resolveReviewThread`) on the pull request page.
+- **For the records folder:** the method's own name (a method is not a place, and its acronym is hard for a newcomer to read as a folder), and, each for a collision, `agentics` (githubnext/agentics), `agency` (agency-agents and Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections` and `iagentics`.
 
 IADD was searched on the web, GitHub, npm, PyPI and arXiv on 2026-11-28, and no method or AI tool used it. Lowercase `iadd` is Python's in-place add, and the name of two small plugins of git and hledger.
 
@@ -63,13 +66,13 @@ IADD was searched on the web, GitHub, npm, PyPI and arXiv on 2026-11-28, and no 
 
 ### The records folder
 
-**A repository's work records stand under `iadd/`, committed, and the first line of `iadd/README.md` tells the folder.** Connecting a repository writes the folder with its `README.md` and `config.json` ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)). The folder has one name, and a repository that keeps an `iadd/` of its own without that line is refused at the setup.
+**A repository's work records stand under `agentory/`, committed, and the first line of `agentory/README.md` tells the folder.** Connecting a repository writes the folder with its `README.md` and `config.json` ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)). The folder has one name, and a repository that keeps an `agentory/` of its own without that line is refused at the setup.
 
 - `config.json` holds what the repository says about itself: the `Broad gate` command and the languages of commits and of records.
 - `threads/<work item>/` holds one work item's records: `routing.md`, `frame/`, `trail/` with the review rounds and the broad gate's runs, `decisions.md`, `inspection.md`, `changelog.md`, `gaps.md` and `pr.md`.
 - `workflows/<name>.json` and `inspectors/<name>.json` will hold a repository's own workflows and inspector modules. No code of Owlery reads them yet ([What no code reads yet](#what-no-code-reads-yet)).
 
-Records in the form the AgenticSeal plugin wrote, under `seal/`, are read as records by the migration alone, which moves them to `iadd/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
+Records in the form the AgenticSeal plugin wrote, under `seal/`, are read as records by the migration alone, which moves them to `agentory/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
 
 ### The inspection and its check
 
@@ -104,9 +107,9 @@ check: apps/desktop/test/workflow.test.ts apps/desktop/test/claude-adapter.test.
 
 ### Where a workflow is stored, and how one is shared
 
-The Owl Chain's two files ship in the app, and the app's version is their version. A repository's own files will stand under `iadd/workflows/<name>.json` and `iadd/inspectors/<name>.json`, committed, so a team shares them through the repository and the inspected commit holds the files as they were read. A person's default model for a stage is the daemon's state, and a work item's own choice is a row of its `routing.md`. The name `owl-chain` is the app's alone in both folders.
+The Owl Chain's two files ship in the app, and the app's version is their version. A repository's own files will stand under `agentory/workflows/<name>.json` and `agentory/inspectors/<name>.json`, committed, so a team shares them through the repository and the inspected commit holds the files as they were read. A person's default model for a stage is the daemon's state, and a work item's own choice is a row of its `routing.md`. The name `owl-chain` is the app's alone in both folders.
 
-A shared workflow or inspector module is its files, in a repository. A person adopts one by committing a copy under their own `iadd/`, and the copy states where it came from. Owlery keeps no gate on which module is good: the person judges, and a module's worth shows in who adopts it.
+A shared workflow or inspector module is its files, in a repository. A person adopts one by committing a copy under their own `agentory/`, and the copy states where it came from. Owlery keeps no gate on which module is good: the person judges, and a module's worth shows in who adopts it.
 
 **A reader knows what an inspection means from its block.** The block names the workflow and the inspector module. A reader opens the module's file at the inspected commit, or, for `owl-chain`, the role bundle of the Owlery version the `rules:` line names. The check's title names the Owl Chain where each verdict block it names holds `workflow: owl-chain`.
 
@@ -129,4 +132,4 @@ The review rounds and the fix passes, the judgment of whether the rounds converg
 
 ### What no code reads yet
 
-Owlery's daemon and chain command load the two built-in files and no other. They read no `iadd/workflows/`, no `iadd/inspectors/`, no workflow row of `routing.md` and no workflow key of `config.json`, and the loader names one workflow and one module, `owl-chain`. A person's own workflow and inspector module, other skeletons, the window's editor of a workflow, and publishing and adopting a shared one are issue #324's to place.
+Owlery's daemon and chain command load the two built-in files and no other. They read no `agentory/workflows/`, no `agentory/inspectors/`, no workflow row of `routing.md` and no workflow key of `config.json`, and the loader names one workflow and one module, `owl-chain`. A person's own workflow and inspector module, other skeletons, the window's editor of a workflow, and publishing and adopting a shared one are issue #324's to place.

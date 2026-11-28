@@ -70,9 +70,14 @@ export interface Group {
   name: string;
 }
 
+/** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
+export const MARKER = "# What IADD keeps in agentory/";
+/** The one name a records root takes. A repository that keeps an `agentory/` of its own has no place for the records. */
+export const ROOT = "agentory";
+
 /** What a repository's main checkout holds of the place for work records, as the daemon last read its working tree. */
 export interface RecordsPlace {
-  /** The root's folder from the top of the repository, `iadd`, or null where none stands. */
+  /** The root's folder from the top of the repository, `agentory`, or null where none stands. */
   root: string | null;
   /** The path of the workflow that runs the check, or null where none stands. */
   check: string | null;
@@ -80,7 +85,7 @@ export interface RecordsPlace {
   broadGate: string | null;
   /** The version of Owlery whose pull request check the workflow fetches, where it is older than the daemon's own, and null otherwise: for no Owlery workflow, a workflow whose version line the daemon does not read, a version as new as the daemon's or newer, and a daemon given no version. A daemon of an earlier build sends none, and a client reads its absence as null. */
   olderCheck?: string | null;
-  /** The folder of a records root in the earlier form, one of the names `records-migration.ts#EARLIER_ROOTS` gives, where the main checkout holds one and no `iadd` root, and null otherwise. The daemon reads no record of it and starts no chain on it, and a plan of the records place is then the move of its records (`RecordsPlan.migration`). A daemon of an earlier build sends none, and a client reads its absence as null. */
+  /** The folder of a records root in the earlier form, one of the names `records-migration.ts#EARLIER_ROOTS` gives, where the main checkout holds one and no `agentory` root, and null otherwise. The daemon reads no record of it and starts no chain on it, and a plan of the records place is then the move of its records (`RecordsPlan.migration`). A daemon of an earlier build sends none, and a client reads its absence as null. */
   earlier?: string | null;
 }
 
