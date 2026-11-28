@@ -616,7 +616,7 @@ describe("work items", () => {
       // The look keeps no account a pane was launched under, as it keeps none set on a work item, nor the name and the colour of a pane's tab.
       expect(Object.keys(lists.sessions[0]!).sort()).toEqual(lists === ready.lastLook ? SESSION_FIELDS.filter((key) => key !== "accountId" && key !== "signsIn" && key !== "name" && key !== "colour") : SESSION_FIELDS);
       const workItem = lists.workItems[0]!;
-      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor what a heavy command or a word of the person's waits for, nor whether Owlery made its branch, nor the stage a pane's session runs, and keeps the seal reading the lists carried.
+      // The look keeps nothing of what the records say of the chain, nor the account set on the work item, nor what a heavy command or a word of the person's waits for, nor whether Owlery made its branch, nor the stage a pane's session runs, and keeps the inspection reading the lists carried.
       expect(Object.keys(workItem).sort()).toEqual(lists === ready.lastLook ? WORK_ITEM_FIELDS.filter((key) => key !== "recorded" && key !== "accountId" && key !== "machineWait" && key !== "wordOwed" && key !== "ownsBranch" && key !== "paneStage") : WORK_ITEM_FIELDS);
       if (lists !== ready.lastLook) {
         expect(Object.keys(workItem.recorded!).sort()).toEqual(["framed", "gate", "rounds", "verdict"]);
@@ -1480,7 +1480,7 @@ describe("repositories", () => {
       [3, 4, "/r/docs", "docs", true, true, 3, null],
     ]);
     expect(ready.archived.map((w) => [w.id, w.repoId, w.repo, w.repoName, w.archivedAt])).toEqual([[2, 1, "/r/project", "The project", 50]]);
-    // The daemon reads no archived work item's branch, so one it has not read since it started carries no `seal`.
+    // The daemon reads no archived work item's branch, so one it has not read since it started carries no `inspection`.
     expect(Object.keys(ready.archived[0]!).sort()).toEqual(WORK_ITEM_FIELDS.filter((key) => key !== "inspection"));
     // An inbox carries the same lists: a change to a work item sends one.
     c.send({ type: "setWorkItem", requestId: 1, id: 1, pinned: true });
@@ -4080,7 +4080,7 @@ describe("the inbox", () => {
     expect("inspection" in gone.workItems[0]!).toBe(false);
   });
 
-  it("reads a work item with no branch yet at its worktree's HEAD: its commit there, which a tag holds, is one new commit, ahead of the base by one, with the file it changed and no seal, and no branch is made", async () => {
+  it("reads a work item with no branch yet at its worktree's HEAD: its commit there, which a tag holds, is one new commit, ahead of the base by one, with the file it changed and no inspection, and no branch is made", async () => {
     const { c, worktree, lone, branches } = await daemonWithoutBranch({ commitPollMs: 20 });
     const before = branches();
     const read = await c.until(() => c.messages.flatMap((m) => (m.type === "ready" || m.type === "inbox" ? m.workItems : [])).find((item) => item.newCommits === 1 && item.inspection !== undefined));
@@ -4318,7 +4318,7 @@ describe("the inbox", () => {
     expect(c.messages).toEqual([]);
   });
 
-  it("gives a work item from before the base commit was recorded no count and no `seal`, beside one that has them", async () => {
+  it("gives a work item from before the base commit was recorded no count and no `inspection`, beside one that has them", async () => {
     const { repo, root, base } = repository();
     const runDir = join(base, "run");
     mkdirSync(runDir);
@@ -4516,7 +4516,7 @@ describe("the decisions made without asking", () => {
     expect(lc.messages).toEqual([]);
   });
 
-  it("sends a fence that opens like a `seal` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
+  it("sends a fence that opens like an `iadd` block and is not one as unread, at its line, beside the refusals in the order of the file", async () => {
     const { d, c, workItems } = await withWorkItems(["Noticed"], { now: () => 1, commitPollMs: 30 });
     const a = workItems[0]!;
     const directory = withDirectory(a);
@@ -5002,7 +5002,7 @@ describe("what a work item's records say of its chain", () => {
     expect(itemOf(await c.message("inbox"), a.id)?.recorded).toEqual(NOTHING_RECORDED);
   });
 
-  it("reads the records of a work item's directory at every pass, uncommitted and once committed alike, the last block of the gate's record and of the guarantee, and a reason of 2000 characters at most, and sends every client the lists where they read otherwise and nothing where they read the same", async () => {
+  it("reads the records of a work item's directory at every pass, uncommitted and once committed alike, the last block of the gate's record and of the inspection, and a reason of 2000 characters at most, and sends every client the lists where they read otherwise and nothing where they read the same", async () => {
     const { c, url, workItems } = await withWorkItems(["Recorded", "Another"], { commitPollMs: 30 });
     const [a, b] = workItems as [(typeof workItems)[0], (typeof workItems)[0]];
     const directory = withDirectory(a);
@@ -5037,29 +5037,29 @@ describe("what a work item's records say of its chain", () => {
   });
 });
 
-describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
-  const NAME = "1795396351-sealed-work";
-  /** A daemon whose one work item's branch the case seals by committing the records, and the work item once the lists carry its seal as `sealed`. */
-  async function sealed() {
-    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 50 });
+describe("the inspection a work item's head holds", { timeout: 60_000 }, () => {
+  const NAME = "1795396351-cleared-work";
+  /** A daemon whose one work item's branch the case clears by committing the records, and the work item once the lists carry its inspection as `cleared`. */
+  async function cleared() {
+    const { made, c, workItems } = await standing(cleanups, ["Cleared work"], { commitPollMs: 50 });
     const a = workItems[0]!;
     const gate = commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     // The case sends nothing from here on: what the lists carry, the daemon read by itself.
-    const seal = await c.until(() => (c.workItem(a.id)?.inspection?.state === "cleared" ? c.workItem(a.id)?.inspection : undefined));
-    expect(seal).toEqual({ state: "cleared", commit: gate, why: null });
+    const inspection = await c.until(() => (c.workItem(a.id)?.inspection?.state === "cleared" ? c.workItem(a.id)?.inspection : undefined));
+    expect(inspection).toEqual({ state: "cleared", commit: gate, why: null });
     return { made, c, a, gate };
   }
-  const broken = (c: Awaited<ReturnType<typeof sealed>>["c"], id: number) => c.until(() => (c.workItem(id)?.inspection?.state === "lapsed" ? c.workItem(id)?.inspection : undefined));
+  const lapsed = (c: Awaited<ReturnType<typeof cleared>>["c"], id: number) => c.until(() => (c.workItem(id)?.inspection?.state === "lapsed" ? c.workItem(id)?.inspection : undefined));
 
-  it("turns a sealed work item broken within the read interval after a commit made with git in its worktree, and no message of a client asks for it", async () => {
-    const { c, a, gate } = await sealed();
-    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+  it("lapses a cleared work item within the read interval after a commit made with git in its worktree, and no message of a client asks for it", async () => {
+    const { c, a, gate } = await cleared();
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the inspection\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
-    expect(await broken(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
+    expect(await lapsed(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
   it("turns it broken when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
-    const { made, c, a, gate } = await sealed();
+    const { made, c, a, gate } = await cleared();
     const at = git(made.repo, "rev-parse", `refs/heads/${a.branch}`).trim();
     // A commit of the branch's tree with one file changed, made in the main checkout through an index of its own.
     const index = join(made.base, "moved.index");
@@ -5070,23 +5070,23 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const tree = spawnSync("git", ["write-tree"], { cwd: made.repo, env, encoding: "utf8" }).stdout.trim();
     const moved = spawnSync("git", ["commit-tree", tree, "-p", at, "-m", "fix: change the greeting elsewhere"], { cwd: made.repo, encoding: "utf8" }).stdout.trim();
     git(made.repo, "update-ref", `refs/heads/${a.branch}`, moved, at);
-    expect(await broken(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
+    expect(await lapsed(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
-  it("sends a broken seal's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
-    const { c, a, gate } = await sealed();
+  it("sends a lapsed inspection's sentence cut at 2000 characters, where it quotes a long line of a record the reader refuses", async () => {
+    const { c, a, gate } = await cleared();
     const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
     mkdirSync(join(a.worktree, record, ".."), { recursive: true });
     writeFileSync(join(a.worktree, record), roundRecord(`# Review round 2: ${NAME}`, "x".repeat(3000)));
     git(a.worktree, "add", record);
     git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
-    const seal = await broken(c, a.id);
-    expect([seal?.commit, seal?.why?.length]).toEqual([gate, 2000]);
-    expect(seal?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
+    const inspection = await lapsed(c, a.id);
+    expect([inspection?.commit, inspection?.why?.length]).toEqual([gate, 2000]);
+    expect(inspection?.why).toMatch(new RegExp(`^The records at the head do not read: the reader refuses line 4 of ${record.replace(/\./gu, "\\.")}: \`target: x+$`, "u"));
   });
 
-  it("sends a work item with no `seal` until it has read the branch, so a `ready` that goes out before git answered carries none, and the lists that follow the read carry the seal, or null where the head holds none", async () => {
-    const stood = await standing(cleanups, ["Sealed work", "Unsealed work"], { commitPollMs: 60_000 });
+  it("sends a work item with no `inspection` until it has read the branch, so a `ready` that goes out before git answered carries none, and the lists that follow the read carry the inspection, or null where the head holds none", async () => {
+    const stood = await standing(cleanups, ["Cleared work", "Uninspected work"], { commitPollMs: 60_000 });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     const gate = commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     await stood.d.close();
@@ -5096,16 +5096,16 @@ describe("the seal a work item's head holds", { timeout: 60_000 }, () => {
     const ready = await c.message("ready");
     expect(ready.workItems.map((w) => [w.id, "inspection" in w])).toEqual([[a.id, false], [b.id, false]]);
     const read = await c.until(() => {
-      const [sealedItem, unsealedItem] = [c.workItem(a.id), c.workItem(b.id)];
-      return sealedItem?.inspection?.state === "cleared" && unsealedItem !== undefined && "inspection" in unsealedItem ? [sealedItem.inspection, unsealedItem.inspection] : undefined;
+      const [clearedItem, uninspectedItem] = [c.workItem(a.id), c.workItem(b.id)];
+      return clearedItem?.inspection?.state === "cleared" && uninspectedItem !== undefined && "inspection" in uninspectedItem ? [clearedItem.inspection, uninspectedItem.inspection] : undefined;
     });
     expect(read).toEqual([{ state: "cleared", commit: gate, why: null }, null]);
   });
 
-  it("sends no seal for a work item whose head holds none, though a pane of it prints `Verdict: cleared` and its stored chain rests", async () => {
-    const stood = await standing(cleanups, ["Sealed work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: cleared\\n'; sleep 30"], env: {} }) });
+  it("sends no inspection for a work item whose head holds none, though a pane of it prints `Verdict: cleared` and its stored chain rests", async () => {
+    const stood = await standing(cleanups, ["Cleared work"], { commitPollMs: 50, commandFor: () => ({ command: "/bin/sh", args: ["-c", "printf 'Verdict: cleared\\n'; sleep 30"], env: {} }) });
     const a = stood.workItems[0]!;
-    // The records of a chain that has a gate's run and no guarantee, and a stored chain that rests, which the store's file is given.
+    // The records of a chain that has a gate's run and no inspection, and a stored chain that rests, which the store's file is given.
     commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit, inspection: false });
     expect((await stood.c.asked({ type: "setWorkItem", requestId: 9, id: a.id, pinned: true })).type).toBe("done");
     await stood.d.close();
@@ -5287,17 +5287,17 @@ describe("the stage a pane's session runs", { timeout: 60_000 }, () => {
   });
 });
 
-describe("the records of the back of a seal", { timeout: 60_000 }, () => {
-  const NAME = "1795400730-sealed-work";
+describe("the records of the back of an inspection", { timeout: 60_000 }, () => {
+  const NAME = "1795400730-cleared-work";
   const headOf = (folder: string): string => git(folder, "rev-parse", "HEAD").trim();
 
   it("answers a `readBackRecords` with what the records of the work item's directory say at its branch's head, with the empty value for a work item with no directory, and with an error for an id it lists no work item under and for a branch whose head it cannot read", async () => {
-    const { made, c, workItems } = await standing(cleanups, ["Sealed work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
+    const { made, c, workItems } = await standing(cleanups, ["Cleared work", "No directory", "Gone branch"], { commitPollMs: 60_000 });
     const [a, b, gone] = workItems as [(typeof workItems)[number], (typeof workItems)[number], (typeof workItems)[number]];
     const gate = commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
-    const sealed = await c.asked({ type: "readBackRecords", requestId: 1, workItemId: a.id });
-    expect(sealed).toMatchObject({ type: "backRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, lapsedBy: null, refusals: [], unreadRefusals: 0 } });
-    expect(sealed.type === "backRecords" ? sealed.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
+    const cleared = await c.asked({ type: "readBackRecords", requestId: 1, workItemId: a.id });
+    expect(cleared).toMatchObject({ type: "backRecords", requestId: 1, workItemId: a.id, records: { head: headOf(a.worktree), record: { commit: gate, branch: a.branch, item: NAME, gate, rounds: 1 }, lapsedBy: null, refusals: [], unreadRefusals: 0 } });
+    expect(cleared.type === "backRecords" ? cleared.records.rounds.map(({ round, findings }) => [round, findings]) : null).toEqual([[1, []]]);
     expect(await c.asked({ type: "readBackRecords", requestId: 2, workItemId: b.id })).toEqual({
       type: "backRecords",
       requestId: 2,
@@ -5315,11 +5315,11 @@ describe("the records of the back of a seal", { timeout: 60_000 }, () => {
     expect(await c.message("backRecords", (m) => m.requestId === 1)).toEqual({ type: "backRecords", requestId: 1, workItemId: 1, records: { head: lone, record: null, lapsedBy: null, rounds: [], refusals: [], unreadRefusals: 0 } });
   });
 
-  it("names the commit that broke a broken seal, read with the seal the head holds, and sends a finding's words cut at 2000 characters", async () => {
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { commitPollMs: 60_000 });
+  it("names the commit that lapsed an inspection, read with the inspection the head holds, and sends a finding's words cut at 2000 characters", async () => {
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { commitPollMs: 60_000 });
     const a = workItems[0]!;
     commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
-    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the seal\n");
+    writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the inspection\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const broke = headOf(a.worktree);
     // A round recorded after the break, whose finding's symptom and severity are long.
@@ -5980,7 +5980,7 @@ describe("the last look", () => {
 
   /** The look a client that says hello now is given. */
   const lookNow = async (url: string) => (await (await client(url)).message("ready")).lastLook;
-  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command, without what a word of the person's waits for, without whether Owlery made its branch and without the stage a pane's session runs, which the look does not keep, and with its seal reading. */
+  /** A work item as the look keeps it: without what its records say of the chain, without the wait of a heavy command, without what a word of the person's waits for, without whether Owlery made its branch and without the stage a pane's session runs, which the look does not keep, and with its inspection reading. */
   const asLooked = ({ recorded: _recorded, accountId: _accountId, machineWait: _machineWait, wordOwed: _wordOwed, ownsBranch: _ownsBranch, paneStage: _paneStage, ...kept }: WorkItem): WorkItem => kept;
 
   it("gives a client no look where no client ever sent `looked`", async () => {
@@ -6050,7 +6050,7 @@ describe("the last look", () => {
     expect(ready.workItems[0]?.newCommits).toBe(1);
     await c.message("error", (m) => m.requestId === 7);
     expect(c.messages.map((m) => m.type)).toEqual(["ready", "error"]);
-    // The look holds the work item as it is sent, the commit read at the hello among it, and the head read with no seal.
+    // The look holds the work item as it is sent, the commit read at the hello among it, and the head read with no inspection.
     expect(await lookNow(url)).toEqual({ at: 1234, sessions: [], workItems: [{ ...workItem, repoId: 1, repoName: "project", ...UNSET, ...NO_RECORD, aheadOfBase: 1, behindBase: 0, newCommits: 1, commits: [expect.objectContaining({ subject: "one" })], changes: { files: 0, added: 0, removed: 0, list: [] }, inspection: null }] });
   });
 
@@ -6176,7 +6176,7 @@ describe("headless sessions", () => {
     expect(seen.started).toEqual([expect.objectContaining({ prompt: withScratch("Where am I?", seen.started[0]?.scratch ?? ""), cwd: workItem.worktree, role: PROOFER })]);
   });
 
-  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and a sealer a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree and the repository's git folder, and the orchestrator no place, refused the same two, and every role no file of the run folder to read but its scratch folder (scenarios 1 to 4 of #127)", async () => {
+  it("gives each role's session the places its commands write and are refused, as real paths: a crafter the worktree and the git folder less its hooks and config, a proofer and an inspector a new scratch folder of their own under the run folder, named by the session's id, empty and readable by the person alone, and refused the worktree and the repository's git folder, and the orchestrator no place, refused the same two, and every role no file of the run folder to read but its scratch folder (scenarios 1 to 4 of #127)", async () => {
     // The system's temporary folder is reached through a link on macOS, so the run folder's path is not its real one either.
     const runDir = mkdtempSync(join(tmpdir(), "owlery-scratch-run-"));
     cleanups.push(() => rmSync(runDir, { recursive: true, force: true }));
@@ -6200,18 +6200,18 @@ describe("headless sessions", () => {
     const scratches = join(realpathSync(runDir), "scratch");
     expect(scratches.startsWith(runDir)).toBe(false);
     const proofers = byRole.get("proofer")?.scratch ?? "";
-    const sealers = byRole.get("inspector")?.scratch ?? "";
-    expect([dirname(proofers), dirname(sealers)]).toEqual([scratches, scratches]);
+    const inspectors = byRole.get("inspector")?.scratch ?? "";
+    expect([dirname(proofers), dirname(inspectors)]).toEqual([scratches, scratches]);
     expect(basename(proofers)).toMatch(/^1-[A-Za-z0-9]{6}$/u);
-    expect(basename(sealers)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
+    expect(basename(inspectors)).toMatch(/^3-[A-Za-z0-9]{6}$/u);
     expect(byRole.get("proofer")).toEqual({ prompt: withScratch("Q", proofers), cwd: workItem.worktree, role: PROOFER, commands: { write: [proofers], refuse: [worktree, common], unread }, scratch: proofers });
     expect(byRole.get("crafter")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "crafter", stage: "fix-pass" }, commands: { write: [worktree, common], refuse: [join(common, "hooks"), join(common, "config")], unread } });
-    expect(byRole.get("inspector")).toEqual({ prompt: withScratch("Q", sealers), cwd: workItem.worktree, role: { role: "inspector", stage: "inspection" }, commands: { write: [sealers], refuse: [worktree, common], unread }, scratch: sealers });
+    expect(byRole.get("inspector")).toEqual({ prompt: withScratch("Q", inspectors), cwd: workItem.worktree, role: { role: "inspector", stage: "inspection" }, commands: { write: [inspectors], refuse: [worktree, common], unread }, scratch: inspectors });
     expect(byRole.get("orchestrator")).toEqual({ prompt: "Q", cwd: workItem.worktree, role: { role: "orchestrator", stage: "judgment" }, commands: { write: [], refuse: [worktree, common], unread } });
     // A scratch folder for each session that writes in one, and for none other, each empty; the earlier daemon's is left as it was.
-    expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(sealers)].sort());
+    expect(readdirSync(scratches).sort()).toEqual(["1-before", basename(proofers), basename(inspectors)].sort());
     expect(readFileSync(join(scratches, "1-before", "clone.txt"), "utf8")).toBe("left");
-    for (const folder of [proofers, sealers]) {
+    for (const folder of [proofers, inspectors]) {
       expect(readdirSync(folder)).toEqual([]);
       expect(statSync(folder).mode & 0o777).toBe(0o700);
     }
@@ -6313,7 +6313,7 @@ describe("headless sessions", () => {
     c.send({ type: "stopHeadless", requestId: 3, id: headless.id });
     const stopped = (await c.message("headless", (m) => m.headless.id === headless.id && m.headless.state === "failed")).headless;
     expect([stopped.stopped, stopped.role]).toEqual(["request", role]);
-    // The stop can arrive while git still names the repository's folder the sealer's commands are refused, before the run has started; the run is stopped once it starts.
+    // The stop can arrive while git still names the repository's folder the inspector's commands are refused, before the run has started; the run is stopped once it starts.
     await vi.waitFor(() => expect(seen.stopped).toBe(2), { timeout: 5000, interval: 50 });
   });
 
@@ -6347,7 +6347,7 @@ describe("headless sessions", () => {
     const { daemon: d, url, c, workItem } = await withWorkItem({ roleAdapter: fakeAdapter({ session: () => ({ id: "s-kept-7f3", model: "owl-judge-9" }) }) });
     await d.startRoleSession(workItem.id, "Q", { role: "inspector", stage: "inspection" });
     const { headless } = await c.message("headless", (m) => m.headless.state === "finished");
-    // The record is the daemon's own and no message reads it, so the case reads the field: the seal's stage writes both values into the verdict block.
+    // The record is the daemon's own and no message reads it, so the case reads the field: the inspection's stage writes both values into the verdict block.
     const kept = (d as unknown as { headless: Map<number, { named: { id: string; model: string | null } | null }> }).headless.get(headless.id)?.named;
     expect(kept).toEqual({ id: "s-kept-7f3", model: "owl-judge-9" });
     c.send({ type: "readLedger", requestId: 2, workItemId: workItem.id });
@@ -6772,7 +6772,7 @@ describe("headless sessions", () => {
     it("keeps one entry for each session that ends: its work item, its repository and branch, its stage, no chain's stage, since no chain started it, its two times, how it ended and the usage its result reported", async () => {
       let clock = 1000;
       // The clock moves on while each turn runs, so a session's end is read after its start.
-      // A proofer's and a sealer's prompt reach the adapter with the paragraph that names the scratch folder after them.
+      // A proofer's and an inspector's prompt reach the adapter with the paragraph that names the scratch folder after them.
       const usage = (prompt: string): Usage => {
         clock += 500;
         return prompt.startsWith("Which owl?\n") ? USAGE : { ...USAGE, costUsd: 0.5 };
@@ -8595,7 +8595,7 @@ describe("the watch of an open pull request", () => {
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const VIEW = ["pr", "view", PULL_REQUEST_URL, "--json", VIEW_FIELDS];
   const SECOND_URL = "https://github.com/owner/project/pull/2";
-  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
+  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "inspection" });
 
   /**
    * A daemon whose store holds one work item with an open pull request

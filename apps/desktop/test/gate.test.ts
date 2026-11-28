@@ -200,12 +200,12 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
 
   it("runs the command in the work item's worktree, on the branch's head, with no terminal on its input or its output, and with the environment it was given", async () => {
     const gate = 'pwd -P; git rev-parse HEAD; for fd in 0 1 2; do if [ -t $fd ]; then echo "$fd terminal"; else echo "$fd none"; fi; done; echo "$OWLERY_CASE"';
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", OWLERY_CASE: "the case's own" }, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", OWLERY_CASE: "the case's own" }, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     expect(chain.stages.at(-3)).toMatchObject({ kind: "gate", state: "finished", gate: { command: gate, exitCode: 0, output: true } });
-    // The head the command read is the commit of round 1's record: the run's own record and the sealer's verdict are the two commits after it.
+    // The head the command read is the commit of round 1's record: the run's own record and the inspector's verdict are the two commits after it.
     const ran = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(await output(c, a.id, 2)).toBe(`${a.worktree}\n${ran}\n0 none\n1 none\n2 none\nthe case's own\n`);
   });
@@ -213,7 +213,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
   it("runs the command with the path the person's login shell prints, which it asks that shell for once in its life, and without the variables that say a terminal stands", async () => {
     const out = folder();
     asShell(shell(`echo asked >> '${out}/asked'; printf '\\n__owlery_path=%s\\n' "/stand-in/bin:$PATH"`));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: 'echo "$PATH"; env | grep -c -E "^(TERM|COLORTERM)="; true', gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: 'echo "$PATH"; env | grep -c -E "^(TERM|COLORTERM)="; true', gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
@@ -230,7 +230,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const slow = (out: string): string => shell(`echo asked >> '${out}/asked'; sleep 1; printf '\\n__owlery_path=%s\\n' "$PATH"`);
     const closing = folder();
     asShell(slow(closing));
-    const closed = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${closing}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const closed = await standing(cleanups, ["Cleared work"], { gate: `echo ran >> '${closing}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     expect(await closed.c.startChain(closed.workItems[0]!.id)).toBe("done");
     await stands(join(closing, "asked"));
     await closed.d.close();
@@ -238,7 +238,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
 
     const archiving = folder();
     asShell(slow(archiving));
-    const archived = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${archiving}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const archived = await standing(cleanups, ["Cleared work"], { gate: `echo ran >> '${archiving}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = archived.workItems[0]!;
     expect(await archived.c.startChain(a.id)).toBe("done");
     await stands(join(archiving, "asked"));

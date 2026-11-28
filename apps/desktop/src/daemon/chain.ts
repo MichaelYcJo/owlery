@@ -1229,9 +1229,10 @@ export function isChain(value: unknown): value is WrittenChain {
  * takes the end of its newest stage, the start of that stage where it did
  * not end, and 0 where it holds no stage. A chain an earlier build stored
  * `reviewed` or `sealed` is no chain of this build, and is read as none.
- * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
- * that the branch was sealed, and stayed so after a later commit broke the
- * seal, which `WorkItem.inspection` now says from the branch's head. The next
+ * `reviewed` said that nothing was owed, and an inspection now is. `sealed`
+ * said that the branch was sealed, and stayed so after a later commit lapsed
+ * that inspection, which `WorkItem.inspection` now says from the branch's
+ * head. The next
  * start reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {

@@ -15,11 +15,11 @@ const CHAIN_CHECK = join(TOP, "pr-check", "skills", "code-review", "scripts", "c
 const TEMPLATE = join(__dirname, "..", "role-bundle", "templates", "records", "sdd-round.md");
 
 const F = "```";
-/** A `seal` block from its lines, as the lines of a record. */
-const sealed = (...lines: string[]): string[] => [`${F}iadd`, ...lines, F];
-const ROUND = sealed("target: 0123abc against main");
-const FINDING = sealed("severity: must", "location: `src/a.ts:12`", "evidence: read `src/a.ts:12`");
-const CLOSE = sealed("verdict: fixed 89abcde", "answer: The guard moved above the read.");
+/** An `iadd` block from its lines, as the lines of a record. */
+const block = (...lines: string[]): string[] => [`${F}iadd`, ...lines, F];
+const ROUND = block("target: 0123abc against main");
+const FINDING = block("severity: must", "location: `src/a.ts:12`", "evidence: read `src/a.ts:12`");
+const CLOSE = block("verdict: fixed 89abcde", "answer: The guard moved above the read.");
 /** A record's text from its lines and its blocks. */
 const record = (...parts: (string | string[])[]): string => `${parts.flat().join("\n")}\n`;
 
@@ -27,13 +27,13 @@ const record = (...parts: (string | string[])[]): string => `${parts.flat().join
 const VERIFYING = record(
   "# Review round 2: 1795388700-review-rounds",
   "",
-  sealed("target: fedcba9, fixes 0123abc..fedcba9", "original: 1234567"),
+  block("target: fedcba9, fixes 0123abc..fedcba9", "original: 1234567"),
   "",
   "## Findings",
   "",
   "### 1. The reader takes a record with two round blocks",
   "",
-  sealed("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`", "evidence: read `src/a.ts:12`", "regression: round-1#2"),
+  block("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`", "evidence: read `src/a.ts:12`", "regression: round-1#2"),
   "",
   "Why it matters: the check refuses the record.",
   "",
@@ -42,20 +42,20 @@ const VERIFYING = record(
   "const one = rounds.length === 1;",
   F,
   "",
-  sealed("verdict: fixed 89abcde", "answer: The reader refuses the second block.", "location: `test/a.test.ts`"),
+  block("verdict: fixed 89abcde", "answer: The reader refuses the second block.", "location: `test/a.test.ts`"),
   "",
   "### 2. The close of round 1's first finding does not hold",
   "",
-  sealed("severity: should", "location: `docs/c.md`", "reopens: round-1#1"),
+  block("severity: should", "location: `docs/c.md`", "reopens: round-1#1"),
   "",
   "#### A heading below a finding's own",
   "",
   "## Confirmations",
   "",
-  sealed("confirms: round-1#3"),
+  block("confirms: round-1#3"),
   "What holds: the writer checks the path, read at `src/w.ts:40`.",
   "",
-  sealed("confirms: none"),
+  block("confirms: none"),
   "",
   "## Not judged",
   "",
@@ -74,7 +74,7 @@ const FIXTURES: { name: string; text: string }[] = [
   { name: "a second round block", text: record(ROUND, "", ROUND, "", "## Findings") },
   { name: "a round block inside a finding", text: record("## Findings", "", "### 1. A symptom", "", ROUND, "", FINDING) },
   { name: "a round block inside a finding beside one outside", text: record(ROUND, "## Findings", "", "### 1. A symptom", "", FINDING, ROUND) },
-  { name: "a confirmation inside a finding", text: record(ROUND, "## Findings", "", "### 1. A symptom", "", FINDING, sealed("confirms: round-1#1")) },
+  { name: "a confirmation inside a finding", text: record(ROUND, "## Findings", "", "### 1. A symptom", "", FINDING, block("confirms: round-1#1")) },
   { name: "a finding block and a close block outside every finding", text: record(ROUND, FINDING, "## Findings", "", "## Confirmations", CLOSE) },
   { name: "a finding block above the first finding's heading", text: record(ROUND, "## Findings", FINDING, "### 1. A symptom", FINDING) },
   { name: "no findings section", text: record(ROUND, "", "## Confirmations") },
@@ -92,18 +92,18 @@ const FIXTURES: { name: string; text: string }[] = [
   { name: "a finding with no finding block", text: record(ROUND, "## Findings", "### 1. A symptom", "", "Why it matters: it does.") },
   { name: "a finding that holds a close block alone", text: record(ROUND, "## Findings", "### 1. A symptom", CLOSE) },
   { name: "a second finding block in one finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, FINDING) },
-  { name: "a second close block in one finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, CLOSE, sealed("verdict: rejected")) },
+  { name: "a second close block in one finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, CLOSE, block("verdict: rejected")) },
   { name: "a second finding block and a second close block in one finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, CLOSE, CLOSE, FINDING) },
-  { name: "a close block the block reader refuses, in a finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, sealed("verdict: open"), "### 2. Another", FINDING) },
-  { name: "a finding block the block reader refuses, outside every finding", text: record(ROUND, sealed("severity: must"), "## Findings") },
+  { name: "a close block the block reader refuses, in a finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, block("verdict: open"), "### 2. Another", FINDING) },
+  { name: "a finding block the block reader refuses, outside every finding", text: record(ROUND, block("severity: must"), "## Findings") },
   { name: "a comment line inside a finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, "<!-- a note -->", "### 2. Another", FINDING) },
   { name: "a fence that never closes, inside a finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, "~~~", "### 2. Hidden", FINDING) },
   { name: "a fence that never closes, above a finding's own block", text: record(ROUND, "## Findings", "### 1. A symptom", "~~~", FINDING) },
   { name: "a fence in a list item, inside a finding", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, `- ${F}iadd`, "  verdict: rejected", `  ${F}`, "### 2. Below it", FINDING) },
-  { name: "a fence like a seal block and not one, in a finding", text: record(ROUND, "## Findings", "### 1. A symptom", `${F}iadd finding`, "severity: must", F) },
+  { name: "a fence like an inspection block and not one, in a finding", text: record(ROUND, "## Findings", "### 1. A symptom", `${F}iadd finding`, "severity: must", F) },
   { name: "a finding heading inside a fence of tildes", text: record(ROUND, "## Findings", "### 1. A symptom", FINDING, "~~~", "### 2. Quoted", "~~~", CLOSE) },
-  { name: "a close deferred to an issue, one rejected, and a regression that names a round alone", text: record(ROUND, "## Findings", "### 3. A symptom", FINDING, sealed("verdict: deferred #42"), "### 7. Another", sealed("severity: should", "location: `a.ts`", "regression: round-2"), sealed("verdict: rejected", "answer:")) },
-  { name: "a confirmation above the findings section and one below it", text: record(sealed("confirms: round-1#1"), ROUND, "## Findings", "## Confirmations", sealed("confirms: round-3#12")) },
+  { name: "a close deferred to an issue, one rejected, and a regression that names a round alone", text: record(ROUND, "## Findings", "### 3. A symptom", FINDING, block("verdict: deferred #42"), "### 7. Another", block("severity: should", "location: `a.ts`", "regression: round-2"), block("verdict: rejected", "answer:")) },
+  { name: "a confirmation above the findings section and one below it", text: record(block("confirms: round-1#1"), ROUND, "## Findings", "## Confirmations", block("confirms: round-3#12")) },
   { name: "a round block below the findings section's end", text: record("## Findings", "### 1. A symptom", FINDING, "## Probes", ROUND) },
 ];
 
@@ -231,13 +231,13 @@ describe("the reader of a round record", () => {
         ROUND,
         "## Findings",
         "### 1. A symptom",
-        sealed("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `src/c.ts`"),
-        sealed("verdict: fixed 89abcde", "answer: The guard moved above the read."),
+        block("severity: must", "location: `src/a.ts:12`, `src/b.ts:3-9`, `src/c.ts`"),
+        block("verdict: fixed 89abcde", "answer: The guard moved above the read."),
         "### 2. Another",
-        sealed("severity: nit, for a person", "location: `docs/d.md`"),
-        sealed("verdict: rejected"),
+        block("severity: nit, for a person", "location: `docs/d.md`"),
+        block("verdict: rejected"),
         "### 3. A third",
-        sealed("severity: should", "location: `e.ts:7`"),
+        block("severity: should", "location: `e.ts:7`"),
       ),
     );
     expect(got.refusals).toEqual([]);
@@ -259,7 +259,7 @@ describe("the reader of a round record", () => {
   });
 
   it("gives a rejected close and a deferred one, and a regression that names a round alone", () => {
-    const got = readRoundRecord(record(ROUND, "## Findings", "### 3. A symptom", FINDING, sealed("verdict: deferred the frame, at its next fold"), "### 7. Another", sealed("severity: should", "location: `a.ts`", "regression: round-2"), sealed("verdict: rejected", "answer:")));
+    const got = readRoundRecord(record(ROUND, "## Findings", "### 3. A symptom", FINDING, block("verdict: deferred the frame, at its next fold"), "### 7. Another", block("severity: should", "location: `a.ts`", "regression: round-2"), block("verdict: rejected", "answer:")));
     expect(got.refusals).toEqual([]);
     expect(got.findings.map(({ number, regression, close }) => [number, regression, close?.verdict, close?.commit, close?.home])).toEqual([
       [3, null, "deferred", null, "the frame, at its next fold"],
@@ -268,7 +268,7 @@ describe("the reader of a round record", () => {
   });
 
   it("names a line of a block that is no field of its kind at its line, led by its finding's heading, and returns the findings around that finding", () => {
-    const got = readRoundRecord(record(ROUND, "## Findings", "### 1. A symptom", FINDING, sealed("verdict: fixed 89abcde", "note: read twice"), "### 2. Another", FINDING));
+    const got = readRoundRecord(record(ROUND, "## Findings", "### 1. A symptom", FINDING, block("verdict: fixed 89abcde", "note: read twice"), "### 2. Another", FINDING));
     expect(got.refusals).toEqual([{ line: 13, why: "### 1. A symptom — `note: read twice` is no field of a close block, which takes `verdict:`, `answer:` and `location:`, each written `<key>: <value>`" }]);
     expect(got.findings.map(({ number }) => number)).toEqual([2]);
     expect(got.held).toEqual([1, 2]);
@@ -277,7 +277,7 @@ describe("the reader of a round record", () => {
   it("refuses a record with no round block at no line, a second round block at its opener, and a round block or a confirmation that stands inside a finding", () => {
     expect(readRoundRecord(record("## Findings", "### 1. A symptom", FINDING))).toMatchObject({ target: null, findings: [], refusals: [{ line: 0, why: expect.stringContaining("no round block") }] });
     expect(readRoundRecord(record(ROUND, ROUND, "## Findings")).refusals).toEqual([{ line: 4, why: "a second round block: a round record holds one, outside every finding" }]);
-    const inside = readRoundRecord(record(ROUND, "## Findings", "### 1. A symptom", FINDING, ROUND, sealed("confirms: round-1#1")));
+    const inside = readRoundRecord(record(ROUND, "## Findings", "### 1. A symptom", FINDING, ROUND, block("confirms: round-1#1")));
     expect(inside.refusals).toEqual([
       { line: 11, why: "### 1. A symptom — a round block inside a finding: it stands outside every finding" },
       { line: 14, why: "### 1. A symptom — a confirmation block inside a finding: it stands outside every finding" },

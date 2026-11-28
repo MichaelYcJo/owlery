@@ -1,8 +1,8 @@
 // What the cases of a work item's chain share: a daemon on a temporary
 // repository with the records root, a client, the round records a fake
 // proofer answers with, the fix a fake crafter makes, the blocks a fake
-// orchestrator answers with and the section a fake sealer answers with, the
-// records of a sealed chain a case commits itself, and a work item parked on
+// orchestrator answers with and the section a fake inspector answers with, the
+// records of a cleared chain a case commits itself, and a work item parked on
 // a question, which a built-app case stores and answers so that the built
 // daemon resumes its chain and launches a stand-in for the CLI. No case
 // starts an agent: every stage of the daemon this file starts runs on the
@@ -291,7 +291,7 @@ export const status = (folder: string): string[] => git(folder, "status", "--por
  * names, `true` where none is given, and null for a `config.json` with no
  * such key. Once the work items stand, the repository gets a bare
  * repository as its remote `origin`, and the daemon is given a stand-in for
- * `gh` (`ghStandIn`), so a chain that ends sealed pushes there and opens its
+ * `gh` (`ghStandIn`), so a chain that ends cleared pushes there and opens its
  * pull request at the stand-in. With `apart: true` each title after the
  * first has a repository of its own, made the same way with a remote of its
  * own, and `made` is the first title's. With `linked: true` the daemon is
@@ -379,7 +379,7 @@ export function givenFix(prompt: string): { record: string; open: number[] } {
   return { record, open: [...open.matchAll(/\d+/gu)].map(([digits]) => Number(digits)) };
 }
 
-/** What a seal's prompt gave: the run, the section's heading and the verdict's target line's value. */
+/** What an inspection's prompt gave: the run, the section's heading and the verdict's target line's value. */
 export function givenInspection(prompt: string): { run: number; heading: string; target: string } {
   const [, heading = ""] = /^- Your section's heading: `(.*)`$/mu.exec(prompt) ?? [];
   const [, target = ""] = /^- Your verdict's target line: `target: (.*)`$/mu.exec(prompt) ?? [];
@@ -420,7 +420,7 @@ export function gateRecord(workItem: string, runs: readonly (readonly [head: str
   return [`# Broad gate: ${workItem}\n`, ...runs.map(([at, base]) => ["```iadd", `run: ${at} against ${base}`, "```", ""].join("\n"))].join("\n");
 }
 
-/** A run's section of a guarantee as `role-bundle/templates/records/sdd-inspection.md` shapes it: the heading, the two tables, and one verdict block of the target line and the verdict, `sealed` where none is given. */
+/** A run's section of an inspection as `role-bundle/templates/records/sdd-inspection.md` shapes it: the heading, the two tables, and one verdict block of the target line and the verdict, `cleared` where none is given. */
 export function runSection(given: { heading: string; target: string }, verdict = "cleared"): string {
   return [
     given.heading,
@@ -451,25 +451,25 @@ export function withOwleryLines(section: string, builtBy: string, inspectedBy: s
   return `${section.slice(0, closer)}built-by: ${builtBy}\ninspected-by: ${inspectedBy}\nmodel: ${model}\nrules: owlery ${VERSION}\nworkflow: owl-chain\ninspector: owl-chain\n${section.slice(closer)}`;
 }
 
-/** A guarantee as the daemon writes one: the heading, then each section given, each below one blank line. */
+/** An inspection as the daemon writes one: the heading, then each section given, each below one blank line. */
 export function inspectionRecord(workItem: string, sections: readonly string[]): string {
   return [`# Inspection: ${workItem}\n`, ...sections].join("\n");
 }
 
-/** The guarantee's text with one run more, as the daemon writes it (`inspection-records.ts#inspectionText`): the section a sealer answers with, its verdict `sealed` where none is given, and the daemon's lines in its block. */
+/** The inspection's text with one run more, as the daemon writes it (`inspection-records.ts#inspectionText`): the section an inspector answers with, its verdict `cleared` where none is given, and the daemon's lines in its block. */
 export function inspectionWith(before: string | null, workItem: string, run: number, target: string, verdict = "cleared"): string {
   return inspectionText(before, workItem, runSection({ heading: `## Run ${String(run)}`, target }, verdict), { builtBy: ["the session"], inspectedBy: "s-2", model: "fake", version: VERSION });
 }
 
 /**
  * Commits in a folder checked out on the work item's branch, under a records
- * root that stands, the records of a chain that sealed it, each in a commit
+ * root that stands, the records of a chain that cleared it, each in a commit
  * of its own as a chain commits them: the routing that names the branch,
  * round 1 with no finding on the commit of that routing, the broad gate's
- * run on the commit of round 1's record against `base`, and a seal of that
- * commit. Gives the sealed commit. `inspection: false` leaves the inspection out,
+ * run on the commit of round 1's record against `base`, and an inspection of that
+ * commit. Gives the cleared commit. `inspection: false` leaves the inspection out,
  * `verdict` is the verdict's word, and `target` the commit the verdict
- * names, the sealed commit where none is given.
+ * names, the cleared commit where none is given.
  */
 export function commitInspection(folder: string, given: { workItem: string; branch: string; base: string; inspection?: boolean; verdict?: string; target?: string }): string {
   const directory = `iadd/threads/${given.workItem}`;
@@ -488,12 +488,12 @@ export function commitInspection(folder: string, given: { workItem: string; bran
 
 /**
  * Commits in a worktree on the work item's branch the records of a chain
- * that sealed it after one fix, each in a commit of its own as a chain
+ * that cleared it after one fix, each in a commit of its own as a chain
  * commits them: the routing, round 1 on the routing's commit with finding 1
  * at `feature.txt:1`, with the symptom given where one is, the commit that
  * fixes it, the fix pass's close of the finding with that commit, round 2 on the commits after round 1's target,
  * which confirms the fix, the broad gate's run on round 2's commit against
- * `base`, and a seal of that commit. Gives the commit that fixed the
+ * `base`, and an inspection of that commit. Gives the commit that fixed the
  * finding.
  */
 export function commitClearedAfterAFix(folder: string, given: { workItem: string; branch: string; base: string; symptom?: string }): string {
@@ -635,7 +635,7 @@ export function proofs(given: { round: number; heading: string; target: string }
   return given.round === 1 ? roundRecord(given.heading, given.target, [1]) : roundRecord(given.heading, given.target, [], [`round-${String(given.round - 1)}#1`]);
 }
 
-/** A fake adapter whose proofer, crafter, orchestrator and sealer act as the roles given, with every other option of the fake adapter. */
+/** A fake adapter whose proofer, crafter, orchestrator and inspector act as the roles given, with every other option of the fake adapter. */
 export function roles(given: Roles = {}, options: FakeAdapterOptions = {}): RoleAdapter {
   return fakeAdapter({
     pieces: (prompt, role) => {

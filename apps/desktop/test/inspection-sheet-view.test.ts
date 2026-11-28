@@ -28,7 +28,7 @@ import { chainEntry, commitInspection, commitClearedAfterAFix } from "./chain-ru
 import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** The work items of the case, and the folder of each one's records. */
-const SEALED = { title: "Export the history", records: "1795400731-export-the-history" };
+const CLEARED = { title: "Export the history", records: "1795400731-export-the-history" };
 const BROKEN = { title: "Cache the avatars", records: "1795400732-cache-the-avatars" };
 const PLAIN = { title: "Rename the settings" };
 /** A work item made while the cleared one's back is in front, so the daemon sends a list. */
@@ -93,7 +93,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const opened = new WebSocket(`ws://127.0.0.1:${port}`);
     socket = opened;
-    const titles = [SEALED.title, BROKEN.title, PLAIN.title];
+    const titles = [CLEARED.title, BROKEN.title, PLAIN.title];
     const create = (requestId: number): void => opened.send(JSON.stringify({ type: "createWorkItem", requestId, repo: made.repo, title: titles[requestId - 1], kind: "shell", cols: 80, rows: 24 }));
     [cleared, lapsed, plain] = (await new Promise<WorkItem[]>((resolve) => {
       const created: WorkItem[] = [];
@@ -125,7 +125,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     plain = await branched(plain, 13);
 
     const base = git(made.repo, "rev-parse", "HEAD").trim();
-    fixedIn = commitClearedAfterAFix(cleared.worktree, { workItem: SEALED.records, branch: branchOf(cleared), base, symptom: SYMPTOM });
+    fixedIn = commitClearedAfterAFix(cleared.worktree, { workItem: CLEARED.records, branch: branchOf(cleared), base, symptom: SYMPTOM });
     // The ledger's lines of the cleared work item's chain, in the order its stages ended, each after the work item was made.
     const at = Date.now();
     const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
@@ -232,7 +232,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     expect(listened.result.value).toBe(1);
     const pinDrawn = `document.querySelector('#repositories button[data-work-item="${String(lapsed.id)}"] .line-mark.pinned') !== null`;
     // The cleared work item's view is not in front, so its line's click opens it, and the lapsed work item has no pin yet.
-    expect(await app.evaluate<boolean>(viewOf(SEALED.title))).toBe(false);
+    expect(await app.evaluate<boolean>(viewOf(CLEARED.title))).toBe(false);
     expect(await app.evaluate<boolean>(pinDrawn)).toBe(false);
 
     const at = await app.evaluate<{ x: number; y: number }>(`(() => { const box = document.querySelector('#repositories button[data-work-item="${String(cleared.id)}"]').getBoundingClientRect(); return { x: box.x + box.width / 2, y: box.y + box.height / 2 }; })()`);
@@ -243,7 +243,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     const drawnWhilePressed = await app.evaluate<boolean>(pinDrawn);
     await app.cdp("Input.dispatchMouseEvent", { type: "mouseReleased", ...at, button: "left", buttons: 0, clickCount: 1 });
 
-    await app.until(viewOf(SEALED.title), "the view of the work item whose line was pressed");
+    await app.until(viewOf(CLEARED.title), "the view of the work item whose line was pressed");
     expect(drawnWhilePressed).toBe(false);
     // The release drew what the `inbox` carried, and no message came after it.
     await app.until(pinDrawn, "the pin on the lapsed work item's sidebar line");

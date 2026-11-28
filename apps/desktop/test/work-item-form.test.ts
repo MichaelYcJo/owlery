@@ -159,7 +159,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(remoteMain()).toBe(remoteCommit);
   });
 
-  it("creates a work item named by the generated name, from the base the person chose, with no branch: the clone gains none, and the window says No branch yet in the sans in the preview and the view's head, with no seal and no pull request section", async () => {
+  it("creates a work item named by the generated name, from the base the person chose, with no branch: the clone gains none, and the window says No branch yet in the sans in the preview and the view's head, with no inspection and no pull request section", async () => {
     // The name is emptied with a key, as a person empties it.
     await app.evaluate(`document.getElementById("work-item-title").select()`);
     await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: 8, code: "Backspace", key: "Backspace" });
@@ -178,7 +178,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(branches()).toBe(before);
     expect(git(join(clone.root, "project", generated), "branch", "--show-current").trim()).toBe("");
 
-    // The window draws the work item with no branch: the words in the sans and the muted ink where a branch's name stands in the fixed-width face, no seal, and no pull request section.
+    // The window draws the work item with no branch: the words in the sans and the muted ink where a branch's name stands in the fixed-width face, no inspection, and no pull request section.
     const sans = await face("--font-ui");
     expect(sans).not.toBe(await face("--font-mono"));
     expect(await app.evaluate<(string | boolean)[]>(`[document.getElementById("view-branch").textContent, document.getElementById("view-branch").classList.contains("none")]`)).toEqual(["No branch yet", true]);

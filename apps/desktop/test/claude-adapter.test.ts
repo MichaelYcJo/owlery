@@ -874,7 +874,7 @@ describe("the Claude adapter's role launch", () => {
     expect(readdirSync(rulesDir)).toEqual(["proofer-round.md"]);
   });
 
-  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer, a sealer and the orchestrator with none that writes a file, a crafter with Edit and Write", async () => {
+  it("launches each role with the tools of its grant alone, as one value after --tools: a proofer, an inspector and the orchestrator with none that writes a file, a crafter with Edit and Write", async () => {
     const launched: [string, string | undefined][] = [];
     for (const pair of ROLE_STAGES) {
       const init = JSON.stringify({ type: "system", subtype: "init", claude_code_version: "2.1.330", agents: [agentOf(stageOf(pair))] });

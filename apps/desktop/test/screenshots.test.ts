@@ -259,7 +259,7 @@ const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2
 const BROKEN = "Cache the user avatars";
 const BROKEN_RECORDS = "1795396354-cache-the-user-avatars";
 /** The file of the commit that lapses the inspection, which the inspection's sentence names. */
-const AFTER_THE_SEAL = "avatars.ts";
+const AFTER_THE_INSPECTION = "avatars.ts";
 /** A work item whose branch holds one commit and no record. The run gives it three more panes, whose tabs it marks with the tabs' colours, and names the blue one `MARKED_NAME`. Its view is the view "tabs". */
 const AT_REVIEW = "Sort the history by date";
 const MARKED_NAME = "build";
@@ -612,7 +612,7 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     },
     lapsed: async () => {
       await app.click(`#repositories button[data-work-item="${BROKEN_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-inspection-head").textContent === ${JSON.stringify(`Inspection lapsed, cleared at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-inspection-why").textContent === ${JSON.stringify(`\`${AFTER_THE_SEAL}\` changed after the cleared commit \`${brokenAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-inspection button").length === 0 && document.querySelector('${place("inspector")} .note')?.textContent === "Inspection lapsed" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .lapsed-by")?.textContent.startsWith(${JSON.stringify(`Lapsed by ${lapsedBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the lapsed work item's view with the inspection sheet in front, naming the commit that lapsed it and saying that its stages ran outside the daemon, and the lapsed inspection and its sentence at its foot, with nothing to press");
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-inspection-head").textContent === ${JSON.stringify(`Inspection lapsed, cleared at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-inspection-why").textContent === ${JSON.stringify(`\`${AFTER_THE_INSPECTION}\` changed after the cleared commit \`${brokenAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-inspection button").length === 0 && document.querySelector('${place("inspector")} .note')?.textContent === "Inspection lapsed" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .lapsed-by")?.textContent.startsWith(${JSON.stringify(`Lapsed by ${lapsedBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the lapsed work item's view with the inspection sheet in front, naming the commit that lapsed it and saying that its stages ran outside the daemon, and the lapsed inspection and its sentence at its foot, with nothing to press");
       // The approval line stands under what the work item says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
@@ -826,10 +826,10 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     // The record is committed by no commit of the run's, and the reversal is a word of the person's that the daemon tries to commit from its first read of the records. So the hook stands before the app starts, and refuses a commit that holds that record and no other: the commits the run makes in the worktrees after it pass. A worktree runs the hooks of its repository.
     writeFileSync(join(made.repo, ".git", "hooks", "pre-commit"), `#!/bin/sh\nif git diff --cached --name-only | grep -qxF '${parkedRecord}'; then\n  echo '${HOOK_SAYS}' >&2\n  exit 1\nfi\n`, { mode: 0o755 });
     const finishedAt = await branchedWorktree({ folder: made.repo, title: FINISHED, root: made.root });
-    const unsealed = commitFile(finishedAt.worktree, "export.ts");
+    const uninspected = commitFile(finishedAt.worktree, "export.ts");
     commitClearedAfterAFix(finishedAt.worktree, { workItem: FINISHED_RECORDS, branch: finishedAt.branch, base: finishedAt.baseCommit });
     const clearedAt = git(finishedAt.worktree, "rev-parse", "HEAD").trim();
-    git(finishedAt.worktree, "reset", "--quiet", "--hard", unsealed);
+    git(finishedAt.worktree, "reset", "--quiet", "--hard", uninspected);
     /** A stage as a daemon stores one that finished. */
     const ran = (kind: ChainStage["kind"], round: number, place: number): ChainStage => ({ kind, round, state: "finished", failure: null, startedAt: stored - (60 - place * 5) * 60_000, endedAt: stored - (56 - place * 5) * 60_000, headlessId: null, refusals: 0, gate: kind === "gate" ? { command: GATE, exitCode: 0, output: true } : null });
     const item = (id: number, title: string, at: typeof parkedAt) => ({ id, title, branch: at.branch, worktree: at.worktree, createdAt: stored - 2 * 60 * 60_000, baseCommit: at.baseCommit, baseBranch: at.baseBranch, pinned: false, muted: false, groupId: null, archivedAt: null });
@@ -964,9 +964,9 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     const lapsed = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
     if (!lapsed?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
     brokenAt = commitInspection(lapsed.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(lapsed), base: lapsed.baseCommit });
-    lapsedBy = commitFile(lapsed.worktree, AFTER_THE_SEAL);
-    const sealOfBroken = async (): Promise<WorkItem["inspection"]> => (await listed()).workItems.find((workItem) => workItem.id === lapsed.id)?.inspection ?? null;
-    for (let deadline = Date.now() + 20_000, inspection = await sealOfBroken(); inspection?.state !== "lapsed" || inspection.commit !== brokenAt; inspection = await sealOfBroken()) {
+    lapsedBy = commitFile(lapsed.worktree, AFTER_THE_INSPECTION);
+    const inspectionOfLapsed = async (): Promise<WorkItem["inspection"]> => (await listed()).workItems.find((workItem) => workItem.id === lapsed.id)?.inspection ?? null;
+    for (let deadline = Date.now() + 20_000, inspection = await inspectionOfLapsed(); inspection?.state !== "lapsed" || inspection.commit !== brokenAt; inspection = await inspectionOfLapsed()) {
       if (Date.now() >= deadline) throw new Error(`the inspection of ${BROKEN} never read lapsed at ${brokenAt}: ${JSON.stringify(inspection)}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }

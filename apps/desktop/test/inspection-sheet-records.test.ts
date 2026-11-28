@@ -30,7 +30,7 @@ const HEADING = (round: number): string => `# Review round ${String(round)}: ${N
  * (`chain-run.ts#commitInspection`), with the options that helper takes.
  * `before` commits what the branch holds before the records.
  */
-function sealedBranch(options: { inspection?: boolean; verdict?: string; before?: (repo: string) => void } = {}) {
+function clearedBranch(options: { inspection?: boolean; verdict?: string; before?: (repo: string) => void } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
@@ -50,7 +50,7 @@ const lapsed = (commit: string): Inspection => ({ state: "lapsed", commit, why: 
 
 describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
   it("reads the round records the branch's head commit holds and none the worktree holds alone, each finding with its symptom, its places, its close and its references, and a record with a refused line with its other findings and the count of the lines refused", async () => {
-    const { repo, directory, gate, read } = sealedBranch();
+    const { repo, directory, gate, read } = clearedBranch();
     // Round 1's target is the commit of the routing, three below the verdict's.
     const routed = git(repo, "rev-parse", "HEAD~3").trim();
     const round2 = [
@@ -159,7 +159,7 @@ describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
   });
 
   it("reads the inspection's record from the newest verdict block where it is an inspection: the cleared commit, the branch, the base, the item, the gate's commit, the rounds the cleared commit holds, who built, who judged, the model and the rules", async () => {
-    const { repo, gate, read } = sealedBranch({
+    const { repo, gate, read } = clearedBranch({
       before: (folder) => {
         write(folder, `${DIRECTORY}/trail/rounds/round-2.md`, roundRecord(HEADING(2), `${head(folder)} against main`));
         write(folder, `${DIRECTORY}/trail/rounds/round-3.md`, roundRecord(HEADING(3), `${head(folder)} against main`));
@@ -175,15 +175,15 @@ describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
     expect(got.rounds.map(({ round }) => round)).toEqual([1, 2, 3, 4]);
   });
 
-  it("gives no record where the newest verdict block is no inspection, where no guarantee stands and where the reader refuses a line of it, and still gives the rounds", async () => {
-    const withheld = sealedBranch({ verdict: "withheld reason: The suite failed." });
-    const none = sealedBranch({ inspection: false });
-    const refused = sealedBranch();
+  it("gives no record where the newest verdict block is no inspection, where no `inspection.md` stands and where the reader refuses a line of it, and still gives the rounds", async () => {
+    const withheld = clearedBranch({ verdict: "withheld reason: The suite failed." });
+    const none = clearedBranch({ inspection: false });
+    const refused = clearedBranch();
     write(refused.repo, `${DIRECTORY}/inspection.md`, `${git(refused.repo, "show", `HEAD:${DIRECTORY}/inspection.md`)}\n${F}iadd\nVerdict: cleared\n${F}\n`);
     commitAll(refused.repo, "chore: add a block with no target");
     for (const [name, branch] of [
       ["withheld", withheld],
-      ["no guarantee", none],
+      ["no inspection", none],
       ["refused", refused],
     ] as const) {
       const got = await branch.read(null);
@@ -193,7 +193,7 @@ describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
 
   it("names the oldest commit on the branch's own line that changes a path that is no closing record, as the commit that lapsed a lapsed inspection, with its subject", async () => {
     // A closing record alone, then a commit that changes a source file and one that changes a closing record and a source file.
-    const source = sealedBranch();
+    const source = clearedBranch();
     write(source.repo, `${DIRECTORY}/trail/refusals.md`, refusalsText(null, NAME, { kind: "inspection", round: 1, role: "inspector", calls: [] }));
     commitAll(source.repo, "chore: record the refusals");
     expect((await source.read(lapsed(source.gate))).lapsedBy).toBeNull();
@@ -207,14 +207,14 @@ describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
     expect((await source.read(null)).lapsedBy).toBeNull();
 
     // A commit that changes a closing record and a source file together.
-    const together = sealedBranch();
+    const together = clearedBranch();
     write(together.repo, `${DIRECTORY}/inspection.md`, `${git(together.repo, "show", `HEAD:${DIRECTORY}/inspection.md`)}\nA note.\n`);
     write(together.repo, "feature.txt", "A greeting.\n");
     const both = commitAll(together.repo, "fix: end the greeting and note it");
     expect((await together.read(lapsed(together.gate))).lapsedBy).toEqual({ commit: both, subject: "fix: end the greeting and note it" });
 
     // A merge of the base is named by its merge commit, and not by the base's own commit.
-    const merged = sealedBranch();
+    const merged = clearedBranch();
     git(merged.repo, "checkout", "--quiet", "main");
     write(merged.repo, "other.txt", "Another file\n");
     commitAll(merged.repo, "feat: another file");
@@ -224,26 +224,26 @@ describe("the records of the inspection sheet", { timeout: 30_000 }, () => {
   });
 
   it("names no commit where the head does not hold the cleared commit, and where the repository holds no commit of the name the inspection gives", async () => {
-    const moved = sealedBranch();
+    const moved = clearedBranch();
     git(moved.repo, "reset", "--quiet", "--hard", "HEAD~4");
     write(moved.repo, "feature.txt", "A greeting, again\n");
     commitAll(moved.repo, "fix: greet again");
     expect((await moved.read(lapsed(moved.gate))).lapsedBy).toBeNull();
-    const missing = sealedBranch();
+    const missing = clearedBranch();
     write(missing.repo, "feature.txt", "A greeting.\n");
     commitAll(missing.repo, "fix: end the greeting");
     expect((await missing.read(lapsed("f".repeat(40)))).lapsedBy).toBeNull();
   });
 
   it("gives the rounds in the order of their numbers, round 10 after round 2, which the back and a pull request's body list them in", async () => {
-    const { repo, gate, read } = sealedBranch();
+    const { repo, gate, read } = clearedBranch();
     for (const round of [10, 2]) write(repo, `${DIRECTORY}/trail/rounds/round-${String(round)}.md`, roundRecord(HEADING(round), `${gate} against main`));
     commitAll(repo, "chore: record review rounds 2 and 10");
     expect((await read(null)).rounds.map((round) => round.round)).toEqual([1, 2, 10]);
   });
 
   it("reads the refused calls of `trail/refusals.md` as the head holds it, each row's stage and rule, and counts a row whose stage or rule its writer does not write as not read", async () => {
-    const { repo, read } = sealedBranch();
+    const { repo, read } = clearedBranch();
     let text = refusalsText(null, NAME, { kind: "round", round: 1, role: "proofer", calls: [{ tool: "Write", action: "write", rule: "no-write" }, { tool: "Bash", action: "run", rule: "no-command" }] });
     text = refusalsText(text, NAME, { kind: "ruling", round: 1, role: "orchestrator", calls: [{ tool: "Edit", action: "write", rule: "no-write" }] });
     text = refusalsText(text, NAME, { kind: "fix-pass", round: 1, role: "crafter", calls: [{ tool: "Write", action: "write", rule: "outside-worktree" }] });

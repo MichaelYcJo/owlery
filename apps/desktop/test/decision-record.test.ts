@@ -66,11 +66,11 @@ const SCOPE = block(
 );
 const DEFAULT = block(
   "decision: 4 default",
-  "decided: The check is called `seal`.",
+  "decided: The check is called `inspection`.",
   "grounds: `frame/questions.md` Q1 names it as the default.",
   "by: orchestrator",
   "state: applied 0123abc",
-  "reversal: Call it `owlery-seal`.",
+  "reversal: Call it `owlery-inspection`.",
 );
 const ANSWERED = block(
   "decision: 5 answered",
@@ -114,10 +114,10 @@ describe("the reader of a work item's record", () => {
       {
         id: 4,
         kind: "default",
-        decided: "The check is called `seal`.",
+        decided: "The check is called `inspection`.",
         grounds: "`frame/questions.md` Q1 names it as the default.",
         by: "orchestrator",
-        state: { is: "applied", message: "Call it `owlery-seal`.", commit: "0123abc" },
+        state: { is: "applied", message: "Call it `owlery-inspection`.", commit: "0123abc" },
         line: openerOf(RECORD, "decision: 4 default"),
       },
       {
@@ -547,7 +547,7 @@ describe("a work item's directory", () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
-    write(made.repo, "iadd/README.md", "# The seal colony\n");
+    write(made.repo, "iadd/README.md", "# The project's own notes\n");
     write(made.repo, "iadd/threads/2-b/routing.md", declares("feature"));
     expect(workItemDirectory(made.repo, "feature")).toBeNull();
     expect(checkFinds(made.repo, "feature")).toBeNull();

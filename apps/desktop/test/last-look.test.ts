@@ -28,7 +28,7 @@ const ASK = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x
 const DECISION: Decision = { id: 3, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: "orchestrator", state: "decided", reversal: null, landed: null, since: 1150 };
 const REVERSED: Decision = { id: 5, kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", by: null, state: "applied", reversal: "Frame it first.", landed: "abc1234", since: null };
 const QUESTIONS: Question[] = [
-  { id: 6, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main", answer: null, since: 1170 },
+  { id: 6, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main", answer: null, since: 1170 },
   { id: 7, asks: "May the session push?", grounds: "A push needs an approval.", by: null, options: [], default: null, answer: "Yes.", since: null },
 ];
 const UNREAD: Unread[] = [{ line: 40, why: "an empty `iadd` block" }];
@@ -354,12 +354,12 @@ describe("LastLook", () => {
     const gate = { ...CHAIN.stages[0], kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages.map(({ gate: _gate, ...old }) => old), { ...gate, gate: { ...gate.gate, extra: 1 } }] } }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages, gate] } }] });
-    // A chain that rests and a seal's stage are kept, and a field an earlier build wrote on every chain is dropped.
-    const seal = { ...CHAIN.stages[0], kind: "inspection" };
-    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [seal] } }] }));
-    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [seal] } }] });
+    // A chain that rests and an inspection's stage are kept, and a field an earlier build wrote on every chain is dropped.
+    const inspection = { ...CHAIN.stages[0], kind: "inspection" };
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [inspection] } }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [inspection] } }] });
     // A build before the seal rested a chain `reviewed`, and an earlier build of this release rested one `sealed`: the look is read, with that work item's chain as none.
-    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }, { ...CHAIN, state: "sealed", stages: [seal] }]) {
+    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }, { ...CHAIN, state: "sealed", stages: [inspection] }]) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: reviewed }] }));
       expect(new LastLook(dir).get(), JSON.stringify(reviewed)).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: null }] });
     }

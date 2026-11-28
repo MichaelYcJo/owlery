@@ -23,7 +23,7 @@ function printing(dir: string): string {
 }
 
 describe("paneHead", () => {
-  it("says the three things a pane's session is told and names the document that holds the rules: the session carries the owl chain, a branch takes its seal from it before its pull request or its end, and the bundle's document and the pane's environment say how", () => {
+  it("says the three things a pane's session is told and names the document that holds the rules: the session carries the owl chain, a branch takes its inspection from it before its pull request or its end, and the bundle's document and the pane's environment say how", () => {
     const head = paneHead();
     expect(head.split("\n")[0]).toBe("# Owlery: this session carries the Owl Chain");
     expect(head).toContain("so it carries the Owl Chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.");

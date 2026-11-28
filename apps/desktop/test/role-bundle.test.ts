@@ -264,11 +264,11 @@ describe("the role bundle", () => {
     expect(read("README.md")).toContain("The bundle holds the orchestrator's definition, `agents/orchestrator.md`, for the two judgments the daemon asks of its orchestrator agent and a pane's session makes itself");
   });
 
-  it("has the sealer queue and draw no stamp", () => {
+  it("has the inspector queue and draw no stamp", () => {
     expect(read("agents/inspector.md")).not.toMatch(/stamp/i);
   });
 
-  it("names no command and no script in the sealer's definition, the guarantee's form and its template, and no check line of a test this repository does not hold", () => {
+  it("names no command and no script in the inspector's definition, the inspection's form and its template, and no check line of a test this repository does not hold", () => {
     for (const file of ["agents/inspector.md", "docs/forms/the-inspection.md", "templates/records/sdd-inspection.md"]) {
       const text = read(file);
       // A command is a span of code that opens with a program's name: AgenticSeal's CLI, git, GitHub's CLI or an interpreter.
@@ -285,7 +285,7 @@ describe("the role bundle", () => {
     expect(read("agents/proofer.md").replace(/\s+/gu, " ")).toContain("`changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each whole at the target");
   });
 
-  it("shapes a run's section as Owlery takes one: the template opens with the run's heading, its one seal block holds target: and Verdict: alone, and Owlery's reader takes the template filled in", () => {
+  it("shapes a run's section as Owlery takes one: the template opens with the run's heading, its one inspection block holds target: and Verdict: alone, and Owlery's reader takes the template filled in", () => {
     const template = read("templates/records/sdd-inspection.md");
     expect(template.split("\n")[0]).toBe("## Run <N>");
     const blocks = [...template.matchAll(/^```iadd\n([\s\S]*?)^```$/gmu)].map(([, lines = ""]) => lines.trim().split("\n").map((line) => line.slice(0, line.indexOf(":") + 1)));
@@ -296,7 +296,7 @@ describe("the role bundle", () => {
     expect(sectionOf(`I read the branch.\n\n${filled}`, { run: 3, target })).toBe(filled);
   });
 
-  it("tells the sealer what the Owl Chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
+  it("tells the inspector what the Owl Chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const definition = read("agents/inspector.md").replace(/\s+/gu, " ");
     for (const named of [
@@ -328,7 +328,7 @@ describe("the role bundle", () => {
     expect(read("README.md")).toContain("an inspector reads the commit Owlery's run of the broad gate passed on and answers with its run's section of the inspection, which Owlery completes with who built the work and who inspected it, writes and commits");
   });
 
-  it("tells the proofer and the sealer where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the guarantee's form says that they run nothing (scenario 8 of #127)", () => {
+  it("tells the proofer and the inspector where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the inspection's form says that they run nothing (scenario 8 of #127)", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const proofer = flat("agents/proofer.md");
@@ -343,23 +343,23 @@ describe("the role bundle", () => {
       "A claim that only a run could settle, and that no run of yours settled, is no finding: it is a row of `## Not judged`, with who answers it.",
       "- Write a file of the worktree, or commit: the record reaches the tree by Owlery's hand.",
     ]) expect(proofer, named).toContain(named);
-    const sealer = flat("agents/inspector.md");
+    const inspector = flat("agents/inspector.md");
     for (const named of [
       "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17. In a pane's session a command that asks for permission waits for the person.",
       "- Write a file of the worktree: your section reaches the tree by Owlery's hand.",
       "- Change the tree so that a claim holds, by a command or by an edit of code or a record: you check each claim against the tree as it stands.",
-    ]) expect(sealer, named).toContain(named);
+    ]) expect(inspector, named).toContain(named);
     const form = flat("docs/forms/the-inspection.md");
     for (const named of [
       "It reads that record and never runs the broad gate itself, and its order of work and where its commands run are `agents/inspector.md`'s.",
       "**How it errs.** It checks each claim by reading, so a claim that only a run would refute passes: a case that was never red, a command that does not pass.",
     ]) expect(form, named).toContain(named);
-    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/inspector.md", sealer], ["docs/forms/the-inspection.md", form]] as const) {
+    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/inspector.md", inspector], ["docs/forms/the-inspection.md", form]] as const) {
       for (const gone of ["run no command", "runs nothing", "**A round reads, and runs nothing.**"]) expect(text, `${file} says ${gone}`).not.toContain(gone);
     }
   });
 
-  it("tells the sealer how a run that follows a broken seal judges: its prompt hands it what changed since that seal's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
+  it("tells the inspector how a run that follows a lapsed inspection judges: its prompt hands it what changed since that inspection's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const definition = flat("agents/inspector.md");
@@ -517,7 +517,7 @@ describe("the built app's role bundle", () => {
     cleanups.push(made.remove);
     // A repository on the Owl Chain, with a place for work records.
     for (const [path, text] of [
-      [".github/workflows/owlery-inspection.yml", "name: seal\n"],
+      [".github/workflows/owlery-inspection.yml", "name: inspection\n"],
       ["iadd/README.md", `${MARKER}\n`],
       ["iadd/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
     ] as const) {

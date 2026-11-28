@@ -22,7 +22,7 @@ afterEach(async () => {
 const NAME = "1795396351-cleared-work";
 const DIRECTORY = `iadd/threads/${NAME}`;
 const BRANCH = "feat/cleared-work";
-const GUARANTEE = `${DIRECTORY}/inspection.md`;
+const INSPECTION = `${DIRECTORY}/inspection.md`;
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
 /**
  * A repository whose `main` holds the records root, checked out on a branch
@@ -30,7 +30,7 @@ const HEADING = (round: number): string => `# Review round ${String(round)}: ${N
  * (`chain-run.ts#commitInspection`), with the options that helper takes.
  * `before` commits what the branch holds before the records.
  */
-function sealedBranch(options: { inspection?: boolean; verdict?: string; target?: string; before?: (repo: string) => void } = {}) {
+function clearedBranch(options: { inspection?: boolean; verdict?: string; target?: string; before?: (repo: string) => void } = {}) {
   const made = temporaryRepository();
   cleanups.push(made.remove);
   const repo = made.repo;
@@ -57,12 +57,12 @@ function commitSource(folder: string, text = "A greeting.\n"): string {
 const changedAfter = (path: string, gate: string): string => `\`${path}\` changed after the cleared commit \`${gate.slice(0, 7)}\`.`;
 
 describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
-  it("is cleared, with the cleared commit whole, where the head holds an inspection of the gate's commit and only closing records were committed after it, and stays so after a commit that changes the guarantee below its block", async () => {
-    const { repo, gate, inspection } = sealedBranch();
+  it("is cleared, with the cleared commit whole, where the head holds an inspection of the gate's commit and only closing records were committed after it, and stays so after a commit that changes the inspection below its block", async () => {
+    const { repo, gate, inspection } = clearedBranch();
     expect(await inspection()).toEqual({ state: "cleared", commit: gate, why: null });
-    // Only closing records follow the cleared commit: the gate's record and the guarantee.
+    // Only closing records follow the cleared commit: the gate's record and the inspection.
     expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/gate.md`]);
-    write(repo, GUARANTEE, `${git(repo, "show", `HEAD:${GUARANTEE}`)}\nThe inspector's notes end here.\n`);
+    write(repo, INSPECTION, `${git(repo, "show", `HEAD:${INSPECTION}`)}\nThe inspector's notes end here.\n`);
     commitAll(repo, "docs: note below the verdict");
     expect(await inspection()).toEqual({ state: "cleared", commit: gate, why: null });
     write(repo, `${DIRECTORY}/trail/refusals.md`, "# Refusals\n");
@@ -71,7 +71,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   });
 
   it("reads the order against the base round 1's record names, whatever base the work item stores, and the inspection holds", async () => {
-    const { repo, gate, base } = sealedBranch();
+    const { repo, gate, base } = clearedBranch();
     // The work item stores another base than the one its first round read the branch against, as after the branch was moved.
     git(repo, "branch", "develop", base);
     const item = { worktree: repo, branch: BRANCH, baseBranch: "develop", baseCommit: base };
@@ -98,14 +98,14 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
       ],
     ];
     for (const [path, commit] of histories) {
-      const { repo, gate, inspection } = sealedBranch();
+      const { repo, gate, inspection } = clearedBranch();
       commit(repo);
       expect(await inspection(), path).toEqual({ state: "lapsed", commit: gate, why: changedAfter(path, gate) });
     }
   });
 
   it("is lapsed after a merge of a base that gained a commit, and after a merge commit that itself changes a source file", async () => {
-    const merged = sealedBranch();
+    const merged = clearedBranch();
     git(merged.repo, "checkout", "--quiet", "main");
     write(merged.repo, "other.txt", "Another file\n");
     commitAll(merged.repo, "feat: another file");
@@ -114,7 +114,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
     expect(git(merged.repo, "rev-list", "--parents", "-n", "1", "HEAD").trim().split(" ")).toHaveLength(3);
     expect(await merged.inspection()).toEqual({ state: "lapsed", commit: merged.gate, why: changedAfter("other.txt", merged.gate) });
 
-    const edited = sealedBranch();
+    const edited = clearedBranch();
     git(edited.repo, "checkout", "--quiet", "main");
     write(edited.repo, "other.txt", "Another file\n");
     commitAll(edited.repo, "feat: another file");
@@ -128,7 +128,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   });
 
   it("is lapsed after two commits of which the second takes the first back, and says which step the order owes, since no path differs from the cleared commit", async () => {
-    const { repo, gate, inspection } = sealedBranch();
+    const { repo, gate, inspection } = clearedBranch();
     commitSource(repo);
     commitSource(repo, "A greeting\n");
     expect(git(repo, "diff", "--name-only", gate, "HEAD").trim().split("\n")).toEqual([`${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/gate.md`]);
@@ -136,7 +136,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   });
 
   it("is lapsed where the head holds an open question that the cleared commit held too, as records written by hand can, and says that the work item waits for its answers", async () => {
-    const { repo, gate, inspection } = sealedBranch({
+    const { repo, gate, inspection } = clearedBranch({
       before: (folder) => {
         write(folder, `${DIRECTORY}/decisions.md`, withQuestion(`# Decisions and questions: ${NAME}\n\n`, { asks: "May the pass change the protocol?", grounds: "The frame names no such change.", by: "proofer", options: [], default: null }));
         commitAll(folder, "chore: record a question");
@@ -147,7 +147,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   });
 
   it("is lapsed where a record of the head does not read, and says what the reader refuses", async () => {
-    const { repo, gate, inspection } = sealedBranch();
+    const { repo, gate, inspection } = clearedBranch();
     write(repo, `${DIRECTORY}/trail/rounds/round-2.md`, "# Review round 2\n\nNo round block.\n");
     commitAll(repo, "chore: record review round 2");
     const read = await inspection();
@@ -156,11 +156,11 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
   });
 
   it("counts only what a commit holds: an inspection the worktree holds and no commit does is none, and an edit, an untracked file, an ignored file and an open question that no commit holds leave an inspection cleared", async () => {
-    const unsealed = sealedBranch({ inspection: false });
-    write(unsealed.repo, GUARANTEE, inspectionWith(null, NAME, 1, `${unsealed.gate} against main`));
-    expect(await unsealed.inspection()).toBeNull();
+    const uninspected = clearedBranch({ inspection: false });
+    write(uninspected.repo, INSPECTION, inspectionWith(null, NAME, 1, `${uninspected.gate} against main`));
+    expect(await uninspected.inspection()).toBeNull();
 
-    const { repo, gate, inspection } = sealedBranch();
+    const { repo, gate, inspection } = clearedBranch();
     writeFileSync(join(repo, "feature.txt"), "An edit nobody committed\n");
     write(repo, "untracked.txt", "A file git does not track\n");
     write(repo, "ignored.log", "A file git ignores\n");
@@ -169,29 +169,29 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
     expect(await inspection()).toEqual({ state: "cleared", commit: gate, why: null });
   });
 
-  it("is none where the head holds no guarantee, where the newest verdict block is withheld or undecided, where the reader refuses a line of the guarantee, and on a branch reset to the commit before the guarantee", async () => {
-    expect(await sealedBranch({ inspection: false }).inspection()).toBeNull();
-    expect(await sealedBranch({ verdict: "withheld reason: x" }).inspection()).toBeNull();
-    expect(await sealedBranch({ verdict: "undecided question: May it?" }).inspection()).toBeNull();
+  it("is none where the head holds no inspection, where the newest verdict block is withheld or undecided, where the reader refuses a line of the inspection, and on a branch reset to the commit before the inspection", async () => {
+    expect(await clearedBranch({ inspection: false }).inspection()).toBeNull();
+    expect(await clearedBranch({ verdict: "withheld reason: x" }).inspection()).toBeNull();
+    expect(await clearedBranch({ verdict: "undecided question: May it?" }).inspection()).toBeNull();
     // An inspection followed by a withheld verdict: the newest block decides.
-    const withheld = sealedBranch();
-    write(withheld.repo, GUARANTEE, inspectionWith(git(withheld.repo, "show", `HEAD:${GUARANTEE}`), NAME, 2, `${withheld.gate} against main`, "withheld reason: x"));
+    const withheld = clearedBranch();
+    write(withheld.repo, INSPECTION, inspectionWith(git(withheld.repo, "show", `HEAD:${INSPECTION}`), NAME, 2, `${withheld.gate} against main`, "withheld reason: x"));
     commitAll(withheld.repo, "chore: record the inspector's verdict");
     expect(await withheld.inspection()).toBeNull();
 
-    const refused = sealedBranch();
-    write(refused.repo, GUARANTEE, git(refused.repo, "show", `HEAD:${GUARANTEE}`).replace("Verdict: cleared\n", "Verdict: cleared\ngate: passed\n"));
+    const refused = clearedBranch();
+    write(refused.repo, INSPECTION, git(refused.repo, "show", `HEAD:${INSPECTION}`).replace("Verdict: cleared\n", "Verdict: cleared\ngate: passed\n"));
     commitAll(refused.repo, "chore: write a line the reader refuses");
     expect(await refused.inspection()).toBeNull();
 
-    const reset = sealedBranch();
+    const reset = clearedBranch();
     expect(await reset.inspection()).toMatchObject({ state: "cleared" });
     git(reset.repo, "reset", "--quiet", "--hard", "HEAD~1");
     expect(await reset.inspection()).toBeNull();
   });
 
   it("is none for a work item whose worktree holds no directory that names its branch, and for one whose worktree holds two", async () => {
-    const { repo, item } = sealedBranch();
+    const { repo, item } = clearedBranch();
     expect(await workItemInspection({ ...item, branch: "feat/another" }, head(repo))).toBeNull();
     write(repo, "iadd/threads/1795396352-twin/routing.md", routingText("1795396352-twin", BRANCH, "2026-11-23"));
     expect(await workItemInspection(item, head(repo))).toBeNull();
@@ -199,17 +199,17 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
 
   it("is lapsed where the inspection names a commit the head does not hold, and where it names no commit of the repository, and says so", async () => {
     // The commit the inspection names stands on another branch of the same repository.
-    const made = sealedBranch({ inspection: false });
+    const made = clearedBranch({ inspection: false });
     git(made.repo, "checkout", "--quiet", "-b", "aside", "main");
     write(made.repo, "aside.txt", "Aside\n");
     const aside = commitAll(made.repo, "feat: aside");
     git(made.repo, "checkout", "--quiet", BRANCH);
-    write(made.repo, GUARANTEE, inspectionWith(null, NAME, 1, `${aside} against main`));
+    write(made.repo, INSPECTION, inspectionWith(null, NAME, 1, `${aside} against main`));
     commitAll(made.repo, "chore: record the inspector's verdict");
     expect(await made.inspection()).toEqual({ state: "lapsed", commit: aside, why: `The branch no longer holds the cleared commit \`${aside.slice(0, 7)}\`.` });
 
     const none = "d".repeat(40);
-    const nowhere = sealedBranch({ target: none });
+    const nowhere = clearedBranch({ target: none });
     expect(await nowhere.inspection()).toEqual({ state: "lapsed", commit: none, why: `The repository holds no cleared commit \`${none.slice(0, 7)}\`.` });
   });
 
@@ -229,7 +229,7 @@ describe("the inspection a branch's head holds", { timeout: 30_000 }, () => {
     }
     write(repo, `${DIRECTORY}/trail/gate.md`, gateText(null, NAME, { head: target, base }));
     commitAll(repo, "chore: record the broad gate's run");
-    write(repo, GUARANTEE, inspectionWith(null, NAME, 1, `${target} against main`));
+    write(repo, INSPECTION, inspectionWith(null, NAME, 1, `${target} against main`));
     commitAll(repo, "chore: record the inspector's verdict");
     const item = { worktree: repo, branch: BRANCH, baseBranch: "main", baseCommit: base };
     const started = performance.now();

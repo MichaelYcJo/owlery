@@ -13,7 +13,7 @@
 // fourth records the commit its branch was cut at, so the daemon reads its
 // branch, and its branch holds the records of an inspection, committed with git
 // before the app starts as a chain commits them. The daemon's first read of
-// that inspection, the `git show` of its guarantee in the fourth's worktree, waits
+// that inspection, the `git show` of its `inspection.md` in the fourth's worktree, waits
 // until the first case releases it, so `ready` goes out without the fourth's
 // inspection and the inspection joins the summary at the lists that follow. The last case
 // commits once more in its worktree, which lapses the inspection. The login shell is a script
@@ -53,7 +53,7 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   let clearedAt = "";
   const cleanups: Cleanups = [];
   /** The hold on the daemon's first read of the fourth work item's inspection. */
-  let heldSeal: ReturnType<typeof heldGit>;
+  let heldInspection: ReturnType<typeof heldGit>;
 
   /** The directory of the work item whose worktree and branch are named `name`. */
   const directoryOf = (name: string): string => join(made.root, name, "iadd", "threads", `1-${name}`);
@@ -124,8 +124,8 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
         seen(fourth, { inspection: null }),
       ],
     };
-    // The app's daemon runs git from the path the app inherits, and reads an inspection first with a `git show` of the guarantee in the work item's worktree (`inspection-state.ts#inspectionOf`). No other git command runs as `show` in the fourth's worktree before the release.
-    heldSeal = heldGit(cleanups, made.base, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`);
+    // The app's daemon runs git from the path the app inherits, and reads an inspection first with a `git show` of its `inspection.md` in the work item's worktree (`inspection-state.ts#inspectionOf`). No other git command runs as `show` in the fourth's worktree before the release.
+    heldInspection = heldGit(cleanups, made.base, `[ "$(pwd -P)" = '${fourth.worktree}' ] && [ "$1" = show ]`);
     app = await BuiltApp.start(
       { SHELL: shell, OWLERY_WORKTREES: made.root },
       {
@@ -155,15 +155,15 @@ describe("the decisions and the questions in the built app", { timeout: 60_000 }
   it("opens on the summary with the lists that changed since the look while the daemon's read of an inspection waits, joins that inspection given since the look when the read ends, counted first and its line first, the decision the look does not hold counted apart, shows on the lines the count of the decisions not yet seen and a parked work item's question, lists every decision in its view, the last first, with who decided, its age and what became of one that no longer stands, names the line of the record that was not read, reverses a decision with a typed message, takes the answers of the parked one by the keyboard alone, draws no section for a question the look holds as answered, and commits each word as a commit of the record alone", async () => {
     // The look holds two of the first work item's three decisions, no question of the second and no inspection of the fourth, so one decision is new, the parked work item changed and the fourth's inspection was given. The daemon's read of the fourth's inspection waits, so its `ready` went out without that inspection: the summary opens on the two others, and the fourth has no line and no strong title in the sidebar.
     await app.until(`document.getElementById("summary-screen").hidden === false`, "the summary");
-    for (let waits = 0; waits < 100 && !heldSeal.waiting(); waits++) await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(heldSeal.waiting()).toBe(true);
+    for (let waits = 0; waits < 100 && !heldInspection.waiting(); waits++) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(heldInspection.waiting()).toBe(true);
     const deltaStrong = (): Promise<boolean> => app.evaluate(`document.querySelector('.side-item[data-work-item="4"] .title').classList.contains("changed")`);
     expect(await text("#summary-sentence")).toBe("1 needs you. 1 decision made without asking.");
     expect(await texts("#summary-lines button .title")).toEqual(["Beta", "Alpha"]);
     expect(await text("#nav-summary-count")).toBe("2 new");
     expect(await deltaStrong()).toBe(false);
     // The read goes on, and the lists that carry the inspection join the fourth to the summary in front: its line first, its title strong and the sidebar's count one more.
-    heldSeal.release();
+    heldInspection.release();
     await app.until(`document.getElementById("summary-sentence").textContent === "1 cleared, 1 needs you. 1 decision made without asking."`, "the summary's sentence with the inspection given");
     expect(await app.evaluate(`document.getElementById("summary-screen").hidden`)).toBe(false);
     expect(await texts("#summary-lines button .title")).toEqual(["Delta", "Beta", "Alpha"]);

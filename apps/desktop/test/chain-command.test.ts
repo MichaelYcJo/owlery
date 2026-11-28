@@ -71,7 +71,7 @@ async function stagesTold(on: ReturnType<typeof commandOn>): Promise<{ told: Sta
 }
 
 describe("the chain command", { timeout: 60_000 }, () => {
-  it("runs a chain to a seal in the order `owed` names: it declares the routing, hands each role its prompt and rules, commits the round's record, the gate's run and the verdict, and the daemon's reader then reads the head as sealed", async () => {
+  it("runs a chain to an inspection in the order `owed` names: it declares the routing, hands each role its prompt and rules, commits the round's record, the gate's run and the verdict, and the daemon's reader then reads the head as cleared", async () => {
     const on = commandOn(cleanups);
     expect(await on.said(["owed"])).toEqual({ step: "start" });
     expect(await on.said(["start"])).toMatchObject({ step: "start", directory: DIRECTORY, declared: true });
@@ -95,11 +95,11 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(await on.said(["gate"])).toEqual({ recorded: "gate", round: 1, commit: gate.head });
     expect(read(join(on.repo, DIRECTORY, "trail/gate.md"))).toContain(`run: ${gate.head ?? ""} against ${on.main}`);
 
-    const seal = await on.said(["owed"]);
+    const inspection = await on.said(["owed"]);
     // The inspector's stage names its model in the Owl Chain's inspector module, which the session starts the subagent on.
-    expect(seal).toMatchObject({ step: "inspection", round: 1, run: 1, commit: gate.head, target: `${gate.head ?? ""} against main`, agent: "owlery:inspector", model: "opus" });
-    expect(givenInspection(read(seal.prompt))).toEqual({ run: 1, heading: "## Run 1", target: `${gate.head ?? ""} against main` });
-    expect(await on.said(["inspect", on.answer("seal-1.md", runSection(givenInspection(read(seal.prompt)))), "--inspected-by", "agent-inspector", "--model", "owl-large"])).toEqual({ recorded: "inspection", run: 1, verdict: "cleared", says: null, commit: gate.head });
+    expect(inspection).toMatchObject({ step: "inspection", round: 1, run: 1, commit: gate.head, target: `${gate.head ?? ""} against main`, agent: "owlery:inspector", model: "opus" });
+    expect(givenInspection(read(inspection.prompt))).toEqual({ run: 1, heading: "## Run 1", target: `${gate.head ?? ""} against main` });
+    expect(await on.said(["inspect", on.answer("inspection-1.md", runSection(givenInspection(read(inspection.prompt)))), "--inspected-by", "agent-inspector", "--model", "owl-large"])).toEqual({ recorded: "inspection", run: 1, verdict: "cleared", says: null, commit: gate.head });
 
     expect(commitsAfterMain(on.repo).map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the work item's routing", "chore: record review round 1", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     expect(commitsAfterMain(on.repo).slice(1).map(({ body }) => body)).toEqual(Array.from({ length: 4 }, () => "IADD-Routing: 1795388700-greet"));
@@ -145,19 +145,19 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(prompt).not.toContain(on.repo);
   });
 
-  it("writes the pull request body's seal section and the back's section into the run folder, the back saying that the stages ran outside the daemon, and refuses a branch with no verdict", async () => {
+  it("writes the pull request body's inspection section and the back's section into the run folder, the back saying that the stages ran outside the daemon, and refuses a branch with no verdict", async () => {
     const on = commandOn(cleanups);
     await on.said(["start"]);
     const none = await on.run(["body"]);
     expect(none).toMatchObject({ code: 1, out: "" });
     expect(none.err).toBe(`${DIRECTORY}/inspection.md holds no verdict block at the head commit, so the body has no inspection to carry.\n`);
     await git(on.repo, "reset", "--quiet", "--hard", on.built);
-    const sealed = await inspectThrough(on);
+    const cleared = await inspectThrough(on);
     const { body } = await on.said<{ body: string }>(["body"]);
     expect(body).toBe(join(on.runDir, "chain", "1795388700-greet", "pull-request-body.md"));
     const text = read(body);
     expect(text.startsWith(`${SECTION_OPEN}\n## Inspection\n`)).toBe(true);
-    expect(text).toContain(`target: ${sealed} against main`);
+    expect(text).toContain(`target: ${cleared} against main`);
     expect(text).toContain(`${BACK_OPEN}\n## Inspection sheet`);
     expect(text).toContain("ran outside Owlery's daemon");
   });
@@ -182,8 +182,8 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(second).toMatchObject({ step: "round", round: 2, agent: "owlery:proofer" });
     await on.said(["round", on.answer("round-2.md", proofs(givenRound(read(second.prompt))))]);
     await on.said(["gate"]);
-    const seal = await on.said(["owed"]);
-    const answer = on.answer("seal-1.md", runSection(givenInspection(read(seal.prompt))));
+    const inspection = await on.said(["owed"]);
+    const answer = on.answer("inspection-1.md", runSection(givenInspection(read(inspection.prompt))));
     const before = head(on.repo);
     const builder = await on.run(["inspect", answer, "--inspected-by", "agent-crafter", "--model", "owl-large"]);
     expect(builder).toEqual({ code: 1, out: "", err: "The inspector's session failed: the inspecting session, agent-crafter, is one of the sessions that built the work, and a session that built gives no verdict.\n" });
@@ -319,7 +319,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(turns.queue()).toEqual([]);
   });
 
-  it("tells the daemon on the turn socket the stage `owed` hands, with the pane's id, its kind and its round, and that the stage ended once `round`, `fix-pass` or `seal` recorded the role's answer or `owed` handed no stage; a refused call tells nothing (issue #223)", async () => {
+  it("tells the daemon on the turn socket the stage `owed` hands, with the pane's id, its kind and its round, and that the stage ended once `round`, `fix-pass` or `inspect` recorded the role's answer or `owed` handed no stage; a refused call tells nothing (issue #223)", async () => {
     const on = commandOn(cleanups, { env: { OWLERY_PANE_ID: "7" } });
     const { told, count } = await stagesTold(on);
     const stage = (kind: string, round: number): StageLine => ({ is: "stage", folder: on.repo, pane: 7, kind, round }) as StageLine;
@@ -345,8 +345,8 @@ describe("the chain command", { timeout: 60_000 }, () => {
     await step(["round", on.answer("round-2.md", proofs(givenRound(read(second.prompt))))], ended);
     expect(await step(["owed"], ended)).toMatchObject({ step: "gate", round: 2 });
     await step(["gate"], null);
-    const seal = await step(["owed"], stage("inspection", 2));
-    const answer = on.answer("seal-1.md", runSection(givenInspection(read(seal.prompt))));
+    const inspection = await step(["owed"], stage("inspection", 2));
+    const answer = on.answer("inspection-1.md", runSection(givenInspection(read(inspection.prompt))));
     expect(await on.run(["inspect", answer, "--inspected-by", "the session", "--model", "owl-large"])).toMatchObject({ code: 1 });
     await step(["inspect", answer, "--inspected-by", "agent-inspector", "--model", "owl-large"], ended);
     expect(await step(["owed"], ended)).toMatchObject({ step: "cleared" });
@@ -496,7 +496,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     for (const { repo } of [gateless, on, detached]) expect(existsSync(join(repo, "iadd/threads"))).toBe(false);
   });
 
-  it("follows the base round 1's record names, whatever the pane's environment names afterwards: the verifying round and the seal are read against it, and the seal's target names it", async () => {
+  it("follows the base round 1's record names, whatever the pane's environment names afterwards: the verifying round and the inspection are read against it, and the inspection's target names it", async () => {
     const on = commandOn(cleanups);
     git(on.repo, "branch", "release/x", on.main);
     await on.said(["start", "--base", "release/x"]);
@@ -514,9 +514,9 @@ describe("the chain command", { timeout: 60_000 }, () => {
     expect(second).toMatchObject({ step: "round", round: 2 });
     await on.said(["round", on.answer("round-2.md", proofs(givenRound(read(second.prompt))))]);
     await on.said(["gate"]);
-    const seal = await on.said<Owed>(["owed"]);
-    expect(seal.target).toBe(`${seal.commit ?? ""} against release/x`);
-    expect(read(seal.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
+    const inspection = await on.said<Owed>(["owed"]);
+    expect(inspection.target).toBe(`${inspection.commit ?? ""} against release/x`);
+    expect(read(inspection.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
   });
 
   it("goes on where the base branch round 1's record names gained a commit the branch does not hold, reading the branch from the commit the two last shared", async () => {
@@ -532,9 +532,9 @@ describe("the chain command", { timeout: 60_000 }, () => {
     git(on.repo, "checkout", "--quiet", BRANCH);
     expect(await on.said(["owed"])).toEqual({ step: "gate", round: 1, head: head(on.repo) });
     await on.said(["gate"]);
-    const seal = await on.said<Owed>(["owed"]);
-    expect(seal.target).toBe(`${seal.commit ?? ""} against release/x`);
-    expect(read(seal.prompt)).not.toContain("other.txt");
+    const inspection = await on.said<Owed>(["owed"]);
+    expect(inspection.target).toBe(`${inspection.commit ?? ""} against release/x`);
+    expect(read(inspection.prompt)).not.toContain("other.txt");
   });
 
   it("writes the routing's `Automation` row with the answer `start` is given and none where it is given none, and refuses an answer other than `yes` and `no` and an answer a standing routing does not hold", async () => {

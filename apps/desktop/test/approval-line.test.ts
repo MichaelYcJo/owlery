@@ -200,7 +200,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   });
 
   /** The inspection's place where the window shows the work item's inspection, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head, the chain's sentence and how many buttons it holds, and the inspector's place of the view's approval line with its note. */
-  const sealsOf = (id: number): Promise<Record<string, unknown>> =>
+  const inspectionsOf = (id: number): Promise<Record<string, unknown>> =>
     app.evaluate(`(() => {
       const shown = (place) => (place ? [place.dataset.inspection, place.getAttribute("aria-label")] : null);
       const inspector = document.querySelector('#view-detail section.approval .place[data-role="inspector"]');
@@ -212,7 +212,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         viewHead: document.getElementById("view-inspection-head").textContent,
         says: document.getElementById("inspection-says").textContent,
         buttons: document.querySelectorAll("#view-inspection button").length,
-        inspector: inspector ? [shown(inspector.querySelector(".mark")), inspector.querySelector(".note").textContent, [...inspector.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
+        inspector ? [shown(inspector.querySelector(".mark")), inspector.querySelector(".note").textContent, [...inspector.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
       };
     })()`);
 
@@ -240,7 +240,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.getElementById("inbox-preview-mark-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the inspection");
     await openView(gamma);
     await app.until(`document.getElementById("view-inspection-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the inspection");
-    expect(await sealsOf(gamma.id)).toEqual({
+    expect(await inspectionsOf(gamma.id)).toEqual({
       line: ["cleared", words],
       preview: ["cleared", words],
       previewWords: words,
@@ -265,7 +265,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.getElementById("view-inspection-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the lapsed inspection", 20_000);
     const why = second.item("Gamma")?.inspection?.why;
     expect(why).toBe(`\`after-the-inspection.ts\` changed after the cleared commit \`${clearedAt.slice(0, 7)}\`.`);
-    const inView = await sealsOf(gamma.id);
+    const inView = await inspectionsOf(gamma.id);
     expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.inspector]).toEqual([["lapsed", words], words, "", 0, [["lapsed", words], "Inspection lapsed", ["waiting"]]]);
     // "Inspection lapsed" is wider than the inspector's place, so it breaks between its words, and the section and each place stay within the view's right column.
     expect((await overflows("view")).over).toEqual([]);
@@ -282,7 +282,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     ).toEqual([true, [true, true], true]);
     await preview(gamma);
     await app.until(`document.getElementById("inbox-preview-mark-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the lapsed inspection");
-    const inInbox = await sealsOf(gamma.id);
+    const inInbox = await inspectionsOf(gamma.id);
     expect([inInbox.line, inInbox.preview, inInbox.previewWords]).toEqual([["lapsed", words], ["lapsed", words], words]);
   });
 
@@ -291,7 +291,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     expect(stored?.chain).toMatchObject({ state: "stopped", says: STORED_SAYS });
     await openView(stored!);
     await app.until(`document.getElementById("inspection-says").textContent !== ""`, "the chain's sentence at the view's foot");
-    const foot = await sealsOf(stored!.id);
+    const foot = await inspectionsOf(stored!.id);
     expect([foot.says, foot.buttons]).toEqual([STORED_SAYS, 0]);
     // The sentence stands in the foot, after the inspection's words.
     expect(await app.evaluate(`(() => { const says = document.getElementById("inspection-says"); return [document.getElementById("view-inspection").contains(says), Boolean(document.getElementById("view-inspection-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);

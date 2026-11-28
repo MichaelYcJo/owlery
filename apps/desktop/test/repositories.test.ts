@@ -185,7 +185,7 @@ describe("RepositoryStore", () => {
     const store = new RepositoryStore(dir, () => 1);
     const { item } = store.addWorkItem(PLACE);
     const stage = { kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0, gate: null } as const;
-    const chain: Chain = { state: "rested", says: "The sealer sealed ccccccc, after round 1.", stages: [stage], since: 3 };
+    const chain: Chain = { state: "rested", says: "The inspector cleared ccccccc, after round 1.", stages: [stage], since: 3 };
     expect(store.setWorkItem(item.id, { chain })).toBe(true);
     expect(store.setWorkItem(item.id, { chain })).toBe(false);
     expect(new RepositoryStore(dir).workItem(item.id)?.item).toEqual({ id: 1, ...OWN, createdAt: 1, ...UNSET, chain: { ...chain, stages: [{ ...stage, headlessId: null }] } });

@@ -1483,11 +1483,11 @@ describe("the approval line", () => {
   /** What the daemon sends for a work item with no directory of its own. */
   const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
   /** A work item's records with the frame, three round records, a gate's run and a last verdict that clears. */
-  const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "cleared", commit: TARGET, says: null } };
+  const CLEARED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "cleared", commit: TARGET, says: null } };
   /** The inspection of that verdict, which holds at the branch's head, and the same inspection once a later commit lapsed it. */
   const HOLDS: Inspection = { state: "cleared", commit: TARGET, why: null };
   const BROKE: Inspection = { state: "lapsed", commit: TARGET, why: "`src/app.ts` changed after the cleared commit `2222222`." };
-  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED, inspection: HOLDS };
+  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: CLEARED, inspection: HOLDS };
   const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
   const NONE_STARTED = [
     ["framer", "no-agent", "Not started", "Framer: Not started"],
@@ -1520,7 +1520,7 @@ describe("the approval line", () => {
     ]);
     expect(under(RECORDED)).toEqual([]);
     expect(approvalPlaces(RECORDED)?.map(({ name }) => name)).toEqual(["Framer", "Crafter", "Proofer", "Inspector"]);
-    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...SEALED, rounds: 1 } })?.slice(1, 3)).toEqual([
+    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...CLEARED, rounds: 1 } })?.slice(1, 3)).toEqual([
       ["crafter", "finished", "3 commits", "Crafter: 3 commits"],
       ["proofer", "finished", "1 round", "Proofer: 1 round"],
     ]);
@@ -1541,8 +1541,8 @@ describe("the approval line", () => {
     expect(read(gated)?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
     expect(under(gated)).toEqual([]);
     // A verdict stands over the gate's run, and a verdict whose record gives no text puts no line under the places.
-    expect(read({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
-    expect(under({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
+    expect(read({ ...withheld, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
+    expect(under({ ...withheld, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
     // The other three places are as the records give them.
     expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
   });
@@ -1555,14 +1555,14 @@ describe("the approval line", () => {
     expect(under(lapsed)).toEqual(["Inspector: `src/app.ts` changed after the cleared commit `2222222`."]);
     expect(read(lapsed)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     // The worktree's verdict clears and the head holds no inspection: the gate's run says the place, or nothing does. A daemon of an earlier build sends no inspection.
-    const { inspection: _seal, ...unread } = RECORDED;
+    const { inspection: _inspection, ...unread } = RECORDED;
     for (const none of [{ ...RECORDED, inspection: null }, unread as WorkItem]) {
       expect(read(none)?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
-      expect(read({ ...none, recorded: { ...SEALED, gate: null } })?.[3]).toEqual(NONE_STARTED[3]);
+      expect(read({ ...none, recorded: { ...CLEARED, gate: null } })?.[3]).toEqual(NONE_STARTED[3]);
       expect(under(none)).toEqual([]);
     }
     // A lapsed inspection stands over a verdict the worktree holds and no commit does.
-    expect(read({ ...lapsed, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Not committed." } } })?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
+    expect(read({ ...lapsed, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: "Not committed." } } })?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
   });
 
   it("marks a role's place waiting where an open question names that role exactly as its asker, with the question's age in the mark's words and its text under the line, and marks no place for another asker or once the question is answered", () => {
@@ -1658,19 +1658,19 @@ describe("the approval line", () => {
     expect(read(runsGate)?.[3]).toEqual(["inspector", "working", "Broad gate", "Inspector: Broad gate, 4 min"]);
     expect(read(runsGate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     expect(under(runsGate)).toEqual([]);
-    const runsSeal = chained("running", ROUND_ONE, stage({ kind: "inspection" }));
-    expect(read(runsSeal)?.[3]).toEqual(["inspector", "working", "Judging", "Inspector: Judging, 4 min"]);
-    expect(read(runsSeal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    expect(under(runsSeal)).toEqual([]);
+    const runsInspection = chained("running", ROUND_ONE, stage({ kind: "inspection" }));
+    expect(read(runsInspection)?.[3]).toEqual(["inspector", "working", "Judging", "Inspector: Judging, 4 min"]);
+    expect(read(runsInspection)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsInspection)).toEqual([]);
     // A gate that passed and an inspection whose verdict was written have finished: the records say the place, a gate's run or the verdict.
     const passed = gate({ state: "finished", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
-    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null }, inspection: null })?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
-    const withheld: Recorded = { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
+    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...CLEARED, verdict: null }, inspection: null })?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
+    const withheld: Recorded = { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
     const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "inspection", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld, inspection: null };
     expect(read(stopped)?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
     expect(under(stopped)).toEqual(["Inspector: Round 2 closed a finding the tree still holds."]);
     // An open question of the inspector's stands over the stage that runs.
-    expect(read({ ...runsSeal, questions: [{ ...ASKS, by: "inspector" }] })?.[3]).toEqual(["inspector", "waiting", "Needs you", "Inspector: Needs you, 12 min"]);
+    expect(read({ ...runsInspection, questions: [{ ...ASKS, by: "inspector" }] })?.[3]).toEqual(["inspector", "waiting", "Needs you", "Inspector: Needs you, 12 min"]);
   });
 
   it("marks the inspector's place waiting where the chain's newest stage is a broad gate that failed, with the note Gate failed, and failed where it is a inspector's session that failed, each over what the records say and with the stage's failure under the line", () => {
@@ -1941,7 +1941,7 @@ describe("the inspection a work item's head holds", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
   const HOLDS: Inspection = { state: "cleared", commit: COMMIT, why: null };
   const BROKE: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
-  const SEALED: WorkItem = { ...LOGIN, inspection: HOLDS };
+  const CLEARED: WorkItem = { ...LOGIN, inspection: HOLDS };
   const BROKEN: WorkItem = { ...LOGIN, inspection: BROKE };
 
   it("gives the inspection's place its state and its words: none and No inspection yet where the head holds no inspection, where the daemon read none and for a daemon of an earlier build, the cleared commit in short where the inspection holds, and the same commit after Inspection lapsed where a later commit lapsed it", () => {
@@ -1985,33 +1985,33 @@ describe("the inspection a work item's head holds", () => {
   });
 
   it("finishes the line of a work item whose inspection holds and that holds no pull request, saying Cleared in its second row with no age, where nothing says more, and says nothing of an inspection the daemon read none of", () => {
-    expect(inboxLine(SEALED, [], KINDS).state).toBe("finished");
-    expect(lineText(SEALED, undefined, false)).toEqual({ says: "inspection", text: "Cleared" });
+    expect(inboxLine(CLEARED, [], KINDS).state).toBe("finished");
+    expect(lineText(CLEARED, undefined, false)).toEqual({ says: "inspection", text: "Cleared" });
     const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
-    expect([inboxLine(SEALED, [finished], KINDS).state, lineText(SEALED, finished, false), lineSince(SEALED, finished)]).toEqual(["finished", { says: "inspection", text: "Cleared" }, null]);
+    expect([inboxLine(CLEARED, [finished], KINDS).state, lineText(CLEARED, finished, false), lineSince(CLEARED, finished)]).toEqual(["finished", { says: "inspection", text: "Cleared" }, null]);
     const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
-    expect([inboxLine(SEALED, [working], KINDS).state, lineText(SEALED, working, false)]).toEqual(["working", { says: "state", text: "Running the tests" }]);
+    expect([inboxLine(CLEARED, [working], KINDS).state, lineText(CLEARED, working, false)]).toEqual(["working", { says: "state", text: "Running the tests" }]);
     // No inspection, and a daemon of an earlier build, which sends none, leave the line as it was.
-    const { inspection: _, ...earlier } = SEALED;
+    const { inspection: _, ...earlier } = CLEARED;
     for (const workItem of [{ ...LOGIN, inspection: null }, earlier as WorkItem]) expect([inboxLine(workItem, [finished], KINDS).state, lineText(workItem, finished, false), lineSince(workItem, finished)]).toEqual(["finished", { says: "state", text: "The form is done." }, 40]);
   });
 
   it("notifies of an inspection that lapsed since the window's lists were held, cleared then and lapsed now, titled with the work item's title and saying Inspection lapsed, and of none that was lapsed already, had no inspection, is muted or whose view is in front", () => {
     const told = { workItemId: 1, title: "Fix the login bug", body: "Inspection lapsed" };
-    expect(lapseNotifications([SEALED, SEARCH], [BROKEN, SEARCH], undefined)).toEqual([told]);
-    expect(lapseNotifications([SEALED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Inspection lapsed" }]);
-    expect(lapseNotifications([SEALED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], 2)).toEqual([told]);
+    expect(lapseNotifications([CLEARED, SEARCH], [BROKEN, SEARCH], undefined)).toEqual([told]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Inspection lapsed" }]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], 2)).toEqual([told]);
     // Broken in both lists, and lapsed where the window held no inspection, as at its start.
     expect(lapseNotifications([BROKEN], [BROKEN], undefined)).toEqual([]);
     expect(lapseNotifications([{ ...LOGIN, inspection: null }], [BROKEN], undefined)).toEqual([]);
     expect(lapseNotifications([LOGIN], [BROKEN], undefined)).toEqual([]);
     expect(lapseNotifications([], [BROKEN], undefined)).toEqual([]);
-    expect(lapseNotifications([SEALED], [{ ...BROKEN, muted: true }], undefined)).toEqual([]);
-    expect(lapseNotifications([SEALED], [BROKEN], 1)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [{ ...BROKEN, muted: true }], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [BROKEN], 1)).toEqual([]);
     // An inspection that still holds, or that the head no longer holds at all, tells nothing.
-    expect(lapseNotifications([SEALED], [SEALED], undefined)).toEqual([]);
-    expect(lapseNotifications([SEALED], [{ ...LOGIN, inspection: null }], undefined)).toEqual([]);
-    expect(lapseNotifications([BROKEN], [SEALED], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [CLEARED], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [{ ...LOGIN, inspection: null }], undefined)).toEqual([]);
+    expect(lapseNotifications([BROKEN], [CLEARED], undefined)).toEqual([]);
   });
 });
 
@@ -2407,7 +2407,7 @@ describe("changesSince", () => {
 
 describe("the changed set of a load", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
-  const SEALED: Inspection = { state: "cleared", commit: COMMIT, why: null };
+  const CLEARED: Inspection = { state: "cleared", commit: COMMIT, why: null };
   const BROKEN: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   function look(workItems: WorkItem[], sessions: SessionInfo[] = []): Look {
     return { at: 1000, sessions, workItems };
@@ -2415,7 +2415,7 @@ describe("the changed set of a load", () => {
 
   it("keeps the work items the load changed, and works out what each says from the present lists: an inspection that lapsed since the load says so and counts as a lapsed inspection, one nothing of which differs from the look any more says its state alone, one the lists no longer hold has no line, and a work item outside the set has none", () => {
     const before = look([{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
-    const set = changedSet(before, [{ ...LOGIN, inspection: SEALED }, { ...SEARCH, inspection: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
+    const set = changedSet(before, [{ ...LOGIN, inspection: CLEARED }, { ...SEARCH, inspection: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
     expect(set.ids).toEqual([1, 2]);
     const later = [{ ...LOGIN, inspection: BROKEN }, { ...SEARCH, inspection: null }];
     const changes = changesOf(before, set.ids, later, [], KINDS);
@@ -2437,7 +2437,7 @@ describe("the changed set of a load", () => {
     expect(set).toEqual({ ids: [], unread: [1] });
     // Lists that still carry no reading leave the set as it was.
     expect(changedSetAfter(before, set, load)).toEqual(set);
-    const cleared = [{ ...LOGIN, inspection: SEALED }, { ...SEARCH, inspection: SEALED }];
+    const cleared = [{ ...LOGIN, inspection: CLEARED }, { ...SEARCH, inspection: CLEARED }];
     const joined = changedSetAfter(before, set, cleared);
     expect(joined).toEqual({ ids: [1], unread: [] });
     expect(changesOf(before, joined.ids, cleared, [], KINDS).map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "cleared", "Cleared at 3f2a9c1."]]);
@@ -2451,7 +2451,7 @@ describe("the changed set of a load", () => {
     // A work item new since the look is in the set already, and is named in it once.
     const fresh = changedSet(look([]), [LOGIN], [], KINDS);
     expect(fresh).toEqual({ ids: [1], unread: [1] });
-    expect(changedSetAfter(look([]), fresh, [{ ...LOGIN, inspection: SEALED }])).toEqual({ ids: [1], unread: [] });
+    expect(changedSetAfter(look([]), fresh, [{ ...LOGIN, inspection: CLEARED }])).toEqual({ ids: [1], unread: [] });
   });
 });
 
@@ -5532,13 +5532,13 @@ describe("a work item's pull request", () => {
   const URL = "https://github.com/owner/project/pull/12";
   const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
   const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
-  const SEAL_PASSED = { name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const INSPECTION_PASSED = { name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
   const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
   const PENDING = with_({ checks: "pending", list: [{ name: "inspection", state: "pending", link: null }], listCount: 1 });
-  const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
-  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
+  const PASSED = with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 1 });
+  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, INSPECTION_PASSED], listCount: 3 });
   const OPEN = with_({});
-  const MERGED = with_({ state: "merged", checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const MERGED = with_({ state: "merged", checks: "passed", list: [INSPECTION_PASSED], listCount: 1 });
   const CLOSED = with_({ state: "closed" });
   const RESTS: Chain = { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] };
 
@@ -5565,7 +5565,7 @@ describe("a work item's pull request", () => {
       { says: "pull-request", text: "Closed" },
     ]);
     // The first failed check is named, wherever it stands in the list.
-    expect(said(with_({ checks: "failed", list: [SEAL_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
+    expect(said(with_({ checks: "failed", list: [INSPECTION_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
     // A search shows the branch, as it does on every line.
     expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
     // A work item without a pull request says what it said before.
@@ -5573,19 +5573,19 @@ describe("a work item's pull request", () => {
   });
 
   it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
-    const passed = { name: "inspection", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    const passed = { name: "inspection", mark: "finished", words: "Passed", link: INSPECTION_PASSED.link };
     expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
     expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "inspection", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
     // The checks in the order the daemon keeps them, the failed ones first.
     expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
-    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
+    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, INSPECTION_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
     expect(pullRequestFacts(OPEN)).toMatchObject({ checks: "No checks", rows: [] });
     expect([MERGED, CLOSED].map((workItem) => pullRequestFacts(workItem)?.state)).toEqual(["Merged", "Closed"]);
     // GitHub listed more checks than the daemon keeps.
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
     // A read that failed keeps the facts of the read before it, and the view says so under the rows.
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
     expect(pullRequestFacts(with_({ failure: "gh pr view printed no pull request Owlery reads." }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view printed no pull request Owlery reads.");
     // A work item without a pull request, and one of a daemon of an earlier build, which sends no such field, list none.
     expect(pullRequestFacts(LOGIN)).toBeNull();

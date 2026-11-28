@@ -1,6 +1,6 @@
 // What a work item's records say of its chain, as the daemon reads them in
 // the work item's directory: whether the frame stands, how many rounds are
-// recorded, the gate's last run and the sealer's last verdict.
+// recorded, the gate's last run and the inspector's last verdict.
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,9 +30,9 @@ describe("what a work item's records say of its chain", () => {
     writeFileSync(join(directory, path), text);
   };
 
-  it("takes the last run block of a gate record, and of a guarantee the last verdict block with its word, the commit it names and its reason or question", () => {
+  it("takes the last run block of a gate record, and of an inspection the last verdict block with its word, the commit it names and its reason or question", () => {
     expect(lastRun(`# Gate\n\n${run(A)}\nThe second run.\n\n${run(B)}`)).toBe(B);
-    expect(lastVerdict(`# Guarantee\n\n${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`)).toEqual({ is: "cleared", commit: B, says: null });
+    expect(lastVerdict(`# Inspection\n\n${verdict(A, "withheld reason: The suite failed.")}\n${verdict(B, "cleared")}`)).toEqual({ is: "cleared", commit: B, says: null });
     expect(lastVerdict(verdict("abc1234", "withheld reason: The suite failed at `view.test.ts`."))).toEqual({ is: "withheld", commit: "abc1234", says: "The suite failed at `view.test.ts`." });
     expect(lastVerdict(`${verdict(A, "cleared")}\n${verdict(B, "undecided question: May the release wait?")}`)).toEqual({ is: "undecided", commit: B, says: "May the release wait?" });
   });
@@ -49,7 +49,7 @@ describe("what a work item's records say of its chain", () => {
     expect(lastRun(`${FENCE}iadd x\nrun: ${B} against ${C}\n${FENCE}\n\n${run(A)}`)).toBe(A);
   });
 
-  it("reads a work item's directory, committed or not: the frame stands where `frame/design.md` is a plain file, each plain file of `trail/rounds` named `round-<N>.md` is a round, and the gate's and the guarantee's last blocks", () => {
+  it("reads a work item's directory, committed or not: the frame stands where `frame/design.md` is a plain file, each plain file of `trail/rounds` named `round-<N>.md` is a round, and the gate's and the inspection's last blocks", () => {
     const directory = folder();
     expect(readChainRecords(directory)).toEqual(NOTHING_RECORDED);
     put(directory, "frame/design.md", "# Design\n");
@@ -61,7 +61,7 @@ describe("what a work item's records say of its chain", () => {
     expect(readChainRecords(null)).toEqual(NOTHING_RECORDED);
   });
 
-  it("gives nothing for a record it cannot read: a frame, a gate record or a guarantee that is a link or no plain file, a `trail/rounds` that is a link or no folder, and a file of the rounds whose name has a leading zero or another ending, that is a link or that is a folder", () => {
+  it("gives nothing for a record it cannot read: a frame, a gate record or an inspection that is a link or no plain file, a `trail/rounds` that is a link or no folder, and a file of the rounds whose name has a leading zero or another ending, that is a link or that is a folder", () => {
     const outside = folder();
     put(outside, "design.md", "# Design\n");
     put(outside, "gate.md", run(A));

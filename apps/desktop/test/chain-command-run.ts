@@ -86,9 +86,9 @@ export function commandOn(cleanups: Cleanups, options: { gate?: string; env?: Re
 }
 
 /**
- * Runs a chain to a seal through the command, in the order `owed` names: the
- * routing, round 1 with no finding, the broad gate and the seal, with the
- * answers a proofer and a sealer that find nothing give. Gives the sealed
+ * Runs a chain to an inspection through the command, in the order `owed` names: the
+ * routing, round 1 with no finding, the broad gate and the inspection, with the
+ * answers a proofer and an inspector that find nothing give. Gives the cleared
  * commit.
  */
 export async function inspectThrough(on: ReturnType<typeof commandOn>, inspectedBy = "agent-inspector"): Promise<string> {
@@ -96,7 +96,7 @@ export async function inspectThrough(on: ReturnType<typeof commandOn>, inspected
   const round = await on.said(["owed"]);
   await on.said(["round", on.answer("round-1.md", clean(givenRound(readFileSync(round.prompt ?? "", "utf8"))))]);
   await on.said(["gate"]);
-  const seal = await on.said(["owed"]);
-  await on.said(["inspect", on.answer("seal-1.md", runSection(givenInspection(readFileSync(seal.prompt ?? "", "utf8")))), "--inspected-by", inspectedBy, "--model", "owl-large"]);
-  return seal.commit ?? "";
+  const inspection = await on.said(["owed"]);
+  await on.said(["inspect", on.answer("inspection-1.md", runSection(givenInspection(readFileSync(inspection.prompt ?? "", "utf8")))), "--inspected-by", inspectedBy, "--model", "owl-large"]);
+  return inspection.commit ?? "";
 }

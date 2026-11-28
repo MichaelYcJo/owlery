@@ -149,7 +149,7 @@ const GATE = "a".repeat(40);
 const OLDER = "b".repeat(40);
 const BASE = "c".repeat(40);
 
-/** A verdict block's lines between its fences, sealing the gate's commit. */
+/** A verdict block's lines between its fences, clearing the gate's commit. */
 const BLOCK = [`target: ${GATE} against main`, "Verdict: cleared", "built-by: the session, s-1", "inspected-by: s-2", "model: fake", "rules: owlery 0.0.2"];
 
 /** The inspection section the composer writes for `BLOCK`. */
@@ -163,14 +163,14 @@ function round(number: number, closed: string | null): string {
 }
 
 /** Commits a work item's records as a cleared chain leaves them, with the changelog's text and the decisions given where each is given, and gives the head. */
-function records(made: { repo: string }, parts: { changelog?: string; decisions?: string; guarantee?: string } = {}): string {
+function records(made: { repo: string }, parts: { changelog?: string; decisions?: string; inspection?: string } = {}): string {
   write(made.repo, `${DIRECTORY}/routing.md`, "# Routing\n");
   if (parts.changelog !== undefined) write(made.repo, `${DIRECTORY}/changelog.md`, parts.changelog);
   write(made.repo, `${DIRECTORY}/trail/rounds/round-1.md`, round(1, `fixed ${OLDER.slice(0, 7)}`));
   write(made.repo, `${DIRECTORY}/trail/rounds/round-2.md`, round(2, null));
   write(made.repo, `${DIRECTORY}/trail/gate.md`, [`# Broad gate: ${NAME}`, "", "```iadd", `run: ${OLDER} against ${BASE}`, "```", "", "```iadd", `run: ${GATE} against ${BASE}`, "```", ""].join("\n"));
   if (parts.decisions !== undefined) write(made.repo, `${DIRECTORY}/decisions.md`, parts.decisions);
-  write(made.repo, `${DIRECTORY}/inspection.md`, parts.guarantee ?? [`# Inspection: ${NAME}`, "", "## Run 1", "", "```iadd", `target: ${OLDER} against main`, "Verdict: withheld reason: The suite failed.", "```", "", "## Run 2", "", "Read the records.", "", "```iadd", ...BLOCK, "```", ""].join("\n"));
+  write(made.repo, `${DIRECTORY}/inspection.md`, parts.inspection ?? [`# Inspection: ${NAME}`, "", "## Run 1", "", "```iadd", `target: ${OLDER} against main`, "Verdict: withheld reason: The suite failed.", "```", "", "## Run 2", "", "Read the records.", "", "```iadd", ...BLOCK, "```", ""].join("\n"));
   return commitAll(made.repo, "chore: record the inspector's verdict");
 }
 
@@ -290,9 +290,9 @@ describe("the body of a pull request", () => {
     expect(pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), BACK)).toBe(`${[SECTION, BACK_PART, CHANGED, GATE_PART].join("\n\n")}\n`);
   });
 
-  it("refuses records whose guarantee holds no verdict block", async () => {
+  it("refuses records whose inspection holds no verdict block", async () => {
     const made = repository();
-    const head = records(made, { guarantee: `# Inspection: ${NAME}\n\nNo verdict yet.\n` });
+    const head = records(made, { inspection: `# Inspection: ${NAME}\n\nNo verdict yet.\n` });
     expect(await refusal(bodyRecords(made.repo, head, DIRECTORY))).toBe(`${DIRECTORY}/inspection.md holds no verdict block at the head commit`);
   });
 

@@ -28,7 +28,7 @@ const judged = (...lines: string[]): string => fenced("target: 0123abc against m
  * scenario 18 of the design names.
  */
 const FIXTURES: { name: string; text: string; blocks: number; refusals: number[]; notices: number[] }[] = [
-  { name: "a block alone", text: `# Guarantee\n\n${VERDICT}\nProse below it.\n`, blocks: 1, refusals: [], notices: [] },
+  { name: "a block alone", text: `# Inspection\n\n${VERDICT}\nProse below it.\n`, blocks: 1, refusals: [], notices: [] },
   { name: "a block inside another fence", text: `${F}${F}\n${VERDICT}${F}${F}\n`, blocks: 0, refusals: [], notices: [] },
   { name: "a fence that never closes", text: `${F}iadd\ntarget: 0123abc against main\nVerdict: cleared\n`, blocks: 0, refusals: [1], notices: [] },
   { name: "a line that begins with an HTML comment", text: `<!-- a note -->\n\n${RUN}`, blocks: 1, refusals: [1], notices: [] },
@@ -138,7 +138,7 @@ const ROUND_FIXTURES: { name: string; text: string; blocks: number; refusals: nu
   { name: "a fixed verdict with no commit, and one whose commit is six digits", text: `${fenced("verdict: fixed")}\n${fenced("verdict: fixed 0123ab")}`, blocks: 0, refusals: [2, 6], notices: [] },
   { name: "a confirmation, and one of an earlier release that names none", text: `${fenced("confirms: round-1#2")}\n${fenced("confirms: none")}`, blocks: 2, refusals: [], notices: [] },
   { name: "a confirmation that names a round alone", text: fenced("confirms: round-1"), blocks: 0, refusals: [2], notices: [] },
-  { name: "a verdict block of a guarantee, which a round record holds no kind for", text: VERDICT, blocks: 0, refusals: [3], notices: [] },
+  { name: "a verdict block of an inspection, which a round record holds no kind for", text: VERDICT, blocks: 0, refusals: [3], notices: [] },
 ];
 
 /** What a reader returned, in the one shape both readers are compared in. */

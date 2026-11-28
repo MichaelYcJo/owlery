@@ -70,13 +70,13 @@ function colours(value: string): [number, number, number][] {
 }
 
 // The reds of AgenticSeal's wax, as the drawings and the mockups hold them.
-const SEAL_REDS = ["c41a1e", "9e1016", "e8463c", "d83a31", "b3211f", "c92c27", "8e0c12", "e8302c"];
+const MARK_REDS = ["c41a1e", "9e1016", "e8463c", "d83a31", "b3211f", "c92c27", "8e0c12", "e8302c"];
 // A colour is a red where its red exceeds its green and its blue by more than this, of 255. The themes' ochre for a failure exceeds its green by 54 and 66, and the faintest red of the inspection's light by 105.
 const RED_MARGIN = 80;
 
 function isRed(value: string): boolean {
   const lower = value.toLowerCase();
-  return SEAL_REDS.some((red) => lower.includes(`#${red}`)) || colours(value).some(([red, green, blue]) => red - green > RED_MARGIN && red - blue > RED_MARGIN);
+  return MARK_REDS.some((red) => lower.includes(`#${red}`)) || colours(value).some(([red, green, blue]) => red - green > RED_MARGIN && red - blue > RED_MARGIN);
 }
 
 /** Whether a text names a colour of its own, as a hexadecimal number or with `rgb()`, `rgba()`, `hsl()` or `hsla()`. */
