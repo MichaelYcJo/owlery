@@ -49,6 +49,11 @@ docs/architecture.ko.md:12, the second sentence:
 방법론은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의하고, Owlery가 그것을 어떻게 돌리는지, Owlery 자신의 기록, 워크플로가 무엇인지는 [docs/iadd.ko.md](iadd.ko.md)가 밝힙니다.
 ```
 
+```iadd
+verdict: fixed 4e7e6896
+answer: README's table and the architecture's line now say docs/iadd.md states how Owlery runs IADD and Owlery's own records, and that the specification defines the method.
+```
+
 ### 2. The work item's directory is said to be named with the issue, and the daemon names it from the branch alone
 
 ```iadd
@@ -68,6 +73,11 @@ docs/iadd.ko.md:61:
 작업 하나의 기록은 `agentory/threads/<seconds>-<slug>/`에 있습니다. `<seconds>`는 체인을 처음 시작한 시각이고, `<slug>`는 브랜치 이름의 마지막 부분을 slug로 만든 것이며, 그것이 비면 `work-item`입니다. 읽는 쪽은 디렉터리를 이름이 아니라 그 `routing.md`의 `Branch` 행으로 찾습니다.
 ```
 
+```iadd
+verdict: fixed 4e7e6896
+answer: The directory reads `<seconds>-<slug>` from the branch's last part, found by the `Branch` row.
+```
+
 ### 3. The table says pr.md holds the opening of the pull request body, and Owlery copies no pr.md into a body
 
 ```iadd
@@ -85,6 +95,11 @@ docs/iadd.md:72:
 
 docs/iadd.ko.md:72:
 | `gaps.md`, `changelog.md`, `pr.md` | 검증하지 못한 것, 다음 릴리스 노트의 항목(PR 본문이 *What changed* 아래에 통째로 싣습니다), 그리고 Owlery가 어느 본문에도 옮기지 않는 글 |
+```
+
+```iadd
+verdict: fixed 4e7e6896
+answer: The row says the pull request body carries the changelog whole and that Owlery copies `pr.md` into no body.
 ```
 
 ### 4. The three states are the daemon's reading, the document says the check reads them the same, and the not-cleared row leaves out a newest verdict that is not cleared
@@ -126,6 +141,11 @@ docs/iadd.ko.md:86-90, the rows:
 
 docs/iadd.ko.md, after line 92:
 PR 검사는 `decisions.md`를 읽지 않습니다. 그래서 창에서 검수의 효력을 잃게 하는 열린 질문이나 뒤집힌 결정이 있어도 검사는 합격으로 남습니다. 검사가 거절하는 기록은 효력을 잃음이 아니라 거절로 검사를 실패시킵니다([pr-check/README.md](../pr-check/README.md)).
+```
+
+```iadd
+verdict: fixed 4e7e6896
+answer: The opening says where the readers read apart, the rows hold the daemon-only conditions and the withheld or undecided case, and a paragraph says the check reads no `decisions.md` and fails a refused record as refused.
 ```
 
 ### 5. The records are said to be stated in full, and the section leaves out lines and files that the two readers read
@@ -190,6 +210,11 @@ docs/iadd.ko.md, after line 97:
 - IADD로 이름을 바꾸기 전에 쓴 커밋에는 `Seal-Routing:`이나 `Seal-Built-By:`가 있습니다. 검사는 `IADD-Routing:` 옆에서 `Seal-Routing:`도 읽고, 데몬은 `IADD-Built-By:` 옆에서 `Seal-Built-By:`도 읽으며, Owlery는 둘 다 쓰지 않습니다.
 ```
 
+```iadd
+verdict: fixed 4e7e6896
+answer: The section adds `parity.json` and `original:`, the values of `regression:` and `reopens:`, the blocks of `decisions.md`, the columns of `trail/refusals.md`, the answers that make `routing.md` a declaration, and the older `Seal-` trailers.
+```
+
 The snippet adds bullets and changes cells, and adds no heading and no table row, so the twins stay paired under the `Broad gate` command's heading and row counts.
 
 ### 6. The changelog fragment's title still says docs/iadd.md follows the IADD specification 0.1.0
@@ -208,6 +233,11 @@ agentory/threads/1795855409-353-owlerys-iadd-follows-the-specification/changelog
 # Changelog: Owlery's definition of IADD states Owlery as a product built on the IADD specification
 ```
 
+```iadd
+verdict: fixed 4e7e6896
+answer: The fragment's title says Owlery is a product built on the IADD specification.
+```
+
 ### 7. routing.md says this work item names the specification's version and lists what Owlery adds and where it departs
 
 ```iadd
@@ -221,6 +251,11 @@ Why it matters: `routing.md:16` says what the work does: "The merged definition 
 ```markdown
 agentory/threads/1795855409-353-owlerys-iadd-follows-the-specification/routing.md:16, the second and third sentences:
 The merged source of the method's principles is the IADD specification in MichaelYcJo/iadd-workflows, which on 2026-11-28 the owner set to hold the principles alone, with no record forms and no version. This work item writes Owlery's side: `docs/iadd.md` and its twin state Owlery's choices, what Owlery takes from each principle, its own names and its own record forms, and drop what the specification states.
+```
+
+```iadd
+verdict: fixed 4e7e6896
+answer: The routing's account says the specification holds the principles alone and what this item writes.
 ```
 
 ## Confirmations
