@@ -1,4 +1,4 @@
-# What AgenticSeal maintains in seal/
+# What IADD keeps in agentory/
 
 This directory exists for AI sessions to hand work to each other. It is one
 root laid out by lifetime: the rows that outlive a work item at the top, and
