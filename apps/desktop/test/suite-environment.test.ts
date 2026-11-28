@@ -53,17 +53,18 @@ describe("the launcher's PATH", () => {
     const env = suiteEnvironment({ PATH: "/usr/bin:/bin:/usr/sbin" }, "darwin", given.realGit, folder());
     expect(env.PATH).toBe("/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:/usr/sbin");
     expect(given.calls()).toBe(1);
+    // A file named git that cannot run, before it, is no git a search finds.
+    const unrunnable = folder();
+    writeFileSync(join(unrunnable, "git"), "");
+    expect(suiteEnvironment({ PATH: `${unrunnable}:/usr/bin` }, "darwin", realGitGiving(XCODE_GIT).realGit, folder()).PATH).toBe(`/Library/Developer/CommandLineTools/usr/bin:${unrunnable}:/usr/bin`);
   });
 
   it("leaves PATH as it is, and asks no xcrun, where the first git on it is another, where the platform is not macOS, or where xcrun names none", () => {
     const own = folder();
     writeFileSync(join(own, "git"), "#!/bin/sh\n");
     chmodSync(join(own, "git"), 0o755);
-    // A file named git that cannot run is no git a search finds.
-    const unrunnable = folder();
-    writeFileSync(join(unrunnable, "git"), "");
     const another = realGitGiving(XCODE_GIT);
-    expect(suiteEnvironment({ PATH: `${unrunnable}:${own}:/usr/bin` }, "darwin", another.realGit, folder()).PATH).toBe(`${unrunnable}:${own}:/usr/bin`);
+    expect(suiteEnvironment({ PATH: `${own}:/usr/bin` }, "darwin", another.realGit, folder()).PATH).toBe(`${own}:/usr/bin`);
     expect(another.calls()).toBe(0);
     const linux = realGitGiving(XCODE_GIT);
     expect(suiteEnvironment({ PATH: "/usr/bin:/bin" }, "linux", linux.realGit, folder()).PATH).toBe("/usr/bin:/bin");
