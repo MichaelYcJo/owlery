@@ -8,7 +8,7 @@
 
 Owlery (OWL-er-ee) is a desktop app that runs IADD on your repositories. A person answers the questions about one issue once and walks away. Design, implementation, review rounds and the inspection then follow without a person, and a pull request comes back carrying an inspection that anyone can read on GitHub.
 
-**IADD, Independent AI-Driven Development, is the method.** Its line is *Zero Self-Approval*: no AI approves its own work. The AIs that frame, craft, proof and inspect the work are independent of one another, and the inspector built none of what it inspects. The inspection is bound to one commit and lapses at the next, so a commit that lands after it shows on the pull request as a lapsed inspection. [docs/iadd.md](docs/iadd.md) is Owlery's definition of the method: its principles, its names, its records and what a workflow is.
+**IADD, Independent AI-Driven Development, is the method.** Its line is *Zero Self-Approval*: no AI approves its own work. The AIs that frame, craft, proof and inspect the work are independent of one another, and the inspector built none of what it inspects. The inspection is bound to one commit, and a commit that lands after it and changes more than the closing records shows on the pull request as a lapsed inspection. The [IADD specification](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.md) defines the method, and [docs/iadd.md](docs/iadd.md) states how Owlery follows it.
 
 **Owlery is one tool that runs IADD, and the Owl Chain is its default workflow.** The Owl Chain is the workflow Owlery ships and keeps up: review rounds by a proofer, fix passes by a crafter, the repository's broad gate, and the inspector's verdict. A Claude Code pane of a repository on the Owl Chain carries it today, and milestone 3 of the [roadmap](docs/roadmap.md#milestones) has Owlery's daemon run it for an issue a person hands over.
 
@@ -68,7 +68,7 @@ When a repository is connected, Owlery commits a workflow to it, `.github/workfl
 
 | Document | What it holds |
 |---|---|
-| [docs/iadd.md](docs/iadd.md) | IADD, the method Owlery runs: its concept, its principles, its names and the names set aside, its records and its check, what a workflow is, and what holds for every workflow |
+| [docs/iadd.md](docs/iadd.md) | How Owlery runs IADD: its choices, what it takes from each principle, its own names and record forms, its check, what a workflow is, and what holds for every workflow |
 | [docs/product.md](docs/product.md) | The promise, who it is for, the three places the inspection is shown, performance hypotheses and the benchmark plan, what we deliberately don't do, the first session |
 | [docs/architecture.md](docs/architecture.md) | How the app, the daemon, the agent adapters and the Owl Chain fit together, where Owlery started, how order and judgment are split, the rule for the first milestone's shape and what follows the first version, memory design, the screen framework, what to measure before building |
 | [docs/roadmap.md](docs/roadmap.md) | What Owlery builds, in what order, and when it is done: the six milestones of the first version, the grounds for their order, the done criteria, and the decisions left open |
