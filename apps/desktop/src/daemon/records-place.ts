@@ -11,12 +11,12 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { RecordsPlace, RecordsPlan } from "../shared/protocol";
+import { MARKER, ROOT, type RecordsPlace, type RecordsPlan } from "../shared/protocol";
 import { repositoryFileText } from "./repository-file";
 import { commitRunner } from "./worktrees";
 
-/** The first line of a records root's `README.md`, which the pull request check tells a root by (`pr-check/lib/optin.py`, `MARKER`). */
-export const MARKER = "# What AgenticSeal maintains in seal/";
+// The marker and the root's name are declared once, beside `RecordsPlace` in `shared/protocol.ts`, which the renderer reads too; the daemon's readers import them from here.
+export { MARKER, ROOT };
 /** The subject of the commit a setup makes. */
 export const SUBJECT = "chore: add the place for work records and the pull request check";
 
@@ -24,13 +24,8 @@ export const SUBJECT = "chore: add the place for work records and the pull reque
 export function moveSubject(version: string): string {
   return `chore: move the pull request check to Owlery ${version}`;
 }
-/** The two names a records root takes: the first, and the second where the repository keeps a `seal/` of its own. */
-const ROOTS = ["seal", "agentic-seal"] as const;
-/** The workflow a setup writes, and the one of AgenticSeal's that is kept in its place where it stands. */
-const WORKFLOW = ".github/workflows/owlery-seal.yml";
-const PLUGIN_WORKFLOW = ".github/workflows/hygiene.yml";
-/** The script AgenticSeal's workflow runs, by its path in the plugin: a `hygiene.yml` that names it is the check. */
-export const PLUGIN_CHECK = "skills/code-review/scripts/chain_check.py";
+/** The workflow a setup writes, which is the check. */
+export const WORKFLOW = ".github/workflows/owlery-inspection.yml";
 /** The modes git gives a file: one it cannot run, and one it can. A link and a submodule have other modes. */
 const FILE_MODES = ["100644", "100755"];
 /**
@@ -39,7 +34,7 @@ const FILE_MODES = ["100644", "100755"];
  * a phase and a round under other numbers, and a later release may add a
  * record.
  */
-const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questions.md", "gaps.md", "changelog.md", "pr.md", "decisions.md", "trail/phases/phase-1.md", "trail/rounds/round-1.md", "trail/gate.md", "guarantee.md"] as const;
+const RECORDS = ["routing.md", "frame/design.md", "frame/plan.md", "frame/questions.md", "gaps.md", "changelog.md", "pr.md", "decisions.md", "trail/phases/phase-1.md", "trail/rounds/round-1.md", "trail/gate.md", "inspection.md"] as const;
 
 /** What a new root's `README.md` holds. Its first line is the marker. */
 function readmeText(): string {
@@ -48,8 +43,8 @@ function readmeText(): string {
     "",
     "Owlery keeps the work records of this repository here, and commits them. The first line of this file is the marker the pull request check reads: leave it as it is.",
     "",
-    "- `config.json` holds what this repository says about itself. `Broad gate` is the command that must pass on a commit before it is sealed. `Commit and pull request language` and `Record language` name the language of commits and of records.",
-    "- `threads/<work-item-id>/` holds one work item's records: how it was routed, its design, its review rounds, the broad gate's run, the verdict, and `decisions.md`, the decisions made for it without asking and the questions it was parked with.",
+    "- `config.json` holds what this repository says about itself. `Broad gate` is the command that must pass on a commit before it is inspected. `Commit and pull request language` and `Record language` name the language of commits and of records.",
+    "- `threads/<work-item-id>/` holds one work item's records: how it was routed, its design, its review rounds, the broad gate's run, the inspection, and `decisions.md`, the decisions made for it without asking and the questions it was parked with.",
     "",
     `The check runs on every pull request from \`${WORKFLOW}\`. It judges a pull request whose branch a \`routing.md\` under \`threads/\` names, and passes every other one unjudged.`,
     "",
@@ -66,19 +61,19 @@ function configText(command: string): string {
  * from Owlery's repository at the tag of that version, and at the release's
  * branch until the tag exists, and runs the check's script under
  * `pr-check/` with `--post`. The job's id, `records`, is one check's name on
- * GitHub, and the script posts its verdict as a second, `seal`, with the
- * run's token, which the job's permissions let write a check.
+ * GitHub, and the script posts its verdict as a second, `inspection`, with
+ * the run's token, which the job's permissions let write a check.
  */
 export function workflowText(version: string): string {
   return `# The pull request check of Owlery: a pull request that declares a work item
-# carries the records it owes, and a ready one carries a seal at its head.
-# A pull request that declares no work item is not judged.
-# The check posts its verdict as the check \`seal\` on the pull request's
+# carries the records it owes, and a ready one carries a cleared inspection
+# at its head. A pull request that declares no work item is not judged.
+# The check posts its verdict as the check \`inspection\` on the pull request's
 # head commit, which an administrator can make required.
 # This file fetches the check from Owlery's repository at one release, the
 # one named below. That line moves when the file is written again.
 
-name: seal
+name: inspection
 
 on:
   pull_request:
@@ -185,30 +180,21 @@ function opensWithMarker(text: string | null): boolean {
   return text?.split("\n", 1)[0]?.replace(/\r+$/, "") === MARKER;
 }
 
-/** Whether a `hygiene.yml` of that text is AgenticSeal's: it is told by the script it runs, since a project's own workflow may bear its name. Null is a file that does not stand. */
-function runsPluginCheck(text: string | null): boolean {
-  return text?.includes(PLUGIN_CHECK) === true;
-}
-
-/** The root that stands in a working tree: the first of the two names whose `README.md` is a root's. Null where neither is. */
+/** The root that stands in a working tree: `agentory` where its `README.md` is a root's, and null where it is not. */
 export function rootOf(folder: string): string | null {
-  return ROOTS.find((name) => opensWithMarker(textOf(join(folder, name, "README.md")))) ?? null;
+  return opensWithMarker(textOf(join(folder, ROOT, "README.md"))) ? ROOT : null;
 }
 
-/** The workflow that stands in a working tree: Owlery's, or AgenticSeal's where Owlery's does not. Null where neither does. */
+/** The workflow that stands in a working tree: Owlery's, or null where it does not. */
 function checkOf(folder: string): string | null {
-  if (stands(folder, WORKFLOW)) return WORKFLOW;
-  return runsPluginCheck(textOf(join(folder, PLUGIN_WORKFLOW))) ? PLUGIN_WORKFLOW : null;
+  return stands(folder, WORKFLOW) ? WORKFLOW : null;
 }
 
 /**
  * Whether a folder is on the owl chain: Owlery's workflow stands in it,
  * committed or not. A Claude Code pane that opens in such a folder carries
- * the chain, but where the person's Claude Code enables the AgenticSeal
- * plugin there and they did not choose the owl chain for the repository
- * (`pane-chain.ts#carriedIn`). A folder with AgenticSeal's
- * `hygiene.yml` alone, with no check, or that does not stand is on none of
- * Owlery's. The folder is read as it stands at the call, and nothing of it
+ * the chain (`pane-chain.ts#carriedIn`). A folder with no such workflow, or that does
+ * not stand, is on none of Owlery's. The folder is read as it stands at the call, and nothing of it
  * is kept.
  */
 export function onOwlChain(folder: string): boolean {
@@ -221,8 +207,7 @@ export function onOwlChain(folder: string): boolean {
  * holds none of it, or does not stand, gives null four times. The older
  * check is the version `pinnedVersion` reads in Owlery's workflow where it
  * is older than `version`, the daemon's own, and null where no version is
- * given, for AgenticSeal's `hygiene.yml` and for a workflow whose version
- * is not read.
+ * given and for a workflow whose version is not read.
  */
 export function readRecordsPlace(folder: string, version?: string): RecordsPlace {
   const root = rootOf(folder);
@@ -252,7 +237,12 @@ function configOf(folder: string, root: string): Record<string, unknown> | null 
  */
 export function readHeavyCommands(folder: string): Record<string, string> {
   const root = rootOf(folder);
-  const value = root === null ? undefined : configOf(folder, root)?.["Heavy commands"];
+  return root === null ? {} : heavyCommandsIn(folder, root);
+}
+
+/** The heavy commands `config.json` of the root at `root` in a working tree names, read as `readHeavyCommands` reads its root's: `records-migration.ts` reads a root in the earlier form's with it. */
+export function heavyCommandsIn(folder: string, root: string): Record<string, string> {
+  const value = configOf(folder, root)?.["Heavy commands"];
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
   return Object.fromEntries(Object.entries(value as Record<string, unknown>).filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim() !== ""));
 }
@@ -285,7 +275,7 @@ export function proposedBroadGate(folder: string): string | null {
 }
 
 /** Runs git in a folder, and gives its exit code with what it printed. It rejects only where git could not be started. */
-function git(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+export function git(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     execFile("git", args, { cwd, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error && typeof error.code !== "number") reject(error);
@@ -295,13 +285,13 @@ function git(cwd: string, args: string[]): Promise<{ code: number; stdout: strin
 }
 
 /**
- * What git lists at or below the root's two names and `.github`: each file,
+ * What git lists at or below the root's name and `.github`: each file,
  * link and submodule by its path, with its mode. `args` is the listing, of
  * a commit's tree or of the index, and each prints a mode, more, a tab and
  * the path, with a NUL after each entry. A folder has no entry of its own.
  */
 async function listed(folder: string, args: string[]): Promise<Map<string, string>> {
-  const list = await git(folder, [...args, "--", ...ROOTS, ".github"]);
+  const list = await git(folder, [...args, "--", ROOT, ".github"]);
   if (list.code !== 0) throw new Error(list.stderr.trim() || "git could not list what it holds of the records place");
   const held = new Map<string, string>();
   for (const entry of list.stdout.split("\0")) {
@@ -370,13 +360,11 @@ function shows(folder: string, path: string): boolean {
  * The plan is made from the commit the checkout stands at and from nothing
  * else, because that is what a clone and the check on GitHub get. A
  * repository with no commit is planned as one that holds nothing. The root
- * that is kept is the first of the two names whose `README.md` the commit
- * holds as a file that opens with the marker, with its `config.json` where
- * the commit holds one. A new root is planned at the first name the commit
- * holds nothing at or below. The workflow that is kept is Owlery's where
- * the commit holds it as a file and the plan does not move its check, or
- * AgenticSeal's `hygiene.yml` where the commit's text of it runs the
- * check, and Owlery's is planned where the commit holds neither.
+ * is kept where the commit holds its `README.md` as a file that opens with
+ * the marker, with its `config.json` where the commit holds one. A new root
+ * is planned where the commit holds nothing at or below its name. The workflow is kept where
+ * the commit holds it as a file and the plan does not move its check, and
+ * planned where the commit holds none.
  *
  * Where the plan writes no other file, the commit holds Owlery's workflow
  * as a file, and the version `pinnedVersion` reads in the commit's text of
@@ -395,14 +383,14 @@ function shows(folder: string, path: string): boolean {
  * checkout, and where its text there, hashed as git would store it, is not
  * the commit's: status reports no change of a path it is told not to look
  * at, by the skip-worktree or the assume-unchanged flag of its index
- * entry. The `README.md` of the other name of the root and a `hygiene.yml`
- * the plan does not keep are the project's own, and the daemon reads one
- * thing of each, whether it opens with the marker and whether it runs the
- * check: such a file differs where the checkout's text or the index's
- * answers that otherwise than the commit's, and no other edit of it does.
+ * entry. The root's `README.md` where the plan neither keeps nor writes it
+ * is the project's own, and the daemon reads one thing of it, whether it
+ * opens with the marker: it differs where the checkout's text or the
+ * index's answers that otherwise than the commit's, and no other edit of it
+ * does.
  *
  * The plan is `blocked` by the first of these that holds: the commit holds
- * something of the project's own at both names of the root; git ignores a
+ * something of the project's own at the root's name; git ignores a
  * file of the plan; git ignores the folder `threads/` of the root or one of
  * the sample of record paths below it; something other than a folder is at
  * `threads` of the root, where each work item's records go, in the
@@ -438,13 +426,10 @@ export async function planRecords(folder: string, broadGate: string, version: st
     return blob.stdout;
   };
 
-  const readmes = ROOTS.map((name) => `${name}/README.md`);
-  let kept: string | null = null;
-  for (const name of ROOTS) {
-    if (kept === null && opensWithMarker(await committed(`${name}/README.md`))) kept = name;
-  }
-  const root = kept ?? ROOTS.find((name) => !holds(name)) ?? null;
-  const check = holdsFile(WORKFLOW) ? WORKFLOW : runsPluginCheck(await committed(PLUGIN_WORKFLOW)) ? PLUGIN_WORKFLOW : null;
+  const readmes = [`${ROOT}/README.md`];
+  const kept = opensWithMarker(await committed(`${ROOT}/README.md`)) ? ROOT : null;
+  const root = kept ?? (holds(ROOT) ? null : ROOT);
+  const check = holdsFile(WORKFLOW) ? WORKFLOW : null;
   const files: RecordsPlan["files"] = [];
   if (root !== null) {
     files.push({ path: `${root}/README.md`, text: kept === null ? readmeText() : null });
@@ -480,14 +465,13 @@ export async function planRecords(folder: string, broadGate: string, version: st
       if (inCheckout[at] !== atCommit[at]) apart.add(path);
     });
   }
-  // What the daemon reads of the `README.md` at each name of the root and of `hygiene.yml`: whether it is a root's, and whether it runs the check. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
-  const reads = (path: string): ((text: string | null) => boolean) => (path === PLUGIN_WORKFLOW ? runsPluginCheck : opensWithMarker);
-  for (const path of [...readmes, PLUGIN_WORKFLOW]) {
-    const atCommit = reads(path)(await committed(path));
+  // What the daemon reads of the root's `README.md`: whether it is a root's. Where the plan neither keeps nor writes the file it is the project's own, and this is all that is compared of it. The index's text is read too, since the person's next commit takes it.
+  for (const path of readmes) {
+    const atCommit = opensWithMarker(await committed(path));
     const staged = FILE_MODES.includes(inIndex.get(path) ?? "") ? (await git(folder, ["cat-file", "blob", `:${path}`])).stdout : null;
-    if (reads(path)(textOf(join(folder, path))) !== atCommit || reads(path)(staged) !== atCommit) apart.add(path);
+    if (opensWithMarker(textOf(join(folder, path))) !== atCommit || opensWithMarker(staged) !== atCommit) apart.add(path);
   }
-  const differing = [...[...new Set([...planned, ...readmes, WORKFLOW, PLUGIN_WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
+  const differing = [...[...new Set([...planned, ...readmes, WORKFLOW])].filter((path) => apart.has(path)), ...reported.filter((path) => !own.includes(path))];
 
   // The folders above the created paths at which the checkout, the index or the commit holds a file, a link or a submodule.
   const above = new Set<string>();
@@ -512,7 +496,7 @@ export async function planRecords(folder: string, broadGate: string, version: st
   const ignoredRecords = asked.ignored;
   let blocked: string | null = null;
   if (root === null) {
-    blocked = "Both seal/ and agentic-seal/ hold something of this repository's own, so Owlery has no folder to keep work records in.";
+    blocked = `${ROOT}/ holds something of this repository's own, so Owlery has no folder to keep work records in. Rename that folder in a commit, and open this again.`;
   } else if (ignored.length > 0) {
     blocked = `Git ignores ${named(ignored)} in this repository, so it cannot keep work records in its tree. A repository that cannot is out of scope for Owlery.`;
   } else if (ignoredRecords.length > 0) {
@@ -580,7 +564,7 @@ export async function setUpRecords(folder: string, broadGate: string, version: s
   if (plan.blocked !== null) throw new Error(plan.blocked);
   const writes = plan.files.filter((file): file is { path: string; text: string } => file.text !== null);
   if (writes.length === 0) return;
-  if (broadGate.trim() === "" && writes.some((file) => file.path.endsWith("/config.json"))) throw new Error("The broad gate command is empty. Type the command that must pass before a commit is sealed.");
+  if (broadGate.trim() === "" && writes.some((file) => file.path.endsWith("/config.json"))) throw new Error("The broad gate command is empty. Type the command that must pass before a commit is inspected.");
   const paths = writes.map((file) => file.path);
   const madeFiles: string[] = [];
   const madeFolders: string[] = [];

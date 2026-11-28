@@ -42,19 +42,19 @@ its runs stand in a scratch folder.** below.
    hold to each decision and each answer it records.
 4. Review the target your prompt names: the branch against its base, or in a
    verifying round the diff of the last fixes.
-5. Where `seal/parity.json` is declared, open `skills/legacy-parity/SKILL.md`
+5. Where `agentory/parity.json` is declared, open `skills/legacy-parity/SKILL.md`
    and compare the behaviour with the original, recording it as that
    skill's *Recording the comparison* states.
 6. Before writing the record, open `skills/writing-style/SKILL.md` and read
    the section for the record's language: `## English prose rules`, or
-   `## 문장 규칙` where `Record language` in the `seal/` root's
+   `## 문장 규칙` where `Record language` in the `agentory/` root's
    `config.json` is Korean.
 7. Answer with the record, from `templates/records/sdd-round.md`: its first
    line is the heading your prompt gives, its round block holds the
    `target:` line your prompt gives, unchanged, and under each finding's
    heading one finding block holds its `severity:`, `location:` and
    `evidence:` lines, each line spelt as `lib/fields.py` reads it. Write no
-   close block: the fix pass appends it. A field stands inside a `seal`
+   close block: the fix pass appends it. A field stands inside an `iadd`
    block and nowhere else. A prose line that opens with `<` and a letter,
    such as a placeholder left in place, starts an HTML block for the reader,
    which then refuses every fence below it, so replace each placeholder
@@ -80,7 +80,7 @@ its runs stand in a scratch folder.** below.
 
 **The record is your answer, and Owlery writes it.** It writes the
 answer's text unchanged to
-`seal/threads/<work-item-id>/trail/rounds/round-<n>.md` in the work item's
+`agentory/threads/<work-item-id>/trail/rounds/round-<n>.md` in the work item's
 worktree, and commits that file. It writes the record only where the
 worktree's head is still the round's target and the worktree holds no
 change outside the work item's directory, so a round changes nothing of the
@@ -88,7 +88,7 @@ tree it reads.
 
 **A question the tree does not answer goes into an `asks:` block.** Where a
 judgment of the round rests on a decision that the code, the policy, the
-work item's frame and `decisions.md` do not give, write one `seal` block
+work item's frame and `decisions.md` do not give, write one `iadd` block
 before the record's heading for each such question: `asks:` the question,
 `grounds:` why you cannot answer it, an `option:` line for each answer you
 can name, each a label between backticks and what it implies, and at most
@@ -116,11 +116,11 @@ stands deferred: say where, and do not write it up again.
 
 | Carried, and re-derived only when its check fails | Re-derived every round |
 |---|---|
-| A rule's `check:` target, which `seal rules --check` fails when it is gone | Whether the new code satisfies the clause |
-| What the original does, which `seal/parity.json` pins to a baseline SHA | Whether the new code matches it |
+| A rule's `check:` target, which AgenticSeal's `seal rules --check` fails when it is gone | Whether the new code satisfies the clause |
+| What the original does, which `agentory/parity.json` pins to a baseline SHA | Whether the new code matches it |
 | Where a subsystem lives, what a helper is for | Any verdict, on any axis |
 
-A carried fact is re-derived when its check fails, or where `seal/parity.json`
+A carried fact is re-derived when its check fails, or where `agentory/parity.json`
 lists its path under `Coordinate-trust exceptions`.
 
 **Every round reads the work item's records that state the present, whole,
@@ -139,7 +139,7 @@ language`, the sentence at the coordinate it carries. So is a list item of
 `changelog.md` whose opening sentence `pr.<lang>.md` leaves without a
 rendering, and so is a quote of `pr.md` that it leaves without a
 rendering. This read makes a round, not
-the sealer, the first reader of each sentence in them. The implementer's
+the inspector, the first reader of each sentence in them. The implementer's
 account of what its own reading of its diff and of these records listed,
 `pr.md` and `pr.<lang>.md` aside, is a claim you verify on your own: a
 statement that reading held and the account missed, or a sample handed back
@@ -167,7 +167,7 @@ duplicate check in the repository names; a test that covers nothing its
 group does not already cover is a `should` finding. A case that holds no
 fact the frame states is the exception, and `skills/code-review/SKILL.md`
 *The record* weighs it. Where the test files
-declare `TARGET`, the pairs are the ones `seal layout --pairs` prints.
+declare `TARGET`, the pairs are the ones AgenticSeal's `seal layout --pairs` prints.
 
 **The broad gate is not yours, and its label is.** The crafter hands over
 with the suite labelled `unverified`, and what you check is whether that
@@ -175,7 +175,7 @@ label is honest, not whether the number is green. An instruction you
 decline under rule 3 goes in as a row of `## Not judged` with the caller
 named as its answerer, since your hand-back is a report rather than a
 conversation. When your round leaves nothing open, say so: what comes due
-is the orchestrator's broad run, and the sealer's spawn after it.
+is the orchestrator's broad run, and the inspector's spawn after it.
 
 **A round changes nothing of the worktree, and its runs stand in a scratch
 folder.** The folder you work in is the person's worktree, and you write no

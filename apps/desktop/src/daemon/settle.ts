@@ -1,7 +1,7 @@
 // The release's settle: every work item's `decisions.md` read with the
 // daemon's reader, the directories a settle keeps with the rows that keep
-// each, the decisions the release made without asking, and `--apply`, which
-// runs AgenticSeal's settle and puts back each directory the reading kept.
+// each, and the decisions the release made without asking. It removes no
+// directory and runs no other tool.
 //
 // A directory is kept while its record holds a `reversed` decision, an `open`
 // question or a block the reader refuses: a record that cannot be read is not
@@ -17,12 +17,10 @@
 // `readSettle` reads the working tree and asks git four things alone: the
 // newest release tag, the directories that tag holds, the subject of the
 // commit that added each directory's `routing.md`, and each record `HEAD`
-// holds that the working tree lacks. It writes nothing. Only
-// `--apply` changes the working tree: AgenticSeal's settle removes, and the
-// put-back writes each kept directory from `HEAD`.
-import { execFileSync, spawnSync, type SpawnSyncReturns } from "node:child_process";
-import { accessSync, constants, lstatSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { delimiter, join } from "node:path";
+// holds that the working tree lacks. It writes nothing.
+import { execFileSync } from "node:child_process";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
 import { RECORD_FILE, readDecisionRecord, type DecisionBlock, type DecisionKind } from "./decision-record";
 import { rootOf } from "./records-place";
 
@@ -32,7 +30,7 @@ export interface KeptRow {
   why: string;
 }
 
-/** A directory the settle keeps, relative to the folder, such as `seal/threads/<id>`, with each row that keeps it. */
+/** A directory the settle keeps, relative to the folder, such as `agentory/threads/<id>`, with each row that keeps it. */
 export interface KeptDirectory {
   directory: string;
   rows: KeptRow[];
@@ -172,7 +170,8 @@ function rowsOf(got: ReturnType<typeof readDecisionRecord>): KeptRow[] {
  * What a settle reads of the folder's records: each directory under
  * `<root>/threads/` in the working tree, committed or not, read with the
  * daemon's reader. Where the working tree lacks a record that `HEAD` holds,
- * as an interrupted `--apply` leaves a directory it removed, the record `HEAD`
+ * as a settle that removed a directory and was stopped before its commit
+ * leaves it, the record `HEAD`
  * holds decides whether the directory is kept, and nothing else. `since` names
  * the previous release, by default the newest tag reachable from `HEAD`.
  * Throws where git cannot read `since` or `HEAD`, and where a record stands
@@ -286,119 +285,7 @@ export interface Printer {
   err: (text: string) => void;
 }
 
-const USAGE = "usage: settle [--list | --apply [--released-at <ref>]] [--since <ref>]";
-
-/** The kept directory's heading line and each row that keeps it, as the command prints them. */
-function keptLines(heading: string, kept: KeptDirectory): string {
-  return [heading, ...kept.rows.map((row) => `  ${kept.directory}/${RECORD_FILE}:${row.line}: ${row.why}`)].map((line) => `${line}\n`).join("");
-}
-
-/** The file named `name` in the first folder of the path that holds one the process can run, or null where none does. */
-function onPath(name: string): string | null {
-  for (const folder of (process.env.PATH ?? "").split(delimiter)) {
-    if (folder === "") continue;
-    const file = join(folder, name);
-    try {
-      if (!statSync(file).isFile()) continue;
-      accessSync(file, constants.X_OK);
-      return file;
-    } catch {
-      continue;
-    }
-  }
-  return null;
-}
-
-/** Whether the directory in the working tree differs from `HEAD`, a file `HEAD` does not hold among it, whatever `status.showUntrackedFiles` the repository sets. */
-const differs = (top: string, directory: string): boolean => git(top, "status", "--porcelain", "--untracked-files=all", "--", `${directory}/`) !== "";
-
-/** The exit AgenticSeal's settle gave, read as 0 or 1 where it gave one of them and as 2 for anything else, with what went wrong named. */
-function exitOf(ran: SpawnSyncReturns<string>, print: Printer): number {
-  if (ran.error !== undefined) {
-    print.err(`settle: seal settle --apply did not run: ${ran.error.message}\n`);
-    return 2;
-  }
-  if (ran.status === null) {
-    print.err(`settle: seal settle --apply ended on ${ran.signal ?? "a signal"} with no exit code\n`);
-    return 2;
-  }
-  return ran.status === 0 || ran.status === 1 ? ran.status : 2;
-}
-
-/**
- * `--apply`: runs AgenticSeal's `seal settle --apply` in the repository's
- * top and puts back from `HEAD` each directory the reading kept. It refuses
- * before anything runs where a kept directory differs from `HEAD`, which the
- * put-back would lose, and where no `seal` on the path can be run. It names
- * each kept directory with its rows before the settle runs, so a run that is
- * killed leaves on the screen what it would have put back, and it holds
- * SIGINT, SIGTERM and SIGHUP until the put-back ends: a signal from the
- * terminal reaches AgenticSeal's settle and ends it, and this process stays
- * to put back. SIGKILL cannot be held. It puts nothing back where `HEAD`
- * moved while the settle ran, and names each kept directory it could not put
- * back and goes on. It exits 2 where it refused or did not put one back, and
- * otherwise with the worse of its own reading and the settle's exit: 2, then
- * 1, then 0.
- */
-function apply(top: string, reading: SettleReading, releasedAt: string | undefined, print: Printer): number {
-  const refusals = reading.kept.filter((kept) => differs(top, kept.directory)).map((kept) => `${kept.directory}/ differs from HEAD, and a kept directory is put back from HEAD: commit or undo its changes first`);
-  const seal = onPath("seal");
-  if (seal === null) refusals.push("`seal` is not found on the path, so AgenticSeal's settle cannot run");
-  if (seal === null || refusals.length > 0) {
-    print.err(`${refusals.map((refusal) => `settle: ${refusal}\n`).join("")}settle: --apply ran nothing.\n`);
-    return 2;
-  }
-  for (const notice of reading.notices) print.out(`notice ${notice.directory}/${RECORD_FILE}:${notice.line}: ${notice.why}\n`);
-  for (const kept of reading.kept) print.out(keptLines(`keeping ${kept.directory}/`, kept));
-
-  const hold = (): void => {};
-  for (const signal of HELD) process.on(signal, hold);
-  try {
-    return settleAndPutBack(top, reading, seal, releasedAt, print);
-  } finally {
-    for (const signal of HELD) process.off(signal, hold);
-  }
-}
-
-/** The signals `--apply` holds while AgenticSeal's settle runs and the put-back after it: those a terminal sends. */
-const HELD: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
-
-/** Runs AgenticSeal's settle and puts back each kept directory it removed or changed, as `apply` says. */
-function settleAndPutBack(top: string, reading: SettleReading, seal: string, releasedAt: string | undefined, print: Printer): number {
-  const head = git(top, "rev-parse", "HEAD").trim();
-  const ran = spawnSync(seal, ["settle", "--apply", ...(releasedAt === undefined ? [] : ["--released-at", releasedAt])], { cwd: top, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-  if (ran.stdout) print.out(ran.stdout);
-  if (ran.stderr) print.err(ran.stderr);
-  const theirs = exitOf(ran, print);
-
-  let now: string;
-  try {
-    now = git(top, "rev-parse", "HEAD").trim();
-  } catch {
-    now = "a commit git cannot read";
-  }
-  if (now !== head) {
-    for (const kept of reading.kept) print.err(`settle: not put back ${kept.directory}/: HEAD moved from ${head} to ${now} while seal settle --apply ran\n`);
-    print.out("Put back no directory.\n");
-    return 2;
-  }
-  let put = 0;
-  let unput = 0;
-  for (const kept of reading.kept) {
-    try {
-      if (!differs(top, kept.directory)) continue;
-      git(top, "checkout", "HEAD", "--", `${kept.directory}/`);
-    } catch (error) {
-      unput += 1;
-      print.err(`settle: not put back ${kept.directory}/: ${(error as Error).message}\n`);
-      continue;
-    }
-    put += 1;
-    print.out(`put back ${kept.directory}/\n`);
-  }
-  print.out(`Put back ${put === 0 ? "no directory" : `${put} ${put === 1 ? "directory" : "directories"}`}.\n`);
-  return unput > 0 ? 2 : Math.max(theirs, reading.kept.length === 0 ? 0 : 1);
-}
+const USAGE = "usage: settle [--list] [--since <ref>]";
 
 /**
  * The command `pnpm --filter @owlery/desktop run settle`, run in `cwd`, which
@@ -407,43 +294,32 @@ function settleAndPutBack(top: string, reading: SettleReading, seal: string, rel
  * where it keeps a directory and 0 where it keeps none. `--list` prints the
  * list alone, names on the error stream each block of the release the reader
  * refuses, and exits 1 where it names one and 0 otherwise. `--since <ref>`
- * names the previous release.
- * `--apply` runs AgenticSeal's settle, with `--released-at <ref>` where one is
- * given, and puts back each directory the reading kept. It exits 2 where it
- * cannot read or do what it was asked to.
+ * names the previous release. A flag it does not know, `--apply` among them,
+ * is refused with its usage. It exits 2 where it cannot read or do what it
+ * was asked to.
  */
 export function command(args: readonly string[], cwd: string, print: Printer): number {
   let list = false;
-  let applying = false;
   let since: string | undefined;
-  let releasedAt: string | undefined;
   let wrong: string | null = null;
   for (let at = 0; at < args.length && wrong === null; at += 1) {
     const arg = args[at];
     const next = args[at + 1];
     const ref = next !== undefined && !next.startsWith("--") ? next : undefined;
     if (arg === "--list") list = true;
-    else if (arg === "--apply") applying = true;
-    else if ((arg === "--since" || arg === "--released-at") && ref === undefined) wrong = `${arg} names no ref`;
+    else if (arg === "--since" && ref === undefined) wrong = `${arg} names no ref`;
     else if (arg === "--since") {
       since = ref;
       at += 1;
-    } else if (arg === "--released-at") {
-      releasedAt = ref;
-      at += 1;
     } else wrong = `settle does not know \`${arg}\``;
   }
-  if (wrong === null && list && applying) wrong = "--list and --apply do not run together";
-  if (wrong === null && releasedAt !== undefined && !applying) wrong = "--released-at is read with --apply alone";
   if (wrong !== null) {
     print.err(`${wrong}\n${USAGE}\n`);
     return 2;
   }
   let reading: SettleReading;
   try {
-    const top = git(cwd, "rev-parse", "--show-toplevel").trim();
-    reading = readSettle(top, since);
-    if (applying) return apply(top, reading, releasedAt, print);
+    reading = readSettle(git(cwd, "rev-parse", "--show-toplevel").trim(), since);
   } catch (error) {
     print.err(`settle: ${(error as Error).message}\n`);
     return 2;

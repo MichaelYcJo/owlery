@@ -26,8 +26,8 @@ and no sentence is written, because "Nothing was read." is false of a run
 that goes on, and the caller's own line names `Absent.path` and what goes
 unread.
 
-Standard library only, and Python 3.9 syntax: the `Stop` hook's
-`seal_stamp.py` reaches it on whatever `python3` starts it.
+Standard library only, and Python 3.9 syntax: the `Stop` hook of
+AgenticSeal's stamp reaches it on whatever `python3` starts it.
 """
 
 import contextlib

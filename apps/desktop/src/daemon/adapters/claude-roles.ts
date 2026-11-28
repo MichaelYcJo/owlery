@@ -4,11 +4,15 @@
 // (docs/architecture.md, "What each session loads"). The chain command hands
 // a pane's session the same file with another head, for the subagent the
 // session runs the role as. The protocol's pairs of a role and a stage are
-// neutral, and this module is where a pair turns into Claude Code's names.
+// neutral. A pair's stage in the bundle's workflow (`workflow.ts`) names its
+// agent's definition and the documents its launch carries, and this module is
+// where that stage turns into Claude Code's names. The tools come from the
+// pair's grant, which is code.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { RoleStage } from "../../shared/protocol";
-import { grantOf, type PairKey, pairKey, type RoleGrant } from "../role-grants";
+import { grantOf, type RoleGrant } from "../role-grants";
+import type { Stage } from "../workflow";
 
 /** The name of the bundle's plugin, as its manifest states it. Claude Code names a plugin's agent `<plugin>:<agent>`. */
 export const PLUGIN_NAME = "owlery";
@@ -17,21 +21,14 @@ export const PLUGIN_NAME = "owlery";
 const EVERY_ROLE = ["skills/core/SKILL.md", "skills/agent-contract/SKILL.md"];
 
 /**
- * For each pair, the bundle's documents that follow the two of every role:
- * the ones the role's definition opens and follows first at that stage. The
- * bundle's other documents are read where a step asks for one, in the
- * bundle's folder, so a launch does not carry them.
+ * The bundle's documents a role session's rules file holds, by their paths in
+ * the bundle, in the order they follow the head: the two of every role, then
+ * the ones the stage names, which the role's definition opens and follows
+ * first at that stage. The bundle's other documents are read where a step
+ * asks for one, in the bundle's folder, so a launch does not carry them.
  */
-const AT_THE_STAGE: Record<PairKey, readonly string[]> = {
-  "proofer at round": ["skills/code-review/SKILL.md"],
-  "crafter at fix-pass": ["skills/implement/SKILL.md", "skills/implement/fix-pass.md"],
-  "sealer at seal": [],
-  "orchestrator at judgment": ["docs/forms/the-round-record.md"],
-};
-
-/** The bundle's documents a role session's rules file holds, by their paths in the bundle, in the order they follow the head. */
-export function roleDocuments(role: RoleStage): string[] {
-  return [...EVERY_ROLE, ...AT_THE_STAGE[pairKey(role)]];
+export function roleDocuments(stage: Stage): string[] {
+  return [...EVERY_ROLE, ...stage.documents];
 }
 
 /**
@@ -45,9 +42,9 @@ export function toolsOf(role: RoleStage): string[] {
   return ["Read", "Glob", "Grep", "Bash", ...(grantOf(role).writes === "nowhere" ? [] : ["Edit", "Write"])];
 }
 
-/** The name Claude Code gives the role's agent of the bundle. */
-export function agentOf(role: RoleStage): string {
-  return `${PLUGIN_NAME}:${role.role}`;
+/** The name Claude Code gives the stage's agent of the bundle: the plugin's name and the name the agent's definition states. */
+export function agentOf(stage: Stage): string {
+  return `${PLUGIN_NAME}:${stage.agentName}`;
 }
 
 /** The name of a pair's rules file in the folder the adapter writes them to. */
@@ -84,23 +81,24 @@ const COMMANDS_WRITE: Record<RoleGrant["commands"], string> = {
  * definition names that the session offers, and is answered by the person's
  * own permission settings.
  */
-export function rulesHead(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
+export function rulesHead(bundleDir: string, stage: Stage, launch: Launch = "session"): string {
+  const role = stage.pair;
   return [
     `# Owlery role session: ${role.role}, ${role.stage}`,
     "",
-    `You are the ${role.role} of the Owlery role bundle, at the stage \`${role.stage}\`. Your definition is \`agents/${role.role}.md\` of the bundle.`,
+    `You are the ${role.role} of the Owlery role bundle, at the stage \`${role.stage}\`. Your definition is \`${stage.agent}\` of the bundle.`,
     "",
     `The bundle's root is \`${bundleDir}\`. Every \`agents/\`, \`skills/\`, \`docs/\` and \`templates/\` path that your definition and the rules below cite is a path under that root, and you read it there.`,
     "",
     launch === "pane" ? "The documents below follow this head whole, in this order, so do not open them again in the bundle:" : "The documents below follow this head whole, in this order. Each is in your context already, so do not open it again:",
     "",
-    ...roleDocuments(role).map((document) => `- \`${document}\``),
+    ...roleDocuments(stage).map((document) => `- \`${document}\``),
     "",
     launch === "pane"
       ? "You hold, of the tools your definition names, those the session that started you offers, and that session's tools where your definition names none. The person's own permission settings answer every call that asks for permission. Where a call is refused, do not work around it: say in your report which step needed the call."
       : `You hold these tools and no other: ${toolsOf(role).join(", ")}. The daemon answers every call that asks for permission by the rule of your role, and no person is asked. Your commands run in the operating system's sandbox. ${COMMANDS_WRITE[grantOf(role).commands]} Where the daemon or the system refuses a call, do not work around it: say in your report which step needed the call.`,
     "",
-    "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any `seal <subcommand>` command line or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
+    "Those four directories hold documents only. A path under them that the bundle does not hold is not shipped, and neither is any command line of AgenticSeal's CLI or any script. Where a step needs one of them, do not look for it elsewhere and do not put another in its place: say in your report which step needed it.",
     "",
   ].join("\n");
 }
@@ -111,12 +109,12 @@ function withoutFrontmatter(text: string): string {
 }
 
 /**
- * The text of a pair's rules file: the head of the launch, then each of the
- * pair's documents whole, without its frontmatter, after a line that names
+ * The text of a stage's rules file: the head of the launch, then each of the
+ * stage's documents whole, without its frontmatter, after a line that names
  * it. It throws, naming the document, where the bundle lacks one.
  */
-export function rulesText(bundleDir: string, role: RoleStage, launch: Launch = "session"): string {
-  const documents = roleDocuments(role).map((document) => {
+export function rulesText(bundleDir: string, stage: Stage, launch: Launch = "session"): string {
+  const documents = roleDocuments(stage).map((document) => {
     let text: string;
     try {
       text = readFileSync(join(bundleDir, document), "utf8");
@@ -125,5 +123,5 @@ export function rulesText(bundleDir: string, role: RoleStage, launch: Launch = "
     }
     return `===== ${document} =====\n\n${withoutFrontmatter(text)}`;
   });
-  return [rulesHead(bundleDir, role, launch), ...documents].join("\n");
+  return [rulesHead(bundleDir, stage, launch), ...documents].join("\n");
 }

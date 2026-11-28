@@ -141,8 +141,8 @@ describe("a broad gate's environment", { timeout: 30_000 }, () => {
   it("holds none of the pane variables that the command of a shell, of a Claude Code pane on the owl chain or off it, or of a worktree setup pane sets for that pane, the runner of heavy commands among them", () => {
     // Every key these pane commands set, read off what they return. Their starts name no account folder, so no command here sets `CLAUDE_CONFIG_DIR`, which the frame keeps out of the cut. The set is pinned below, so a variable a later change adds to a pane's command fails this case there, and that change decides whether the variable is a pane variable.
     const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
-    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? { chain, enabledPlugins: null } : null), "/run/owl-run");
-    const start = { continueLatest: false, base: "release/v0.0.4", checkout: "/r/project", chosen: null, accountDir: null, configDir: null };
+    const commandFor = paneCommands({ SHELL: "/bin/zsh" }, "/run/hooks.json", "/run/hooks.sock", ({ folder }) => (folder === "/w/owl" ? chain : null), "/run/owl-run");
+    const start = { continueLatest: false, base: "release/v0.0.4", accountDir: null };
     const panes = [commandFor("shell", 1, { ...start, folder: "/w/other" }), commandFor("claude", 2, { ...start, folder: "/w/other" }), commandFor("claude", 3, { ...start, folder: "/w/owl" }), setupPaneCommand({ SHELL: "/bin/zsh" }, "pnpm install", 4, "/run/owl-run")];
     const set = panes.flatMap((pane) => Object.keys(pane.env));
     expect(new Set(set)).toEqual(new Set(["OWLERY_PANE_ID", "OWLERY_HOOK_SOCKET", "OWLERY_RUN", "OWLERY_CHAIN", "OWLERY_BASE"]));
@@ -200,12 +200,12 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
 
   it("runs the command in the work item's worktree, on the branch's head, with no terminal on its input or its output, and with the environment it was given", async () => {
     const gate = 'pwd -P; git rev-parse HEAD; for fd in 0 1 2; do if [ -t $fd ]; then echo "$fd terminal"; else echo "$fd none"; fi; done; echo "$OWLERY_CASE"';
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", OWLERY_CASE: "the case's own" }, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin", OWLERY_CASE: "the case's own" }, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     expect(chain.stages.at(-3)).toMatchObject({ kind: "gate", state: "finished", gate: { command: gate, exitCode: 0, output: true } });
-    // The head the command read is the commit of round 1's record: the run's own record and the sealer's verdict are the two commits after it.
+    // The head the command read is the commit of round 1's record: the run's own record and the inspector's verdict are the two commits after it.
     const ran = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(await output(c, a.id, 2)).toBe(`${a.worktree}\n${ran}\n0 none\n1 none\n2 none\nthe case's own\n`);
   });
@@ -213,7 +213,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
   it("runs the command with the path the person's login shell prints, which it asks that shell for once in its life, and without the variables that say a terminal stands", async () => {
     const out = folder();
     asShell(shell(`echo asked >> '${out}/asked'; printf '\\n__owlery_path=%s\\n' "/stand-in/bin:$PATH"`));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: 'echo "$PATH"; env | grep -c -E "^(TERM|COLORTERM)="; true', gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: 'echo "$PATH"; env | grep -c -E "^(TERM|COLORTERM)="; true', gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
@@ -222,7 +222,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     commitAll(a.worktree, "feat: greet again");
     c.messages.length = 0;
     expect(await c.startChain(a.id)).toBe("done");
-    expect((await c.chain(a.id, "rested")).stages.map(({ kind }) => kind)).toEqual(["round", "gate", "seal", "pull-request", "round", "gate", "seal", "pull-request"]);
+    expect((await c.chain(a.id, "rested")).stages.map(({ kind }) => kind)).toEqual(["round", "gate", "inspection", "pull-request", "round", "gate", "inspection", "pull-request"]);
     expect(readFileSync(join(out, "asked"), "utf8")).toBe("asked\n");
   });
 
@@ -230,7 +230,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
     const slow = (out: string): string => shell(`echo asked >> '${out}/asked'; sleep 1; printf '\\n__owlery_path=%s\\n' "$PATH"`);
     const closing = folder();
     asShell(slow(closing));
-    const closed = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${closing}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const closed = await standing(cleanups, ["Cleared work"], { gate: `echo ran >> '${closing}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     expect(await closed.c.startChain(closed.workItems[0]!.id)).toBe("done");
     await stands(join(closing, "asked"));
     await closed.d.close();
@@ -238,7 +238,7 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
 
     const archiving = folder();
     asShell(slow(archiving));
-    const archived = await standing(cleanups, ["Sealed work"], { gate: `echo ran >> '${archiving}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
+    const archived = await standing(cleanups, ["Cleared work"], { gate: `echo ran >> '${archiving}/ran'`, gateEnv: undefined, roleAdapter: roles({ proofer: clean }) });
     const a = archived.workItems[0]!;
     expect(await archived.c.startChain(a.id)).toBe("done");
     await stands(join(archiving, "asked"));
@@ -269,8 +269,8 @@ describe("the broad gate as the daemon runs it", { timeout: 60_000 }, () => {
   it("keeps what the command printed in memory where the daemon was given no run folder, and drops it with the work item", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    write(made.repo, "seal/README.md", `${MARKER}\n`);
-    write(made.repo, "seal/config.json", '{ "Broad gate": "echo kept; exit 1" }\n');
+    write(made.repo, "agentory/README.md", `${MARKER}\n`);
+    write(made.repo, "agentory/config.json", '{ "Broad gate": "echo kept; exit 1" }\n');
     commitAll(made.repo, "chore: add the place for work records");
     const d = new Daemon({ token: TOKEN, paneKinds: PANE_KINDS, roleAdapter: roles({ proofer: clean }), commandFor: () => ({ command: "/bin/sh", args: ["-c", "sleep 30"], env: {} }), worktreesRoot: made.root, now: () => NOW, gateEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" } });
     const port = await d.listen(0);

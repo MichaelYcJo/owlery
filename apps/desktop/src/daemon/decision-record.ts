@@ -1,7 +1,7 @@
 // A work item's record of the decisions made for it without asking the person
 // and of the questions it was parked with: the file `decisions.md` of the
 // work item's directory, beside `routing.md`. Each decision and each question
-// is one `seal` block, read and built through `record-blocks.ts`, and a line
+// is one `iadd` block, read and built through `record-blocks.ts`, and a line
 // outside every block is prose.
 //
 // This module finds the work item's directory by the branch its `routing.md`
@@ -454,7 +454,7 @@ function head(workItem: string): string {
   return [
     `# Decisions and questions: ${workItem}`,
     "",
-    "Each `seal` block below is one decision made for this work item without asking the person, or one question it was parked with. A line outside a block is prose.",
+    "Each `iadd` block below is one decision made for this work item without asking the person, or one question it was parked with. A line outside a block is prose.",
     "",
   ].join("\n");
 }

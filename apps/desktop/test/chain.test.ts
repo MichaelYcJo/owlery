@@ -1,5 +1,5 @@
 // A work item's chain: the review rounds, the fix passes, the orchestrator's
-// judgments, the broad gate and the seal the daemon runs from
+// judgments, the broad gate and the inspection the daemon runs from
 // `Daemon#startChain`, which each case calls through its client.
 // Every session runs on the fake adapter, on a temporary repository, the
 // gate's command is a stand-in the case names, and no case starts an agent.
@@ -42,8 +42,8 @@ import {
   rulingPrompt,
   rulingsOf,
   runningSays,
-  sealPrompt,
-  sealedSays,
+  inspectionPrompt,
+  clearedSays,
   stepOwed,
   stoppedSays,
   undecidedAsk,
@@ -57,11 +57,11 @@ import { BACK_CLOSE, BACK_OPEN, backSection } from "../src/daemon/github";
 import { readHeavyRuns } from "../src/daemon/heavy-runs";
 import { BROAD_GATE_NAME } from "../src/daemon/machine-turns";
 import { readRoundRecord } from "../src/daemon/round-record";
-import type { Verdict } from "../src/daemon/seal-records";
+import type { Verdict } from "../src/daemon/inspection-records";
 import type { Chain, ChainStage, Usage } from "../src/shared/protocol";
-import { composeBack } from "../src/shared/seal-back";
+import { composeBack } from "../src/shared/inspection-sheet";
 import { untilGone } from "./built-app";
-import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenSeal, guaranteeRecord, head, noted, proofs, roles, roundRecord, rulingBlock, sealSection, sealedBy, standing, status, write } from "./chain-run";
+import { type Cleanups, NOW, PULL_REQUEST_URL, TODAY, askBlock, bareRemote, clean, client, gateRecord, heldGit, closeBlock, closeFinding, commitAll, commitFix, commitsAfterMain, convergenceBlock, fixes, givenFix, givenQuestions, givenRound, givenInspection, inspectionRecord, head, noted, proofs, roles, roundRecord, rulingBlock, runSection, withOwleryLines, standing, status, write } from "./chain-run";
 import { interruptToolCall, sessionLog } from "./interrupted-turn";
 import { branchOf, git } from "./repositories";
 
@@ -73,11 +73,11 @@ afterEach(async () => {
 const A = "a".repeat(40);
 const B = "b".repeat(40);
 const HEAD = "c".repeat(40);
-const NAME = "1795388700-sealed-work";
-const DIRECTORY = `seal/threads/${NAME}`;
+const NAME = "1795388700-cleared-work";
+const DIRECTORY = `agentory/threads/${NAME}`;
 /** The top of the work item's worktree, which a stage's prompt names by its absolute path. */
 const WORKTREE = "/repos/owlery-wt-2";
-const TRAILER = `Seal-Routing: ${NAME}`;
+const TRAILER = `IADD-Routing: ${NAME}`;
 const HEADING = (round: number): string => `# Review round ${String(round)}: ${NAME}`;
 
 /** A record with a close block under each finding given a verdict. */
@@ -97,10 +97,10 @@ function round(number: number, text: string): RoundStanding {
   return { round: number, target: record.target!, findings: record.findings };
 }
 
-const NOTHING: Standing = { rounds: [], openQuestion: false, reversals: [], head: HEAD, base: "main", changed: [], directory: DIRECTORY, gateCommit: null, sinceGate: [], verdicts: [], sealCommit: null };
+const NOTHING: Standing = { rounds: [], openQuestion: false, reversals: [], head: HEAD, base: "main", changed: [], directory: DIRECTORY, gateCommit: null, sinceGate: [], verdicts: [], clearedCommit: null };
 /** A verdict block as the order reads one. */
 function verdict(is: Verdict["is"], commit = A): Verdict {
-  return { target: `${commit} against main`, commit, base: "main", is, says: is === "sealed" ? null : "The changelog names a file the tree does not hold.", builtBy: ["the session"], judgedBy: "s-2", model: "fake", rules: "owlery 0.0.2", line: 12, end: 19 };
+  return { target: `${commit} against main`, commit, base: "main", is, says: is === "cleared" ? null : "The changelog names a file the tree does not hold.", builtBy: ["the session"], inspectedBy: "s-2", model: "fake", rules: "owlery 0.0.2", workflow: "owl-chain", inspector: "owl-chain", line: 12, end: 19 };
 }
 
 const REVERSAL = { id: 3, decided: "Start from main.", message: "Start from the release branch." };
@@ -163,7 +163,7 @@ describe("the step a chain owes", () => {
   });
 
   const SETTLED = [round(1, closedRecord(1, `${A} against main`, { 1: `fixed ${B}` })), round(2, closedRecord(2, `${B}, fixes ${A}..${B}`, {}, ["round-1#1"]))];
-  const CLOSING = [`${DIRECTORY}/trail/gate.md`, `${DIRECTORY}/guarantee.md`, `${DIRECTORY}/trail/refusals.md`];
+  const CLOSING = [`${DIRECTORY}/trail/gate.md`, `${DIRECTORY}/inspection.md`, `${DIRECTORY}/trail/refusals.md`];
 
   it("is the broad gate, on the branch's head, where the last record holds no finding to answer, every commit after its target changed the work item's directory alone, and the gate does not hold at the head: no run stands, or a path that is no closing record differs between the gate's commit and the head", () => {
     const gate = { is: "gate", round: 2, head: HEAD };
@@ -178,38 +178,38 @@ describe("the step a chain owes", () => {
       expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [...CLOSING, path] }), path).toEqual(gate);
     }
     // A closing record is a file of this work item's directory, at its own path.
-    for (const path of ["trail/gate.md", "guarantee.md", `${DIRECTORY}-other/trail/gate.md`, `${DIRECTORY}/frame/guarantee.md`, `${DIRECTORY}/trail/gate.md.orig`, `${DIRECTORY}/trail/refusals`, `seal/threads/other/guarantee.md`]) {
+    for (const path of ["trail/gate.md", "inspection.md", `${DIRECTORY}-other/trail/gate.md`, `${DIRECTORY}/frame/inspection.md`, `${DIRECTORY}/trail/gate.md.orig`, `${DIRECTORY}/trail/refusals`, `agentory/threads/other/inspection.md`]) {
       expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [path] }), path).toEqual(gate);
     }
   });
 
-  it("is the seal, on the gate's commit, where the gate holds at the head and the newest verdict block is no seal of that commit: no verdict stands, the newest reads withheld or undecided, or it seals another commit, and the run is one more than the verdicts that stand", () => {
-    const seal = { is: "seal", round: 2, commit: HEAD, run: 1 };
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD })).toEqual(seal);
-    // The seal is on the gate's commit, whatever closing record the head holds after it.
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING })).toEqual({ ...seal, commit: A });
-    for (const path of CLOSING) expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [path] }), path).toEqual({ ...seal, commit: A });
+  it("is the inspection, on the gate's commit, where the gate holds at the head and the newest verdict block is no inspection of that commit: no verdict stands, the newest reads withheld or undecided, or it clears another commit, and the run is one more than the verdicts that stand", () => {
+    const inspection = { is: "inspection", round: 2, commit: HEAD, run: 1 };
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD })).toEqual(inspection);
+    // The inspection is on the gate's commit, whatever closing record the head holds after it.
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING })).toEqual({ ...inspection, commit: A });
+    for (const path of CLOSING) expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [path] }), path).toEqual({ ...inspection, commit: A });
     // The directory as the order holds it may end with a slash.
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, directory: `${DIRECTORY}/`, gateCommit: A, sinceGate: CLOSING })).toEqual({ ...seal, commit: A });
-    // A verdict that withheld or asked leaves the seal owed, as the next run.
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld")] })).toEqual({ ...seal, commit: A, run: 2 });
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld"), verdict("undecided")] })).toEqual({ ...seal, commit: A, run: 3 });
-    // A seal of a commit other than the gate's is no seal of this gate.
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD, verdicts: [verdict("sealed", A)], sealCommit: A })).toEqual({ ...seal, run: 2 });
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, directory: `${DIRECTORY}/`, gateCommit: A, sinceGate: CLOSING })).toEqual({ ...inspection, commit: A });
+    // A verdict that withheld or asked leaves the inspection owed, as the next run.
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld")] })).toEqual({ ...inspection, commit: A, run: 2 });
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld"), verdict("undecided")] })).toEqual({ ...inspection, commit: A, run: 3 });
+    // An inspection of a commit other than the gate's is no inspection of this gate.
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD, verdicts: [verdict("cleared", A)], clearedCommit: A })).toEqual({ ...inspection, run: 2 });
   });
 
-  it("is sealed at the gate's commit where the gate holds at the head and the newest verdict block seals that commit", () => {
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld"), verdict("sealed", A)], sealCommit: A })).toEqual({ is: "sealed", round: 2, at: A });
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD, verdicts: [verdict("sealed", HEAD)], sealCommit: HEAD })).toEqual({ is: "sealed", round: 2, at: HEAD });
+  it("is cleared at the gate's commit where the gate holds at the head and the newest verdict block clears that commit", () => {
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: CLOSING, verdicts: [verdict("withheld"), verdict("cleared", A)], clearedCommit: A })).toEqual({ is: "cleared", round: 2, at: A });
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: HEAD, verdicts: [verdict("cleared", HEAD)], clearedCommit: HEAD })).toEqual({ is: "cleared", round: 2, at: HEAD });
   });
 
-  it("is the gate before any seal: a seal that stands is not read where the gate does not hold at the head, so a decision committed after a sealed commit owes the gate again", () => {
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [...CLOSING, `${DIRECTORY}/decisions.md`], verdicts: [verdict("sealed", A)], sealCommit: A })).toEqual({ is: "gate", round: 2, head: HEAD });
-    expect(stepOwed({ ...NOTHING, rounds: SETTLED, verdicts: [verdict("sealed", A)], sealCommit: A })).toEqual({ is: "gate", round: 2, head: HEAD });
+  it("is the gate before any inspection: an inspection that stands is not read where the gate does not hold at the head, so a decision committed after a cleared commit owes the gate again", () => {
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, gateCommit: A, sinceGate: [...CLOSING, `${DIRECTORY}/decisions.md`], verdicts: [verdict("cleared", A)], clearedCommit: A })).toEqual({ is: "gate", round: 2, head: HEAD });
+    expect(stepOwed({ ...NOTHING, rounds: SETTLED, verdicts: [verdict("cleared", A)], clearedCommit: A })).toEqual({ is: "gate", round: 2, head: HEAD });
   });
 
   it("is what the rounds owe before any gate, whether or not the gate holds: an open question parks, a reversed decision owes its fix pass, and a change outside the work item's directory owes a verifying round", () => {
-    for (const gate of [{ gateCommit: null, sinceGate: [] }, { gateCommit: HEAD, sinceGate: [] }, { gateCommit: A, sinceGate: ["feature.txt"] }, { gateCommit: HEAD, sinceGate: [], verdicts: [verdict("sealed", HEAD)], sealCommit: HEAD }]) {
+    for (const gate of [{ gateCommit: null, sinceGate: [] }, { gateCommit: HEAD, sinceGate: [] }, { gateCommit: A, sinceGate: ["feature.txt"] }, { gateCommit: HEAD, sinceGate: [], verdicts: [verdict("cleared", HEAD)], clearedCommit: HEAD }]) {
       expect(stepOwed({ ...NOTHING, ...gate, rounds: SETTLED, openQuestion: true })).toEqual({ is: "parked" });
       expect(stepOwed({ ...NOTHING, ...gate, rounds: SETTLED, reversals: [REVERSAL] })).toMatchObject({ is: "fix-pass", round: 2 });
       expect(stepOwed({ ...NOTHING, ...gate, rounds: SETTLED, changed: ["feature.txt"] })).toMatchObject({ is: "round", round: 3 });
@@ -344,17 +344,17 @@ describe("the record a fix pass left", () => {
     const first = closing(committed, 1, `fixed ${B}`);
     expect(fixPassRecord(first, closing(first, 2, "deferred #7")).closes.map(({ finding }) => finding)).toEqual([2]);
     // A close block's own location stands beside its finding's.
-    const elsewhere = committed.replace("finding 2 leaves a sentence with no end.\n", `finding 2 leaves a sentence with no end.\n\n\`\`\`seal\nverdict: fixed ${B}\nlocation: \`docs/greeting.md\`, \`src/greet.ts:4\`\nanswer: The greeting's document said otherwise.\n\`\`\`\n`);
+    const elsewhere = committed.replace("finding 2 leaves a sentence with no end.\n", `finding 2 leaves a sentence with no end.\n\n\`\`\`iadd\nverdict: fixed ${B}\nlocation: \`docs/greeting.md\`, \`src/greet.ts:4\`\nanswer: The greeting's document said otherwise.\n\`\`\`\n`);
     expect(fixPassRecord(committed, elsewhere).closes.map(({ finding, located, close }) => [finding, located, close.located])).toEqual([[2, ["feature.txt"], ["docs/greeting.md", "src/greet.ts"]]]);
   });
 
   it("holds whatever blank lines stand around an appended block, and with a block appended at the end of a record that ends with no line end", () => {
-    const tight = committed.replace("finding 1 leaves a sentence with no end.\n\n", `finding 1 leaves a sentence with no end.\n\`\`\`seal\nverdict: fixed ${B}\n\`\`\`\n\n`);
+    const tight = committed.replace("finding 1 leaves a sentence with no end.\n\n", `finding 1 leaves a sentence with no end.\n\`\`\`iadd\nverdict: fixed ${B}\n\`\`\`\n\n`);
     expect(refused(committed, tight)).toBe("held");
-    const wide = committed.replace("finding 1 leaves a sentence with no end.\n", `finding 1 leaves a sentence with no end.\n\n\n\`\`\`seal\nverdict: fixed ${B}\n\`\`\`\n\n`);
+    const wide = committed.replace("finding 1 leaves a sentence with no end.\n", `finding 1 leaves a sentence with no end.\n\n\n\`\`\`iadd\nverdict: fixed ${B}\n\`\`\`\n\n`);
     expect(refused(committed, wide)).toBe("held");
     const bare = committed.trimEnd();
-    expect(refused(bare, `${bare}\n\n\`\`\`seal\nverdict: rejected\nanswer: It holds.\n\`\`\`\n`)).toBe("held");
+    expect(refused(bare, `${bare}\n\n\`\`\`iadd\nverdict: rejected\nanswer: It holds.\n\`\`\`\n`)).toBe("held");
   });
 
   it("is refused where the pass changed a line of the proofer's, removed one or added one outside a close block", () => {
@@ -369,7 +369,7 @@ describe("the record a fix pass left", () => {
   });
 
   it("is refused where the reader refuses a line of it", () => {
-    expect(refused(committed, committed.replace("finding 1 leaves a sentence with no end.\n", "finding 1 leaves a sentence with no end.\n\n```seal\nverdict: done\n```\n"))).toMatch(/^the reader refuses line 20 of the round record it left: .*a verdict is `fixed <commit>`, `rejected` or `deferred <home>`$/u);
+    expect(refused(committed, committed.replace("finding 1 leaves a sentence with no end.\n", "finding 1 leaves a sentence with no end.\n\n```iadd\nverdict: done\n```\n"))).toMatch(/^the reader refuses line 20 of the round record it left: .*a verdict is `fixed <commit>`, `rejected` or `deferred <home>`$/u);
   });
 });
 
@@ -525,17 +525,17 @@ describe("the questions a stage's answer asks", () => {
       }
       return "taken";
     };
-    expect(refused("Prose.\n\n```seal\nasks: May it?\n```\n")).toBe("the reader refuses line 3 of its answer's question: the question block holds no `grounds:` line, and it holds one");
-    expect(refused("```seal\nasks: May it?\ngrounds: None.\noption: `a` One.\noption: `a` Two.\n```\n")).toBe("the reader refuses line 1 of its answer's question: two `option:` lines hold the label `a`: a question block holds each label once");
-    expect(refused("```seal\nasks: May it?\ngrounds: None.\noption: `a` One.\ndefault: `b`\n```\n")).toBe("the reader refuses line 1 of its answer's question: `default:` names `b`, and no `option:` line of the block holds that label");
-    expect(refused("```seal\nasks:\ngrounds: None.\n```\n")).toContain("the reader refuses line 2 of its answer's question: `asks:` does not read whole");
+    expect(refused("Prose.\n\n```iadd\nasks: May it?\n```\n")).toBe("the reader refuses line 3 of its answer's question: the question block holds no `grounds:` line, and it holds one");
+    expect(refused("```iadd\nasks: May it?\ngrounds: None.\noption: `a` One.\noption: `a` Two.\n```\n")).toBe("the reader refuses line 1 of its answer's question: two `option:` lines hold the label `a`: a question block holds each label once");
+    expect(refused("```iadd\nasks: May it?\ngrounds: None.\noption: `a` One.\ndefault: `b`\n```\n")).toBe("the reader refuses line 1 of its answer's question: `default:` names `b`, and no `option:` line of the block holds that label");
+    expect(refused("```iadd\nasks:\ngrounds: None.\n```\n")).toContain("the reader refuses line 2 of its answer's question: `asks:` does not read whole");
   });
 
   it("are a proofer's only above its record: a record that holds an asks block is one the record's reader refuses", () => {
     const record = roundRecord(HEADING(1), `${HEAD} against main`, [1]);
     const given = { round: 1, workItem: NAME, target: `${HEAD} against main`, earlier: [] };
     expect(roundRecordOf(`${FREE}\n${record}`, given)).toBe(record);
-    expect(() => roundRecordOf(`${record}\n${FREE}`, given)).toThrow(/^the reader refuses line 20 of its record: .*`asks: May the pass change the protocol\?` opens no `seal` block this record holds/u);
+    expect(() => roundRecordOf(`${record}\n${FREE}`, given)).toThrow(/^the reader refuses line 20 of its record: .*`asks: May the pass change the protocol\?` opens no `iadd` block this record holds/u);
   });
 });
 
@@ -556,10 +556,10 @@ describe("the orchestrator's answer", () => {
   });
 
   it("is no judgment where it holds no such block or more than one, and where the reader refuses the block", () => {
-    expect(refused(() => convergenceOf("The rounds are converging: yes."))).toBe("its answer holds no judgment: no `seal` block of it opens with `converging:`");
+    expect(refused(() => convergenceOf("The rounds are converging: yes."))).toBe("its answer holds no judgment: no `iadd` block of it opens with `converging:`");
     expect(refused(() => convergenceOf(`${convergenceBlock("yes")}\n${convergenceBlock("no")}`))).toBe("its answer holds 2 blocks that open with `converging:`, and a judgment is one");
-    expect(refused(() => convergenceOf("```seal\nconverging: maybe\ngrounds: Unsure.\n```\n"))).toBe("the reader refuses line 2 of its judgment: `converging: maybe` does not read whole as `converging: <value>`: it is `yes` or `no`");
-    expect(refused(() => convergenceOf("```seal\nconverging: yes\n```\n"))).toBe("the reader refuses line 1 of its judgment: the judgment block holds no `grounds:` line, and it holds one");
+    expect(refused(() => convergenceOf("```iadd\nconverging: maybe\ngrounds: Unsure.\n```\n"))).toBe("the reader refuses line 2 of its judgment: `converging: maybe` does not read whole as `converging: <value>`: it is `yes` or `no`");
+    expect(refused(() => convergenceOf("```iadd\nconverging: yes\n```\n"))).toBe("the reader refuses line 1 of its judgment: the judgment block holds no `grounds:` line, and it holds one");
   });
 
   it("is its rulings where it holds one for each question it was given: a decision of its kind with what was decided, or a park, each with its grounds, in the questions' order", () => {
@@ -574,14 +574,14 @@ describe("the orchestrator's answer", () => {
 
   it("is no ruling where a question has none, where two rule on one, where one rules on a number that is no question's, and where the reader refuses a block", () => {
     const one = rulingBlock(1, "answered", "It may.", "Read in the frame.");
-    expect(refused(() => rulingsOf(one, 2))).toBe("its answer holds no ruling on question 2: no `seal` block of it opens with `rules: 2 `");
-    expect(refused(() => rulingsOf("I would park both.", 2))).toBe("its answer holds no ruling on questions 1 and 2: no `seal` block of it opens with `rules: 1 `");
+    expect(refused(() => rulingsOf(one, 2))).toBe("its answer holds no ruling on question 2: no `iadd` block of it opens with `rules: 2 `");
+    expect(refused(() => rulingsOf("I would park both.", 2))).toBe("its answer holds no ruling on questions 1 and 2: no `iadd` block of it opens with `rules: 1 `");
     expect(refused(() => rulingsOf(`${one}\n${one}`, 1))).toBe("its answer rules on question 1 twice");
     expect(refused(() => rulingsOf(`${one}\n${rulingBlock(2, "park", null, "A credential.")}`, 1))).toBe("its answer rules on question 2, and it was given one question");
     expect(refused(() => rulingsOf(`${one}\n${rulingBlock(3, "park", null, "A credential.")}`, 2))).toBe("its answer rules on question 3, and it was given 2 questions");
-    expect(refused(() => rulingsOf("```seal\nrules: 1 park\ndecided: Wait.\ngrounds: A credential.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block parks its question and holds a `decided:` line: a park decides nothing");
-    expect(refused(() => rulingsOf("```seal\nrules: 1 scope\ngrounds: The frame.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block holds no `decided:` line, and every ruling but `park` says what was decided");
-    expect(refused(() => rulingsOf("```seal\nrules: 1 route\ndecided: Go on.\ngrounds: The frame.\n```\n", 1))).toContain("the reader refuses line 2 of its ruling: `rules: 1 route` does not read whole");
+    expect(refused(() => rulingsOf("```iadd\nrules: 1 park\ndecided: Wait.\ngrounds: A credential.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block parks its question and holds a `decided:` line: a park decides nothing");
+    expect(refused(() => rulingsOf("```iadd\nrules: 1 scope\ngrounds: The frame.\n```\n", 1))).toBe("the reader refuses line 1 of its ruling: the ruling block holds no `decided:` line, and every ruling but `park` says what was decided");
+    expect(refused(() => rulingsOf("```iadd\nrules: 1 route\ndecided: Go on.\ngrounds: The frame.\n```\n", 1))).toContain("the reader refuses line 2 of its ruling: `rules: 1 route` does not read whole");
   });
 });
 
@@ -595,9 +595,9 @@ describe("a judgment's prompt", () => {
       `- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\``,
       `- The decisions and the answers to hold to: \`${DIRECTORY}/decisions.md\``,
       "",
-      "Round 2 left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one `seal` block, written so:",
+      "Round 2 left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one `iadd` block, written so:",
       "",
-      "```seal",
+      "```iadd",
       "converging: <yes or no>",
       "grounds: <why, on one line>",
       "```",
@@ -633,9 +633,9 @@ describe("a judgment's prompt", () => {
       "2. May the pass change the protocol?",
       "   - Why the crafter cannot answer it: The frame names no such change.",
       "",
-      "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `seal` block for each question, written so:",
+      "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `iadd` block for each question, written so:",
       "",
-      "```seal",
+      "```iadd",
       "rules: <the question's number> <default, scope, answered or park>",
       "decided: <what was decided, on one line; a park holds no such line>",
       "grounds: <why, on one line>",
@@ -652,13 +652,13 @@ describe("a judgment's prompt", () => {
   });
 });
 
-describe("the seal's prompt", () => {
+describe("the inspection's prompt", () => {
   const given = { run: 2, worktree: WORKTREE, directory: DIRECTORY, target: `${A} against main`, rounds: [1, 2], decisions: true, frame: true, phases: true, changelog: true, earlier: null, paths: ["feature.txt", `${DIRECTORY}/routing.md`], diff: "diff --git a/feature.txt b/feature.txt\n" };
 
-  it("gives a sealer its run, the directory, the heading and the target line its verdict carries, the routing, every round record, the gate's record, the decisions, the frame, the phase records and the changelog where each stands, that no issue is named, the paths the branch changed and their diff", () => {
-    const prompt = sealPrompt(given);
+  it("gives an inspector its run, the directory, the heading and the target line its verdict carries, the routing, every round record, the gate's record, the decisions, the frame, the phase records and the changelog where each stands, that no issue is named, the paths the branch changed and their diff", () => {
+    const prompt = inspectionPrompt(given);
     expect(prompt.shown.split("\n")).toEqual([
-      `Run 2 of the sealer on the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
+      `Run 2 of the inspector on the work item \`${NAME}\`, in its worktree \`${WORKTREE}\`. Every path below is from that worktree's top.`,
       "",
       `- The work item's directory: \`${DIRECTORY}\``,
       "- Your section's heading: `## Run 2`",
@@ -672,7 +672,7 @@ describe("the seal's prompt", () => {
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file of that worktree: read its files.`,
+      `Your answer is your run's section of the inspection, whole, from its heading to its end, in the form of the inspection's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who inspected it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
       "",
       "The branch changed these paths since it left its base:",
       "- `feature.txt`",
@@ -680,21 +680,21 @@ describe("the seal's prompt", () => {
       "",
     ]);
     expect(prompt.diff).toBe("Their diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
-    expect(givenSeal(promptText(prompt))).toEqual({ run: 2, heading: "## Run 2", target: `${A} against main` });
+    expect(givenInspection(promptText(prompt))).toEqual({ run: 2, heading: "## Run 2", target: `${A} against main` });
   });
 
   it("names no record that does not stand, says where the branch changed no path, and cuts a diff longer than the bound at the bound", () => {
-    const bare = sealPrompt({ ...given, run: 1, decisions: false, frame: false, phases: false, changelog: false, paths: [], diff: "" });
+    const bare = inspectionPrompt({ ...given, run: 1, decisions: false, frame: false, phases: false, changelog: false, paths: [], diff: "" });
     for (const absent of ["decisions.md", "/frame/", "/trail/phases/", "changelog.md"]) expect(bare.shown, absent).not.toContain(absent);
     expect(bare.shown).toContain("- Your section's heading: `## Run 1`\n");
     expect(bare.shown).toContain("The branch changed no path since it left its base.\n");
     expect(bare.diff).toBe("");
-    const long = sealPrompt({ ...given, diff: "x".repeat(PROMPT_DIFF_CHARS + 5) });
+    const long = inspectionPrompt({ ...given, diff: "x".repeat(PROMPT_DIFF_CHARS + 5) });
     expect(long.diff).toBe(`Their diff, its first ${String(PROMPT_DIFF_CHARS)} characters of ${String(PROMPT_DIFF_CHARS + 5)}. Read the files for the rest.\n\n${"x".repeat(PROMPT_DIFF_CHARS)}`);
   });
 
-  it("names the seal a later commit broke, by its run and its sealed commit, and says that the paths and the diff are what changed since that commit, while the target line stays the gate's commit against the base", () => {
-    const after = sealPrompt({ ...given, run: 3, earlier: { run: 2, commit: B }, paths: ["later.txt"], diff: "diff --git a/later.txt b/later.txt\n" });
+  it("names the inspection a later commit lapsed, by its run and its cleared commit, and says that the paths and the diff are what changed since that commit, while the target line stays the gate's commit against the base", () => {
+    const after = inspectionPrompt({ ...given, run: 3, earlier: { run: 2, commit: B }, paths: ["later.txt"], diff: "diff --git a/later.txt b/later.txt\n" });
     expect(after.shown.split("\n").slice(4, 16)).toEqual([
       `- Your verdict's target line: \`target: ${A} against main\``,
       `- The routing: \`${DIRECTORY}/routing.md\``,
@@ -705,20 +705,20 @@ describe("the seal's prompt", () => {
       `- The phase records: \`${DIRECTORY}/trail/phases/\``,
       `- The changelog fragment: \`${DIRECTORY}/changelog.md\``,
       "- The issue: the work item names none, so no issue's text is among what you read",
-      `- The seal this run follows: run 2 of \`${DIRECTORY}/guarantee.md\` sealed \`${B}\`, and a commit after it broke that seal`,
+      `- The inspection this run follows: run 2 of \`${DIRECTORY}/inspection.md\` cleared \`${B}\`, and a commit after it lapsed that inspection`,
       "",
-      `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${DIRECTORY}/guarantee.md\` and commits it. Write no file of that worktree: read its files.`,
+      `Your answer is your run's section of the inspection, whole, from its heading to its end, in the form of the inspection's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who inspected it, appends the section to \`${DIRECTORY}/inspection.md\` and commits it. Write no file of that worktree: read its files.`,
     ]);
-    expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 sealed:", "- `later.txt`", ""]);
+    expect(after.shown.split("\n").slice(-4)).toEqual(["", "The branch changed these paths since the commit run 2 cleared:", "- `later.txt`", ""]);
     expect(after.diff).toBe("Their diff:\n\ndiff --git a/later.txt b/later.txt\n");
-    expect(sealPrompt({ ...given, earlier: { run: 1, commit: B }, paths: [], diff: "" }).shown).toContain("\nThe branch changed no path since the commit run 1 sealed.\n");
-    expect(sealPrompt(given).shown).not.toContain("The seal this run follows");
+    expect(inspectionPrompt({ ...given, earlier: { run: 1, commit: B }, paths: [], diff: "" }).shown).toContain("\nThe branch changed no path since the commit run 1 cleared.\n");
+    expect(inspectionPrompt(given).shown).not.toContain("The inspection this run follows");
   });
 
-  it("gives the ruling on a sealer's question who asks and in which stage, and the question with the run it stands in and no option", () => {
-    const prompt = rulingPrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, by: "sealer", asked: "seal", asks: [undecidedAsk(3, "Does the frame's item 4 cover a renamed branch?")], decisions: false }).shown;
-    expect(prompt).toContain("- Who asks: the sealer, in the sealer's session\n\nIts question:\n\n1. Does the frame's item 4 cover a renamed branch?\n   - Why the sealer cannot answer it: The sealer asked it in place of a verdict, in run 3 of guarantee.md.\n\nDecide each question");
-    expect(undecidedAsk(3, "Does it?")).toEqual({ asks: "Does it?", grounds: "The sealer asked it in place of a verdict, in run 3 of guarantee.md.", options: [], default: null });
+  it("gives the ruling on an inspector's question who asks and in which stage, and the question with the run it stands in and no option", () => {
+    const prompt = rulingPrompt({ round: 2, worktree: WORKTREE, directory: DIRECTORY, by: "inspector", asked: "inspection", asks: [undecidedAsk(3, "Does the frame's item 4 cover a renamed branch?")], decisions: false }).shown;
+    expect(prompt).toContain("- Who asks: the inspector, in the inspector's session\n\nIts question:\n\n1. Does the frame's item 4 cover a renamed branch?\n   - Why the inspector cannot answer it: The inspector asked it in place of a verdict, in run 3 of inspection.md.\n\nDecide each question");
+    expect(undecidedAsk(3, "Does it?")).toEqual({ asks: "Does it?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md.", options: [], default: null });
   });
 });
 
@@ -747,8 +747,8 @@ describe("the record of the calls a role's rule refused", () => {
 
 describe("the routing a first start writes", () => {
   it("declares the branch through the review chain, names the session as planner and implementer, and holds no Automation row but where an answer is given, which it holds before the branch's row with a sentence on who gave it", () => {
-    const text = routingText(NAME, "owlery/sealed-work", "2026-11-23");
-    expect(declaredBranch(text)).toBe("owlery/sealed-work");
+    const text = routingText(NAME, "owlery/cleared-work", "2026-11-23");
+    expect(declaredBranch(text)).toBe("owlery/cleared-work");
     expect(text.split("\n")).toEqual([
       `# Routing: ${NAME}`,
       "",
@@ -758,26 +758,26 @@ describe("the routing a first start writes", () => {
       "| Destination | open the pull request |",
       "| Planning | the session |",
       "| Implementation | the session |",
-      "| Branch | owlery/sealed-work |",
+      "| Branch | owlery/cleared-work |",
       "",
       "Answered 2026-11-23 by Owlery, at the first start of the work item's chain.",
       "",
       "## Why this way",
       "",
-      "The branch was built in the person's own session, and its chain was started for a seal on it.",
+      "The branch was built in the person's own session, and its chain was started for an inspection of it.",
       "",
     ]);
     for (const answer of ["yes", "no"] as const) {
-      const answered = routingText(NAME, "owlery/sealed-work", "2026-11-23", answer);
-      expect(answered.split("\n")).toEqual(text.replace("| Branch |", `| Automation | ${answer} |\n| Branch |`).replace("a seal on it.", "a seal on it. The session that started the chain gave the answer on `Automation`.").split("\n"));
-      expect([declaredBranch(answered), routingAnswer(answered, "Automation")]).toEqual(["owlery/sealed-work", answer]);
+      const answered = routingText(NAME, "owlery/cleared-work", "2026-11-23", answer);
+      expect(answered.split("\n")).toEqual(text.replace("| Branch |", `| Automation | ${answer} |\n| Branch |`).replace("an inspection of it.", "an inspection of it. The session that started the chain gave the answer on `Automation`.").split("\n"));
+      expect([declaredBranch(answered), routingAnswer(answered, "Automation")]).toEqual(["owlery/cleared-work", answer]);
     }
-    expect(routingText(NAME, "owlery/sealed-work", "2026-11-23", null)).toBe(text);
+    expect(routingText(NAME, "owlery/cleared-work", "2026-11-23", null)).toBe(text);
     expect(routingAnswer(text, "Automation")).toBeNull();
   });
 
   it("answers who implemented as the routing's row says it, which a verdict names as a builder: the session of a routing the daemon wrote, another answer as it stands, and none where no such row stands, where the row is written twice, and where a renderer hides it", () => {
-    const text = routingText(NAME, "owlery/sealed-work", "2026-11-23");
+    const text = routingText(NAME, "owlery/cleared-work", "2026-11-23");
     expect(routingAnswer(text, "Implementation")).toBe("the session");
     expect(routingAnswer(text.replace("| Implementation | the session |", "| Implementation | crafter |"), "Implementation")).toBe("crafter");
     expect(routingAnswer(text.replace("| Implementation | the session |\n", ""), "Implementation")).toBeNull();
@@ -790,7 +790,7 @@ describe("the routing a first start writes", () => {
 describe("a chain as the store reads it", () => {
   const stage = (more: Partial<ChainStage> = {}): ChainStage => ({ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 4, refusals: 0, gate: null, ...more });
   const GATE: ChainStage = stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
-  const chain = (more: Partial<Chain> = {}): Chain => ({ state: "rested", says: "The sealer sealed ccccccc, after round 1.", stages: [stage()], since: 5, ...more });
+  const chain = (more: Partial<Chain> = {}): Chain => ({ state: "rested", says: "The inspector cleared ccccccc, after round 1.", stages: [stage()], since: 5, ...more });
 
   it("reads a chain that rests as it was stored, with the time it took its state, each stage naming no headless session, and none as none", () => {
     expect(chainRead(chain(), 9)).toEqual(chain({ stages: [stage({ headlessId: null })] }));
@@ -806,6 +806,16 @@ describe("a chain as the store reads it", () => {
     expect(chainRead(written, 9)?.since).toBe(4);
     expect(chainRead({ ...written, stages: [stage({ startedAt: 3, endedAt: null, state: "failed" })] }, 9)?.since).toBe(3);
     expect(chainRead({ ...written, stages: [] }, 9)?.since).toBe(0);
+  });
+
+  it("reads a chain an earlier build stored with a stage of the kind `seal` as one whose stage is of the kind `inspection`, so the file that holds it is read whole", () => {
+    const earlier = { ...chain(), stages: [stage(), { ...stage({ round: 1, startedAt: 3, endedAt: 4 }), kind: "seal" }] } as unknown;
+    expect(isChain(earlier)).toBe(true);
+    expect(chainRead(earlier as Chain, 9)?.stages.map(({ kind }) => kind)).toEqual(["round", "inspection"]);
+  });
+
+  it("reads no chain whose stage names a kind no build stored, a member name of Object.prototype among them", () => {
+    for (const kind of ["constructor", "toString", "__proto__", "hasOwnProperty", "sealed"]) expect(isChain({ ...chain(), stages: [{ ...stage(), kind }] }), kind).toBe(false);
   });
 
   it("reads a chain stored running as stopped: its sentence says that the daemon ended while the stage ran, and the stage that was working has failed", () => {
@@ -842,25 +852,25 @@ describe("a chain as the store reads it", () => {
   it("names the broad gate in a chain's sentences, whatever round it follows", () => {
     expect(runningSays("gate", 2)).toBe("The broad gate is running.");
     expect(stoppedSays("gate", 2, "the command exited with code 3")).toBe("The broad gate failed: the command exited with code 3.");
-    expect(refusalsText(null, NAME, { kind: "gate", round: 2, role: "sealer", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| gate 2 | sealer | Bash | runs a command | no-command |");
+    expect(refusalsText(null, NAME, { kind: "gate", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| gate 2 | inspector | Bash | runs a command | no-command |");
   });
 
-  it("names the sealer's session in a chain's sentences, whatever round it follows, and says a seal and a withheld verdict", () => {
-    expect(runningSays("seal", 2)).toBe("The sealer's session is running.");
-    expect(stoppedSays("seal", 2, "its answer holds no section of the guarantee")).toBe("The sealer's session failed: its answer holds no section of the guarantee.");
-    expect(sealedSays(2, HEAD)).toBe("The sealer sealed ccccccc, after round 2.");
-    expect(withheldSays("The changelog names `gone.ts`, which the tree does not hold.")).toBe("The sealer withheld its verdict: The changelog names `gone.ts`, which the tree does not hold.");
-    expect(withheldSays("no reason is given")).toBe("The sealer withheld its verdict: no reason is given.");
-    expect(refusalsText(null, NAME, { kind: "seal", round: 2, role: "sealer", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| seal 2 | sealer | Bash | runs a command | no-command |");
-    const seal = stage({ kind: "seal", round: 2, state: "working", endedAt: null, headlessId: 3 });
-    expect(chainRead(chain({ state: "running", says: "The sealer's session is running.", stages: [seal] }), 9)).toMatchObject({ state: "stopped", says: "The daemon ended while the sealer's session ran.", stages: [{ ...seal, state: "failed", failure: "the daemon ended while the stage ran", headlessId: null }] });
+  it("names the inspector's session in a chain's sentences, whatever round it follows, and says an inspection and a withheld verdict", () => {
+    expect(runningSays("inspection", 2)).toBe("The inspector's session is running.");
+    expect(stoppedSays("inspection", 2, "its answer holds no section of the inspection")).toBe("The inspector's session failed: its answer holds no section of the inspection.");
+    expect(clearedSays(2, HEAD)).toBe("The inspector cleared ccccccc, after round 2.");
+    expect(withheldSays("The changelog names `gone.ts`, which the tree does not hold.")).toBe("The inspector withheld its verdict: The changelog names `gone.ts`, which the tree does not hold.");
+    expect(withheldSays("no reason is given")).toBe("The inspector withheld its verdict: no reason is given.");
+    expect(refusalsText(null, NAME, { kind: "inspection", round: 2, role: "inspector", calls: [{ tool: "Bash", action: "run", rule: "no-command" }] }).split("\n")[4]).toBe("| inspection 2 | inspector | Bash | runs a command | no-command |");
+    const inspection = stage({ kind: "inspection", round: 2, state: "working", endedAt: null, headlessId: 3 });
+    expect(chainRead(chain({ state: "running", says: "The inspector's session is running.", stages: [inspection] }), 9)).toMatchObject({ state: "stopped", says: "The daemon ended while the inspector's session ran.", stages: [{ ...inspection, state: "failed", failure: "the daemon ended while the stage ran", headlessId: null }] });
   });
 
-  it("names the pull request stage in a chain's sentences, whatever round it follows, says the pull request it opened and the seal it gave an open one, and keeps a chain whose newest stage is one", () => {
+  it("names the pull request stage in a chain's sentences, whatever round it follows, says the pull request it opened and the inspection it gave an open one, and keeps a chain whose newest stage is one", () => {
     expect(runningSays("pull-request", 2)).toBe("The pull request stage is running.");
     expect(stoppedSays("pull-request", 2, "gh pr list exited with code 4: To get started with GitHub CLI, please run:  gh auth login")).toBe("The pull request stage failed: gh pr list exited with code 4: To get started with GitHub CLI, please run:  gh auth login.");
     expect(pullRequestOpenSays(12)).toBe("Pull request #12 is open.");
-    expect(pullRequestCarriesSays(12, HEAD)).toBe("Pull request #12 carries the seal at ccccccc.");
+    expect(pullRequestCarriesSays(12, HEAD)).toBe("Pull request #12 carries the inspection at ccccccc.");
     const opening = stage({ kind: "pull-request", round: 2, state: "working", endedAt: null, headlessId: null });
     expect(isChain(chain({ stages: [opening] }))).toBe(true);
     expect(chainRead(chain({ state: "running", says: "The pull request stage is running.", stages: [opening] }), 9)).toMatchObject({ state: "stopped", says: "The daemon ended while the pull request stage ran.", stages: [{ ...opening, state: "failed", failure: "the daemon ended while the stage ran" }] });
@@ -886,7 +896,7 @@ describe("a chain as the store reads it", () => {
     expect(isChain(chain())).toBe(true);
     expect(isChain(chain({ stages: [] }))).toBe(true);
     // Each kind of stage and each state the protocol lists is a chain's.
-    for (const kind of ["round", "fix-pass", "judgment", "ruling", "seal"] as const) expect(isChain(chain({ stages: [stage({ kind })] })), kind).toBe(true);
+    for (const kind of ["round", "fix-pass", "judgment", "ruling", "inspection"] as const) expect(isChain(chain({ stages: [stage({ kind })] })), kind).toBe(true);
     for (const state of ["running", "parked", "stopped", "rested"] as const) expect(isChain(chain({ state })), state).toBe(true);
     for (const wrong of [null, {}, { ...chain(), state: "reviewing" }, { ...chain(), says: 1 }, { ...chain(), reviewedAt: 1 }, { ...chain(), state: "reviewed", reviewedAt: 1 }, { ...chain(), stages: "none" }, { ...chain(), since: "5" }, { ...chain(), since: null }, chain({ stages: [stage({ kind: "audit" as "round" })] }), chain({ stages: [stage({ state: "stopped" as "failed" })] }), chain({ stages: [{ ...stage(), refusals: "0" } as unknown as ChainStage] }), chain({ stages: [{ ...stage(), round: null } as unknown as ChainStage] })]) {
       expect(isChain(wrong), JSON.stringify(wrong)).toBe(false);
@@ -900,18 +910,18 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   const ended = (kind: ChainStage["kind"], round: number, headlessId: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind, round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId, refusals: 0, gate: null, ...more });
   /** The stage of a broad gate whose command, the stand-in `true`, passed after the round given. */
   const passed = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "gate", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: { command: "true", exitCode: 0, output: false }, ...more });
-  /** The stage that pushed the sealed branch and opened its pull request at the stand-in for gh, after the round given. */
+  /** The stage that pushed the cleared branch and opened its pull request at the stand-in for gh, after the round given. */
   const opened = (round: number): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null });
   const recordAt = (worktree: string, round: number): string => join(worktree, DIRECTORY, "trail", "rounds", `round-${String(round)}.md`);
-  const VERDICT_COMMIT = { subject: "chore: record the sealer's verdict", body: TRAILER, paths: [`${DIRECTORY}/guarantee.md`] };
+  const VERDICT_COMMIT = { subject: "chore: record the inspector's verdict", body: TRAILER, paths: [`${DIRECTORY}/inspection.md`] };
 
-  it("runs two rounds, one fix pass, the broad gate and the seal: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the sealer's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the sealer's two lines and the daemon's four, the chain is sealed, each stage's entry of the ledger names the stage's kind and its round, and a second start runs no stage", async () => {
+  it("runs two rounds, one fix pass, the broad gate and the inspection: the branch holds, in order, the commit of routing.md, of round 1's record, the crafter's fix, the commit of the closed record, of round 2's record, of the broad gate's run on that record's commit and of the inspector's verdict on that same commit, each of the daemon's with the trailer and the fix pass's with its session's id, each record is the proofer's text unchanged, the verdict block holds the inspector's two lines and the daemon's four, the chain is cleared, each stage's entry of the ledger names the stage's kind and its round, and a second start runs no stage", async () => {
     const answers: string[] = [];
     const proofer = (given: { round: number; heading: string; target: string }): string => {
       answers.push(proofs(given));
       return `I read the branch.\n\n${answers.at(-1) ?? ""}`;
     };
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer }) });
     const a = workItems[0]!;
     const built = head(a.worktree);
     expect(c.workItem(a.id)?.chain).toBeNull();
@@ -928,7 +938,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       { subject: "chore: record review round 1", body: TRAILER, paths: [record(1)] },
       { subject: "fix: end the greeting", body: "", paths: ["feature.txt"] },
       // The crafter's session named itself `fake-2`, the second session of the case's adapter.
-      { subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nSeal-Built-By: fake-2`, paths: [record(1)] },
+      { subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nIADD-Built-By: fake-2`, paths: [record(1)] },
       { subject: "chore: record review round 2", body: TRAILER, paths: [record(2)] },
       { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },
       VERDICT_COMMIT,
@@ -946,14 +956,14 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(answers[1]).toBe(roundRecord(HEADING(2), `${fixed}, fixes ${routing}..${fixed}`, [], ["round-1#1"]));
     expect(readFileSync(recordAt(a.worktree, 2), "utf8")).toBe(answers[1]);
 
-    // The gate ran on the commit of round 2's record, and the verdict names that same commit: no seal is written for another.
+    // The gate ran on the commit of round 2's record, and the verdict names that same commit: no inspection is written for another.
     expect(git(a.worktree, "rev-parse", "HEAD~2").trim()).toBe(second);
     expect(git(a.worktree, "show", `HEAD:${DIRECTORY}/trail/gate.md`)).toBe(gateRecord(NAME, [[second, a.baseCommit ?? ""]]));
-    // The sealer wrote the target and the verdict, and the daemon who built, who judged, the model and its version: the routing names the session, the fix pass's session is `fake-2`, and the sealer's is `fake-4`.
-    const section = sealSection({ heading: "## Run 1", target: `${second} against ${a.baseBranch ?? a.baseCommit}` });
-    expect(git(a.worktree, "show", `HEAD:${DIRECTORY}/guarantee.md`)).toBe(guaranteeRecord(NAME, [sealedBy(section, "the session, fake-2", "fake-4")]));
-    const sealed: Chain = { state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3), passed(2), ended("seal", 2, 4), opened(2)] };
-    expect(chain).toEqual(sealed);
+    // The inspector wrote the target and the verdict, and the daemon who built, who judged, the model and its version: the routing names the session, the fix pass's session is `fake-2`, and the inspector's is `fake-4`.
+    const section = runSection({ heading: "## Run 1", target: `${second} against ${a.baseBranch ?? a.baseCommit}` });
+    expect(git(a.worktree, "show", `HEAD:${DIRECTORY}/inspection.md`)).toBe(inspectionRecord(NAME, [withOwleryLines(section, "the session, fake-2", "fake-4")]));
+    const cleared: Chain = { state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended("round", 1, 1), ended("fix-pass", 1, 2), ended("round", 2, 3), passed(2), ended("inspection", 2, 4), opened(2)] };
+    expect(chain).toEqual(cleared);
     // Each session's entry and the gate's name the chain's stage they are for, and the pull request stage, which is no session, has none.
     const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
     expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, chain }) => [stage, chain]) : ledger).toEqual([
@@ -961,7 +971,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       [{ role: "crafter", stage: "fix-pass" }, { kind: "fix-pass", round: 1 }],
       [{ role: "proofer", stage: "round" }, { kind: "round", round: 2 }],
       [{ role: null, stage: "gate" }, { kind: "gate", round: 2 }],
-      [{ role: "sealer", stage: "seal" }, { kind: "seal", round: 2 }],
+      [{ role: "inspector", stage: "inspection" }, { kind: "inspection", round: 2 }],
     ]);
 
     // Nothing is owed, so a second start runs no stage and makes no commit.
@@ -969,7 +979,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const at = head(a.worktree);
     expect(await c.startChain(a.id)).toBe("done");
     await c.until(() => (c.messages.slice(before).some((m) => m.type === "inbox" && m.workItems[0]?.chain?.state === "running") ? true : undefined));
-    expect(await c.chain(a.id, "rested")).toEqual(sealed);
+    expect(await c.chain(a.id, "rested")).toEqual(cleared);
     expect(head(a.worktree)).toBe(at);
     expect(c.messages.flatMap((m) => (m.type === "headless" ? [m.headless.id] : [])).every((id) => id <= 4)).toBe(true);
   });
@@ -1004,12 +1014,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(b.id)).toBe("done");
     await queued(["proofer Second"]);
     // A session no chain started waits at the last rank, behind the first stage that joined before it.
-    expect((await d.startRoleSession(b.id, "Which file?", { role: "sealer", stage: "seal" })).state).toBe("queued");
-    await queued(["proofer Second", "sealer Second"]);
+    expect((await d.startRoleSession(b.id, "Which file?", { role: "inspector", stage: "inspection" })).state).toBe("queued");
+    await queued(["proofer Second", "inspector Second"]);
     clock = 5_000;
     holds[0]?.resolve();
     // Round 1 of the first chain ended and freed its place, which the second chain's first stage took, so the fix pass waits, before the session that joined before it.
-    await queued(["crafter First", "sealer Second"]);
+    await queued(["crafter First", "inspector Second"]);
     holds[1]?.resolve();
     await c.chain(a.id, "rested");
     const second = await c.chain(b.id, "rested");
@@ -1049,7 +1059,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(queue[0]).toBe(second);
   });
 
-  it("goes on with no client connected: the chain is sealed after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest with no gap, the display too while the broad gate holds its turn, and a client that connects later is sent the chain in its ready", async () => {
+  it("goes on with no client connected: the chain is cleared after the client left, the daemon asks for no exit before it rests and holds the Mac awake from the start to the rest with no gap, the display too while the broad gate holds its turn, and a client that connects later is sent the chain in its ready", async () => {
     let idle = 0;
     const holds: string[] = [];
     const { c, url, workItems } = await standing(cleanups, ["Left alone"], {
@@ -1081,27 +1091,27 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const later = await client(url, cleanups);
     const ready = await later.message("ready");
     expect(ready.workItems[0]?.chain).toMatchObject({ state: "rested", says: "Pull request #1 is open." });
-    expect(ready.workItems[0]?.chain?.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
+    expect(ready.workItems[0]?.chain?.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
   });
 
-  it("ends each stage's process before the next stage starts: every stage's run is stopped and has exited before the next one's start, the broad gate's command has exited before the sealer's start, and the sealer's run has exited before the chain rests", async () => {
+  it("ends each stage's process before the next stage starts: every stage's run is stopped and has exited before the next one's start, the broad gate's command has exited before the inspector's start, and the inspector's run has exited before the chain rests", async () => {
     const { adapter, events } = noted(roles());
-    // The gate's command notes its own process, and the case reads whether that process still lives when the sealer starts.
-    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-seal-case-")));
+    // The gate's command notes its own process, and the case reads whether that process still lives when the inspector starts.
+    const folder = realpathSync(mkdtempSync(join(tmpdir(), "owlery-inspection-case-")));
     cleanups.push(() => rmSync(folder, { recursive: true, force: true }));
     const notes = join(folder, "noted");
     const order: string[] = [];
     const watching: RoleAdapter = {
       ...adapter,
       start: (options, listener) => {
-        if (options.role?.role === "sealer") {
+        if (options.role?.role === "inspector") {
           let lives = true;
           try {
             process.kill(Number(readFileSync(notes, "utf8").trim()), 0);
           } catch {
             lives = false;
           }
-          order.push(`the sealer starts, and the gate's process ${lives ? "lives" : "has exited"}`);
+          order.push(`the inspector starts, and the gate's process ${lives ? "lives" : "has exited"}`);
         }
         return adapter.start(options, listener);
       },
@@ -1110,9 +1120,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(workItems[0]!.id)).toBe("done");
     c.until(() => (c.workItem(workItems[0]!.id)?.chain?.state === "rested" ? true : undefined)).then(() => order.push(`the chain rests, after ${events.at(-1) ?? "nothing"}`), () => undefined);
     await c.chain(workItems[0]!.id, "rested");
-    expect(events).toEqual(["start proofer 1", "stop proofer 1", "exit proofer 1", "start crafter 2", "stop crafter 2", "exit crafter 2", "start proofer 3", "stop proofer 3", "exit proofer 3", "start sealer 4", "stop sealer 4", "exit sealer 4"]);
+    expect(events).toEqual(["start proofer 1", "stop proofer 1", "exit proofer 1", "start crafter 2", "stop crafter 2", "exit crafter 2", "start proofer 3", "stop proofer 3", "exit proofer 3", "start inspector 4", "stop inspector 4", "exit inspector 4"]);
     await c.until(() => (order.length === 2 ? true : undefined));
-    expect(order).toEqual(["the sealer starts, and the gate's process has exited", "the chain rests, after exit sealer 4"]);
+    expect(order).toEqual(["the inspector starts, and the gate's process has exited", "the chain rests, after exit inspector 4"]);
   });
 
   it("lists a stage's session with its prompt and no diff, gives the agent the diff of what the branch changed since it left its base, launches a round as the proofer and a fix pass as the crafter in the worktree, and counts on the stage the calls the role's rule refused", async () => {
@@ -1124,35 +1134,35 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     commitAll(made.repo, "feat: on main");
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(started.map(({ cwd, role }) => [cwd, role])).toEqual([[a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "crafter", stage: "fix-pass" }], [a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "sealer", stage: "seal" }]]);
+    expect(started.map(({ cwd, role }) => [cwd, role])).toEqual([[a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "crafter", stage: "fix-pass" }], [a.worktree, { role: "proofer", stage: "round" }], [a.worktree, { role: "inspector", stage: "inspection" }]]);
     // Each prompt names the worktree the session was launched in, the session's own folder.
     for (const { cwd, prompt } of started) expect(prompt.split("\n")[0]).toContain(`, in its worktree \`${cwd}\`. Every path below is from that worktree's top.`);
     const sessions = c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "finished" ? [m.headless] : []));
-    expect(sessions.map(({ id, workItemId, role }) => [id, workItemId, role?.role])).toEqual([[1, a.id, "proofer"], [2, a.id, "crafter"], [3, a.id, "proofer"], [4, a.id, "sealer"]]);
+    expect(sessions.map(({ id, workItemId, role }) => [id, workItemId, role?.role])).toEqual([[1, a.id, "proofer"], [2, a.id, "crafter"], [3, a.id, "proofer"], [4, a.id, "inspector"]]);
     // The agent was given the diff of the reviewed commits, and the listed prompt is the same text up to it.
-    expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(started[0]?.prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
     expect(started[0]?.prompt).toContain("+A greeting\n");
     expect(sessions[0]?.prompt).not.toContain("diff --git");
     expect(started[0]?.prompt).not.toContain("on-main.txt");
     // No record of decisions stands, so no prompt of a round names one.
     expect(started[0]?.prompt).not.toContain("decisions.md");
     expect(started[0]?.prompt.startsWith(`${sessions[0]?.prompt ?? "none"}\nTheir diff:`)).toBe(true);
-    expect(sessions[0]?.prompt).toContain("- The work item's directory: `seal/threads/1795388700-listed`\n");
-    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `feature.txt`\n- `seal/threads/1795388700-listed/routing.md`\n");
+    expect(sessions[0]?.prompt).toContain("- The work item's directory: `agentory/threads/1795388700-listed`\n");
+    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `agentory/threads/1795388700-listed/routing.md`\n- `feature.txt`\n");
     // Round 2 is given the commits after round 1's target: the record's two commits and the fix.
     expect(started[2]?.prompt).toContain("+A greeting.\n");
-    expect(started[2]?.prompt).toContain("- Earlier round records: `seal/threads/1795388700-listed/trail/rounds/round-1.md`\n");
+    expect(started[2]?.prompt).toContain("- Earlier round records: `agentory/threads/1795388700-listed/trail/rounds/round-1.md`\n");
     expect(started[1]?.prompt).toBe(sessions[1]?.prompt);
     // The proofer's write was refused by its grant in each round, and nothing was written.
-    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 0], ["round", 1], ["gate", 0], ["seal", 0], ["pull-request", 0]]);
+    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 0], ["round", 1], ["gate", 0], ["inspection", 0], ["pull-request", 0]]);
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
-    // The sealer is given the commit the gate passed on, the records to read, and the diff of what the branch changed since it left its base, as round 1 was: nothing the base gained since.
+    // The inspector is given the commit the gate passed on, the records to read, and the diff of what the branch changed since it left its base, as round 1 was: nothing the base gained since.
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const directory = "seal/threads/1795388700-listed";
+    const directory = "agentory/threads/1795388700-listed";
     for (const absent of ["decisions.md", "/frame/", "/trail/phases/", "changelog.md"]) expect(sessions[3]?.prompt, absent).not.toContain(absent);
     expect(sessions[3]?.prompt).toContain(`- Your section's heading: \`## Run 1\`\n- Your verdict's target line: \`target: ${gate} against main\`\n- The routing: \`${directory}/routing.md\`\n- The round records, the oldest first: \`${directory}/trail/rounds/round-1.md\`, \`${directory}/trail/rounds/round-2.md\`\n- The broad gate's record: \`${directory}/trail/gate.md\`\n- The issue: `);
-    expect(sessions[3]?.prompt).toContain(`The branch changed these paths since it left its base:\n- \`feature.txt\`\n- \`${directory}/routing.md\`\n- \`${directory}/trail/refusals.md\`\n- \`${directory}/trail/rounds/round-1.md\`\n- \`${directory}/trail/rounds/round-2.md\`\n`);
-    expect(started[3]?.prompt.startsWith(`${sessions[3]?.prompt ?? "none"}\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n`)).toBe(true);
+    expect(sessions[3]?.prompt).toContain(`The branch changed these paths since it left its base:\n- \`${directory}/routing.md\`\n- \`${directory}/trail/refusals.md\`\n- \`${directory}/trail/rounds/round-1.md\`\n- \`${directory}/trail/rounds/round-2.md\`\n- \`feature.txt\`\n`);
+    expect(started[3]?.prompt.startsWith(`${sessions[3]?.prompt ?? "none"}\nTheir diff:\n\ndiff --git a/${directory}/routing.md b/${directory}/routing.md\n`)).toBe(true);
     expect(started[3]?.prompt).toContain("+A greeting.\n");
     expect(started[3]?.prompt).not.toContain("on-main.txt");
     expect(sessions[3]?.prompt).not.toContain("diff --git");
@@ -1162,7 +1172,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Decided"], { roleAdapter: roles() });
     const { c, d } = stood;
     const a = stood.workItems[0]!;
-    const directory = "seal/threads/1795388700-decided";
+    const directory = "agentory/threads/1795388700-decided";
     write(a.worktree, `${directory}/routing.md`, routingText("1795388700-decided", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     d.decided(a.id, { kind: "default", says: "Start from main.", grounds: "The default base." });
@@ -1182,14 +1192,14 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     // Round 1's commit carries the record of decisions with the round's record, and the fix pass's commit the reversal it took in.
     await c.chain(a.id, "rested");
     const commits = commitsAfterMain(a.worktree);
-    expect(commits.find(({ subject }) => subject === "chore: record review round 1")).toEqual({ subject: "chore: record review round 1", body: "Seal-Routing: 1795388700-decided", paths: [`${directory}/decisions.md`, `${directory}/trail/rounds/round-1.md`] });
-    expect(commits.map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the routing by hand", "chore: record review round 1", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+    expect(commits.find(({ subject }) => subject === "chore: record review round 1")).toEqual({ subject: "chore: record review round 1", body: "IADD-Routing: 1795388700-decided", paths: [`${directory}/decisions.md`, `${directory}/trail/rounds/round-1.md`] });
+    expect(commits.map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the routing by hand", "chore: record review round 1", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     expect(git(a.worktree, "show", `HEAD~5:${directory}/decisions.md`)).toContain("state: reversed\nreversal: Start from the release branch.\n");
     expect(commits.at(-4)?.paths).toEqual([`${directory}/decisions.md`, `${directory}/trail/rounds/round-1.md`]);
-    // The verdict's commit holds the guarantee alone, a closing record: the record of decisions was committed before the gate.
-    expect(commits.at(-1)?.paths).toEqual([`${directory}/guarantee.md`]);
-    // The sealer's prompt names the record of decisions, which stood when it started.
-    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.role?.role === "sealer" ? [m.headless.prompt] : []))[0]).toContain(`- The decisions and the answers to hold to: \`${directory}/decisions.md\`\n`);
+    // The verdict's commit holds the inspection alone, a closing record: the record of decisions was committed before the gate.
+    expect(commits.at(-1)?.paths).toEqual([`${directory}/inspection.md`]);
+    // The inspector's prompt names the record of decisions, which stood when it started.
+    expect(c.messages.flatMap((m) => (m.type === "headless" && m.headless.role?.role === "inspector" ? [m.headless.prompt] : []))[0]).toContain(`- The decisions and the answers to hold to: \`${directory}/decisions.md\`\n`);
     expect(status(a.worktree)).toEqual([]);
     expect(git(a.worktree, "show", `HEAD:${directory}/decisions.md`)).toMatch(/\nstate: applied [0-9a-f]{40}\nreversal: Start from the release branch\.\n/u);
     // The record of decisions stood when round 1 started, so the round's prompt names it.
@@ -1198,7 +1208,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
   it("starts no stage where the worktree left the work item's branch between two stages, and none where a second directory came to name the branch", async () => {
     const { adapter, started } = noted(roles());
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = stood.workItems[0]!;
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
@@ -1212,12 +1222,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(started.map(({ role }) => role?.role)).toEqual(["proofer"]);
 
     // A crafter that commits a second directory naming the branch leaves the work item's own untold.
-    const second = await standing(cleanups, ["Sealed work"], {
+    const second = await standing(cleanups, ["Cleared work"], {
       roleAdapter: roles({
         crafter: (cwd, prompt) => {
           fixes(cwd, prompt);
-          write(cwd, "seal/threads/2-second/routing.md", routingText("2-second", git(cwd, "symbolic-ref", "--short", "HEAD").trim(), TODAY));
-          git(cwd, "add", "seal/threads/2-second");
+          write(cwd, "agentory/threads/2-second/routing.md", routingText("2-second", git(cwd, "symbolic-ref", "--short", "HEAD").trim(), TODAY));
+          git(cwd, "add", "agentory/threads/2-second");
           git(cwd, "commit", "--quiet", "-m", "chore: declare the routing twice");
         },
       }),
@@ -1231,7 +1241,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
   it("reads round 1 against the commit the branch was cut at where the work item's base branch is gone", async () => {
     const { adapter, started } = noted(roles());
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = stood.workItems[0]!;
     // The run folder as it stands for a work item cut from a branch that was deleted since, read by a second daemon.
     await stood.d.close();
@@ -1242,12 +1252,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     expect(givenRound(started[0]?.prompt ?? "").target).toMatch(/^[0-9a-f]{40} against gone-branch$/u);
-    expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(started[0]?.prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
   });
 
   it("reads round 1 against the commit the branch was cut at where the round block's target line does not take the base branch's name, so the round's record is one the reader takes", async () => {
     const { adapter, started } = noted(roles());
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = stood.workItems[0]!;
     // The run folder as it stands for a work item cut from a branch git allows and the target line's shape does not, read by a second daemon.
     await stood.d.close();
@@ -1265,7 +1275,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["First name"], { roleAdapter: roles() });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "seal/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", branchOf(a), TODAY));
+    write(a.worktree, "agentory/threads/1795388700-first-name/routing.md", routingText("1795388700-first-name", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // The commit of the routing's new row is held, and the start waits for it.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1284,7 +1294,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("sends every client the lists that carry the chain as running once it has started, before the chain's own first read of the worktree has ended", async () => {
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const { c, d } = stood;
     const a = stood.workItems[0]!;
     // The start reads whether the worktree can take a commit, and the chain reads it again before its first stage. That second read is held, so the chain itself has told no client anything yet.
@@ -1318,7 +1328,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await started).toBe("done");
     await c.chain(a.id, "rested");
     expect(git(a.worktree, "symbolic-ref", "--short", "HEAD").trim()).toBe("owlery/second-name");
-    expect(declaredBranch(git(a.worktree, "show", "HEAD:seal/threads/1795388700-second-name/routing.md"))).toBe("owlery/second-name");
+    expect(declaredBranch(git(a.worktree, "show", "HEAD:agentory/threads/1795388700-second-name/routing.md"))).toBe("owlery/second-name");
   });
 
   it("starts no stage in a work item that was archived between two stages: the chain stops and says so, with the round's record committed", async () => {
@@ -1326,7 +1336,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const stood = await standing(cleanups, ["Shelved"], { roleAdapter: adapter });
     const { c } = stood;
     const a = stood.workItems[0]!;
-    write(a.worktree, "seal/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", branchOf(a), TODAY));
+    write(a.worktree, "agentory/threads/1795388700-shelved/routing.md", routingText("1795388700-shelved", branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the routing by hand");
     // Round 1's session has ended, and the chain is held at the commit of its record.
     const held = heldGit(cleanups, stood.made.base, '[ "$1" = commit ]');
@@ -1346,7 +1356,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("stops where the directory a first start would make stands already under another branch's routing, and writes nothing over it", async () => {
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles() });
     const a = stood.workItems[0]!;
     const other = routingText(NAME, "owlery/another-branch", TODAY);
     write(a.worktree, `${DIRECTORY}/routing.md`, other);
@@ -1366,12 +1376,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const nameOf = (slug: string): string => `1795388700-${slug}`;
     /** Whether the worktree's branch holds a round record, committed or written. */
     const noRecord = (worktree: string, slug: string): void => {
-      expect(existsSync(join(worktree, "seal", "threads", nameOf(slug), "trail"))).toBe(false);
+      expect(existsSync(join(worktree, "agentory", "threads", nameOf(slug), "trail"))).toBe(false);
       expect(commitsAfterMain(worktree).map(({ subject }) => subject)).toEqual(["feat: greet", "chore: declare the work item's routing"]);
       expect(status(worktree)).toEqual([]);
     };
 
-    it("stops its one chain where a round's session fails: the chain says that round 1 failed and why, no record is written, the other work item's chain is sealed, and a later start runs round 1 again", async () => {
+    it("stops its one chain where a round's session fails: the chain says that round 1 failed and why, no record is written, the other work item's chain is cleared, and a later start runs round 1 again", async () => {
       let failing = true;
       const inner = roles();
       const failed = fakeAdapter({ fail: "result" });
@@ -1386,7 +1396,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
       const again = await c.chain(a.id, "rested");
       // The stages of the first start stay, and the chain went on from the records: round 1 again.
-      expect(again.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "failed"], ["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(again.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "failed"], ["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
     });
 
     it("stops its one chain where a client stops a round's session: the chain names the round and what stopped it, no record is written, and the other work item's chain runs to its end", async () => {
@@ -1527,13 +1537,13 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       await refusedWith(stood, a.id, "The worktree holds a change no commit holds, at notes.txt. A round reads a committed tree: commit the change or remove it first.", stands(a.worktree));
       rmSync(join(a.worktree, "notes.txt"));
       // With no directory of the work item yet, a file under the records root is outside it too.
-      write(a.worktree, "seal/threads/9-other/notes.md", "notes\n");
-      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at seal\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
-      rmSync(join(a.worktree, "seal/threads/9-other"), { recursive: true });
+      write(a.worktree, "agentory/threads/9-other/notes.md", "notes\n");
+      await refusedWith(stood, a.id, /^The worktree holds a change no commit holds, at agentory\/threads\/9-other\/notes\.md\./u, stands(a.worktree));
+      rmSync(join(a.worktree, "agentory/threads/9-other"), { recursive: true });
       // Inside the work item's directory a file no commit holds refuses nothing.
-      write(a.worktree, "seal/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
+      write(a.worktree, "agentory/threads/1795388700-changed/routing.md", routingText("1795388700-changed", branchOf(a), TODAY));
       commitAll(a.worktree, "chore: declare the routing by hand");
-      write(a.worktree, "seal/threads/1795388700-changed/notes.md", "notes\n");
+      write(a.worktree, "agentory/threads/1795388700-changed/notes.md", "notes\n");
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.chain(a.id, "rested");
     });
@@ -1545,10 +1555,26 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Twice named"]);
       const b = stood.workItems[0]!;
-      write(b.worktree, "seal/threads/1-one/routing.md", routingText("1-one", branchOf(b), TODAY));
-      write(b.worktree, "seal/threads/2-two/routing.md", routingText("2-two", branchOf(b), TODAY));
+      write(b.worktree, "agentory/threads/1-one/routing.md", routingText("1-one", branchOf(b), TODAY));
+      write(b.worktree, "agentory/threads/2-two/routing.md", routingText("2-two", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing twice");
-      await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: seal/threads/1-one and seal/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
+      await refusedWith(stood, b.id, `Two directories of the worktree's records name the branch ${b.branch}: agentory/threads/1-one and agentory/threads/2-two. Owlery cannot tell which is the work item's.`, stands(b.worktree));
+    });
+
+    it("refuses a worktree whose records stand in the earlier form, a root of it in place of the records root or the work item's own directory under one, with the sentence that names the chain command's `migrate`", async () => {
+      const migrate = "The chain command's `migrate` moves them to IADD's forms in one commit on this branch; run it in the worktree, and commit nothing else with it. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared.";
+      const bare = await standing(cleanups, ["Earlier root"], { root: false });
+      const a = bare.workItems[0]!;
+      write(a.worktree, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+      write(a.worktree, "seal/config.json", '{ "Broad gate": "true" }\n');
+      commitAll(a.worktree, "chore: the plugin's root");
+      await refusedWith(bare, a.id, `The worktree's work records stand in seal/, in the form the AgenticSeal plugin wrote, which Owlery reads no record of. ${migrate}`, stands(a.worktree));
+
+      const stood = await standing(cleanups, ["Kept under the earlier root"]);
+      const b = stood.workItems[0]!;
+      write(b.worktree, "seal/threads/1-kept/routing.md", routingText("1-kept", branchOf(b), TODAY));
+      commitAll(b.worktree, "chore: the routing a merge left under the earlier root");
+      await refusedWith(stood, b.id, `This work item's records stand in seal/threads/1-kept/, in the form the AgenticSeal plugin wrote, and the branch's records root is agentory/. ${migrate}`, stands(b.worktree));
     });
 
     it("refuses a work item with no base commit, and one whose branch holds no commit after its base", async () => {
@@ -1570,7 +1596,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const a = stood.workItems[0]!;
       // Another line from the repository's first commit, with the records root brought onto it, which does not hold the commit the work item's branch was cut at.
       git(stood.made.repo, "checkout", "--quiet", "-b", "aside", "main~1");
-      git(stood.made.repo, "checkout", "--quiet", "main", "--", "seal");
+      git(stood.made.repo, "checkout", "--quiet", "main", "--", "agentory");
       write(stood.made.repo, "aside.txt", "Aside\n");
       const aside = commitAll(stood.made.repo, "feat: aside");
       git(stood.made.repo, "checkout", "--quiet", "main");
@@ -1587,7 +1613,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       const stood = await standing(cleanups, ["Parked"], { roleAdapter: roles() });
       const b = stood.workItems[0]!;
-      const directory = "seal/threads/1795388700-parked";
+      const directory = "agentory/threads/1795388700-parked";
       write(b.worktree, `${directory}/routing.md`, routingText("1795388700-parked", branchOf(b), TODAY));
       commitAll(b.worktree, "chore: declare the routing by hand");
       stood.d.park(b.id, { by: "crafter", questions: [{ asks: "May the pass change the protocol?", grounds: "The frame names no such change." }] });
@@ -1604,7 +1630,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   describe("a chain that starts again from the records", () => {
     /** A work item whose branch holds its routing and round 1's record with finding 1, written by hand as a chain that ran elsewhere left them, and a daemon that holds no chain for it. */
     const withRoundOne = async (options: Parameters<typeof standing>[2], close: boolean) => {
-      const stood = await standing(cleanups, ["Sealed work"], options);
+      const stood = await standing(cleanups, ["Cleared work"], options);
       const a = stood.workItems[0]!;
       write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
       const target = commitAll(a.worktree, "chore: declare the work item's routing");
@@ -1624,7 +1650,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(c.workItem(a.id)?.chain).toBeNull();
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
       expect(started[0]?.role).toEqual({ role: "crafter", stage: "fix-pass" });
       expect(givenFix(started[0]?.prompt ?? "")).toEqual({ record, open: [1] });
     });
@@ -1635,7 +1661,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const at = head(a.worktree);
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, round }) => [kind, round])).toEqual([["round", 2], ["gate", 2], ["seal", 2], ["pull-request", 2]]);
+      expect(chain.stages.map(({ kind, round }) => [kind, round])).toEqual([["round", 2], ["gate", 2], ["inspection", 2], ["pull-request", 2]]);
       expect(givenRound(started[0]?.prompt ?? "")).toEqual({ round: 2, heading: HEADING(2), target: `${at}, fixes ${target}..${at}` });
       expect(readRoundRecord(readFileSync(recordAt(a.worktree, 2), "utf8")).target?.said).toBe(`${at}, fixes ${target}..${at}`);
     });
@@ -1647,14 +1673,14 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
       // Read from the worktree, the finding would stand rejected and a verifying round would be first.
-      expect(started.map(({ role }) => role?.role)).toEqual(["crafter", "proofer", "sealer"]);
-      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
-      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-4)).toEqual(["chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["crafter", "proofer", "inspector"]);
+      expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-4)).toEqual(["chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     });
 
-    it("runs the gate and the seal, and no round, where the records hold a round that left nothing open and no commit after it changed a path outside the directory, reads the rounds in the order of their numbers, and stops where a round record the head holds does not read or names a target the repository does not hold", async () => {
+    it("runs the gate and the inspection, and no round, where the records hold a round that left nothing open and no commit after it changed a path outside the directory, reads the rounds in the order of their numbers, and stops where a round record the head holds does not read or names a target the repository does not hold", async () => {
       const { adapter, started } = noted(roles());
-      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
       const record = (number: number): string => `${DIRECTORY}/trail/rounds/round-${String(number)}.md`;
       write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
@@ -1664,20 +1690,20 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await stood.c.startChain(a.id)).toBe("done");
       const first = await stood.c.chain(a.id, "rested");
       expect(git(a.worktree, "rev-parse", "HEAD~2").trim()).toBe(at);
-      expect(first).toEqual({ state: "rested", says: "Pull request #1 is open.", stages: [passed(1), ended("seal", 1, 1), opened(1)], since: NOW });
+      expect(first).toEqual({ state: "rested", says: "Pull request #1 is open.", stages: [passed(1), ended("inspection", 1, 1), opened(1)], since: NOW });
       // Round 10 is the last record, though git lists `round-10.md` before `round-2.md`.
       write(a.worktree, record(2), roundRecord(HEADING(2), `${at}, fixes ${target}..${at}`));
       write(a.worktree, record(10), roundRecord(HEADING(10), `${at}, fixes ${target}..${at}`));
       const later = commitAll(a.worktree, "chore: record two more rounds");
       expect(await stood.c.startChain(a.id)).toBe("done");
-      // Two round records follow the gate's commit, so the gate runs again, on the head that holds them, and the seal that stands names another commit than that gate's, so the sealer runs again.
+      // Two round records follow the gate's commit, so the gate runs again, on the head that holds them, and the inspection that stands names another commit than that gate's, so the inspector runs again.
       const second = await stood.c.until(() => {
         const found = stood.c.workItem(a.id)?.chain;
         return found?.state === "rested" && found.stages.length === 6 ? found : undefined;
       });
       expect(git(a.worktree, "rev-parse", "HEAD~2").trim()).toBe(later);
-      expect([second.says, ...second.stages.slice(-3)]).toEqual(["Pull request #1 is open.", passed(10), ended("seal", 10, 2), opened(10)]);
-      expect(readFileSync(join(a.worktree, DIRECTORY, "guarantee.md"), "utf8")).toContain(`\n## Run 2\n`);
+      expect([second.says, ...second.stages.slice(-3)]).toEqual(["Pull request #1 is open.", passed(10), ended("inspection", 10, 2), opened(10)]);
+      expect(readFileSync(join(a.worktree, DIRECTORY, "inspection.md"), "utf8")).toContain(`\n## Run 2\n`);
       write(a.worktree, record(2), `${HEADING(2)}\n\nA record with no block.\n`);
       commitAll(a.worktree, "chore: break round 2's record");
       expect(await stood.c.startChain(a.id)).toBe("done");
@@ -1689,8 +1715,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.until(() => (stood.c.workItem(a.id)?.chain?.says.includes("names the target") ? true : undefined));
       expect(stood.c.workItem(a.id)?.chain?.says).toBe(`The chain stopped: ${DIRECTORY}/trail/rounds/round-10.md names the target ${A}, and the repository holds no such commit.`);
-      // No round and no fix pass ran: each session of the case is a sealer's.
-      expect(started.map(({ role }) => role?.role)).toEqual(["sealer", "sealer"]);
+      // No round and no fix pass ran: each session of the case is an inspector's.
+      expect(started.map(({ role }) => role?.role)).toEqual(["inspector", "inspector"]);
     });
   });
 
@@ -1716,7 +1742,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   describe("a round whose record the check would refuse", () => {
     /** Runs a chain whose proofer answers round 1 as given, and gives the stopped chain's sentence once no record was written or committed. */
     const stoppedWith = async (proofer: (given: { round: number; heading: string; target: string }) => string, crafter?: (cwd: string, prompt: string) => void): Promise<string> => {
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer, crafter }) });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer, crafter }) });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "stopped");
@@ -1744,13 +1770,13 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
     it("is not written where the worktree's head moved during the round, and where the round left a change outside the work item's directory", async () => {
       const moved = roles({}, { work: (cwd, _prompt, role) => (role?.role === "proofer" ? void commitFix(cwd) : undefined) });
-      const first = await standing(cleanups, ["Sealed work"], { roleAdapter: moved });
+      const first = await standing(cleanups, ["Cleared work"], { roleAdapter: moved });
       expect(await first.c.startChain(1)).toBe("done");
       expect((await first.c.chain(1, "stopped")).says).toMatch(/^Review round 1 failed: the worktree's head moved during the round, from [0-9a-f]{7} to [0-9a-f]{7}, so the round read another tree than its target\.$/u);
       expect(existsSync(recordAt(first.workItems[0]!.worktree, 1))).toBe(false);
 
       const left = roles({}, { work: (cwd, _prompt, role) => (role?.role === "proofer" ? writeFileSync(join(cwd, "notes.txt"), "notes\n") : undefined) });
-      const second = await standing(cleanups, ["Sealed work"], { roleAdapter: left });
+      const second = await standing(cleanups, ["Cleared work"], { roleAdapter: left });
       expect(await second.c.startChain(1)).toBe("done");
       expect((await second.c.chain(1, "stopped")).says).toBe("Review round 1 failed: the worktree holds a change no commit holds outside the work item's directory, at notes.txt.");
       expect(existsSync(recordAt(second.workItems[0]!.worktree, 1))).toBe(false);
@@ -1760,7 +1786,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   describe("a fix pass held to its record", () => {
     /** Runs a chain whose crafter does as given, and gives the stopped chain's sentence with the subjects of the commits the pass and the daemon made after round 1's record. */
     const stoppedWith = async (crafter: (cwd: string, prompt: string) => void, proofer?: (given: { round: number; heading: string; target: string }) => string): Promise<{ says: string; after: string[]; worktree: string }> => {
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter, proofer }) });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter, proofer }) });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "stopped");
@@ -1809,13 +1835,13 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(backslashed.after).toEqual(["docs: note the greeting"]);
 
       // The folder is written with its trailing `/`, which the comparison drops as the check's does.
-      const located = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes/\``) }) });
+      const located = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${elsewhere(cwd)}\nlocation: \`notes/\``) }) });
       expect(await located.c.startChain(1)).toBe("done");
-      expect((await located.c.chain(1, "rested")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      expect((await located.c.chain(1, "rested")).stages.map(({ kind, state }) => [kind, state])).toEqual([["round", "finished"], ["fix-pass", "finished"], ["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     });
 
     it("holds the pass to the record as the commit before the pass holds it, and to the round's target: a change of the proofer's text that the worktree held before the pass refuses the record, and a fixed that names a commit made after the round's target and before the pass is taken", async () => {
-      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles() });
+      const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles() });
       const a = stood.workItems[0]!;
       const record = `${DIRECTORY}/trail/rounds/round-1.md`;
       write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
@@ -1828,7 +1854,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect((await stood.c.chain(a.id, "stopped")).says).toBe("The fix pass of round 1 failed: the round record it left differs from the committed one at line 12 by more than a close block.");
 
       // A fix a person committed after round 1's record and before the pass: the pass closes the finding with that commit.
-      const taken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${head(cwd)}`) }) });
+      const taken = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter: (cwd, prompt) => closeFinding(cwd, givenFix(prompt).record, 1, `fixed ${head(cwd)}`) }) });
       const b = taken.workItems[0]!;
       write(b.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(b), TODAY));
       const reviewed = commitAll(b.worktree, "chore: declare the work item's routing");
@@ -1836,7 +1862,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       commitAll(b.worktree, "chore: record review round 1");
       const fix = commitFix(b.worktree);
       expect(await taken.c.startChain(b.id)).toBe("done");
-      expect((await taken.c.chain(b.id, "rested")).stages.map(({ kind, state }) => [kind, state])).toEqual([["fix-pass", "finished"], ["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      expect((await taken.c.chain(b.id, "rested")).stages.map(({ kind, state }) => [kind, state])).toEqual([["fix-pass", "finished"], ["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
       expect(readFileSync(join(b.worktree, record), "utf8")).toContain(`verdict: fixed ${fix}\n`);
     });
 
@@ -1869,7 +1895,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
     it("stops the chain where a second fix pass on one record leaves a finding open too, whatever it asks: the first pass's question was decided, and the second is asked nothing more", async () => {
       const { adapter, started } = noted(roles({ crafter: () => undefined, crafterSays: () => `The pass needs a decision.\n\n${askBlock({ asks: "May the pass change the protocol?", grounds: "The frame names no such change." })}` }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "stopped");
@@ -1892,12 +1918,12 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
     it("asks the orchestrator before the second fix pass and not before the first, records its yes as a route decision by orchestrator in a commit of the record of decisions, and goes on with the fix pass and round 3", async () => {
       const { adapter, started } = noted(roles({ proofer: findsUntil(2), orchestrator: () => convergenceBlock("yes", "Round 2 confirms round 1's fix.") }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
-      expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "orchestrator", stage: "judgment" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "sealer", stage: "seal" }]);
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "orchestrator", stage: "judgment" }, { role: "crafter", stage: "fix-pass" }, { role: "proofer", stage: "round" }, { role: "inspector", stage: "inspection" }]);
       expect(started[3]?.cwd).toBe(a.worktree);
       expect(started[3]?.prompt.split("\n")[0]).toBe(`The judgment after review round 2 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
       expect(started[3]?.prompt).toContain(`- The round records, the oldest first: \`${DIRECTORY}/trail/rounds/round-1.md\`, \`${DIRECTORY}/trail/rounds/round-2.md\`\n`);
@@ -1919,7 +1945,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         "chore: record the fix pass of round 2",
         "chore: record review round 3",
         "chore: record the broad gate's run",
-        "chore: record the sealer's verdict",
+        "chore: record the inspector's verdict",
       ]);
       expect(commits[6]).toEqual(JUDGMENT(2));
       expect(status(a.worktree)).toEqual([]);
@@ -1932,7 +1958,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
     it("stops the chain at the orchestrator's no, with the decision recorded and committed and a sentence that says the rounds are not converging, and a second start by a person runs the fix pass with no second judgment", async () => {
       const { adapter, started } = noted(roles({ proofer: findsUntil(2), orchestrator: () => convergenceBlock("no", "Round 2 found what round 1's fix broke.") }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const stopped = await c.chain(a.id, "stopped");
@@ -1945,26 +1971,26 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "orchestrator", "crafter", "proofer", "sealer"]);
-      expect(stagesOf(chain).slice(4)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "proofer", "orchestrator", "crafter", "proofer", "inspector"]);
+      expect(stagesOf(chain).slice(4)).toEqual([["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
     });
 
     it("asks the orchestrator again before each later fix pass, and again where its answer to the one before was no judgment: that stage fails with what its answer lacks, and nothing is recorded", async () => {
       let answers = 0;
       const orchestrator = (): string => ((answers += 1) === 1 ? "The rounds look fine to me." : convergenceBlock("yes"));
       const { adapter, started } = noted(roles({ proofer: findsUntil(3), orchestrator }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const stopped = await c.chain(a.id, "stopped");
-      expect(stopped.says).toBe("The judgment after round 2 failed: its answer holds no judgment: no `seal` block of it opens with `converging:`.");
-      expect(stopped.stages.at(-1)).toMatchObject({ kind: "judgment", round: 2, state: "failed", failure: "its answer holds no judgment: no `seal` block of it opens with `converging:`" });
+      expect(stopped.says).toBe("The judgment after round 2 failed: its answer holds no judgment: no `iadd` block of it opens with `converging:`.");
+      expect(stopped.stages.at(-1)).toMatchObject({ kind: "judgment", round: 2, state: "failed", failure: "its answer holds no judgment: no `iadd` block of it opens with `converging:`" });
       expect(existsSync(join(a.worktree, DECISIONS))).toBe(false);
       // The person's start is no answer to a judgment that gave none, so the orchestrator is asked again, and after round 3 once more.
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"], ["gate", 4, "finished"], ["seal", 4, "finished"], ["pull-request", 4, "finished"]]);
-      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "orchestrator", "crafter", "proofer", "sealer"]);
+      expect(stagesOf(chain).slice(3)).toEqual([["judgment", 2, "failed"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["judgment", 3, "finished"], ["fix-pass", 3, "finished"], ["round", 4, "finished"], ["gate", 4, "finished"], ["inspection", 4, "finished"], ["pull-request", 4, "finished"]]);
+      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "orchestrator", "crafter", "proofer", "inspector"]);
       // The judgment after round 3 is given the record of decisions, which the judgment after round 2 wrote, and the first judgment met none.
       expect(started[7]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
       expect(started[3]?.prompt).not.toContain("decisions.md");
@@ -1976,7 +2002,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
     it("stops at the ceiling of the rounds with no judgment asked, runs one fix pass and one round more at a person's start, and stops again where that round leaves a finding", async () => {
       const { adapter, started } = noted(roles({ proofer: findsUntil(9) }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, roundsCeiling: 2 });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter, roundsCeiling: 2 });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const stopped = await c.chain(a.id, "stopped");
@@ -2010,7 +2036,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         return `${rulingBlock(1, "default", "The fix starts from main.", "The question's default.")}\n${rulingBlock(2, "park", null, "Only the person approves a push.")}`;
       };
       const { adapter, started } = noted(roles({ crafter, crafterSays, orchestrator }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const parked = await c.chain(a.id, "parked");
@@ -2035,11 +2061,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
       c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 2, answer: "It may not." }] });
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
-      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "orchestrator", "crafter", "proofer", "sealer"]);
+      expect(stagesOf(chain).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "crafter", "orchestrator", "crafter", "proofer", "inspector"]);
       expect(started[3]?.prompt).toContain(`- The round record: \`${DIRECTORY}/trail/rounds/round-1.md\`\n- Its open findings: 1\n- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
       // The person's answer was committed before the chain went on, so the pass read it in a committed record.
-      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(4)).toEqual(["chore: record the person's answers", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+      expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(4)).toEqual(["chore: record the person's answers", "fix: end the greeting", "chore: record the fix pass of round 1", "chore: record review round 2", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
       expect(recorded(a.worktree).questions).toMatchObject([{ id: 2, state: { is: "answered", answer: "It may not." } }]);
     });
 
@@ -2048,11 +2074,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
       const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "scope", "The greeting stays in English.", "The frame's scope names no other language."));
       const { adapter, started } = noted(roles({ proofer, orchestrator }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["round", 2, "finished"], ["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started[3]?.prompt).toContain("- Who asks: the proofer, in review round 2\n\nIts question:\n\n1. Is the greeting's language in scope?\n");
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
       expect(recorded(a.worktree).decisions.map(({ kind, decided, by }) => [kind, decided, by])).toEqual([
@@ -2070,14 +2096,14 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     });
 
     it("fails the stage whose asks block the reader refuses, and the judgment whose answer rules on no question: the chain stops with which, and nothing is parked or decided", async () => {
-      const broken = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => "```seal\nasks: May it?\n```\n" }) });
+      const broken = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => "```iadd\nasks: May it?\n```\n" }) });
       expect(await broken.c.startChain(1)).toBe("done");
       expect((await broken.c.chain(1, "stopped")).says).toBe("The fix pass of round 1 failed: the reader refuses line 1 of its answer's question: the question block holds no `grounds:` line, and it holds one.");
 
-      const unruled = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => askBlock({ asks: "May it?", grounds: "No document says." }), orchestrator: () => "It may." }) });
+      const unruled = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter: () => undefined, crafterSays: () => askBlock({ asks: "May it?", grounds: "No document says." }), orchestrator: () => "It may." }) });
       expect(await unruled.c.startChain(1)).toBe("done");
       const chain = await unruled.c.chain(1, "stopped");
-      expect(chain.says).toBe("The ruling after round 1 failed: its answer holds no ruling on question 1: no `seal` block of it opens with `rules: 1 `.");
+      expect(chain.says).toBe("The ruling after round 1 failed: its answer holds no ruling on question 1: no `iadd` block of it opens with `rules: 1 `.");
       expect(stagesOf(chain)).toEqual([["round", 1, "finished"], ["fix-pass", 1, "finished"], ["ruling", 1, "failed"]]);
       expect(existsSync(join(unruled.workItems[0]!.worktree, DECISIONS))).toBe(false);
     });
@@ -2087,7 +2113,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
       const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "park", null, "Only the person approves a push."));
       const { adapter, started } = noted(roles({ proofer, orchestrator }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const parked = await c.chain(a.id, "parked");
@@ -2095,8 +2121,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(recorded(a.worktree).questions).toMatchObject([{ id: 1, by: "proofer", state: { is: "open" } }]);
       c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
       const chain = await c.chain(a.id, "rested");
-      expect(stagesOf(chain).slice(4)).toEqual([["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
-      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "sealer"]);
+      expect(stagesOf(chain).slice(4)).toEqual([["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(started.map(({ role }) => role?.role).slice(3)).toEqual(["orchestrator", "orchestrator", "crafter", "proofer", "inspector"]);
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
     });
 
@@ -2110,7 +2136,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         clock = NOW + 110 * 60_000;
       };
       let said = 0;
-      const stood = await standing(cleanups, ["Sealed work"], {
+      const stood = await standing(cleanups, ["Cleared work"], {
         roleAdapter: roles({ crafter, crafterSays: () => ((said += 1) === 1 ? askBlock({ asks: "May the pass push the branch?", grounds: "A push needs an approval." }) : "Done."), orchestrator: () => rulingBlock(1, "park", null, "Only the person approves a push.") }),
         now: () => clock,
       });
@@ -2129,9 +2155,9 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       rmSync(join(a.worktree, "loose.txt"));
       clock = NOW + 100 * 60_000;
       expect(await stood.c.startChain(a.id)).toBe("done");
-      const sealed = await stood.c.chain(a.id, "rested");
-      expect(stagesOf(sealed).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
-      expect(sealed.since).toBe(NOW + 110 * 60_000);
+      const cleared = await stood.c.chain(a.id, "rested");
+      expect(stagesOf(cleared).slice(3)).toEqual([["fix-pass", 1, "finished"], ["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
+      expect(cleared.since).toBe(NOW + 110 * 60_000);
       // While it ran, each start's chain was running since that start: the first, and the person's after the stop.
       const ran = stood.c.messages.flatMap((message) => (message.type === "inbox" ? message.workItems : [])).flatMap((item) => (item.id === a.id && item.chain?.state === "running" ? [item.chain.since] : []));
       expect([...new Set(ran)]).toEqual([NOW, NOW + 100 * 60_000]);
@@ -2142,7 +2168,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       const proofer = (given: { round: number; heading: string; target: string }): string => (given.round === 2 ? `${ASKS}\n${findsUntil(2)(given)}` : findsUntil(2)(given));
       const orchestrator = (prompt: string): string => (givenQuestions(prompt) === 0 ? convergenceBlock("yes") : rulingBlock(1, "park", null, "Only the person approves a push."));
       const { adapter, started } = noted(roles({ proofer, orchestrator }));
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       expect((await c.chain(a.id, "parked")).stages.length).toBe(4);
@@ -2153,14 +2179,14 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       rmSync(join(a.worktree, "loose.txt"));
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(started.map(({ role }) => role?.role).slice(4)).toEqual(["orchestrator", "crafter", "proofer", "sealer"]);
+      expect(started.map(({ role }) => role?.role).slice(4)).toEqual(["orchestrator", "crafter", "proofer", "inspector"]);
       expect(givenQuestions(started[4]?.prompt ?? "1. ")).toBe(0);
-      expect(stagesOf(chain).slice(3)).toEqual([["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["ruling", 2, "finished"], ["judgment", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
     });
 
-    it("takes in a decision the person reversed: a start on a sealed chain runs a fix pass whose prompt holds the decision and the message, the decision reads applied with the head the pass left in the commit after the pass, and a verifying round, the broad gate and a second run of the sealer follow", async () => {
+    it("takes in a decision the person reversed: a start on a cleared chain runs a fix pass whose prompt holds the decision and the message, the decision reads applied with the head the pass left in the commit after the pass, and a verifying round, the broad gate and a second run of the inspector follow", async () => {
       const { adapter, started } = noted(roles({ proofer: (given) => (given.round < 3 ? proofs(given) : roundRecord(given.heading, given.target)) }));
-      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+      const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
       const a = stood.workItems[0]!;
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.chain(a.id, "rested");
@@ -2173,23 +2199,23 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
         const found = stood.c.workItem(a.id)?.chain;
         return found?.state === "rested" && found.stages.length === 11 ? found : undefined;
       });
-      expect(stagesOf(chain).slice(3)).toEqual([["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["seal", 3, "finished"], ["pull-request", 3, "finished"]]);
+      expect(stagesOf(chain).slice(3)).toEqual([["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"], ["fix-pass", 2, "finished"], ["round", 3, "finished"], ["gate", 3, "finished"], ["inspection", 3, "finished"], ["pull-request", 3, "finished"]]);
       expect(started[4]?.prompt).toContain('- Its open findings: none\n- The decisions the person reversed, each to take in:\n  - decision 1, "Start from main.": the person says "Start from the release branch."\n');
       const commits = commitsAfterMain(a.worktree);
       expect(commits.slice(-6)).toEqual([
         { subject: "chore: record the person's reversal of decision 1", body: TRAILER, paths: [DECISIONS] },
         { subject: "fix: end the greeting", body: "", paths: ["feature.txt"] },
-        // The pass's session is the case's fifth, after two proofers, a crafter and a sealer.
-        { subject: "chore: record the fix pass of round 2", body: `${TRAILER}\nSeal-Built-By: fake-5`, paths: [DECISIONS] },
+        // The pass's session is the case's fifth, after two proofers, a crafter and an inspector.
+        { subject: "chore: record the fix pass of round 2", body: `${TRAILER}\nIADD-Built-By: fake-5`, paths: [DECISIONS] },
         { subject: "chore: record review round 3", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-3.md`] },
         { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },
         VERDICT_COMMIT,
       ]);
       // The second verdict names both fix passes' sessions among the builders, in the order of their commits, and the first verdict stands above it unchanged.
-      const guarantee = readFileSync(join(a.worktree, DIRECTORY, "guarantee.md"), "utf8");
-      expect(guarantee).toContain("\nbuilt-by: the session, fake-2\njudged-by: fake-4\n");
-      expect(guarantee).toContain("\n## Run 2\n");
-      expect(guarantee).toContain("\nbuilt-by: the session, fake-2, fake-5\njudged-by: fake-7\n");
+      const inspection = readFileSync(join(a.worktree, DIRECTORY, "inspection.md"), "utf8");
+      expect(inspection).toContain("\nbuilt-by: the session, fake-2\ninspected-by: fake-4\n");
+      expect(inspection).toContain("\n## Run 2\n");
+      expect(inspection).toContain("\nbuilt-by: the session, fake-2, fake-5\ninspected-by: fake-7\n");
       const [fix, pass] = git(a.worktree, "log", "--format=%H", "-5").trim().split("\n").reverse() as [string, string, string, string, string];
       expect(git(a.worktree, "show", `${pass}:${DECISIONS}`)).toContain(`state: applied ${fix}\nreversal: Start from the release branch.\n`);
       expect(recorded(a.worktree).decisions).toMatchObject([{ id: 1, state: { is: "applied", commit: fix, message: "Start from the release branch." } }]);
@@ -2205,11 +2231,11 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       let rounds = 0;
       const proofer = (given: { round: number; heading: string; target: string }): string => ((rounds += 1), proofs(given));
       // Only round 1 and the fix pass ask: round 2 asks for nothing.
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer }, { asks: (prompt, role) => (rounds > 0 && role?.role === "proofer" ? [] : refusedCalls(prompt, role)) }) });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer }, { asks: (prompt, role) => (rounds > 0 && role?.role === "proofer" ? [] : refusedCalls(prompt, role)) }) });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "rested");
-      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 2], ["round", 0], ["gate", 0], ["seal", 0], ["pull-request", 0]]);
+      expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 1], ["fix-pass", 2], ["round", 0], ["gate", 0], ["inspection", 0], ["pull-request", 0]]);
       const refusals = `${DIRECTORY}/trail/refusals.md`;
       const head = [`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|"];
       const rows = ["| round 1 | proofer | Write | writes a file | no-write |", "| fix pass 1 | crafter | Write | writes a file | outside-worktree |", "| fix pass 1 | crafter | WebFetch | something else | other |"];
@@ -2220,10 +2246,10 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
       expect(commitsAfterMain(a.worktree).slice(2)).toEqual([
         { subject: "chore: record review round 1", body: TRAILER, paths: [record(1), refusals].sort() },
         { subject: "fix: end the greeting", body: "", paths: ["feature.txt"] },
-        { subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nSeal-Built-By: fake-2`, paths: [record(1), refusals].sort() },
+        { subject: "chore: record the fix pass of round 1", body: `${TRAILER}\nIADD-Built-By: fake-2`, paths: [record(1), refusals].sort() },
         { subject: "chore: record review round 2", body: TRAILER, paths: [record(2)] },
         { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },
-        // The sealer's session was refused no call, so the verdict's commit carries no row.
+        // The inspector's session was refused no call, so the verdict's commit carries no row.
         VERDICT_COMMIT,
       ]);
       const [first] = git(a.worktree, "log", "--reverse", "--format=%H", "--", refusals).trim().split("\n");
@@ -2234,7 +2260,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("parks a running chain where the record holds an open question at its next step: no stage starts, and the chain says that it waits for the answers", async () => {
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { delayMs: 80 }) });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({}, { delayMs: 80 }) });
     const a = stood.workItems[0]!;
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     commitAll(a.worktree, "chore: declare the work item's routing");
@@ -2250,7 +2276,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
 
   it("keeps the newest stages of a chain, as many as the bound: a stage that starts on a chain that holds that many takes the oldest one's place", async () => {
     // Round 3 answers no closed finding, so its record confirms none.
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: (given) => (given.round < 3 ? proofs(given) : roundRecord(given.heading, given.target)) }) });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: (given) => (given.round < 3 ? proofs(given) : roundRecord(given.heading, given.target)) }) });
     const a = stood.workItems[0]!;
     expect(await stood.c.startChain(a.id)).toBe("done");
     await stood.c.chain(a.id, "rested");
@@ -2268,8 +2294,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     const after = await c.chain(a.id, "rested");
     expect(after.stages.length).toBe(CHAIN_STAGES_KEPT);
-    // The verifying round, the broad gate after it, the seal and the pull request stage each took the place of the oldest stage kept.
-    expect(after.stages.map(({ kind, round }) => (round < 1000 ? `${kind} ${String(round)}` : round))).toEqual([...Array.from({ length: CHAIN_STAGES_KEPT - 4 }, (_, index) => 1004 + index), "round 3", "gate 3", "seal 3", "pull-request 3"]);
+    // The verifying round, the broad gate after it, the inspection and the pull request stage each took the place of the oldest stage kept.
+    expect(after.stages.map(({ kind, round }) => (round < 1000 ? `${kind} ${String(round)}` : round))).toEqual([...Array.from({ length: CHAIN_STAGES_KEPT - 4 }, (_, index) => 1004 + index), "round 3", "gate 3", "inspection 3", "pull-request 3"]);
   });
 });
 
@@ -2280,9 +2306,9 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   const gateStage = (more: Partial<ChainStage> = {}): ChainStage => ({ kind: "gate", round: 1, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: { command: "true", exitCode: 0, output: false }, ...more });
   const GATE_PATH = `${DIRECTORY}/trail/gate.md`;
   const GATE_COMMIT = { subject: "chore: record the broad gate's run", body: TRAILER, paths: [GATE_PATH] };
-  const SEAL_COMMIT = { subject: "chore: record the sealer's verdict", body: TRAILER, paths: [`${DIRECTORY}/guarantee.md`] };
-  /** The stage of the seal after round 1, whose sealer's session the daemon numbered as given. */
-  const sealStage = (headlessId: number): ChainStage => ({ ...ended(1, headlessId), kind: "seal" });
+  const INSPECTION_COMMIT = { subject: "chore: record the inspector's verdict", body: TRAILER, paths: [`${DIRECTORY}/inspection.md`] };
+  /** The stage of the inspection after round 1, whose inspector's session the daemon numbered as given. */
+  const inspectionStage = (headlessId: number): ChainStage => ({ ...ended(1, headlessId), kind: "inspection" });
   /** The subjects of the commits a chain makes up to round 1's record, after the branch's own. */
   const TO_ROUND_1 = ["feat: greet", "chore: declare the work item's routing", "chore: record review round 1"];
   const subjects = (worktree: string): string[] => commitsAfterMain(worktree).map(({ subject }) => subject);
@@ -2331,31 +2357,31 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     return c.chain(id, state);
   }
 
-  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the sealer then seals that commit, the run has one entry of the ledger with no usage, which names the gate and its round, beside one for each session, a second start runs no stage, a later commit of the work item's directory that is no closing record owes the gate and the seal again and no round, and a later change of a source file owes a round, then the gate and the seal", async () => {
-    const { c, made, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+  it("runs the repository's command once the rounds settle and commits a passed run: the record names the head the command ran on against the work item's base commit, the inspector then clears that commit, the run has one entry of the ledger with no usage, which names the gate and its round, beside one for each session, a second start runs no stage, a later commit of the work item's directory that is no closing record owes the gate and the inspection again and no round, and a later change of a source file owes a round, then the gate and the inspection", async () => {
+    const { c, made, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     const base = a.baseCommit ?? "";
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     const commits = commitsAfterMain(a.worktree);
-    expect(commits.slice(2)).toEqual([{ subject: "chore: record review round 1", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-1.md`] }, GATE_COMMIT, SEAL_COMMIT]);
+    expect(commits.slice(2)).toEqual([{ subject: "chore: record review round 1", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-1.md`] }, GATE_COMMIT, INSPECTION_COMMIT]);
     const [, , read = ""] = git(a.worktree, "log", "-3", "--format=%H").trim().split("\n");
     // The command ran on the commit of round 1's record, which was the head, and the run's record is the next commit.
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [[read, base]]));
     expect(readFileSync(join(a.worktree, GATE_PATH), "utf8")).toBe(gateRecord(NAME, [[read, base]]));
     expect(status(a.worktree)).toEqual([]);
-    expect(chain).toEqual({ state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended(1, 1), gateStage(), sealStage(2), { ...gateStage(), kind: "pull-request", gate: null }] });
-    // The ledger holds one entry for each stage: the proofer's session, the gate, and the sealer's session, which no call of the seal's own made.
+    expect(chain).toEqual({ state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [ended(1, 1), gateStage(), inspectionStage(2), { ...gateStage(), kind: "pull-request", gate: null }] });
+    // The ledger holds one entry for each stage: the proofer's session, the gate, and the inspector's session, which no call of the inspection's own made.
     const ledger = await c.asked({ type: "readLedger", requestId: 20, workItemId: a.id });
-    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, state }) => [stage, state]) : ledger).toEqual([[{ role: "proofer", stage: "round" }, "finished"], [{ role: null, stage: "gate" }, "finished"], [{ role: "sealer", stage: "seal" }, "finished"]]);
+    expect(ledger.type === "ledger" ? ledger.entries.map(({ stage, state }) => [stage, state]) : ledger).toEqual([[{ role: "proofer", stage: "round" }, "finished"], [{ role: null, stage: "gate" }, "finished"], [{ role: "inspector", stage: "inspection" }, "finished"]]);
     expect(await gateEntries(c, a.id, 2)).toEqual([{ workItemId: a.id, repo: made.repo, branch: a.branch, stage: { role: null, stage: "gate" }, chain: { kind: "gate", round: 1 }, startedAt: NOW, endedAt: NOW, state: "finished", stopped: null, usage: null, account: null }]);
     // `true` printed nothing, so nothing is kept.
     expect(await output(c, a.id, 3)).toBe("Owlery keeps no output of a broad gate of work item 1.");
 
-    // The gate holds at the head, where only the closing records follow its commit, and the seal names that commit.
+    // The gate holds at the head, where only the closing records follow its commit, and the inspection names that commit.
     expect((await again(c, a.id, "rested")).stages).toEqual(chain.stages);
     expect(commitsAfterMain(a.worktree)).toEqual(commits);
-    // A commit that the next one takes back leaves the tree the gate passed on: the two trees are compared, and no commit between them is walked. The head moved, so the pull request stage pushes it, and no gate and no seal runs.
+    // A commit that the next one takes back leaves the tree the gate passed on: the two trees are compared, and no commit between them is walked. The head moved, so the pull request stage pushes it, and no gate and no inspection runs.
     write(a.worktree, `${DIRECTORY}/scratch.md`, "A note the person takes back.\n");
     commitAll(a.worktree, "docs: note the work");
     rmSync(join(a.worktree, DIRECTORY, "scratch.md"));
@@ -2365,24 +2391,24 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
     write(a.worktree, `${DIRECTORY}/notes.md`, "A note of the person's.\n");
     const noted = commitAll(a.worktree, "docs: note the work");
-    expect(kinds(await again(c, a.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"], ["pull-request", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(await again(c, a.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"], ["pull-request", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [[read, base], [noted, base]]));
 
     write(a.worktree, "feature.txt", "Another greeting\n");
     commitAll(a.worktree, "feat: greet again");
     const third = await again(c, a.id, "rested");
-    expect(third.stages.slice(8).map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 2, "finished"], ["gate", 2, "finished"], ["seal", 2, "finished"], ["pull-request", 2, "finished"]]);
+    expect(third.stages.slice(8).map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 2, "finished"], ["gate", 2, "finished"], ["inspection", 2, "finished"], ["pull-request", 2, "finished"]]);
     const second = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [[read, base], [noted, base], [second, base]]));
-    expect(commitsAfterMain(a.worktree).slice(-3)).toEqual([{ subject: "chore: record review round 2", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-2.md`] }, GATE_COMMIT, SEAL_COMMIT]);
-    // Each seal names the commit its gate passed on, and the three sections stand in the order of their runs.
-    expect([...readFileSync(join(a.worktree, DIRECTORY, "guarantee.md"), "utf8").matchAll(/^(?:## Run \d+|target: [0-9a-f]{40})/gmu)].map(([line]) => line)).toEqual(["## Run 1", `target: ${read}`, "## Run 2", `target: ${noted}`, "## Run 3", `target: ${second}`]);
+    expect(commitsAfterMain(a.worktree).slice(-3)).toEqual([{ subject: "chore: record review round 2", body: TRAILER, paths: [`${DIRECTORY}/trail/rounds/round-2.md`] }, GATE_COMMIT, INSPECTION_COMMIT]);
+    // Each inspection names the commit its gate passed on, and the three sections stand in the order of their runs.
+    expect([...readFileSync(join(a.worktree, DIRECTORY, "inspection.md"), "utf8").matchAll(/^(?:## Run \d+|target: [0-9a-f]{40})/gmu)].map(([line]) => line)).toEqual(["## Run 1", `target: ${read}`, "## Run 2", `target: ${noted}`, "## Run 3", `target: ${second}`]);
     expect(await gateEntries(c, a.id, 7)).toHaveLength(3);
   });
 
   it("stops the chain where the command exits with another code: no record is written and nothing is committed, the chain's sentence says the code, the gate's stage has failed, what the command printed is kept in the run folder for the user alone and a daemon started later on that folder answers it too, the other work item's chain goes on, and a later start runs the gate again and no round", async () => {
     const gate = 'echo "one case failed"; if [ -e passes ]; then exit 0; fi; exit 3';
-    const stood = await standing(cleanups, ["Sealed work", "Other work"], { gate, roleAdapter: roles({ proofer: clean }) });
+    const stood = await standing(cleanups, ["Cleared work", "Other work"], { gate, roleAdapter: roles({ proofer: clean }) });
     const { c } = stood;
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     write(b.worktree, "passes", "");
@@ -2400,7 +2426,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     const file = join(stood.runDir, "gate-output", `${String(a.id)}.txt`);
     expect([readFileSync(file, "utf8"), statSync(file).mode & 0o777, statSync(join(stood.runDir, "gate-output")).mode & 0o777]).toEqual(["one case failed\n", 0o600, 0o700]);
 
-    expect(kinds(await c.chain(b.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(await c.chain(b.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     expect(await output(c, b.id, 5)).toEqual({ text: "one case failed\n", cut: false });
 
     expect(kinds(await again(c, a.id, "stopped"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
@@ -2414,7 +2440,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
   it("ends the command at a client's stopGate: the shell and the process it started have exited, the chain stops with what ended the run, nothing is committed, the run's entry of the ledger says a request stopped it, and a stopGate where no gate runs is refused", async () => {
     const out = outside();
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect((await c.asked({ type: "stopGate", requestId: 9, workItemId: a.id })) as unknown).toEqual({ type: "error", requestId: 9, message: "No broad gate of work item 1 is running." });
     expect(await c.startChain(a.id)).toBe("done");
@@ -2449,7 +2475,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
     it("runs one broad gate at a time across repositories: a gate that asks while another runs is listed as the chain's stage that waits, its chain says so and its work item carries the wait, its command starts once the other's has ended, and each gate then passes with one stage and one entry of the ledger", async () => {
       const out = outside();
-      const stood = await standing(cleanups, ["Sealed work", "Other work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+      const stood = await standing(cleanups, ["Cleared work", "Other work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
       const { c } = stood;
       const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
       expect(a.repo).not.toBe(b.repo);
@@ -2474,7 +2500,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       expect(c.workItem(b.id)?.chain?.stages.at(-1)).toEqual(gateStage({ state: "working", endedAt: null, gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } }));
       writeFileSync(mark(out, b.worktree, "go"), "");
       for (const item of [a, b]) {
-        expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+        expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
         expect(await gateEntries(c, item.id, item.id + 10)).toMatchObject([{ state: "finished", stopped: null }]);
       }
     });
@@ -2485,7 +2511,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     it("runs a broad gate that failed while the machine was over its load once more, alone, once the command that took the turn meanwhile has ended and the load is at or under the cores, and records the pass with a sentence that names the earlier run above its run block, each run a stage and an entry of the ledger of its own (scenario F)", async () => {
       const out = outside();
       const load = { now: 9 };
-      const stood = await standing(cleanups, ["Sealed work"], { gate: FAILS_ONCE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 20_000, pollMs: 20 } });
+      const stood = await standing(cleanups, ["Cleared work"], { gate: FAILS_ONCE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }), load: () => load.now, cores: 4, calm: { waitMs: 20_000, pollMs: 20 } });
       const { c } = stood;
       const [item] = stood.workItems as [(typeof stood.workItems)[number]];
       expect(await c.startChain(item.id)).toBe("done");
@@ -2507,9 +2533,9 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       expect(kinds(c.workItem(item.id)?.chain as Chain).at(-1)).toEqual(["gate", "working"]);
       expect(existsSync(join(item.worktree, GATE_PATH))).toBe(false);
       held?.end();
-      expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      expect(kinds(await c.chain(item.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
       const record = readFileSync(join(item.worktree, GATE_PATH), "utf8");
-      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`seal\nrun: `);
+      expect(record).toContain(`\n\n${earlierRunSays({ commit: /run: ([0-9a-f]+) against/u.exec(record)?.[1] ?? "", ended: "exit code 3", load: 9, cores: 4, beside: 0 })}\n\n\`\`\`iadd\nrun: `);
       expect(await gateEntries(c, item.id, 11)).toMatchObject([{ state: "failed" }, { state: "finished" }]);
       // Each run has its line in the runs' file: the first over the load it started at, with the memory read while it waited for `go`, and the second alone, which ends too soon for a reading to be sure.
       expect(readHeavyRuns(stood.runDir).filter((run) => run.name === BROAD_GATE_NAME)).toMatchObject([
@@ -2539,12 +2565,12 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       expect(kinds(twice)).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "failed"]]);
       expect(await gateEntries(c, loaded.id, 12)).toMatchObject([{ state: "failed" }, { state: "failed" }]);
       // No gate record was written in either worktree.
-      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "seal/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
+      expect(execFileSync("git", ["ls-files", "--others", "--cached", "--", "agentory/threads"], { cwd: loaded.worktree, encoding: "utf8" })).not.toContain("trail/gate.md");
     });
 
     it("ends the ask of a gate that waits and starts no command, where a stopGate arrives or the worktree's head moves during the wait: neither command runs once the turn frees, no record or ledger entry is written, and each chain stops with what ended its wait", async () => {
       const out = outside();
-      const stood = await standing(cleanups, ["Sealed work", "Stopped work", "Moved work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+      const stood = await standing(cleanups, ["Cleared work", "Stopped work", "Moved work"], { apart: true, gate: WAITS_ON_A_FILE, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
       const { c } = stood;
       const [a, stopped, moved] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number], (typeof stood.workItems)[number]];
       expect(await c.startChain(a.id)).toBe("done");
@@ -2569,7 +2595,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
       const stoppedMoved = await c.chain(moved.id, "stopped");
       expect(stoppedMoved.says).toBe(`The broad gate did not run: the worktree's head moved from ${was.slice(0, 7)} to ${now.slice(0, 7)} while Owlery read the records.`);
       expect(stoppedMoved.stages.at(-1)).toMatchObject({ kind: "gate", state: "failed", gate: { command: WAITS_ON_A_FILE, exitCode: null, output: false } });
-      expect(kinds(await c.chain(a.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+      expect(kinds(await c.chain(a.id, "rested"))).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
 
       for (const item of [stopped, moved]) {
         expect(existsSync(mark(out, item.worktree, "started"))).toBe(false);
@@ -2585,7 +2611,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("ends the command at its time limit, and records no run of a command that was stopped whatever it exited with: one that takes the signal and exits with 0 has failed", async () => {
     const out = outside();
     const gate = `trap 'exit 0' TERM; ${SLEEPS}`;
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: env({ OUT: out }), gateLimitMs: 1_000, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, gateEnv: env({ OUT: out }), gateLimitMs: 1_000, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const [, shell = 0] = await pidsIn(out);
@@ -2601,7 +2627,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("keeps what first stopped a command as what ended it: a stopGate that arrives after the time limit, while the command that ignores the signal is still being ended, changes neither the chain's sentence nor the run's entry of the ledger", async () => {
     const out = outside();
     const gate = `trap '' TERM; ${SLEEPS}`;
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: env({ OUT: out }), gateLimitMs: 300, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, gateEnv: env({ OUT: out }), gateLimitMs: 300, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const pids = await pidsIn(out);
@@ -2617,7 +2643,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
   it("writes no record where the tree moved under a command that exited with 0: one that edited a tracked file, one that left an untracked file, and one during which a commit landed on the branch, each with a sentence that names the path or the two commits", async () => {
     const moved = async (gate: string): Promise<{ worktree: string; chain: Chain }> => {
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, roleAdapter: roles({ proofer: clean }) });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, roleAdapter: roles({ proofer: clean }) });
       const a = workItems[0]!;
       expect(await c.startChain(a.id)).toBe("done");
       const chain = await c.chain(a.id, "stopped");
@@ -2640,9 +2666,9 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("refuses a start where the worktree's config.json names no command under the key, an empty one or one of white space alone: the answer names the key, no session starts and nothing is written", async () => {
     for (const gate of [null, "", " \t"]) {
       const { adapter, started } = noted(roles());
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate, roleAdapter: adapter });
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate, roleAdapter: adapter });
       const a = workItems[0]!;
-      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('seal/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository\'s check there, and commit it.');
+      expect(await c.startChain(a.id), JSON.stringify(gate)).toBe('agentory/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository\'s check there, and commit it.');
       expect(started).toEqual([]);
       expect(c.workItem(a.id)?.chain).toBeNull();
       expect(subjects(a.worktree)).toEqual(["feat: greet"]);
@@ -2653,11 +2679,11 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("starts no command where the key lost its command on the branch since the start: the chain stops before the gate, and says so", async () => {
     const crafter = (cwd: string, prompt: string): void => {
       fixes(cwd, prompt);
-      write(cwd, "seal/config.json", "{}\n");
-      git(cwd, "add", "seal/config.json");
+      write(cwd, "agentory/config.json", "{}\n");
+      git(cwd, "add", "agentory/config.json");
       git(cwd, "commit", "--quiet", "-m", "chore: name no gate");
     };
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ crafter }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ crafter }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "stopped");
@@ -2669,7 +2695,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   it("starts no command where the head moved, or a change came to stand outside the work item's directory, while the records were read: the chain says which, and the command did not run", async () => {
     const unstarted = async (move: (worktree: string) => void): Promise<{ worktree: string; says: string }> => {
       const out = outside();
-      const stood = await standing(cleanups, ["Sealed work"], { gate: 'echo ran >> "$OUT/runs"; exit 1', gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+      const stood = await standing(cleanups, ["Cleared work"], { gate: 'echo ran >> "$OUT/runs"; exit 1', gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
       const a = stood.workItems[0]!;
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.chain(a.id, "stopped");
@@ -2696,7 +2722,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     const out = outside();
     // The first run prints and fails, the second prints and passes, and the third passes and prints nothing.
     const gate = 'n=$(cat "$OUT/n" 2>/dev/null || echo 0); echo $((n + 1)) > "$OUT/n"; [ "$n" -ge 2 ] || echo "run $((n + 1))"; [ "$n" -ge 1 ]';
-    const { c, runDir, workItems } = await standing(cleanups, ["Sealed work"], { gate, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+    const { c, runDir, workItems } = await standing(cleanups, ["Cleared work"], { gate, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     const base = a.baseCommit ?? "";
     expect(await c.startChain(a.id)).toBe("done");
@@ -2704,7 +2730,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     expect(await output(c, a.id, 2)).toEqual({ text: "run 1\n", cut: false });
     const at = head(a.worktree);
     write(a.worktree, GATE_PATH, `${gateRecord(NAME, [[at, base]])}\nA run the person wrote by hand.\n`);
-    expect(kinds(await again(c, a.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(await again(c, a.id, "rested"))).toEqual([["round", "finished"], ["gate", "failed"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [[at, base]]));
     expect(readFileSync(join(a.worktree, GATE_PATH), "utf8")).toBe(gateRecord(NAME, [[at, base]]));
     expect(await output(c, a.id, 4)).toEqual({ text: "run 2\n", cut: false });
@@ -2716,7 +2742,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("says which signal ended a command that no stop ended, and records no run of it", async () => {
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: "kill -KILL $$", roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: "kill -KILL $$", roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "stopped");
@@ -2727,7 +2753,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   });
 
   it("keeps the last characters of a longer output, as many as its bound, and says that the text is cut", async () => {
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: "printf abcdefghijklmno; exit 1", gateOutputChars: 8, roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: "printf abcdefghijklmno; exit 1", gateOutputChars: 8, roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "stopped");
@@ -2736,7 +2762,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
   it("stops where the reader refuses a line of the gate's record the head holds, with the file and the line, and leaves the file as it is, and runs the gate again where the newest run names a commit the repository does not hold", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     const base = a.baseCommit ?? "";
     expect(await c.startChain(a.id)).toBe("done");
@@ -2747,23 +2773,23 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     commitAll(a.worktree, "docs: note the gate");
     const stopped = await again(c, a.id, "stopped");
     expect(stopped.says).toMatch(new RegExp(`^The chain stopped: the reader refuses line 7 of ${DIRECTORY}/trail/gate\\.md: the line begins with \`<!--\``, "u"));
-    expect(kinds(stopped)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    // The first start's proofer and its sealer, and no session since.
+    expect(kinds(stopped)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    // The first start's proofer and its inspector, and no session since.
     expect(started).toHaveLength(2);
     expect(readFileSync(file, "utf8")).toBe(unread);
     expect(status(a.worktree)).toEqual([]);
 
     writeFileSync(file, gateRecord(NAME, [["f".repeat(40), base]]));
     const rewritten = commitAll(a.worktree, "docs: name a run no commit bears");
-    expect(kinds(await again(c, a.id, "rested")).slice(-3)).toEqual([["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(await again(c, a.id, "rested")).slice(-3)).toEqual([["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     expect(git(a.worktree, "show", `HEAD:${GATE_PATH}`)).toBe(gateRecord(NAME, [["f".repeat(40), base], [rewritten, base]]));
-    // No round ran again: the one session more is the sealer's, on the commit the new run names.
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "sealer"]);
+    // No round ran again: the one session more is the inspector's, on the commit the new run names.
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "inspector"]);
   });
 
   it("ends a running command where the daemon closes: the close does not wait for the command's own end, the shell and the process it started have exited, nothing is committed or kept, the run's entry of the ledger says the daemon stopped it, and the next daemon reads the chain as stopped while the broad gate ran", async () => {
     const out = outside();
-    const stood = await standing(cleanups, ["Sealed work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+    const stood = await standing(cleanups, ["Cleared work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
     const a = stood.workItems[0]!;
     expect(await stood.c.startChain(a.id)).toBe("done");
     await gateRuns(stood.c, a.id);
@@ -2783,7 +2809,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
 
   it("ends a running command where the work item is archived, with what ended it in the chain's sentence, and removes what a work item's gate printed where the work item is deleted", async () => {
     const out = outside();
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { gate: SLEEPS, gateEnv: env({ OUT: out }), roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await gateRuns(c, a.id);
@@ -2792,7 +2818,7 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
     expect((await c.chain(a.id, "stopped")).says).toBe("The broad gate failed: the command was ended when the work item was archived.");
     expect(await untilGone(pids, 5_000)).toEqual([]);
 
-    const failing = await standing(cleanups, ["Sealed work"], { gate: "echo kept; exit 1", roleAdapter: roles({ proofer: clean }) });
+    const failing = await standing(cleanups, ["Cleared work"], { gate: "echo kept; exit 1", roleAdapter: roles({ proofer: clean }) });
     const b = failing.workItems[0]!;
     expect(await failing.c.startChain(b.id)).toBe("done");
     await failing.c.chain(b.id, "stopped");
@@ -2806,11 +2832,11 @@ describe("the broad gate of a work item's chain", { timeout: 60_000 }, () => {
   });
 });
 
-// Each chain is a round, a gate's command and one sealer's session or more, beside the rest of the suite.
-describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
-  const GUARANTEE = `${DIRECTORY}/guarantee.md`;
+// Each chain is a round, a gate's command and one inspector's session or more, beside the rest of the suite.
+describe("the inspection of a work item's chain", { timeout: 60_000 }, () => {
+  const INSPECTION = `${DIRECTORY}/inspection.md`;
   const DECISIONS = `${DIRECTORY}/decisions.md`;
-  const SEAL_COMMIT = { subject: "chore: record the sealer's verdict", body: TRAILER, paths: [GUARANTEE] };
+  const INSPECTION_COMMIT = { subject: "chore: record the inspector's verdict", body: TRAILER, paths: [INSPECTION] };
   const subjects = (worktree: string): string[] => commitsAfterMain(worktree).map(({ subject }) => subject);
   const stagesOf = (chain: Chain): [string, string][] => chain.stages.map(({ kind, state }) => [kind, state]);
   type Client = Awaited<ReturnType<typeof client>>;
@@ -2821,97 +2847,97 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(id)).toBe("done");
     return c.chain(id, state);
   }
-  /** The guarantee as the branch's head holds it, or null where it holds none. */
-  const guaranteeAt = (worktree: string): string | null => (git(worktree, "ls-tree", "-r", "--name-only", "HEAD").split("\n").includes(GUARANTEE) ? git(worktree, "show", `HEAD:${GUARANTEE}`) : null);
+  /** The inspection as the branch's head holds it, or null where it holds none. */
+  const inspectionAt = (worktree: string): string | null => (git(worktree, "ls-tree", "-r", "--name-only", "HEAD").split("\n").includes(INSPECTION) ? git(worktree, "show", `HEAD:${INSPECTION}`) : null);
 
-  it("stops the chain where the sealer withholds: the guarantee is committed with the sealer's block and the daemon's lines, the chain's sentence holds the reason, no stage follows, and a start on the same head runs a second sealer whose section stands below the first, which is unchanged", async () => {
+  it("stops the chain where the inspector withholds: the inspection is committed with the inspector's block and the daemon's lines, the chain's sentence holds the reason, no stage follows, and a start on the same head runs a second inspector whose section stands below the first, which is unchanged", async () => {
     const REASON = "the changelog names `gone.ts`, which the tree does not hold";
     let withholds = true;
-    const { adapter, started } = noted(roles({ proofer: clean, sealer: (given) => sealSection(given, withholds ? `withheld reason: ${REASON}` : "sealed") }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { adapter, started } = noted(roles({ proofer: clean, inspector: (given) => runSection(given, withholds ? `withheld reason: ${REASON}` : "cleared") }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const stopped = await c.chain(a.id, "stopped");
-    // The seal's stage finished: the daemon wrote and committed the verdict, and the verdict stops the chain.
-    expect([stopped.says, stagesOf(stopped)]).toEqual([`The sealer withheld its verdict: ${REASON}.`, [["round", "finished"], ["gate", "finished"], ["seal", "finished"]]]);
+    // The inspection's stage finished: the daemon wrote and committed the verdict, and the verdict stops the chain.
+    expect([stopped.says, stagesOf(stopped)]).toEqual([`The inspector withheld its verdict: ${REASON}.`, [["round", "finished"], ["gate", "finished"], ["inspection", "finished"]]]);
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const first = sealedBy(sealSection({ heading: "## Run 1", target: `${gate} against main` }, `withheld reason: ${REASON}`), "the session", "fake-2");
-    expect(guaranteeAt(a.worktree)).toBe(guaranteeRecord(NAME, [first]));
-    expect(commitsAfterMain(a.worktree).at(-1)).toEqual(SEAL_COMMIT);
+    const first = withOwleryLines(runSection({ heading: "## Run 1", target: `${gate} against main` }, `withheld reason: ${REASON}`), "the session", "fake-2");
+    expect(inspectionAt(a.worktree)).toBe(inspectionRecord(NAME, [first]));
+    expect(commitsAfterMain(a.worktree).at(-1)).toEqual(INSPECTION_COMMIT);
     expect(status(a.worktree)).toEqual([]);
     // Nothing starts by itself after the verdict.
     await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer"]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector"]);
 
     // The person's start is the word for another run: the head is the same, so no round and no gate run.
     withholds = false;
-    const sealed = await again(c, a.id, "rested");
-    expect(stagesOf(sealed)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    expect(sealed.says).toBe("Pull request #1 is open.");
-    expect(givenSeal(started[2]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against main` });
-    const second = sealedBy(sealSection({ heading: "## Run 2", target: `${gate} against main` }), "the session", "fake-3");
-    expect(guaranteeAt(a.worktree)).toBe(guaranteeRecord(NAME, [first, second]));
-    expect(subjects(a.worktree).slice(-3)).toEqual(["chore: record the broad gate's run", "chore: record the sealer's verdict", "chore: record the sealer's verdict"]);
+    const cleared = await again(c, a.id, "rested");
+    expect(stagesOf(cleared)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    expect(cleared.says).toBe("Pull request #1 is open.");
+    expect(givenInspection(started[2]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against main` });
+    const second = withOwleryLines(runSection({ heading: "## Run 2", target: `${gate} against main` }), "the session", "fake-3");
+    expect(inspectionAt(a.worktree)).toBe(inspectionRecord(NAME, [first, second]));
+    expect(subjects(a.worktree).slice(-3)).toEqual(["chore: record the broad gate's run", "chore: record the inspector's verdict", "chore: record the inspector's verdict"]);
   });
 
-  it("writes no verdict where the judging session built the work: a sealer whose session names the id of the fix pass's session is given no verdict block and no commit, whatever its verdict reads, the chain says so, and a sealer of another id is named beside the builders", async () => {
+  it("writes no verdict where the inspecting session built the work: an inspector whose session names the id of the fix pass's session is given no verdict block and no commit, whatever its verdict reads, the chain says so, and an inspector of another id is named beside the builders", async () => {
     let judge = "s-1";
-    const session = (_prompt: string, role?: { role: string }): { id: string; model: string | null } => ({ id: role?.role === "crafter" ? "s-1" : role?.role === "sealer" ? judge : "p-1", model: "owl-large" });
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { session }) });
+    const session = (_prompt: string, role?: { role: string }): { id: string; model: string | null } => ({ id: role?.role === "crafter" ? "s-1" : role?.role === "inspector" ? judge : "p-1", model: "owl-large" });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({}, { session }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const stopped = await c.chain(a.id, "stopped");
-    expect(stopped.says).toBe("The sealer's session failed: the judging session, s-1, is one of the sessions that built the work, and a session that built gives no verdict.");
-    expect(stopped.stages.at(-1)).toMatchObject({ kind: "seal", round: 2, state: "failed", failure: "the judging session, s-1, is one of the sessions that built the work, and a session that built gives no verdict" });
-    expect(guaranteeAt(a.worktree)).toBeNull();
-    expect(existsSync(join(a.worktree, GUARANTEE))).toBe(false);
+    expect(stopped.says).toBe("The inspector's session failed: the inspecting session, s-1, is one of the sessions that built the work, and a session that built gives no verdict.");
+    expect(stopped.stages.at(-1)).toMatchObject({ kind: "inspection", round: 2, state: "failed", failure: "the inspecting session, s-1, is one of the sessions that built the work, and a session that built gives no verdict" });
+    expect(inspectionAt(a.worktree)).toBeNull();
+    expect(existsSync(join(a.worktree, INSPECTION))).toBe(false);
     expect(subjects(a.worktree).at(-1)).toBe("chore: record the broad gate's run");
-    expect(commitsAfterMain(a.worktree).find(({ subject }) => subject === "chore: record the fix pass of round 1")?.body).toBe(`${TRAILER}\nSeal-Built-By: s-1`);
+    expect(commitsAfterMain(a.worktree).find(({ subject }) => subject === "chore: record the fix pass of round 1")?.body).toBe(`${TRAILER}\nIADD-Built-By: s-1`);
     expect(status(a.worktree)).toEqual([]);
 
     judge = "s-2";
     await again(c, a.id, "rested");
-    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session, s-1\njudged-by: s-2\nmodel: owl-large\nrules: owlery 0.0.2\n```\n");
+    expect(inspectionAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, s-1\ninspected-by: s-2\nmodel: owl-large\nrules: owlery 0.0.2\nworkflow: owl-chain\ninspector: owl-chain\n```\n");
   });
 
   it("writes no verdict of an answer it cannot take, and says which: a target other than the prompt's, two verdict blocks, a line Owlery writes, a line the reader refuses, no section, and a section of another run", async () => {
-    let answer: (given: Given) => string = (given) => sealSection(given);
-    const { adapter, started } = noted(roles({ proofer: clean, sealer: (given) => answer(given) }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    let answer: (given: Given) => string = (given) => runSection(given);
+    const { adapter, started } = noted(roles({ proofer: clean, inspector: (given) => answer(given) }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
-    const block = (target: string, ...more: string[]): string => ["```seal", `target: ${target}`, "Verdict: sealed", ...more, "```", ""].join("\n");
+    const block = (target: string, ...more: string[]): string => ["```iadd", `target: ${target}`, "Verdict: cleared", ...more, "```", ""].join("\n");
     const refused: [(given: Given) => string, string][] = [
-      [(given) => sealSection({ ...given, target: `${A} against main` }), `its verdict's target line reads \`${A} against main\`, and the run was given \``],
-      [(given) => `${sealSection(given)}\n${block(given.target)}`, "its section holds 2 verdict blocks, and a run's section holds one"],
-      [(given) => `${given.heading}\n\n${block(given.target, "judged-by: s-9")}`, "its verdict block holds a `judged-by:` line, which Owlery writes and a sealer does not"],
+      [(given) => runSection({ ...given, target: `${A} against main` }), `its verdict's target line reads \`${A} against main\`, and the run was given \``],
+      [(given) => `${runSection(given)}\n${block(given.target)}`, "its section holds 2 verdict blocks, and a run's section holds one"],
+      [(given) => `${given.heading}\n\n${block(given.target, "inspected-by: s-9")}`, "its verdict block holds a `inspected-by:` line, which Owlery writes and an inspector does not"],
       [(given) => `${given.heading}\n\n${block(given.target, "gate: passed")}`, "its section holds a line Owlery cannot read, line 6: "],
-      [() => "I read the branch, and it holds.", "its answer holds no section of the guarantee: no line of it reads `## Run 1`"],
-      [(given) => sealSection({ ...given, heading: "## Run 2" }), "its section is headed `## Run 2`, and the run was given `## Run 1`"],
+      [() => "I read the branch, and it holds.", "its answer holds no section of the inspection: no line of it reads `## Run 1`"],
+      [(given) => runSection({ ...given, heading: "## Run 2" }), "its section is headed `## Run 2`, and the run was given `## Run 1`"],
     ];
     for (const [says, why] of refused) {
       answer = says;
       const stopped = await again(c, a.id, "stopped");
-      expect(stopped.says, why).toContain(`The sealer's session failed: ${why}`);
-      expect(stopped.stages.at(-1), why).toMatchObject({ kind: "seal", round: 1, state: "failed" });
-      expect([guaranteeAt(a.worktree), existsSync(join(a.worktree, GUARANTEE)), subjects(a.worktree).at(-1), status(a.worktree)], why).toEqual([null, false, "chore: record the broad gate's run", []]);
+      expect(stopped.says, why).toContain(`The inspector's session failed: ${why}`);
+      expect(stopped.stages.at(-1), why).toMatchObject({ kind: "inspection", round: 1, state: "failed" });
+      expect([inspectionAt(a.worktree), existsSync(join(a.worktree, INSPECTION)), subjects(a.worktree).at(-1), status(a.worktree)], why).toEqual([null, false, "chore: record the broad gate's run", []]);
     }
-    // Each start after the first ran the seal alone, on the gate's commit, as run 1: no verdict stands.
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", ...refused.map(() => "sealer")]);
-    expect(started.slice(1).map(({ prompt }) => givenSeal(prompt).run)).toEqual(refused.map(() => 1));
-    // A sealer's block may hold the `original:` line, which both grammars take and no line of the daemon's is.
-    answer = (given) => `${given.heading}\n\n${["```seal", `target: ${given.target}`, `original: ${B}`, "Verdict: sealed", "```", ""].join("\n")}`;
+    // Each start after the first ran the inspection alone, on the gate's commit, as run 1: no verdict stands.
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", ...refused.map(() => "inspector")]);
+    expect(started.slice(1).map(({ prompt }) => givenInspection(prompt).run)).toEqual(refused.map(() => 1));
+    // An inspector's block may hold the `original:` line, which both grammars take and no line of the daemon's is.
+    answer = (given) => `${given.heading}\n\n${["```iadd", `target: ${given.target}`, `original: ${B}`, "Verdict: cleared", "```", ""].join("\n")}`;
     await again(c, a.id, "rested");
-    expect(guaranteeAt(a.worktree)).toContain(`\noriginal: ${B}\nVerdict: sealed\nbuilt-by: the session\n`);
+    expect(inspectionAt(a.worktree)).toContain(`\noriginal: ${B}\nVerdict: cleared\nbuilt-by: the session\n`);
   });
 
   it("writes no verdict where the daemon cannot name who judged or under which rules, or who built: a session that named no id, one that named no model, a daemon given no version, and a routing whose implementer is a crafter on a branch no fix pass's commit names", async () => {
-    // The session's own name is the adapter's to report, and one adapter of the case reports none for a sealer.
-    const inner = roles({ proofer: clean }, { session: (_prompt, role) => ({ id: `${role?.role ?? "none"}-1`, model: role?.role === "sealer" ? null : "owl-large" }) });
-    const unnamed: RoleAdapter = { ...inner, start: (options, listener) => inner.start(options, (event) => (event.type === "session" && options.role?.role === "sealer" ? undefined : listener(event))) };
+    // The session's own name is the adapter's to report, and one adapter of the case reports none for an inspector.
+    const inner = roles({ proofer: clean }, { session: (_prompt, role) => ({ id: `${role?.role ?? "none"}-1`, model: role?.role === "inspector" ? null : "owl-large" }) });
+    const unnamed: RoleAdapter = { ...inner, start: (options, listener) => inner.start(options, (event) => (event.type === "session" && options.role?.role === "inspector" ? undefined : listener(event))) };
     const cases: [Partial<NonNullable<Parameters<typeof standing>[2]>>, string, ((worktree: string, branch: string) => void)?][] = [
-      [{ roleAdapter: unnamed }, "its session named no id of its own, and a verdict names the session that judged"],
-      [{ roleAdapter: inner }, "its session named no model, and a verdict names the model that judged"],
-      [{ roleAdapter: roles({ proofer: clean }), version: undefined }, "this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under"],
+      [{ roleAdapter: unnamed }, "its session named no id of its own, and a verdict names the session that inspected"],
+      [{ roleAdapter: inner }, "its session named no model, and a verdict names the model that inspected"],
+      [{ roleAdapter: roles({ proofer: clean }), version: undefined }, "this daemon was given no version of Owlery, and a verdict names the version of the rules it was inspected under"],
       [
         { roleAdapter: roles({ proofer: clean }) },
         "no session is named as having built the work, and a verdict names one or more",
@@ -2922,211 +2948,225 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
       ],
     ];
     for (const [options, why, prepare] of cases) {
-      const { c, workItems } = await standing(cleanups, ["Sealed work"], options);
+      const { c, workItems } = await standing(cleanups, ["Cleared work"], options);
       const a = workItems[0]!;
       prepare?.(a.worktree, branchOf(a));
       expect(await c.startChain(a.id)).toBe("done");
-      expect((await c.chain(a.id, "stopped")).says, why).toBe(`The sealer's session failed: ${why}.`);
-      expect([guaranteeAt(a.worktree), existsSync(join(a.worktree, GUARANTEE)), subjects(a.worktree).at(-1), status(a.worktree)], why).toEqual([null, false, "chore: record the broad gate's run", []]);
+      expect((await c.chain(a.id, "stopped")).says, why).toBe(`The inspector's session failed: ${why}.`);
+      expect([inspectionAt(a.worktree), existsSync(join(a.worktree, INSPECTION)), subjects(a.worktree).at(-1), status(a.worktree)], why).toEqual([null, false, "chore: record the broad gate's run", []]);
     }
   });
 
-  it("writes no verdict where the tree moved under the sealer: a commit that landed on the branch during the seal, and a file the sealer's session left outside the work item's directory, each with a sentence that names the two commits or the path", async () => {
-    const landed = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }, { work: (cwd, _prompt, role) => (role?.role === "sealer" ? void commitFix(cwd) : undefined) }) });
+  it("writes no verdict where the tree moved under the inspector: a commit that landed on the branch during the inspection, and a file the inspector's session left outside the work item's directory, each with a sentence that names the two commits or the path", async () => {
+    const landed = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }, { work: (cwd, _prompt, role) => (role?.role === "inspector" ? void commitFix(cwd) : undefined) }) });
     const a = landed.workItems[0]!;
     expect(await landed.c.startChain(a.id)).toBe("done");
     const moved = await landed.c.chain(a.id, "stopped");
     const [after = "", before = ""] = git(a.worktree, "log", "-2", "--format=%h").trim().split("\n");
-    expect(moved.says).toBe(`The sealer's session failed: the worktree's head moved during the seal, from ${before} to ${after}, so the broad gate no longer holds at the head the sealer read.`);
-    expect([guaranteeAt(a.worktree), existsSync(join(a.worktree, GUARANTEE))]).toEqual([null, false]);
+    expect(moved.says).toBe(`The inspector's session failed: the worktree's head moved during the inspection, from ${before} to ${after}, so the broad gate no longer holds at the head the inspector read.`);
+    expect([inspectionAt(a.worktree), existsSync(join(a.worktree, INSPECTION))]).toEqual([null, false]);
 
-    const left = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }, { work: (cwd, _prompt, role) => (role?.role === "sealer" ? write(cwd, "notes.txt", "a note\n") : undefined) }) });
+    const left = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }, { work: (cwd, _prompt, role) => (role?.role === "inspector" ? write(cwd, "notes.txt", "a note\n") : undefined) }) });
     const b = left.workItems[0]!;
     expect(await left.c.startChain(b.id)).toBe("done");
-    expect((await left.c.chain(b.id, "stopped")).says).toBe("The sealer's session failed: the worktree holds a change no commit holds outside the work item's directory, at notes.txt.");
-    expect([guaranteeAt(b.worktree), existsSync(join(b.worktree, GUARANTEE)), subjects(b.worktree).at(-1)]).toEqual([null, false, "chore: record the broad gate's run"]);
+    expect((await left.c.chain(b.id, "stopped")).says).toBe("The inspector's session failed: the worktree holds a change no commit holds outside the work item's directory, at notes.txt.");
+    expect([inspectionAt(b.worktree), existsSync(join(b.worktree, INSPECTION)), subjects(b.worktree).at(-1)]).toEqual([null, false, "chore: record the broad gate's run"]);
   });
 
-  it("refuses a sealer's write by the sealer's grant and allows its command, which the sandbox bounds: the seal's stage counts one refused call, trail/refusals.md holds its row in the commit that carries the guarantee, and nothing is written (#127)", async () => {
-    const asks = (_prompt: string, role?: { role: string }) => (role?.role === "sealer" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }, { asks }) });
+  it("refuses an inspector's write by the inspector's grant and allows its command, which the sandbox bounds: the inspection's stage counts one refused call, trail/refusals.md holds its row in the commit that carries the inspection, and nothing is written (#127)", async () => {
+    const asks = (_prompt: string, role?: { role: string }) => (role?.role === "inspector" ? [{ tool: "Write", action: "write" as const, path: "notes.md", text: "notes.md" }, { tool: "Bash", action: "run" as const, path: null, text: "pnpm -r run check" }] : []);
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }, { asks }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["seal", 1], ["pull-request", 0]]);
+    expect(chain.stages.map(({ kind, refusals }) => [kind, refusals])).toEqual([["round", 0], ["gate", 0], ["inspection", 1], ["pull-request", 0]]);
     const refusals = `${DIRECTORY}/trail/refusals.md`;
-    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| seal 1 | sealer | Write | writes a file | no-write |", ""]);
-    expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [GUARANTEE, refusals] });
+    expect(git(a.worktree, "show", `HEAD:${refusals}`).split("\n")).toEqual([`# Refused calls: ${NAME}`, "", "| Stage | Role | Tool | What the call does | Rule |", "|---|---|---|---|---|", "| inspection 1 | inspector | Write | writes a file | no-write |", ""]);
+    expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...INSPECTION_COMMIT, paths: [INSPECTION, refusals] });
     expect(existsSync(join(a.worktree, "notes.md"))).toBe(false);
     expect(status(a.worktree)).toEqual([]);
     // Both files of the verdict's commit are closing records, so the gate holds at the head and nothing more is owed.
     expect(stagesOf(await again(c, a.id, "rested"))).toEqual(stagesOf(chain));
   });
 
-  it("has the question of an undecided verdict ruled on by the orchestrator: the guarantee and then the decision are committed, the gate runs again on the head that holds the decision, and the second sealer's prompt names the record of decisions", async () => {
+  it("has the question of an undecided verdict ruled on by the orchestrator: the inspection and then the decision are committed, the gate runs again on the head that holds the decision, and the second inspector's prompt names the record of decisions", async () => {
     const QUESTION = "Does the frame's item 4 cover a renamed branch?";
-    const sealer = (given: Given): string => sealSection(given, given.run === 1 ? `undecided question: ${QUESTION}` : "sealed");
+    const inspector = (given: Given): string => runSection(given, given.run === 1 ? `undecided question: ${QUESTION}` : "cleared");
     const orchestrator = (prompt: string): string => {
       expect(givenQuestions(prompt)).toBe(1);
       return rulingBlock(1, "answered", "Item 4 covers a renamed branch.", "Read in `frame/design.md`.");
     };
-    const { adapter, started } = noted(roles({ proofer: clean, sealer, orchestrator }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { adapter, started } = noted(roles({ proofer: clean, inspector, orchestrator }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["gate", 1, "finished"], ["seal", 1, "finished"], ["ruling", 1, "finished"], ["gate", 1, "finished"], ["seal", 1, "finished"], ["pull-request", 1, "finished"]]);
-    expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "sealer", stage: "seal" }, { role: "orchestrator", stage: "judgment" }, { role: "sealer", stage: "seal" }]);
+    expect(chain.stages.map(({ kind, round, state }) => [kind, round, state])).toEqual([["round", 1, "finished"], ["gate", 1, "finished"], ["inspection", 1, "finished"], ["ruling", 1, "finished"], ["gate", 1, "finished"], ["inspection", 1, "finished"], ["pull-request", 1, "finished"]]);
+    expect(started.map(({ role }) => role)).toEqual([{ role: "proofer", stage: "round" }, { role: "inspector", stage: "inspection" }, { role: "orchestrator", stage: "judgment" }, { role: "inspector", stage: "inspection" }]);
     expect(started[2]?.prompt.split("\n")[0]).toBe(`The judgment after review round 1 of the work item \`${NAME}\`, in its worktree \`${a.worktree}\`. Every path below is from that worktree's top.`);
-    expect(started[2]?.prompt).toContain(`- Who asks: the sealer, in the sealer's session\n\nIts question:\n\n1. ${QUESTION}\n   - Why the sealer cannot answer it: The sealer asked it in place of a verdict, in run 1 of guarantee.md.\n`);
+    expect(started[2]?.prompt).toContain(`- Who asks: the inspector, in the inspector's session\n\nIts question:\n\n1. ${QUESTION}\n   - Why the inspector cannot answer it: The inspector asked it in place of a verdict, in run 1 of inspection.md.\n`);
     expect(commitsAfterMain(a.worktree).slice(3)).toEqual([
       { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },
-      SEAL_COMMIT,
-      { subject: "chore: record the orchestrator's ruling on the sealer's question", body: TRAILER, paths: [DECISIONS] },
+      INSPECTION_COMMIT,
+      { subject: "chore: record the orchestrator's ruling on the inspector's question", body: TRAILER, paths: [DECISIONS] },
       { subject: "chore: record the broad gate's run", body: TRAILER, paths: [`${DIRECTORY}/trail/gate.md`] },
-      SEAL_COMMIT,
+      INSPECTION_COMMIT,
     ]);
     expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8"))).toMatchObject({ decisions: [{ id: 1, kind: "answered", decided: "Item 4 covers a renamed branch.", grounds: "Read in `frame/design.md`.", by: "orchestrator", state: { is: "decided" } }], questions: [] });
     // The second gate ran on the commit that holds the decision, and the second verdict names that commit.
     const ruled = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    expect(givenSeal(started[3]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${ruled} against main` });
+    expect(givenInspection(started[3]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${ruled} against main` });
     expect(started[1]?.prompt).not.toContain("decisions.md");
     expect(started[3]?.prompt).toContain(`- The decisions and the answers to hold to: \`${DECISIONS}\`\n`);
-    const guarantee = guaranteeAt(a.worktree) ?? "";
-    expect(guarantee).toContain(`\nVerdict: undecided question: ${QUESTION}\nbuilt-by: the session\njudged-by: fake-2\n`);
-    expect(guarantee).toContain(`\n## Run 2\n`);
-    expect(guarantee).toContain(`\ntarget: ${ruled} against main\nVerdict: sealed\nbuilt-by: the session\njudged-by: fake-4\n`);
+    const inspection = inspectionAt(a.worktree) ?? "";
+    expect(inspection).toContain(`\nVerdict: undecided question: ${QUESTION}\nbuilt-by: the session\ninspected-by: fake-2\n`);
+    expect(inspection).toContain(`\n## Run 2\n`);
+    expect(inspection).toContain(`\ntarget: ${ruled} against main\nVerdict: cleared\nbuilt-by: the session\ninspected-by: fake-4\n`);
   });
 
-  it("parks the work item where the orchestrator cannot decide a sealer's question: the record holds one open question by sealer, the chain is parked, and the person's answer runs the gate and then the seal", async () => {
+  it("parks the work item where the orchestrator cannot decide an inspector's question: the record holds one open question by inspector, the chain is parked, and the person's answer runs the gate and then the inspection", async () => {
     const QUESTION = "May the run push the branch to `origin`?";
-    const sealer = (given: Given): string => sealSection(given, given.run === 1 ? `undecided question: ${QUESTION}` : "sealed");
-    const { adapter, started } = noted(roles({ proofer: clean, sealer, orchestrator: () => rulingBlock(1, "park", null, "Only the person approves a push.") }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const inspector = (given: Given): string => runSection(given, given.run === 1 ? `undecided question: ${QUESTION}` : "cleared");
+    const { adapter, started } = noted(roles({ proofer: clean, inspector, orchestrator: () => rulingBlock(1, "park", null, "Only the person approves a push.") }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const parked = await c.chain(a.id, "parked");
-    expect([parked.says, stagesOf(parked)]).toEqual(["The chain waits for the answers to the work item's open questions.", [["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["ruling", "finished"]]]);
+    expect([parked.says, stagesOf(parked)]).toEqual(["The chain waits for the answers to the work item's open questions.", [["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["ruling", "finished"]]]);
     expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8"))).toMatchObject({
       decisions: [],
-      questions: [{ id: 1, asks: QUESTION, grounds: "The sealer asked it in place of a verdict, in run 1 of guarantee.md. The code and the policy do not decide it: Only the person approves a push.", by: "sealer", options: [], default: null, state: { is: "open" } }],
+      questions: [{ id: 1, asks: QUESTION, grounds: "The inspector asked it in place of a verdict, in run 1 of inspection.md. The code and the policy do not decide it: Only the person approves a push.", by: "inspector", options: [], default: null, state: { is: "open" } }],
     });
-    expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the sealer's verdict", "chore: record the orchestrator's ruling on the sealer's question"]);
+    expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the inspector's verdict", "chore: record the orchestrator's ruling on the inspector's question"]);
     expect(status(a.worktree)).toEqual([]);
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(started).toHaveLength(3);
 
     c.send({ type: "answerQuestions", requestId: 2, workItemId: a.id, answers: [{ questionId: 1, answer: "It may not." }] });
     const chain = await c.chain(a.id, "rested");
-    expect(stagesOf(chain).slice(4)).toEqual([["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    expect(subjects(a.worktree).slice(-3)).toEqual(["chore: record the person's answers", "chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+    expect(stagesOf(chain).slice(4)).toEqual([["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    expect(subjects(a.worktree).slice(-3)).toEqual(["chore: record the person's answers", "chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     // The gate ran on the commit of the answer, which the second verdict names.
     const answered = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(git(a.worktree, "log", "-1", "--format=%s", answered).trim()).toBe("chore: record the person's answers");
-    expect(givenSeal(started[3]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${answered} against main` });
+    expect(givenInspection(started[3]?.prompt ?? "")).toEqual({ run: 2, heading: "## Run 2", target: `${answered} against main` });
   });
 
-  it("asks no ruling past the ceiling of undecided verdicts, and counts the undecided ones alone: a verdict that withheld is none of them, and where the guarantee holds as many undecided verdicts as the ceiling, the next one's question parks the work item in the commit that carries the verdict, with no orchestrator started", async () => {
-    const sealer = (given: Given): string => sealSection(given, given.run === 1 ? "withheld reason: the changelog is missing" : `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
-    const { adapter, started } = noted(roles({ proofer: clean, sealer }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, undecidedCeiling: 1 });
+  it("asks no ruling past the ceiling of undecided verdicts, and counts the undecided ones alone: a verdict that withheld is none of them, and where the inspection holds as many undecided verdicts as the ceiling, the next one's question parks the work item in the commit that carries the verdict, with no orchestrator started", async () => {
+    const inspector = (given: Given): string => runSection(given, given.run === 1 ? "withheld reason: the changelog is missing" : `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
+    const { adapter, started } = noted(roles({ proofer: clean, inspector }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter, undecidedCeiling: 1 });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "stopped");
     const parked = await again(c, a.id, "parked");
-    // The withheld verdict stopped the chain. The first question after it was ruled on, which owed the gate and the seal again, and the second parked with no ruling.
-    expect(stagesOf(parked)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["seal", "finished"], ["ruling", "finished"], ["gate", "finished"], ["seal", "finished"]]);
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "sealer", "orchestrator", "sealer"]);
-    expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...SEAL_COMMIT, paths: [DECISIONS, GUARANTEE] });
+    // The withheld verdict stopped the chain. The first question after it was ruled on, which owed the gate and the inspection again, and the second parked with no ruling.
+    expect(stagesOf(parked)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["inspection", "finished"], ["ruling", "finished"], ["gate", "finished"], ["inspection", "finished"]]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "inspector", "orchestrator", "inspector"]);
+    expect(commitsAfterMain(a.worktree).at(-1)).toEqual({ ...INSPECTION_COMMIT, paths: [DECISIONS, INSPECTION] });
     expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8"))).toMatchObject({
       decisions: [{ id: 1, kind: "answered", by: "orchestrator" }],
-      questions: [{ id: 2, asks: "Does run 3 read the frame as the build does?", grounds: "The sealer asked it in place of a verdict, in run 3 of guarantee.md. The guarantee already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "sealer", state: { is: "open" } }],
+      questions: [{ id: 2, asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The inspection already holds one verdict that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector", state: { is: "open" } }],
     });
     expect(status(a.worktree)).toEqual([]);
   });
 
-  it("counts no verdict but one a commit holds, and builds the guarantee on the file as the head holds it: a seal the worktree holds and no commit does leaves the seal owed, and is not committed with the daemon's section", async () => {
+  it("counts no verdict but one a commit holds, and builds the inspection on the file as the head holds it: an inspection the worktree holds and no commit does leaves the inspection owed, and is not committed with the daemon's section", async () => {
     let withholds = true;
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer: (given) => sealSection(given, withholds ? "withheld reason: the changelog is missing" : "sealed") }) });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean, inspector: (given) => runSection(given, withholds ? "withheld reason: the changelog is missing" : "cleared") }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "stopped");
-    const committed = guaranteeAt(a.worktree) ?? "";
+    const committed = inspectionAt(a.worktree) ?? "";
     const target = `${git(a.worktree, "rev-parse", "HEAD~2").trim()} against main`;
-    // A seal of the gate's commit that the person wrote by hand, in the worktree alone.
-    writeFileSync(join(a.worktree, GUARANTEE), `${committed}\n${sealedBy(sealSection({ heading: "## Run 2", target }), "the session", "by-hand")}`);
+    // An inspection of the gate's commit that the person wrote by hand, in the worktree alone.
+    writeFileSync(join(a.worktree, INSPECTION), `${committed}\n${withOwleryLines(runSection({ heading: "## Run 2", target }), "the session", "by-hand")}`);
     withholds = false;
-    const sealed = await again(c, a.id, "rested");
-    expect(stagesOf(sealed)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    const now = guaranteeAt(a.worktree);
-    expect(now).toBe(`${committed}\n${sealedBy(sealSection({ heading: "## Run 2", target }), "the session", "fake-3")}`);
-    expect([readFileSync(join(a.worktree, GUARANTEE), "utf8"), status(a.worktree)]).toEqual([now, []]);
+    const cleared = await again(c, a.id, "rested");
+    expect(stagesOf(cleared)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    const now = inspectionAt(a.worktree);
+    expect(now).toBe(`${committed}\n${withOwleryLines(runSection({ heading: "## Run 2", target }), "the session", "fake-3")}`);
+    expect([readFileSync(join(a.worktree, INSPECTION), "utf8"), status(a.worktree)]).toEqual([now, []]);
   });
 
-  it("asks a ruling for the first two undecided verdicts of a guarantee where the daemon's options name no ceiling, and parks the third's question with none", async () => {
-    const sealer = (given: Given): string => sealSection(given, `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
-    const { adapter, started } = noted(roles({ proofer: clean, sealer }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+  it("asks a ruling for the first two undecided verdicts of an inspection where the daemon's options name no ceiling, and parks the third's question with none", async () => {
+    const inspector = (given: Given): string => runSection(given, `undecided question: Does run ${String(given.run)} read the frame as the build does?`);
+    const { adapter, started } = noted(roles({ proofer: clean, inspector }));
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     expect(UNDECIDED_CEILING).toBe(2);
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "parked");
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "orchestrator", "sealer", "orchestrator", "sealer"]);
-    expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8")).questions).toMatchObject([{ asks: "Does run 3 read the frame as the build does?", grounds: "The sealer asked it in place of a verdict, in run 3 of guarantee.md. The guarantee already holds 2 verdicts that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "sealer" }]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "orchestrator", "inspector", "orchestrator", "inspector"]);
+    expect(readDecisionRecord(readFileSync(join(a.worktree, DECISIONS), "utf8")).questions).toMatchObject([{ asks: "Does run 3 read the frame as the build does?", grounds: "The inspector asked it in place of a verdict, in run 3 of inspection.md. The inspection already holds 2 verdicts that asked, and Owlery asks the orchestrator for a ruling on no more than that.", by: "inspector" }]);
   });
 
-  it("names no session a verdict block cannot name, and gives the sealer the frame, the phase records and the changelog where the directory holds them: a fix pass whose session named an id of two words is recorded with the routing's trailer alone, a trailer written by hand with such a value is passed over, and one with an id is taken", async () => {
+  it("names no session a verdict block cannot name, and gives the inspector the frame, the phase records and the changelog where the directory holds them: a fix pass whose session named an id of two words is recorded with the routing's trailer alone, a trailer written by hand with such a value is passed over, and one with an id is taken", async () => {
     const session = (_prompt: string, role?: { role: string }): { id: string; model: string | null } => ({ id: role?.role === "crafter" ? "two words" : `${role?.role ?? "none"}-1`, model: "owl-large" });
     const { adapter, started } = noted(roles({}, { session }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     write(a.worktree, `${DIRECTORY}/frame/design.md`, "# Design\n");
     write(a.worktree, `${DIRECTORY}/trail/phases/phase-1.md`, "# Phase 1\n");
     write(a.worktree, `${DIRECTORY}/changelog.md`, "- A greeting.\n");
     git(a.worktree, "add", "--all");
-    git(a.worktree, "commit", "--quiet", "-m", "chore: declare the work item's routing", "-m", "Seal-Built-By: s-7\nSeal-Built-By: by hand, twice");
+    git(a.worktree, "commit", "--quiet", "-m", "chore: declare the work item's routing", "-m", "IADD-Built-By: s-7\nIADD-Built-By: by hand, twice");
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     expect(commitsAfterMain(a.worktree).find(({ subject }) => subject === "chore: record the fix pass of round 1")?.body).toBe(TRAILER);
-    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session, s-7\njudged-by: sealer-1\nmodel: owl-large\n");
+    expect(inspectionAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, s-7\ninspected-by: inspector-1\nmodel: owl-large\n");
     expect(started.at(-1)?.prompt).toContain(`- The broad gate's record: \`${DIRECTORY}/trail/gate.md\`\n- The frame: \`${DIRECTORY}/frame/\`\n- The phase records: \`${DIRECTORY}/trail/phases/\`\n- The changelog fragment: \`${DIRECTORY}/changelog.md\`\n- The issue: `);
   });
 
+  it("names a fix pass's session that a commit written before the rename carries in the trailer `Seal-Built-By:`, which no commit can rewrite, beside one the trailer `IADD-Built-By:` names, in the order of their commits", async () => {
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({}) });
+    const a = workItems[0]!;
+    write(a.worktree, "earlier.txt", "A pass before the rename\n");
+    git(a.worktree, "add", "--all");
+    git(a.worktree, "commit", "--quiet", "-m", "fix: a pass recorded before the rename", "-m", "Seal-Built-By: s-8");
+    write(a.worktree, "later.txt", "A pass after the rename\n");
+    git(a.worktree, "add", "--all");
+    git(a.worktree, "commit", "--quiet", "-m", "fix: a pass recorded after the rename", "-m", "IADD-Built-By: s-9");
+    expect(await c.startChain(a.id)).toBe("done");
+    await c.chain(a.id, "rested");
+    expect(inspectionAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, s-8, s-9, fake-2\ninspected-by: ");
+  });
+
   it("names no session of another work item whose fix pass's commit a rebase onto the base put on the branch's own line", async () => {
-    const { made, c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}) });
+    const { made, c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({}) });
     const a = workItems[0]!;
     write(made.repo, "other.txt", "Another work item\n");
     git(made.repo, "add", "other.txt");
-    git(made.repo, "commit", "--quiet", "-m", "fix: another work item's fix pass", "-m", "Seal-Routing: 1795388600-other-work\nSeal-Built-By: s-other");
+    git(made.repo, "commit", "--quiet", "-m", "fix: another work item's fix pass", "-m", "IADD-Routing: 1795388600-other-work\nIADD-Built-By: s-other");
     git(a.worktree, "rebase", "--quiet", "main");
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
-    expect(guaranteeAt(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session, fake-2\njudged-by: ");
+    expect(inspectionAt(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session, fake-2\ninspected-by: ");
   });
 
-  it("stops where the reader refuses a line of the guarantee the head holds, with the file and the line, and leaves the file as it is", async () => {
+  it("stops where the reader refuses a line of the inspection the head holds, with the file and the line, and leaves the file as it is", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
-    const file = join(a.worktree, GUARANTEE);
+    const file = join(a.worktree, INSPECTION);
     const unread = `${readFileSync(file, "utf8")}\n<!-- a note of the person's -->\n`;
     writeFileSync(file, unread);
-    commitAll(a.worktree, "docs: note the guarantee");
+    commitAll(a.worktree, "docs: note the inspection");
     const stopped = await again(c, a.id, "stopped");
-    expect(stopped.says).toMatch(new RegExp(`^The chain stopped: the reader refuses line \\d+ of ${DIRECTORY}/guarantee\\.md: the line begins with \`<!--\``, "u"));
-    expect(stagesOf(stopped)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(stopped.says).toMatch(new RegExp(`^The chain stopped: the reader refuses line \\d+ of ${DIRECTORY}/inspection\\.md: the line begins with \`<!--\``, "u"));
+    expect(stagesOf(stopped)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
     expect(started).toHaveLength(2);
-    expect([readFileSync(file, "utf8"), git(a.worktree, "show", `HEAD:${GUARANTEE}`), status(a.worktree)]).toEqual([unread, unread, []]);
+    expect([readFileSync(file, "utf8"), git(a.worktree, "show", `HEAD:${INSPECTION}`), status(a.worktree)]).toEqual([unread, unread, []]);
   });
 
   it("reads a chain an earlier build stored as reviewed as no chain: the daemon lists every repository and every work item of the file, and a start runs the step the records owe", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const stood = await standing(cleanups, ["Sealed work", "Other work"], { roleAdapter: adapter });
+    const stood = await standing(cleanups, ["Cleared work", "Other work"], { roleAdapter: adapter });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
-    // The records of a branch whose chain an earlier build rested: one round and the gate's run, and no guarantee.
+    // The records of a branch whose chain an earlier build rested: one round and the gate's run, and no inspection.
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY));
     const target = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${DIRECTORY}/trail/rounds/round-1.md`, roundRecord(HEADING(1), `${target} against main`));
@@ -3145,16 +3185,16 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     const c = await client(await stood.start(), cleanups);
     const ready = await c.message("ready");
     expect([ready.repositories.length, ready.workItems.map(({ id, chain }) => [id, chain])]).toEqual([1, [[a.id, null], [b.id, null]]]);
-    // The records owe the seal alone: the gate holds at the head, and no verdict stands.
+    // The records owe the inspection alone: the gate holds at the head, and no verdict stands.
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
-    expect([chain.says, stagesOf(chain)]).toEqual(["Pull request #1 is open.", [["seal", "finished"], ["pull-request", "finished"]]]);
-    expect(started.map(({ role }) => role?.role)).toEqual(["sealer"]);
+    expect([chain.says, stagesOf(chain)]).toEqual(["Pull request #1 is open.", [["inspection", "finished"], ["pull-request", "finished"]]]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["inspector"]);
   });
 
   it("reads a chain an earlier build of this release stored as sealed as no chain: the daemon lists every repository and every work item of the file, keeps the work item's pull request, and a start on the head that pull request was pushed at runs no stage and opens no pull request", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const stood = await standing(cleanups, ["Sealed work", "Other work"], { roleAdapter: adapter });
+    const stood = await standing(cleanups, ["Cleared work", "Other work"], { roleAdapter: adapter });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
     expect(await stood.c.startChain(a.id)).toBe("done");
     const rested = await stood.c.chain(a.id, "rested");
@@ -3176,24 +3216,24 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     const again = await c.chain(a.id, "rested");
     expect([again.says, again.stages]).toEqual(["Pull request #1 is open.", []]);
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer"]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector"]);
     expect(writes()).toEqual(["list", "create"]);
   });
 
-  it("sends the seal its stages committed once the chain rests, with no wait of one interval of the read of the branches", async () => {
+  it("sends the inspection its stages committed once the chain rests, with no wait of one interval of the read of the branches", async () => {
     // One read of the branches at the hello, and the next a minute later, three times the case's wait.
-    const { c, workItems } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), commitPollMs: 60_000 });
+    const { c, workItems } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }), commitPollMs: 60_000 });
     const a = workItems[0]!;
-    // The hello's read gives the head no seal; a `ready` sent before that read ended carries no `seal`, and the inbox after it carries the null.
+    // The hello's read gives the head no inspection; a `ready` sent before that read ended carries no `inspection`, and the inbox after it carries the null.
     expect(await c.until(() => {
       const item = c.workItem(a.id);
-      return item !== undefined && "seal" in item ? item.seal : undefined;
+      return item !== undefined && "inspection" in item ? item.inspection : undefined;
     })).toBeNull();
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
-    expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the sealer's verdict"]);
+    expect(subjects(a.worktree).slice(-2)).toEqual(["chore: record the broad gate's run", "chore: record the inspector's verdict"]);
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    expect(await c.until(() => c.workItem(a.id)?.seal ?? undefined)).toEqual({ state: "sealed", commit: gate, why: null });
+    expect(await c.until(() => c.workItem(a.id)?.inspection ?? undefined)).toEqual({ state: "cleared", commit: gate, why: null });
   });
 
   /** The chain once it rests with as many stages as given, read from the newest lists, so a list sent before the start is passed over. */
@@ -3203,75 +3243,77 @@ describe("the seal of a work item's chain", { timeout: 60_000 }, () => {
       return chain?.state === "rested" && chain.stages.length === stages ? chain : undefined;
     });
 
-  it("hands the sealer that follows a broken seal the part that changed since the sealed commit: a commit after the seal owes a verifying round on the commits after round 1's target, the gate and the seal, whose prompt names run 1 and its sealed commit and holds the paths that differ since that commit and no other path of the source, and the second verdict names the new gate's commit against the base, where the seal holds again and the pull request the first start opened carries it", async () => {
+  it("hands the inspector that follows a lapsed inspection the part that changed since the cleared commit: a commit after the inspection owes a verifying round on the commits after round 1's target, the gate and the inspection, whose prompt names run 1 and its cleared commit and holds the paths that differ since that commit and no other path of the source, and the second verdict names the new gate's commit against the base, where the inspection holds again and the pull request the first start opened carries it", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter, commitPollMs: 100 });
+    const { c, workItems, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter, commitPollMs: 100 });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     // The routing the daemon writes sends the work to a pull request, so the first start rests after the stage that opens it.
-    expect(stagesOf(await restedWith(c, a.id, 4))).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    expect(stagesOf(await restedWith(c, a.id, 4))).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    const cleared = git(a.worktree, "rev-parse", "HEAD~2").trim();
     // The stand-in for gh lists that pull request open from here on, with the body the stage created.
     gh.answer("list", { out: JSON.stringify([{ number: 1, url: PULL_REQUEST_URL, headRefOid: head(a.worktree), body: gh.bodies()[1] ?? "" }]) });
-    // A commit of a source file the branch did not change before the seal breaks it.
+    // A commit of a source file the branch did not change before the inspection lapses it.
     write(a.worktree, "later.txt", "Said later\n");
-    const broke = commitAll(a.worktree, "feat: say more");
-    expect(await c.until(() => (c.workItem(a.id)?.seal?.state === "broken" ? c.workItem(a.id)?.seal : undefined))).toMatchObject({ commit: sealed });
+    const lapsedBy = commitAll(a.worktree, "feat: say more");
+    expect(await c.until(() => (c.workItem(a.id)?.inspection?.state === "lapsed" ? c.workItem(a.id)?.inspection : undefined))).toMatchObject({ commit: cleared });
 
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await restedWith(c, a.id, 8);
-    expect(stagesOf(chain).slice(4)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
-    // The stage is no session, so the sessions started are the two rounds and the two seals.
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "proofer", "sealer"]);
-    // Round 1 read the commit of the routing, the one before the sealed commit, and round 2 reads the commits after it.
-    const routed = git(a.worktree, "rev-parse", `${sealed}~1`).trim();
-    expect(givenRound(started[2]?.prompt ?? "")).toMatchObject({ round: 2, target: `${broke}, fixes ${routed}..${broke}` });
+    expect(stagesOf(chain).slice(4)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
+    // The stage is no session, so the sessions started are the two rounds and the two inspections.
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "proofer", "inspector"]);
+    // Round 1 read the commit of the routing, the one before the cleared commit, and round 2 reads the commits after it.
+    const routed = git(a.worktree, "rev-parse", `${cleared}~1`).trim();
+    expect(givenRound(started[2]?.prompt ?? "")).toMatchObject({ round: 2, target: `${lapsedBy}, fixes ${routed}..${lapsedBy}` });
     const base = a.baseBranch ?? a.baseCommit ?? "";
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
     const prompt = started[3]?.prompt ?? "";
-    expect(givenSeal(prompt)).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against ${base}` });
-    expect(prompt).toContain(`\n- The seal this run follows: run 1 of \`${DIRECTORY}/guarantee.md\` sealed \`${sealed}\`, and a commit after it broke that seal\n`);
-    expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 sealed:\n- \`later.txt\`\n- \`${DIRECTORY}/guarantee.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n\nTheir diff:\n\ndiff --git a/later.txt b/later.txt\n`);
-    // The branch changed `feature.txt` before the seal, and nothing of it since.
+    expect(givenInspection(prompt)).toEqual({ run: 2, heading: "## Run 2", target: `${gate} against ${base}` });
+    expect(prompt).toContain(`\n- The inspection this run follows: run 1 of \`${DIRECTORY}/inspection.md\` cleared \`${cleared}\`, and a commit after it lapsed that inspection\n`);
+    // Git lists the paths in their order, and `agentory/` comes before `later.txt`.
+    expect(prompt).toContain(`\nThe branch changed these paths since the commit run 1 cleared:\n- \`${DIRECTORY}/inspection.md\`\n- \`${DIRECTORY}/trail/gate.md\`\n- \`${DIRECTORY}/trail/rounds/round-2.md\`\n- \`later.txt\`\n\nTheir diff:\n\ndiff --git a/${DIRECTORY}/inspection.md b/${DIRECTORY}/inspection.md\n`);
+    expect(prompt).toContain("\ndiff --git a/later.txt b/later.txt\n");
+    // The branch changed `feature.txt` before the inspection, and nothing of it since.
     expect(prompt).not.toContain("- `feature.txt`");
     expect(prompt).not.toContain("diff --git a/feature.txt");
-    expect(guaranteeAt(a.worktree)).toContain(`\n## Run 2\n`);
-    expect(guaranteeAt(a.worktree)).toContain(`\ntarget: ${gate} against ${base}\nVerdict: sealed\n`);
-    expect(chain.says).toBe(`Pull request #1 carries the seal at ${gate.slice(0, 7)}.`);
-    expect(await c.until(() => (c.workItem(a.id)?.seal?.commit === gate ? c.workItem(a.id)?.seal : undefined))).toEqual({ state: "sealed", commit: gate, why: null });
+    expect(inspectionAt(a.worktree)).toContain(`\n## Run 2\n`);
+    expect(inspectionAt(a.worktree)).toContain(`\ntarget: ${gate} against ${base}\nVerdict: cleared\n`);
+    expect(chain.says).toBe(`Pull request #1 carries the inspection at ${gate.slice(0, 7)}.`);
+    expect(await c.until(() => (c.workItem(a.id)?.inspection?.commit === gate ? c.workItem(a.id)?.inspection : undefined))).toEqual({ state: "cleared", commit: gate, why: null });
   });
 
-  it("hands the sealer the whole branch since its base where the commit the newest seal names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the sealed commit off the branch, in a work item whose routing stops before the pull request", async () => {
+  it("hands the inspector the whole branch since its base where the commit the newest inspection names is no ancestor of the gate's commit: a rebase onto a base that gained a commit leaves the cleared commit off the branch, in a work item whose routing stops before the pull request", async () => {
     const { adapter, started } = noted(roles({ proofer: clean }));
-    const { made, c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: adapter });
+    const { made, c, workItems, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: adapter });
     const a = workItems[0]!;
     // With the routing the daemon writes, the second start would stop at the pull request stage: the rebase replaced the head the first stage pushed, and the stage never forces a push.
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await c.startChain(a.id)).toBe("done");
     await restedWith(c, a.id, 3);
-    const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    const cleared = git(a.worktree, "rev-parse", "HEAD~2").trim();
     write(made.repo, "on-main.txt", "on main\n");
     commitAll(made.repo, "feat: on main");
     git(a.worktree, "rebase", "--quiet", "main");
-    expect(git(a.worktree, "cat-file", "-t", sealed).trim()).toBe("commit");
+    expect(git(a.worktree, "cat-file", "-t", cleared).trim()).toBe("commit");
 
     expect(await c.startChain(a.id)).toBe("done");
     await restedWith(c, a.id, 6);
-    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "sealer", "proofer", "sealer"]);
+    expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "proofer", "inspector"]);
     const prompt = started[3]?.prompt ?? "";
-    expect(givenSeal(prompt).run).toBe(2);
-    expect(prompt).not.toContain("The seal this run follows");
-    expect(prompt).toContain("\nThe branch changed these paths since it left its base:\n- `feature.txt`\n");
-    expect(prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(givenInspection(prompt).run).toBe(2);
+    expect(prompt).not.toContain("The inspection this run follows");
+    expect(prompt).toMatch(/\nThe branch changed these paths since it left its base:\n(?:- `[^`\n]+`\n)*- `feature\.txt`\n/u);
+    expect(prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
     expect(prompt).not.toContain("on-main.txt");
     expect(gh.calls()).toEqual([]);
   });
 });
 
-// Each chain is a round, a gate's command, a sealer's session and the pull request stage, against a bare remote and a stand-in for `gh`, beside the rest of the suite.
+// Each chain is a round, a gate's command, a inspector's session and the pull request stage, against a bare remote and a stand-in for `gh`, beside the rest of the suite.
 describe("the pull request stage of a work item's chain", { timeout: 60_000 }, () => {
-  const GUARANTEE = `${DIRECTORY}/guarantee.md`;
+  const INSPECTION = `${DIRECTORY}/inspection.md`;
   const kinds = (chain: Chain): [string, string][] => chain.stages.map(({ kind, state }) => [kind, state]);
   type Client = Awaited<ReturnType<typeof client>>;
   /** Starts the chain again and gives it once it rests in the state, read from the messages after the start alone. */
@@ -3282,33 +3324,33 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   }
   /** The branches a bare remote holds, each as `<name> <commit>`. */
   const branchesOf = (remote: string): string[] => git(remote, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads").split("\n").filter((line) => line !== "");
-  /** The newest verdict block of the guarantee the worktree's head holds, from its opening fence to its closing fence. */
+  /** The newest verdict block of the inspection the worktree's head holds, from its opening fence to its closing fence. */
   const newestBlock = (worktree: string): string => {
-    const blocks = git(worktree, "show", `HEAD:${GUARANTEE}`).match(/^```seal\n(?:.*\n)*?```$/gmu) ?? [];
+    const blocks = git(worktree, "show", `HEAD:${INSPECTION}`).match(/^```iadd\n(?:.*\n)*?```$/gmu) ?? [];
     return blocks.at(-1) ?? "";
   };
-  /** The seal section the stage writes over a verdict block. */
-  const sectionOf = (block: string): string => ["<!-- owlery:seal -->", "## Seal", "", `The newest verdict of \`${GUARANTEE}\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:seal -->"].join("\n");
+  /** The inspection section the stage writes over a verdict block. */
+  const sectionOf = (block: string): string => ["<!-- owlery:inspection -->", "## Inspection", "", `The newest verdict of \`${INSPECTION}\`. An inspection binds the commit it names, and the check \`inspection\` says whether it holds at this pull request's head commit:`, "", block, "<!-- /owlery:inspection -->"].join("\n");
   /** The stage of a pull request after the round given, listed as no session. */
   const pullRequestStage = (round: number, more: Partial<ChainStage> = {}): ChainStage => ({ kind: "pull-request", round, state: "finished", failure: null, startedAt: NOW, endedAt: NOW, headlessId: null, refusals: 0, gate: null, ...more });
   /**
-   * A sealed chain whose pull request stage failed as `make` arranges: the
+   * A cleared chain whose pull request stage failed as `make` arranges: the
    * chain stopped with the sentence `says` matches, the stage is its last,
    * failed, nothing was committed after the verdict, and the work item holds
-   * no pull request. Each such chain runs a round, a gate and a seal before
+   * no pull request. Each such chain runs a round, a gate and an inspection before
    * the stage, so a case runs a few of them and not every failure at once.
    */
   const failing = async (options: Partial<DaemonOptions> & { gate?: string }, make: (stood: Awaited<ReturnType<typeof standing>>) => void, says: RegExp): Promise<Awaited<ReturnType<typeof standing>>> => {
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), ...options });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }), ...options });
     make(stood);
     const a = stood.workItems[0]!;
     expect(await stood.c.startChain(a.id)).toBe("done");
     const chain = await stood.c.chain(a.id, "stopped");
     expect(chain.says).toMatch(says);
-    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"]]);
+    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "failed"]]);
     expect(chain.stages.at(-1)).toMatchObject({ kind: "pull-request", round: 1, headlessId: null, refusals: 0, gate: null });
     expect(chain.stages.at(-1)?.failure).toBe(chain.says.replace(/^The pull request stage failed: /u, "").replace(/\.$/u, ""));
-    expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the sealer's verdict");
+    expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the inspector's verdict");
     expect(status(a.worktree)).toEqual([]);
     expect(stood.c.workItem(a.id)?.pullRequest).toBeNull();
     return stood;
@@ -3320,24 +3362,24 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     cleanups.push(() => rmSync(shims, { recursive: true, force: true }));
     const real = execFileSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).trim();
     writeFileSync(join(shims, "git"), `#!/bin/sh\nif [ "$1" = push ]; then "${real}" commit --quiet --allow-empty -m "feat: a commit after the check"; fi\nexec "${real}" "$@"\n`, { mode: 0o755 });
-    const { c, workItems, remote } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), gateEnv: { PATH: `${shims}:${process.env.PATH ?? "/usr/bin:/bin"}` } });
+    const { c, workItems, remote } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }), gateEnv: { PATH: `${shims}:${process.env.PATH ?? "/usr/bin:/bin"}` } });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
-    expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-2)).toEqual(["chore: record the sealer's verdict", "feat: a commit after the check"]);
+    expect(commitsAfterMain(a.worktree).map(({ subject }) => subject).slice(-2)).toEqual(["chore: record the inspector's verdict", "feat: a commit after the check"]);
     const checked = git(a.worktree, "rev-parse", "HEAD~1").trim();
     expect(branchesOf(remote)).toEqual([`${a.branch} ${checked}`]);
     expect(c.workItem(a.id)?.pullRequest?.pushed).toBe(checked);
   });
 
-  it("follows the base round 1's record names, whatever base the work item stores: the sealer's target names it, and the pull request is opened against it", async () => {
+  it("follows the base round 1's record names, whatever base the work item stores: the inspector's target names it, and the pull request is opened against it", async () => {
     const targets: string[] = [];
-    const { c, workItems, made, gh } = await standing(cleanups, ["Rebased work"], { roleAdapter: roles({ sealer: (given) => (targets.push(given.target), sealSection(given)) }) });
+    const { c, workItems, made, gh } = await standing(cleanups, ["Rebased work"], { roleAdapter: roles({ inspector: (given) => (targets.push(given.target), runSection(given)) }) });
     const a = workItems[0]!;
     expect(a.baseBranch).toBe("main");
     // The records of a first round that a pane's chain ran against another base: the routing, and round 1 with no finding, whose target names `release/x`.
     git(made.repo, "branch", "release/x", "main");
-    const directory = "seal/threads/1795388700-rebased-work";
+    const directory = "agentory/threads/1795388700-rebased-work";
     write(a.worktree, `${directory}/routing.md`, routingText("1795388700-rebased-work", branchOf(a), TODAY));
     const routed = commitAll(a.worktree, "chore: declare the work item's routing");
     write(a.worktree, `${directory}/trail/rounds/round-1.md`, roundRecord("# Review round 1: 1795388700-rebased-work", `${routed} against release/x`));
@@ -3349,15 +3391,15 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(create.slice(create.indexOf("--base"))).toEqual(["--base", "release/x"]);
   });
 
-  it("pushes the sealed branch to its remote and opens its pull request through gh: a list, a create with the branch, the base, the title and a body that opens with the seal section, then a view; the work item carries the pull request, the stage commits nothing, and the chain rests with the pull request's number", async () => {
-    const { c, workItems, remote, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+  it("pushes the cleared branch to its remote and opens its pull request through gh: a list, a create with the branch, the base, the title and a body that opens with the inspection section, then a view; the work item carries the pull request, the stage commits nothing, and the chain rests with the pull request's number", async () => {
+    const { c, workItems, remote, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(c.workItem(a.id)?.pullRequest).toBeNull();
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
     const at = head(a.worktree);
     // The verdict's commit is the head: the stage committed nothing, and the worktree holds no file it wrote.
-    expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the sealer's verdict");
+    expect(commitsAfterMain(a.worktree).at(-1)?.subject).toBe("chore: record the inspector's verdict");
     expect(status(a.worktree)).toEqual([]);
     expect(branchesOf(remote)).toEqual([`${a.branch} ${at}`]);
     expect(git(a.worktree, "rev-parse", "--abbrev-ref", "@{upstream}").trim()).toBe(`origin/${a.branch}`);
@@ -3365,7 +3407,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(calls.map((call) => call.slice(0, 2).join(" "))).toEqual(["pr list", "pr create", "pr view"]);
     expect(calls[0]).toEqual(["pr", "list", "--head", a.branch, "--state", "open", "--json", "number,url,headRefOid,body"]);
     const file = calls[1]?.[calls[1].indexOf("--body-file") + 1] ?? "";
-    expect(calls[1]).toEqual(["pr", "create", "--head", a.branch, "--title", "Sealed work", "--body-file", file, "--base", "main"]);
+    expect(calls[1]).toEqual(["pr", "create", "--head", a.branch, "--title", "Cleared work", "--body-file", file, "--base", "main"]);
     expect(calls[2]).toEqual(["pr", "view", PULL_REQUEST_URL, "--json", "number,url,state,isDraft,headRefOid,mergedAt,statusCheckRollup"]);
     // gh asks nothing and colours nothing.
     expect(gh.environments()).toEqual(["1 1", "1 1", "1 1"]);
@@ -3374,36 +3416,36 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(existsSync(file)).toBe(false);
     const body = gh.bodies()[1] ?? "";
     expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n`)).toBe(true);
-    expect(newestBlock(a.worktree)).toContain("\nVerdict: sealed\nbuilt-by: the session\njudged-by: fake-2\nmodel: fake\nrules: owlery 0.0.2\n```");
+    expect(newestBlock(a.worktree)).toContain("\nVerdict: cleared\nbuilt-by: the session\ninspected-by: fake-2\nmodel: fake\nrules: owlery 0.0.2\nworkflow: owl-chain\ninspector: owl-chain\n```");
     expect(c.workItem(a.id)?.pullRequest).toEqual({ number: 1, url: PULL_REQUEST_URL, state: "open", head: at, pushed: at, checks: "none", list: [], listCount: 0, readAt: NOW, failure: null });
     expect(chain).toEqual({ state: "rested", says: "Pull request #1 is open.", since: NOW, stages: [chain.stages[0]!, chain.stages[1]!, chain.stages[2]!, pullRequestStage(1)] });
-    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
   });
 
-  it("writes the back of the seal below the seal section, composed from the records the head commit holds and the ledger's entries as the window composes it: each round's findings with their places and fixes, and each stage's cost with its sum", async () => {
+  it("writes the back of the inspection below the inspection section, composed from the records the head commit holds and the ledger's entries as the window composes it: each round's findings with their places and fixes, and each stage's cost with its sum", async () => {
     const usage: Usage = { costUsd: 0.25, converted: true, models: [{ model: "fake", inputTokens: 1000, outputTokens: 200, cacheReadTokens: 3000, cacheWriteTokens: 400, costUsd: 0.25 }] };
-    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({}, { usage: () => usage }) });
+    const { c, workItems, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({}, { usage: () => usage }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     const body = gh.bodies()[gh.calls().findIndex((call) => call[1] === "create")] ?? "";
-    const records = await c.asked({ type: "readSealRecords", requestId: 2, workItemId: a.id });
+    const records = await c.asked({ type: "readBackRecords", requestId: 2, workItemId: a.id });
     const ledger = await c.asked({ type: "readLedger", requestId: 3, workItemId: a.id });
-    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    if (records.type !== "backRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
     const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
     expect(body.startsWith(`${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\n`)).toBe(true);
     expect(body.split("\n").filter((line) => line === BACK_OPEN || line === BACK_CLOSE)).toEqual([BACK_OPEN, BACK_CLOSE]);
     // The back the body holds says the chain's two rounds, the fix of round 1's finding, and each stage that ran with its cost.
     const fix = git(a.worktree, "log", "--format=%H", "--grep=^fix: ", "-1").trim().slice(0, 7);
     expect(back).toContain(`\n- 1. The greeting of line 1 misses its full stop. \`feature.txt:1\`. must. Fixed in \`${fix}\`.\n`);
-    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the seal. Findings by round: 1, 0.\n");
-    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Sealer"]);
-    expect(back).toContain("\n| Sealer | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
+    expect(back).toContain("\nThe review rounds caught 1 defect that was fixed before the inspection. Findings by round: 1, 0.\n");
+    expect(back.split("\n").filter((line) => line.startsWith("| ")).map((line) => line.split(" | ")[0])).toEqual(["| Stage", "| Round 1", "| Fix pass on round 1", "| Round 2", "| Broad gate", "| Inspector"]);
+    expect(back).toContain("\n| Inspector | | under 1 min | 1,000 / 200 | 3,000 / 400 | $0.25 converted |\n");
     expect(back).toContain("\nThe chain's stages cost $1.00 converted. A converted cost is the usage priced at API prices, and it is not a charge.\n");
   });
 
-  it("updates the open pull request of a branch sealed again at a later head, and opens no second one: it replaces the seal section and the back's section of the body gh listed and keeps a person's lines around them, and names the new sealed commit", async () => {
-    const { c, workItems, remote, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+  it("updates the open pull request of a branch cleared again at a later head, and opens no second one: it replaces the inspection section and the back's section of the body gh listed and keeps a person's lines around them, and names the new cleared commit", async () => {
+    const { c, workItems, remote, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
@@ -3423,38 +3465,38 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     const before = gh.calls().length;
     const chain = await again(c, a.id, "rested");
     const at = head(a.worktree);
-    const sealed = git(a.worktree, "rev-parse", "HEAD~2").trim();
+    const cleared = git(a.worktree, "rev-parse", "HEAD~2").trim();
     expect(gh.calls().slice(before).map((call) => call.slice(0, 2).join(" "))).toEqual(["pr list", "pr edit", "pr view"]);
     const file = gh.calls()[before + 1]?.at(-1) ?? "";
     expect(gh.calls()[before + 1]).toEqual(["pr", "edit", PULL_REQUEST_URL, "--body-file", file]);
     const body = gh.bodies()[before + 1] ?? "";
-    const records = await c.asked({ type: "readSealRecords", requestId: 3, workItemId: a.id });
+    const records = await c.asked({ type: "readBackRecords", requestId: 3, workItemId: a.id });
     const ledger = await c.asked({ type: "readLedger", requestId: 4, workItemId: a.id });
-    if (records.type !== "sealRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
+    if (records.type !== "backRecords" || ledger.type !== "ledger") throw new Error(`the daemon answered ${records.type} and ${ledger.type}`);
     const back = backSection(composeBack(records.records, ledger.entries, ledger.unread), DIRECTORY);
     expect(body).toBe(`A person's line above.\n\n${sectionOf(newestBlock(a.worktree))}\n\n${back}\n\nA person's line below.\n`);
-    // The new back holds the round run after the first seal.
+    // The new back holds the round run after the first inspection.
     expect(back).toContain("\n### Round 2, on `");
     expect(back).not.toBe(firstBack);
-    expect(newestBlock(a.worktree)).toContain(`target: ${sealed} against main\n`);
+    expect(newestBlock(a.worktree)).toContain(`target: ${cleared} against main\n`);
     expect(newestBlock(a.worktree)).not.toBe(firstBlock);
     expect(first).not.toBe(body);
     expect(branchesOf(remote)).toEqual([`${a.branch} ${at}`]);
-    expect(chain.says).toBe(`Pull request #1 carries the seal at ${sealed.slice(0, 7)}.`);
+    expect(chain.says).toBe(`Pull request #1 carries the inspection at ${cleared.slice(0, 7)}.`);
     expect(c.workItem(a.id)?.pullRequest).toMatchObject({ number: 1, state: "open", head: earlier, pushed: at });
-    expect(kinds(chain).slice(-4)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "finished"]]);
+    expect(kinds(chain).slice(-4)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "finished"]]);
   });
 
   it("stores the checks its read of the pull request gives, and the watch reads the pull request again a short wait after the stage, though it listed no check, since GitHub lists the checks a push starts only later", async () => {
-    const rollup = (status: string, conclusion: string | null = null) => [{ __typename: "CheckRun", name: "seal", status, conclusion, detailsUrl: "https://github.com/owner/project/runs/1", workflowName: "seal" }];
+    const rollup = (status: string, conclusion: string | null = null) => [{ __typename: "CheckRun", name: "inspection", status, conclusion, detailsUrl: "https://github.com/owner/project/runs/1", workflowName: "inspection" }];
     const viewed = (at: string, status: string, conclusion: string | null = null) => ({ out: JSON.stringify({ number: 1, url: PULL_REQUEST_URL, state: "OPEN", isDraft: false, headRefOid: at, mergedAt: null, statusCheckRollup: rollup(status, conclusion) }) });
     const queued = await standing(cleanups, ["Queued work"], { roleAdapter: roles({ proofer: clean }) });
     queued.gh.answer("view", viewed("a".repeat(40), "QUEUED"));
     expect(await queued.c.startChain(queued.workItems[0]!.id)).toBe("done");
     await queued.c.chain(queued.workItems[0]!.id, "rested");
-    expect(queued.c.workItem(queued.workItems[0]!.id)?.pullRequest).toMatchObject({ checks: "pending", list: [{ name: "seal", state: "pending", link: "https://github.com/owner/project/runs/1" }], listCount: 1 });
+    expect(queued.c.workItem(queued.workItems[0]!.id)?.pullRequest).toMatchObject({ checks: "pending", list: [{ name: "inspection", state: "pending", link: "https://github.com/owner/project/runs/1" }], listCount: 1 });
     // The stand-in's own answer lists no check, at the head the stage pushed.
-    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), prPollMs: 300 });
+    const { c, workItems, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }), prPollMs: 300 });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
@@ -3465,7 +3507,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   });
 
   it("runs no stage and calls no gh where the stored pull request was pushed at the branch's head", async () => {
-    const { c, workItems, gh } = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const { c, workItems, gh } = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = workItems[0]!;
     expect(await c.startChain(a.id)).toBe("done");
     const chain = await c.chain(a.id, "rested");
@@ -3475,23 +3517,23 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(gh.calls()).toHaveLength(calls);
   });
 
-  it("opens no pull request and pushes nothing where the chain ends without a seal: a failed broad gate, a sealer that withholds, a parked chain, and a sealed chain whose routing stops before the pull request", async () => {
-    const failed = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }), gate: "false" });
+  it("opens no pull request and pushes nothing where the chain ends without an inspection: a failed broad gate, an inspector that withholds, a parked chain, and a cleared chain whose routing stops before the pull request", async () => {
+    const failed = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }), gate: "false" });
     expect(await failed.c.startChain(failed.workItems[0]!.id)).toBe("done");
     await failed.c.chain(failed.workItems[0]!.id, "stopped");
-    const withheld = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer: (given) => sealSection(given, "withheld reason: the changelog is missing") }) });
+    const withheld = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean, inspector: (given) => runSection(given, "withheld reason: the changelog is missing") }) });
     expect(await withheld.c.startChain(withheld.workItems[0]!.id)).toBe("done");
     await withheld.c.chain(withheld.workItems[0]!.id, "stopped");
-    const parked = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer: (given) => sealSection(given, "undecided question: May the release wait?") }), undecidedCeiling: 0 });
+    const parked = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean, inspector: (given) => runSection(given, "undecided question: May the release wait?") }), undecidedCeiling: 0 });
     expect(await parked.c.startChain(parked.workItems[0]!.id)).toBe("done");
     await parked.c.chain(parked.workItems[0]!.id, "parked");
-    const stops = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const stops = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = stops.workItems[0]!;
     write(a.worktree, `${DIRECTORY}/routing.md`, routingText(NAME, branchOf(a), TODAY).replace("| Destination | open the pull request |", "| Destination | stop before the pull request |"));
     commitAll(a.worktree, "chore: declare the work item's routing");
     expect(await stops.c.startChain(a.id)).toBe("done");
-    const sealed = await stops.c.chain(a.id, "rested");
-    expect([sealed.says, kinds(sealed)]).toEqual([`The sealer sealed ${git(a.worktree, "rev-parse", "HEAD~2").trim().slice(0, 7)}, after round 1.`, [["round", "finished"], ["gate", "finished"], ["seal", "finished"]]]);
+    const cleared = await stops.c.chain(a.id, "rested");
+    expect([cleared.says, kinds(cleared)]).toEqual([`The inspector cleared ${git(a.worktree, "rev-parse", "HEAD~2").trim().slice(0, 7)}, after round 1.`, [["round", "finished"], ["gate", "finished"], ["inspection", "finished"]]]);
     for (const stood of [failed, withheld, parked, stops]) {
       expect(stood.gh.calls()).toEqual([]);
       expect(branchesOf(stood.remote)).toEqual([]);
@@ -3499,11 +3541,11 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  it("pushes nothing more and calls gh no more where a branch sealed once, whose pull request is open, rests at a later head with no seal: a failed broad gate, a sealer that withholds, and a parked chain", async () => {
+  it("pushes nothing more and calls gh no more where a branch cleared once, whose pull request is open, rests at a later head with no inspection: a failed broad gate, an inspector that withholds, and a parked chain", async () => {
     for (const ends of ["gate", "withheld", "parked"] as const) {
       let later = false;
-      const sealer = (given: { run: number; heading: string; target: string }): string => sealSection(given, !later ? "sealed" : ends === "withheld" ? "withheld reason: the changelog is missing" : "undecided question: May the release wait?");
-      const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean, sealer }), gate: "if [ -e fails ]; then exit 1; fi", undecidedCeiling: 0 });
+      const inspector = (given: { run: number; heading: string; target: string }): string => runSection(given, !later ? "cleared" : ends === "withheld" ? "withheld reason: the changelog is missing" : "undecided question: May the release wait?");
+      const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean, inspector }), gate: "if [ -e fails ]; then exit 1; fi", undecidedCeiling: 0 });
       const a = stood.workItems[0]!;
       expect(await stood.c.startChain(a.id)).toBe("done");
       await stood.c.chain(a.id, "rested");
@@ -3519,7 +3561,7 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     }
   });
 
-  // The failures of the stage are split by kind into the cases below: each runs a sealed chain before its stage, and all of them in one case came near the case's limit on a slow runner (issue #295).
+  // The failures of the stage are split by kind into the cases below: each runs a cleared chain before its stage, and all of them in one case came near the case's limit on a slow runner (issue #295).
   it("stops the chain where the stage fails, with a sentence that names the stage and says why, commits nothing and keeps the pull request as it was: no gh on the path", async () => {
     const noGh = await failing({ gh: undefined, gateEnv: { PATH: "/usr/bin:/bin" } }, () => undefined, /^The pull request stage failed: no gh stands on the PATH of the login shell, so Owlery cannot open the pull request; GitHub's CLI is at https:\/\/cli\.github\.com\.$/u);
     expect(branchesOf(noGh.remote)).toEqual([]);
@@ -3528,11 +3570,11 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   it("stops the chain where gh fails at the list and at the create, with a sentence that names the stage and gives what gh said, commits nothing and keeps the pull request as it was, and runs the stage alone at the next start once gh answers", async () => {
     await failing({}, ({ gh }) => gh.answer("list", { err: "To get started with GitHub CLI, please run:  gh auth login\nmore\n", exit: 4 }), /^The pull request stage failed: gh pr list exited with code 4: To get started with GitHub CLI, please run: {2}gh auth login\.$/u);
     const create = await failing({}, ({ gh }) => gh.answer("create", { err: "\npull request create failed: GraphQL: Head sha can't be blank\n", exit: 1 }), /^The pull request stage failed: gh pr create exited with code 1: pull request create failed: GraphQL: Head sha can't be blank\.$/u);
-    // Once gh answers, a start runs the stage again, and no round, no gate and no seal.
+    // Once gh answers, a start runs the stage again, and no round, no gate and no inspection.
     create.gh.answer("create", {});
     const a = create.workItems[0]!;
     const chain = await again(create.c, a.id, "rested");
-    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["seal", "finished"], ["pull-request", "failed"], ["pull-request", "finished"]]);
+    expect(kinds(chain)).toEqual([["round", "finished"], ["gate", "finished"], ["inspection", "finished"], ["pull-request", "failed"], ["pull-request", "finished"]]);
     expect(chain.says).toBe("Pull request #1 is open.");
     expect(create.c.workItem(a.id)?.pullRequest).toMatchObject({ number: 1, state: "open", pushed: head(a.worktree) });
     expect(create.gh.calls().map((call) => call[1])).toEqual(["list", "create", "list", "create", "view"]);
@@ -3565,12 +3607,12 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
     expect(remotes.gh.calls()).toEqual([]);
   });
 
-  it("stops the chain where gh lists what the stage does not take, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was and calls gh no more after the list: two open pull requests of the branch, and a listed body with two seal sections and one with two sections of the back", async () => {
+  it("stops the chain where gh lists what the stage does not take, with a sentence that names the stage and says why, commits nothing, keeps the pull request as it was and calls gh no more after the list: two open pull requests of the branch, and a listed body with two inspection sections and one with two sections of the back", async () => {
     const several = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([3, 5].map((number) => ({ number, url: `https://github.com/owner/project/pull/${String(number)}`, headRefOid: "a".repeat(40), body: "" }))) }), /^The pull request stage failed: the branch has the open pull requests #3, #5, and Owlery opens or updates one\.$/u);
     expect(several.gh.calls().map((call) => call[1])).toEqual(["list"]);
-    const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- owlery:seal -->\n<!-- /owlery:seal -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:seal -->` lines, and Owlery replaces one seal section\.$/u);
+    const twice = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- owlery:inspection -->\n<!-- /owlery:inspection -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:inspection -->` lines, and Owlery replaces one inspection section\.$/u);
     expect(twice.gh.calls().map((call) => call[1])).toEqual(["list"]);
-    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:seal -->\nx\n<!-- /owlery:seal -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the back of the seal\.$/u);
+    const twiceBack = await failing({}, ({ gh }) => gh.answer("list", { out: JSON.stringify([{ number: 4, url: "https://github.com/owner/project/pull/4", headRefOid: "a".repeat(40), body: "<!-- owlery:inspection -->\nx\n<!-- /owlery:inspection -->\n<!-- owlery:back -->\n<!-- owlery:back -->\n<!-- /owlery:back -->\n" }]) }), /^The pull request stage failed: the body of pull request #4 holds 2 `<!-- owlery:back -->` lines, and Owlery replaces one section of the inspection sheet\.$/u);
     expect(twiceBack.gh.calls().map((call) => call[1])).toEqual(["list"]);
   });
 
@@ -3591,24 +3633,24 @@ describe("the pull request stage of a work item's chain", { timeout: 60_000 }, (
   });
 
   it("stops the stage, pushes nothing and calls no gh where the worktree's head moved after the records were read", async () => {
-    const stood = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const stood = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     const a = stood.workItems[0]!;
-    // The seal's stage reads routing.md first, and the pull request stage second: the second read waits until the case has committed.
+    // The inspection's stage reads routing.md first, and the pull request stage second: the second read waits until the case has committed.
     const seen = join(stood.made.base, "routing-read");
     const held = heldGit(cleanups, stood.made.base, `[ "$1" = show ] && case "$2" in *routing.md) if [ -e '${seen}' ]; then true; else touch '${seen}'; false; fi ;; *) false ;; esac`);
     expect(await stood.c.startChain(a.id)).toBe("done");
     await stood.c.until(() => (held.waiting() ? true : undefined));
-    const sealed = head(a.worktree);
+    const cleared = head(a.worktree);
     write(a.worktree, "late.txt", "A commit that lands while the stage reads.\n");
     held.release();
     const moved = commitAll(a.worktree, "feat: land late");
     const chain = await stood.c.chain(a.id, "stopped");
-    expect(chain.says).toBe(`The pull request stage failed: the worktree's head moved from ${sealed.slice(0, 7)} to ${moved.slice(0, 7)} while Owlery read the records.`);
+    expect(chain.says).toBe(`The pull request stage failed: the worktree's head moved from ${cleared.slice(0, 7)} to ${moved.slice(0, 7)} while Owlery read the records.`);
     expect([stood.gh.calls(), branchesOf(stood.remote)]).toEqual([[], []]);
   });
 
   it("finds gh on the PATH of the broad gate's environment where the daemon's options name none", async () => {
-    const made = await standing(cleanups, ["Sealed work"], { roleAdapter: roles({ proofer: clean }) });
+    const made = await standing(cleanups, ["Cleared work"], { roleAdapter: roles({ proofer: clean }) });
     await made.d.close();
     const late = await client(await made.start({ gh: undefined, gateEnv: { PATH: `${dirname(made.gh.gh[0])}:${process.env.PATH ?? "/usr/bin:/bin"}` } }), cleanups);
     await late.message("ready");

@@ -4,8 +4,8 @@
 import { KEEP_AWAKE_CHOICES } from "../shared/keep-awake";
 import type { DaemonEnd, InstalledApp } from "../shared/ipc";
 import { agentsSays, CAP_NAMES, capRefusal, heavyRanSays, heavySays, PANES_WITHOUT_CAP, panesSays, planWarning, readingSays, SCROLLBACK_WITHOUT_DAEMON, scrollbackSays, worktreesSays } from "../shared/machine";
-import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainChoice, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, type RepositoryChain, type Running, type Seal, type SealRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
-import { type Back, composeBack, costWords } from "../shared/seal-back";
+import { type Account, type AccountLimit, type AccountRefresh, accountFor, type AgentState, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ClientMessage, type ServerMessage, type ChainStage, type ChainStageKind, type Decision, type DecisionKind, type FileChange, type Group, type HeadlessInfo, type HeavyPlace, type HeavyRan, type HeadlessState, type KeepAwake, type KeepAwakeChoice, type Look, type Machine, losesWork, type PaneKind, type PaneKindInfo, type PlanDisk, type PullRequest, type PullRequestCheck, type Question, type LedgerEntry, type Recorded, type RecordsPlace, type RecordsPlan, type Repository, ROOT, type Running, type Inspection, type BackRecords, type SessionInfo, SYSTEM_DEFAULT_ID, TAB_COLOURS, type TabColour, type Unread, type WorkItem, type WorkItemLoss } from "../shared/protocol";
+import { type Back, composeBack, costWords } from "../shared/inspection-sheet";
 
 /**
  * A tab's label among `tabs`, the open panes of its work item in the tabs'
@@ -132,7 +132,7 @@ export interface InboxLine {
   title: string;
   /** The work item's branch, or null where it has none yet. */
   branch: string | null;
-  /** `waiting` for a work item parked with questions for the person, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its seal gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
+  /** `waiting` for a work item parked with questions for the person, and for one whose chain stopped, whatever its panes say. `working` for one whose chain is running, where no pane of it waits for the person. Otherwise, where its pane neither works nor waits, the state its pull request or its inspection gives (`branchLine`), and otherwise what the work item's agent is doing, or null where no live pane of it says. */
   state: AgentState | null;
   /** How many commits the branch gained, or empty where it gained none or none were read. */
   commits: string;
@@ -186,7 +186,7 @@ function pullRequestSays(pullRequest: PullRequest): { state: AgentState; text: s
 }
 
 /**
- * Whether something says more on a work item's line than its seal and its
+ * Whether something says more on a work item's line than its inspection and its
  * pull request, `pane` being the state of the pane the line reads: the work
  * item is parked with questions, its chain runs or stopped, or its pane
  * works or waits. A finished pane and a chain that rests say no more.
@@ -200,45 +200,45 @@ function saysMoreThanTheBranch(workItem: WorkItem, pane: AgentState | null): boo
  * What a work item's pull request gives its line where nothing says more,
  * `pane` being the state of the pane the line reads: the state and the words
  * of `pullRequestSays`. Null where the work item has no pull request, where
- * something says more (`saysMoreThanTheBranch`), and where the seal the
- * branch's head holds is broken and the pull request did not merge: the
- * broken seal then gives the line (`sealLine`), and the check that fails is
- * most often the seal check on the commit that broke it.
+ * something says more (`saysMoreThanTheBranch`), and where the inspection the
+ * branch's head holds lapsed and the pull request did not merge: the
+ * lapsed inspection then gives the line (`inspectionLine`), and the check that fails is
+ * most often the inspection check on the commit that lapsed it.
  */
 function pullRequestLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
   const pullRequest = pullRequestOf(workItem);
   if (pullRequest === null || saysMoreThanTheBranch(workItem, pane)) return null;
-  if (pullRequest.state !== "merged" && workItem.seal?.state === "broken") return null;
+  if (pullRequest.state !== "merged" && workItem.inspection?.state === "lapsed") return null;
   return pullRequestSays(pullRequest);
 }
 
 /**
- * What the seal the branch's head holds gives a work item's line where
- * nothing says more (`saysMoreThanTheBranch`): a broken seal waits, "Seal
- * broken", since the work item needs a new seal, and a seal that holds
- * finishes, "Sealed". Null for no seal, a seal the daemon has not read, and
+ * What the inspection the branch's head holds gives a work item's line where
+ * nothing says more (`saysMoreThanTheBranch`): a lapsed inspection waits, "Inspection
+ * lapsed", since the work item needs a new inspection, and an inspection that holds
+ * finishes, "Cleared". Null for no inspection, an inspection the daemon has not read, and
  * a daemon of an earlier build, which sends none. It is read after the
  * pull request (`branchLine`).
  */
-function sealLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
-  const seal = workItem.seal;
-  if (!seal || saysMoreThanTheBranch(workItem, pane)) return null;
-  return seal.state === "broken" ? { state: "waiting", text: SEAL_BROKEN } : { state: "finished", text: SEALED_LINE };
+function inspectionLine(workItem: WorkItem, pane: AgentState | null): { state: AgentState; text: string } | null {
+  const inspection = workItem.inspection;
+  if (!inspection || saysMoreThanTheBranch(workItem, pane)) return null;
+  return inspection.state === "lapsed" ? { state: "waiting", text: INSPECTION_LAPSED } : { state: "finished", text: CLEARED_LINE };
 }
 
 /**
  * What the branch's head gives a work item's line where nothing says more,
  * and which of the two gives it: its pull request's state and words
- * (`pullRequestLine`), and otherwise its seal's (`sealLine`). So a merged
- * pull request says more than a broken seal, a broken seal more than an
- * open or closed pull request, and any pull request more than a seal that
+ * (`pullRequestLine`), and otherwise its inspection's (`inspectionLine`). So a merged
+ * pull request says more than a lapsed inspection, a lapsed inspection more than an
+ * open or closed pull request, and any pull request more than an inspection that
  * holds.
  */
-function branchLine(workItem: WorkItem, pane: AgentState | null): { says: "pull-request" | "seal"; state: AgentState; text: string } | null {
+function branchLine(workItem: WorkItem, pane: AgentState | null): { says: "pull-request" | "inspection"; state: AgentState; text: string } | null {
   const pulled = pullRequestLine(workItem, pane);
   if (pulled) return { says: "pull-request", ...pulled };
-  const sealed = sealLine(workItem, pane);
-  return sealed && { says: "seal", ...sealed };
+  const cleared = inspectionLine(workItem, pane);
+  return cleared && { says: "inspection", ...cleared };
 }
 
 /**
@@ -263,8 +263,8 @@ export function parkedWith(workItem: WorkItem): Question[] | null {
  * but where the pane waits for the person: the pane of the session that
  * built the branch stays finished while the rounds run. Where none of
  * these says more and the pane neither works nor waits, the line takes the
- * state its pull request or its seal gives (`branchLine`): a broken seal
- * waits, as the work item needs a new seal.
+ * state its pull request or its inspection gives (`branchLine`): a lapsed inspection
+ * waits, as the work item needs a new inspection.
  */
 export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): InboxLine {
   const reporting = lineSession(workItem, sessions, paneKinds);
@@ -288,11 +288,11 @@ export function inboxLine(workItem: WorkItem, sessions: readonly SessionInfo[], 
  * reads, `session`, does not wait for the person, the time that stage
  * started at. Otherwise the time of that pane's state. Null
  * where none gives one, for a work item whose chain is between two stages
- * and alone says that it works, and for one whose pull request or seal
+ * and alone says that it works, and for one whose pull request or inspection
  * gives the line its state (`branchLine`): its pane's time is that of
  * another state, the daemon reads no time at which the checks began to
- * run, failed or passed, and it stores no state of the seal, so nothing it
- * sends says when the seal was given or broke.
+ * run, failed or passed, and it stores no state of the inspection, so nothing it
+ * sends says when the inspection cleared or lapsed.
  */
 export function lineSince(workItem: WorkItem, session: SessionInfo | undefined): number | null {
   const parked = parkedWith(workItem) ?? [];
@@ -491,11 +491,11 @@ export function wordOwedMark(workItem: WorkItem): string {
 export const APPROVAL_HEAD = "Approval line";
 
 /** The four roles of the approval line, in its order. */
-const ROLES = ["framer", "crafter", "proofer", "sealer"] as const;
+const ROLES = ["framer", "crafter", "proofer", "inspector"] as const;
 export type Role = (typeof ROLES)[number];
 
 /** Each role as a person reads its name: with one capital. */
-const ROLE_NAME: Record<Role, string> = { framer: "Framer", crafter: "Crafter", proofer: "Proofer", sealer: "Sealer" };
+const ROLE_NAME: Record<Role, string> = { framer: "Framer", crafter: "Crafter", proofer: "Proofer", inspector: "Inspector" };
 
 /** One place of the approval line: a role, how far it came, and its words. */
 export interface ApprovalPlace {
@@ -523,11 +523,11 @@ export const GATE_HEAD = "Broad gate";
  * it marks on the approval line, with the note under the role's name and
  * the mark's words while it works. The orchestrator's two kinds belong to
  * none of the four roles and mark no place, and neither does the pull
- * request stage, which the daemon runs after the seal. The broad gate is no role's
- * session, so its words name no role, and it marks the sealer's place,
- * since the seal rests on it. `failed` is what the place says where the
+ * request stage, which the daemon runs after the inspection. The broad gate is no role's
+ * session, so its words name no role, and it marks the inspector's place,
+ * since the inspection rests on it. `failed` is what the place says where the
  * stage failed, for a kind whose failure is no failure of its role: a
- * broad gate that failed leaves the sealer's place waiting for the person.
+ * broad gate that failed leaves the inspector's place waiting for the person.
  * Every other kind's place then reads "Failed", with the failed mark. It
  * holds one row for each of `CHAIN_STAGE_KINDS`, so a kind added to the
  * protocol without its row here does not compile.
@@ -537,8 +537,8 @@ const STAGES: Record<ChainStageKind, { short: (round: number) => string; marks: 
   "fix-pass": { short: () => "Crafter, fix pass", marks: { role: "crafter", note: () => "Fix pass", label: (round) => `Fix pass on round ${round}` } },
   judgment: { short: () => "Orchestrator, judgment", marks: null },
   ruling: { short: () => "Orchestrator, ruling", marks: null },
-  gate: { short: () => GATE_HEAD, marks: { role: "sealer", note: () => GATE_HEAD, label: () => GATE_HEAD, failed: { state: "waiting", note: "Gate failed", label: "Gate failed" } } },
-  seal: { short: () => "Sealer, verdict", marks: { role: "sealer", note: () => "Judging", label: () => "Judging" } },
+  gate: { short: () => GATE_HEAD, marks: { role: "inspector", note: () => GATE_HEAD, label: () => GATE_HEAD, failed: { state: "waiting", note: "Gate failed", label: "Gate failed" } } },
+  inspection: { short: () => "Inspector, verdict", marks: { role: "inspector", note: () => "Judging", label: () => "Judging" } },
   "pull-request": { short: () => "Pull request", marks: null },
 };
 
@@ -547,63 +547,63 @@ function shortCommit(commit: string): string {
   return commit.slice(0, 7);
 }
 
-/** What a broken seal is called, in two words: on the sealer's place, in a notification, in a line's second row and at the head of the seal's place. */
-const SEAL_BROKEN = "Seal broken";
+/** What a lapsed inspection is called, in two words: on the inspector's place, in a notification, in a line's second row and at the head of the inspection's place. */
+const INSPECTION_LAPSED = "Inspection lapsed";
 
-/** What a seal that holds says in the second row of a line that holds no pull request. */
-const SEALED_LINE = "Sealed";
+/** What an inspection that holds says in the second row of a line that holds no pull request. */
+const CLEARED_LINE = "Cleared";
 
 /**
- * The seal's place for a work item's seal, which the daemon read from the
- * branch's head commit: the state its drawing takes, `none`, `sealed` or
- * `broken`, the words it says to a pointer and to a screen reader, which
+ * The inspection's place for a work item's inspection, which the daemon read from the
+ * branch's head commit: the state its drawing takes, `none`, `cleared` or
+ * `lapsed`, the words it says to a pointer and to a screen reader, which
  * the preview and the head of the view's foot also show beside it, and
- * `why`, the seal's sentence that the line under that head says where the
- * seal is broken, and empty otherwise. No seal, a seal the daemon has not
+ * `why`, the inspection's sentence that the line under that head says where the
+ * inspection lapsed, and empty otherwise. No inspection, an inspection the daemon has not
  * read and a daemon of an earlier build, which sends none, all say "No
- * seal yet". A sealed commit is shown in short.
+ * inspection yet". A cleared commit is shown in short.
  */
-export function sealShown(seal: Seal | null | undefined): { state: "none" | Seal["state"]; words: string; why: string } {
-  if (!seal) return { state: "none", words: "No seal yet", why: "" };
-  const commit = shortCommit(seal.commit);
-  return seal.state === "broken" ? { state: seal.state, words: `${SEAL_BROKEN}, sealed at ${commit}`, why: seal.why ?? "" } : { state: seal.state, words: `Sealed at ${commit}`, why: "" };
+export function inspectionShown(inspection: Inspection | null | undefined): { state: "none" | Inspection["state"]; words: string; why: string } {
+  if (!inspection) return { state: "none", words: "No inspection yet", why: "" };
+  const commit = shortCommit(inspection.commit);
+  return inspection.state === "lapsed" ? { state: inspection.state, words: `${INSPECTION_LAPSED}, cleared at ${commit}`, why: inspection.why ?? "" } : { state: inspection.state, words: `Cleared at ${commit}`, why: "" };
 }
 
 /** The label of the back's tab, which stands before the panes' tabs of a work item's view. */
-export const BACK_TAB = "Back of the seal";
+export const BACK_TAB = "Inspection sheet";
 
 /** What the back's place says until the records and the ledger have both answered. */
 export const BACK_READING = "Reading the records.";
 
 /**
  * Whether the strip of a work item's view holds the back's tab: where the
- * work item's seal is a seal, sealed or broken, where its records count a
- * round, or where the daemon sent its chain. A null seal and one the daemon
- * sent none of, as before it read the branch, hold no seal alike.
+ * work item's inspection is an inspection, cleared or lapsed, where its records count a
+ * round, or where the daemon sent its chain. A null inspection and one the daemon
+ * sent none of, as before it read the branch, hold no inspection alike.
  */
 export function hasBack(workItem: WorkItem): boolean {
-  return Boolean(workItem.seal) || (workItem.recorded?.rounds ?? 0) > 0 || workItem.chain !== null;
+  return Boolean(workItem.inspection) || (workItem.recorded?.rounds ?? 0) > 0 || workItem.chain !== null;
 }
 
 /**
  * Whether a work item's view, entered now, opens to the back: where it is
- * entered with no pane and the work item's seal, in the lists the window
- * holds at the call, is a seal, sealed or broken. A view entered with a
+ * entered with no pane and the work item's inspection, in the lists the window
+ * holds at the call, is an inspection, cleared or lapsed. A view entered with a
  * pane, as from a session's notification, opens to that pane. The tab in
  * front is decided here and by a person's press, and by no later list.
  */
 export function opensToBack(workItem: WorkItem | undefined, pane: number | undefined): boolean {
-  return pane === undefined && Boolean(workItem?.seal);
+  return pane === undefined && Boolean(workItem?.inspection);
 }
 
 /**
- * What the back was asked at: the work item's seal, its records' counts and
+ * What the back was asked at: the work item's inspection, its records' counts and
  * its chain, as one key. The window asks again where a later list gives
- * another key, and a seal the daemon sent none of differs from a null one,
- * which says the daemon read the branch and found no seal.
+ * another key, and an inspection the daemon sent none of differs from a null one,
+ * which says the daemon read the branch and found no inspection.
  */
 export function backKey(workItem: WorkItem): string {
-  return JSON.stringify({ seal: workItem.seal === undefined ? "not read" : workItem.seal, recorded: workItem.recorded ?? null, chain: workItem.chain });
+  return JSON.stringify({ inspection: workItem.inspection === undefined ? "not read" : workItem.inspection, recorded: workItem.recorded ?? null, chain: workItem.chain });
 }
 
 /**
@@ -628,10 +628,10 @@ export function codeParts(text: string): { text: string; code: boolean }[] {
 
 /**
  * What the back's place shows: the back composed from the records and the
- * ledger once both have answered (../shared/seal-back, `composeBack`), the
+ * ledger once both have answered (../shared/inspection-sheet, `composeBack`), the
  * daemon's refusal where either was refused, and `BACK_READING` until then.
  */
-export function backShown(answers: { records: SealRecords | null; ledger: { entries: readonly LedgerEntry[]; unread: number } | null; refusal: string | null }): Back | string {
+export function backShown(answers: { records: BackRecords | null; ledger: { entries: readonly LedgerEntry[]; unread: number } | null; refusal: string | null }): Back | string {
   if (answers.refusal !== null) return answers.refusal;
   if (answers.records === null || answers.ledger === null) return BACK_READING;
   return composeBack(answers.records, answers.ledger.entries, answers.ledger.unread);
@@ -663,7 +663,7 @@ type Reached = Pick<ApprovalPlace, "state" | "note" | "label" | "since"> & { tex
 
 const NOT_STARTED: Reached = { state: "no-agent", note: "Not started", label: "Not started", since: null, text: null };
 
-/** How far a role came by what the work item's records say, for the crafter by the branch's commits, and for the sealer by the seal the branch's head holds before the verdict the worktree holds. */
+/** How far a role came by what the work item's records say, for the crafter by the branch's commits, and for the inspector by the inspection the branch's head holds before the verdict the worktree holds. */
 function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached {
   switch (role) {
     case "framer":
@@ -679,12 +679,12 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
       const note = counted(recorded.rounds, "round", "rounds");
       return { state: "finished", note, label: note, since: null, text: null };
     }
-    case "sealer": {
-      // Whether a seal holds is the seal the branch's head holds, and a verdict that seals in the worktree alone is no verdict.
-      const seal = workItem.seal ?? null;
-      if (seal !== null) return { ...(seal.state === "broken" ? { state: "waiting", note: SEAL_BROKEN } : { state: "finished", note: "Sealed" }), label: sealShown(seal).words, since: null, text: seal.why };
+    case "inspector": {
+      // Whether an inspection holds is the inspection the branch's head holds, and a verdict that clears in the worktree alone is no verdict.
+      const inspection = workItem.inspection ?? null;
+      if (inspection !== null) return { ...(inspection.state === "lapsed" ? { state: "waiting", note: INSPECTION_LAPSED } : { state: "finished", note: "Cleared" }), label: inspectionShown(inspection).words, since: null, text: inspection.why };
       const verdict = recorded.verdict;
-      if (verdict === null || verdict.is === "sealed") return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
+      if (verdict === null || verdict.is === "cleared") return recorded.gate === null ? NOT_STARTED : { state: "no-agent", note: "Gate passed", label: `Gate passed at ${shortCommit(recorded.gate)}`, since: null, text: null };
       const { state, note } = ({ withheld: { state: "failed", note: "Withheld" }, undecided: { state: "waiting", note: "Undecided" } } as const)[verdict.is];
       return { state, note, label: `${note} at ${shortCommit(verdict.commit)}`, since: null, text: verdict.says };
     }
@@ -699,7 +699,7 @@ function byRecords(role: Role, workItem: WorkItem, recorded: Recorded): Reached 
  * where the chain runs the stage, with the stage's start as the time its
  * age counts from, and failed where the stage failed, with the stage's
  * failure as a sentence for its text. A broad gate that failed is no
- * failure of the sealer: its place then waits, and reads "Gate failed".
+ * failure of the inspector: its place then waits, and reads "Gate failed".
  */
 function byChain(role: Role, workItem: WorkItem, state: "working" | "failed"): Reached | null {
   const newest = chainOf(workItem)?.stages.at(-1);
@@ -729,7 +729,7 @@ function byPane(role: Role, workItem: WorkItem): Reached | null {
 
 /**
  * The four places of a work item's approval line, framer, crafter, proofer
- * and sealer in that order, or null for a work item that carries no
+ * and inspector in that order, or null for a work item that carries no
  * `recorded`: one a daemon of an earlier build sent, or one of the look. A
  * place's state is the first of these that holds. It waits where an open
  * question of the work item names its role, exactly, as the asker, with
@@ -738,12 +738,12 @@ function byPane(role: Role, workItem: WorkItem): Reached | null {
  * the work item's `paneStage`, the stage a pane's session runs through the
  * chain command, is of its role. It failed where the chain's newest stage
  * is of its role and failed, with the stage's failure under the line. The
- * broad gate and the seal are the sealer's place's: it works while either
+ * broad gate and the inspection are the inspector's place's: it works while either
  * runs, and waits, with "Gate failed", where the newest stage is a broad
  * gate that failed. Otherwise the records say how far it came, and for the
- * sealer the seal the branch's head holds: finished where it holds, and
- * waiting, with "Seal broken" and the seal's sentence under the line, where
- * a later commit broke it. It reads the work item alone, so no pane's agent
+ * inspector the inspection the branch's head holds: finished where it holds, and
+ * waiting, with "Inspection lapsed" and the inspection's sentence under the line, where
+ * a later commit lapsed it. It reads the work item alone, so no pane's agent
  * state, no hook and no session changes it.
  */
 export function approvalPlaces(workItem: WorkItem): ApprovalPlace[] | null {
@@ -884,20 +884,20 @@ export function chainNotifications(before: readonly WorkItem[], workItems: reado
 }
 
 /**
- * The notifications for the seals that broke since the window's lists were
- * `before`: one for each of `workItems` whose seal is broken now and that
+ * The notifications for the inspections that lapsed since the window's lists were
+ * `before`: one for each of `workItems` whose inspection lapsed now and that
  * `before`, the work items and the archived ones the window held, held with
- * a seal that holds. It is titled with the work item's title and says "Seal
- * broken". A seal the window first holds broken, as at its start, raises
- * none, since nothing the window held says when it broke. None is given for
+ * an inspection that holds. It is titled with the work item's title and says "Inspection
+ * lapsed". An inspection the window first holds lapsed, as at its start, raises
+ * none, since nothing the window held says when it lapsed. None is given for
  * a work item whose notifications are muted, nor for `inFront`, the work
  * item whose view is in front of a focused window.
  */
-export function sealNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
-  const held = new Set(before.filter((workItem) => workItem.seal?.state === "sealed").map((workItem) => workItem.id));
+export function lapseNotifications(before: readonly WorkItem[], workItems: readonly WorkItem[], inFront: number | undefined): { workItemId: number; title: string; body: string }[] {
+  const held = new Set(before.filter((workItem) => workItem.inspection?.state === "cleared").map((workItem) => workItem.id));
   return workItems
-    .filter((workItem) => workItem.seal?.state === "broken" && held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
-    .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: SEAL_BROKEN }));
+    .filter((workItem) => workItem.inspection?.state === "lapsed" && held.has(workItem.id) && !workItem.muted && workItem.id !== inFront)
+    .map((workItem) => ({ workItemId: workItem.id, title: workItem.title, body: INSPECTION_LAPSED }));
 }
 
 /**
@@ -909,9 +909,9 @@ export function sealNotifications(before: readonly WorkItem[], workItems: readon
  * pull request gave in `before`, the work items and the archived ones the
  * window held. A pull request that opens is one that finishes. It is titled
  * with the work item's title and says what a pane's notification says.
- * None is given while the seal the branch's head holds is broken, since the
- * seal gives the line then and raised its own notification when it broke
- * (`sealNotifications`). None is given for a work item whose notifications are muted, nor for
+ * None is given while the inspection the branch's head holds lapsed, since the
+ * inspection gives the line then and raised its own notification when it lapsed
+ * (`lapseNotifications`). None is given for a work item whose notifications are muted, nor for
  * `inFront`, the work item whose view is in front of a focused window. An
  * archived work item is not among `workItems`, so none is given for one.
  */
@@ -1063,6 +1063,8 @@ export interface SidebarRepository {
   groups: { id: number; name: string; entries: SidebarRepository["entries"] }[];
   /** The version of Owlery whose pull request check the repository's workflow fetches, where the daemon read it older than its own, or null. The row then holds the button `checkButton` names. */
   olderCheck: string | null;
+  /** The folder of the root in the earlier form the daemon read in the repository's main checkout, or null. The row then holds the button `earlierButton` names. */
+  earlier: string | null;
 }
 
 /**
@@ -1077,9 +1079,9 @@ export interface SidebarRepository {
  * state is chosen, a repository none of whose work items is left is not,
  * and neither is a group none of whose work items is left. The window makes
  * up no repository: a work item whose repository the daemon did not send is
- * under none. Each carries the version of its older check as the daemon
- * sent it, and null where the daemon sent none: the window compares no
- * versions itself.
+ * under none. Each carries the version of its older check and its root in
+ * the earlier form as the daemon sent them, and null where the daemon sent
+ * none: the window compares no versions and reads no folder itself.
  */
 export function sidebarTree(repositories: readonly Repository[], workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[], query = "", state: StateFilter = "all"): SidebarRepository[] {
   const left = matchWorkItems(workItemEntries(workItems, sessions, paneKinds), query, state);
@@ -1091,7 +1093,7 @@ export function sidebarTree(repositories: readonly Repository[], workItems: read
       const listed = (entries: typeof own) => pinnedFirst(entries).map((entry) => ({ ...entry, marks: markRanges(entry.line.title, query) }));
       const groups = repository.groups.map(({ id, name }) => ({ id, name, entries: listed(own.filter((entry) => entry.workItem.groupId === id)) })).filter((group) => !narrowing || group.entries.length > 0);
       const entries = listed(own.filter((entry) => !repository.groups.some((group) => group.id === entry.workItem.groupId)));
-      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups, olderCheck: recordsOf(repository)?.olderCheck ?? null };
+      return { id: repository.id, repo: repository.folder, name: repository.name, icon: repository.icon, count: own.length, entries, groups, olderCheck: recordsOf(repository)?.olderCheck ?? null, earlier: recordsOf(repository)?.earlier ?? null };
     })
     .filter((repository) => !narrowing || repository.count > 0);
 }
@@ -1164,7 +1166,7 @@ function headlessRuns(session: HeadlessInfo): boolean {
 }
 
 /** How a session of a role is named where no stage of its chain names it: the role and the stage `ROLE_STAGES` pairs it with. */
-const ROLE_STAGE_SAYS: Record<NonNullable<HeadlessInfo["role"]>["role"], string> = { proofer: "Proofer, round", crafter: "Crafter, fix pass", sealer: "Sealer, verdict", orchestrator: "Orchestrator, judgment" };
+const ROLE_STAGE_SAYS: Record<NonNullable<HeadlessInfo["role"]>["role"], string> = { proofer: "Proofer, round", crafter: "Crafter, fix pass", inspector: "Inspector, verdict", orchestrator: "Orchestrator, judgment" };
 
 /**
  * The words that name a headless session of `workItem` where the window
@@ -1494,8 +1496,8 @@ export function emptySidebar(repositories: readonly Repository[], listed: number
   return `${what}, ${kept === 1 ? "so the sidebar does not list its repository" : `so the sidebar lists none of its ${kept} repositories`}.`;
 }
 
-/** What changed of a work item's seal since the look: a seal was given, or a seal broke. */
-export type SealSince = "given" | "broke";
+/** What changed of a work item's inspection since the look: an inspection cleared, or an inspection lapsed. */
+export type InspectionSince = "cleared" | "lapsed";
 
 export interface Change {
   workItem: WorkItem;
@@ -1503,12 +1505,12 @@ export interface Change {
   line: InboxLine;
   /** The pane whose state that line reads where the work item is not parked. The age the summary's line says is counted as `lineSince` gives it. */
   session: SessionInfo | undefined;
-  /** What changed, opening with the seal where it was given or broke since the look, and with the present state otherwise. */
+  /** What changed, opening with the inspection where it cleared or lapsed since the look, and with the present state otherwise. */
   sentence: string;
   /** How many decisions made without asking the work item holds that the look does not hold for it. */
   decided: number;
-  /** Whether its seal was given or broke since the look (`sealSinceLook`), or null where neither. */
-  sealSince: SealSince | null;
+  /** Whether its inspection cleared or lapsed since the look (`inspectionSinceLook`), or null where neither. */
+  inspectionSince: InspectionSince | null;
 }
 
 /** Each agent state as a change's sentence opens with it. */
@@ -1520,69 +1522,69 @@ function madeWithoutAsking(decided: number): string {
 }
 
 /**
- * What changed of a work item's seal between the look, `before` being the
+ * What changed of a work item's inspection between the look, `before` being the
  * look's copy of the work item or undefined where the look does not hold it,
- * and the present work item. A seal was given where the present seal holds
- * and the look did not hold the work item `sealed` at the same commit, and
- * it broke where the present seal is broken and the look did not hold the
- * work item `broken` at the same commit. A work item the look does not hold
- * counts its seal as since the look. Null where neither: where the present
- * work item has no seal, where either side carries no `seal`, which says
+ * and the present work item. An inspection cleared where the present inspection holds
+ * and the look did not hold the work item `cleared` at the same commit, and
+ * it lapsed where the present inspection lapsed and the look did not hold the
+ * work item `lapsed` at the same commit. A work item the look does not hold
+ * counts its inspection as since the look. Null where neither: where the present
+ * work item has no inspection, where either side carries no `inspection`, which says
  * the daemon had read no branch for it, as just after it started, or that a
- * build before the look kept the seal wrote the look, and where the seal
- * broke on a work item whose pull request merged, since the merged pull
- * request says more than a broken seal on the line (`branchLine`).
+ * build before the look kept the inspection wrote the look, and where the inspection
+ * lapsed on a work item whose pull request merged, since the merged pull
+ * request says more than a lapsed inspection on the line (`branchLine`).
  */
-export function sealSinceLook(before: WorkItem | undefined, workItem: WorkItem): SealSince | null {
-  const seal = workItem.seal;
-  if (!seal || (before && before.seal === undefined)) return null;
-  const then = before?.seal ?? null;
-  if (then !== null && then.state === seal.state && then.commit === seal.commit) return null;
-  if (seal.state === "broken" && mergedWorkItem(workItem)) return null;
-  return seal.state === "sealed" ? "given" : "broke";
+export function inspectionSinceLook(before: WorkItem | undefined, workItem: WorkItem): InspectionSince | null {
+  const inspection = workItem.inspection;
+  if (!inspection || (before && before.inspection === undefined)) return null;
+  const then = before?.inspection ?? null;
+  if (then !== null && then.state === inspection.state && then.commit === inspection.commit) return null;
+  if (inspection.state === "lapsed" && mergedWorkItem(workItem)) return null;
+  return inspection.state === "cleared" ? "cleared" : "lapsed";
 }
 
 /**
- * The words a change's sentence opens with where its seal was given or
- * broke: the sealed commit in short and how many review rounds the work
+ * The words a change's sentence opens with where its inspection cleared or
+ * lapsed: the cleared commit in short and how many review rounds the work
  * item's directory holds, the count left out where the daemon sent none or
- * it is 0, or "Seal broken." and the seal's own sentence as the daemon sent
+ * it is 0, or "Inspection lapsed." and the inspection's own sentence as the daemon sent
  * it.
  */
-function sealSaid(workItem: WorkItem, since: SealSince): string {
-  const seal = workItem.seal as Seal;
-  if (since === "broke") return seal.why ? `${SEAL_BROKEN}. ${seal.why}` : `${SEAL_BROKEN}.`;
+function inspectionSaid(workItem: WorkItem, since: InspectionSince): string {
+  const inspection = workItem.inspection as Inspection;
+  if (since === "lapsed") return inspection.why ? `${INSPECTION_LAPSED}. ${inspection.why}` : `${INSPECTION_LAPSED}.`;
   const rounds = workItem.recorded?.rounds ?? 0;
-  return rounds > 0 ? `Sealed at ${shortCommit(seal.commit)} after ${counted(rounds, "review round", "review rounds")}.` : `Sealed at ${shortCommit(seal.commit)}.`;
+  return rounds > 0 ? `Cleared at ${shortCommit(inspection.commit)} after ${counted(rounds, "review round", "review rounds")}.` : `Cleared at ${shortCommit(inspection.commit)}.`;
 }
 
 /**
  * One work item's change against the look, worked out whether or not
  * anything differs, and whether anything does: its line differs in the state
  * or in the count of new commits from its line in the look, it holds a
- * decision made without asking that the look does not hold for it, its seal
- * was given or broke since the look (`sealSinceLook`), or the look does not
+ * decision made without asking that the look does not hold for it, its inspection
+ * cleared or lapsed since the look (`inspectionSinceLook`), or the look does not
  * hold it. A park and its answer both change the line's state. A decision
  * is told from the look's by its id, so one the look holds adds nothing,
  * reversed since or not, and a look written before the decisions holds none.
- * A change's sentence opens with the seal where it was given or broke, and
+ * A change's sentence opens with the inspection where it cleared or lapsed, and
  * with the present state otherwise, and ends with how many such decisions
  * the work item holds; a work item whose pull request merged holds none.
  * A count the daemon gave on one side alone says nothing of a change. Each
  * side is read through `inboxLine` with its own sessions, and no session of
  * one is matched to a session of the other: a session's id starts again with
  * the daemon, and a work item's id does not. Where one side carries no
- * `seal`, as a look written by a build before the look kept the seal
+ * `inspection`, as a look written by a build before the look kept the inspection
  * reading, or a work item the daemon has read no branch for since it
- * started, that side is read with the other side's seal where the two
+ * started, that side is read with the other side's inspection where the two
  * states are compared; the change's line is the present one as it stands.
- * A side that keeps a seal reading, a null among them, is read with its own.
+ * A side that keeps an inspection reading, a null among them, is read with its own.
  */
 function changeOf(look: Look, workItem: WorkItem, sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): { change: Change; differs: boolean } {
   const line = inboxLine(workItem, sessions, paneKinds);
   const before = look.workItems.find((item) => item.id === workItem.id);
-  const sealSince = sealSinceLook(before, workItem);
-  const said = [sealSince ? sealSaid(workItem, sealSince) : line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
+  const inspectionSince = inspectionSinceLook(before, workItem);
+  const said = [inspectionSince ? inspectionSaid(workItem, inspectionSince) : line.state === null ? "No agent is running." : STATE_IN_CHANGE[line.state]];
   const looked = new Set(before ? decisionsOf(before).map((decision) => decision.id) : []);
   // A merge takes the work item's decisions off the summary, as an archive does.
   const decided = mergedWorkItem(workItem) ? 0 : decisionsOf(workItem).filter((decision) => !looked.has(decision.id)).length;
@@ -1591,23 +1593,23 @@ function changeOf(look: Look, workItem: WorkItem, sessions: readonly SessionInfo
     said.push("New since you were last here.");
   } else {
     const rise = before.newCommits === null || workItem.newCommits === null ? 0 : workItem.newCommits - before.newCommits;
-    const held = before.seal === undefined ? { ...before, seal: workItem.seal } : before;
-    const present = workItem.seal === undefined ? { ...workItem, seal: before.seal } : workItem;
-    differs = sealSince !== null || rise !== 0 || decided !== 0 || inboxLine(held, look.sessions, paneKinds).state !== inboxLine(present, sessions, paneKinds).state;
+    const held = before.inspection === undefined ? { ...before, inspection: workItem.inspection } : before;
+    const present = workItem.inspection === undefined ? { ...workItem, inspection: before.inspection } : workItem;
+    differs = inspectionSince !== null || rise !== 0 || decided !== 0 || inboxLine(held, look.sessions, paneKinds).state !== inboxLine(present, sessions, paneKinds).state;
     if (rise > 0) said.push(`${rise} new ${rise === 1 ? "commit" : "commits"} since you were last here.`);
   }
   if (decided > 0) said.push(madeWithoutAsking(decided));
-  return { change: { workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided, sealSince }, differs };
+  return { change: { workItem, line, session: lineSession(workItem, sessions, paneKinds), sentence: said.join(" "), decided, inspectionSince }, differs };
 }
 
 /**
- * Changes in the order the summary lists them: the work items whose seal was
- * given since the look, then the ones whose seal broke, each in the order
+ * Changes in the order the summary lists them: the work items whose inspection was
+ * given since the look, then the ones whose inspection lapsed, each in the order
  * given, which is the daemon's, then the others in the order of the inbox's
  * groups.
  */
 function summaryOrder(changes: readonly Change[]): Change[] {
-  return [...changes.filter((change) => change.sealSince === "given"), ...changes.filter((change) => change.sealSince === "broke"), ...inboxGroups(changes.filter((change) => change.sealSince === null)).flatMap((group) => group.entries)];
+  return [...changes.filter((change) => change.inspectionSince === "cleared"), ...changes.filter((change) => change.inspectionSince === "lapsed"), ...inboxGroups(changes.filter((change) => change.inspectionSince === null)).flatMap((group) => group.entries)];
 }
 
 /**
@@ -1633,7 +1635,7 @@ export function changesOf(look: Look, ids: readonly number[], workItems: readonl
 /**
  * The work items the summary lists, worked out at a load: `ids`, the work
  * items that changed since the look, and `unread`, the ones the load's lists
- * carried without a seal reading, which may still join (`changedSetAfter`).
+ * carried without an inspection reading, which may still join (`changedSetAfter`).
  */
 export interface ChangedSet {
   ids: number[];
@@ -1642,41 +1644,41 @@ export interface ChangedSet {
 
 /** The changed set of a load, from the look and the lists the load carried. */
 export function changedSet(look: Look, workItems: readonly WorkItem[], sessions: readonly SessionInfo[], paneKinds: readonly PaneKindInfo[]): ChangedSet {
-  return { ids: changesSince(look, workItems, sessions, paneKinds).map((change) => change.workItem.id), unread: workItems.filter((workItem) => workItem.seal === undefined).map((workItem) => workItem.id) };
+  return { ids: changesSince(look, workItems, sessions, paneKinds).map((change) => change.workItem.id), unread: workItems.filter((workItem) => workItem.inspection === undefined).map((workItem) => workItem.id) };
 }
 
 /**
  * The changed set after new lists: each work item the load carried without a
- * seal reading and these lists carry with one leaves `unread`, and joins
- * `ids` where its seal was given or broke since the look (`sealSinceLook`).
- * So a seal the daemon read after the load joins once, and no other change
+ * inspection reading and these lists carry with one leaves `unread`, and joins
+ * `ids` where its inspection cleared or lapsed since the look (`inspectionSinceLook`).
+ * So an inspection the daemon read after the load joins once, and no other change
  * after the load joins. A work item these lists do not hold, or carry still
  * without a reading, stays in `unread`.
  */
 export function changedSetAfter(look: Look, set: ChangedSet, workItems: readonly WorkItem[]): ChangedSet {
-  const read = workItems.filter((workItem) => set.unread.includes(workItem.id) && workItem.seal !== undefined);
-  const joins = read.filter((workItem) => !set.ids.includes(workItem.id) && sealSinceLook(look.workItems.find((item) => item.id === workItem.id), workItem) !== null);
+  const read = workItems.filter((workItem) => set.unread.includes(workItem.id) && workItem.inspection !== undefined);
+  const joins = read.filter((workItem) => !set.ids.includes(workItem.id) && inspectionSinceLook(look.workItems.find((item) => item.id === workItem.id), workItem) !== null);
   return { ids: [...set.ids, ...joins.map((workItem) => workItem.id)], unread: set.unread.filter((id) => !read.some((workItem) => workItem.id === id)) };
 }
 
-/** The seals counted in the summary's sentence, before the states: "2 sealed", "1 seal broken". */
-function sealsCounted(changes: readonly { sealSince: SealSince | null }[]): string[] {
-  const given = changes.filter((change) => change.sealSince === "given").length;
-  const broke = changes.filter((change) => change.sealSince === "broke").length;
-  return [...(given > 0 ? [`${given} sealed`] : []), ...(broke > 0 ? [`${counted(broke, "seal", "seals")} broken`] : [])];
+/** The inspections counted in the summary's sentence, before the states: "2 cleared", "1 inspection lapsed". */
+function inspectionsCounted(changes: readonly { inspectionSince: InspectionSince | null }[]): string[] {
+  const given = changes.filter((change) => change.inspectionSince === "cleared").length;
+  const lapsed = changes.filter((change) => change.inspectionSince === "lapsed").length;
+  return [...(given > 0 ? [`${given} cleared`] : []), ...(lapsed > 0 ? [`${counted(lapsed, "inspection", "inspections")} lapsed`] : [])];
 }
 
 /**
- * The summary screen's sentence: the changed work items whose seal was given
- * since the look counted as sealed and the ones whose seal broke as broken
- * seals, then the others by their present state, as the inbox's sentence
+ * The summary screen's sentence: the changed work items whose inspection cleared
+ * since the look counted as cleared and the ones whose inspection lapsed as lapsed
+ * inspections, then the others by their present state, as the inbox's sentence
  * counts every work item, so each is counted once; or how many changed where
- * none of them has a seal so counted or a state. The decisions made without
+ * none of them has an inspection so counted or a state. The decisions made without
  * asking since the look are counted apart: where the changed work items hold
  * any, their sum follows after a full stop.
  */
-export function summarySentence(changes: readonly { line: InboxLine; decided: number; sealSince: SealSince | null }[]): string {
-  const parts = [...sealsCounted(changes), inboxSummary(changes.filter((change) => change.sealSince === null).map((change) => change.line))].filter((part) => part !== "");
+export function summarySentence(changes: readonly { line: InboxLine; decided: number; inspectionSince: InspectionSince | null }[]): string {
+  const parts = [...inspectionsCounted(changes), inboxSummary(changes.filter((change) => change.inspectionSince === null).map((change) => change.line))].filter((part) => part !== "");
   const said = parts.join(", ") || `${changes.length} work ${changes.length === 1 ? "item" : "items"} changed`;
   const decided = changes.reduce((sum, change) => sum + change.decided, 0);
   return decided > 0 ? `${said}. ${madeWithoutAsking(decided)}` : said;
@@ -1686,7 +1688,7 @@ export function summarySentence(changes: readonly { line: InboxLine; decided: nu
  * What stands in the place of the summary's sentence: the sentence where a
  * work item changed, and otherwise why the screen holds no line.
  */
-export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number; sealSince: SealSince | null }[]): string {
+export function summaryHead(hasLook: boolean, changes: readonly { line: InboxLine; decided: number; inspectionSince: InspectionSince | null }[]): string {
   if (!hasLook) return "No earlier look is recorded.";
   return changes.length > 0 ? summarySentence(changes) : "Nothing changed since you were last here.";
 }
@@ -1718,7 +1720,7 @@ function waitsOnAnAnswer(workItem: WorkItem, session: SessionInfo | undefined): 
  * one opens a line and the inbox stands beside it: the first line, in the
  * order given, whose work item waits on an open question or a pane that
  * waits, as "Answer the first question", and where none does, the first
- * that waits for another reason, as a broken seal, a stopped
+ * that waits for another reason, as a lapsed inspection, a stopped
  * chain or a failed check, as "Open the first that needs you". The hint
  * names the line Enter opens, which may stand after a line that waits for
  * another reason. Otherwise the inbox is the main control and the only one.
@@ -1781,7 +1783,7 @@ export function machineAhead(workItem: WorkItem, headless: readonly HeadlessInfo
 }
 
 /** Why a heavy command that waits stands where it does in the queue, in the words of the Machine dialog. */
-const HEAVY_PLACE_SAYS: Record<HeavyPlace, string> = { gate: "one step from its seal", review: "under review", build: "still being built", outside: "in no work item" };
+const HEAVY_PLACE_SAYS: Record<HeavyPlace, string> = { gate: "one step from its inspection", review: "under review", build: "still being built", outside: "in no work item" };
 
 /**
  * The heavy commands that run and wait, as the Machine dialog lists them
@@ -1983,20 +1985,20 @@ export function choiceNote(question: AskedQuestion): string {
  * the machine (2 ahead)";
  * otherwise, where the chain runs a stage and the line's
  * pane does not wait for the person, the stage in short, who runs it and
- * what it is, as in "Proofer, round 2" and "Sealer, verdict", and "Broad
+ * what it is, as in "Proofer, round 2" and "Inspector, verdict", and "Broad
  * gate" for the broad gate, which no role runs; otherwise, where the agent
  * asks the person a question in its pane, the first question and the
  * labels of its choices, followed by how many more questions it asks, as
  * in "Which
  * library formats the dates? date-fns · dayjs (and 1 more question)";
- * otherwise, where the work item's pull request or its seal gives the line
+ * otherwise, where the work item's pull request or its inspection gives the line
  * its state, their words (`branchLine`), as in "Checks running", "Check
- * failed: build", "Seal broken" and "Sealed"; otherwise what the agent's
+ * failed: build", "Inspection lapsed" and "Cleared"; otherwise what the agent's
  * state carried, otherwise the newest commit's
  * subject, otherwise the branch. While a search is typed it is the branch,
  * where the letters that match are marked.
  */
-export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean, ahead: number | null = null): { says: "question" | "chain" | "machine" | "stage" | "state" | "pull-request" | "seal" | "commit" | "branch"; text: string } {
+export function lineText(workItem: WorkItem, session: SessionInfo | undefined, searching: boolean, ahead: number | null = null): { says: "question" | "chain" | "machine" | "stage" | "state" | "pull-request" | "inspection" | "commit" | "branch"; text: string } {
   const open = searching ? null : parkedWith(workItem);
   if (open) return { says: "question", text: `${open[0]?.asks ?? ""}${moreQuestions(open.length - 1)}` };
   const chain = searching ? null : chainOf(workItem);
@@ -2118,7 +2120,7 @@ export function viewFacts(entry: Entry, paneKinds: readonly PaneKindInfo[], now:
   ];
 }
 
-/** What a work item's view shows of its pull request, under the seal's place. */
+/** What a work item's view shows of its pull request, under the inspection's place. */
 export interface PullRequestFacts {
   /** The pull request's number, as in "Pull request #12", which opens `url`. */
   head: string;
@@ -2798,18 +2800,17 @@ export interface RecordsWords {
   holds: string[];
   /** The field of the broad gate command: off where `config.json` stands, with the key's value. */
   gate: { shown: boolean; enabled: boolean; label: string; value: string; says: string };
-  /** Of the workflow the plan names: how an administrator makes the seal check required, where it is Owlery's, or that AgenticSeal's posts no such check. Empty until a plan names one. */
+  /** Of the workflow the plan names: how an administrator makes the inspection check required. Empty until a plan names one. */
   required: string;
   submit: { shown: boolean; enabled: boolean; label: string };
   cancel: string;
 }
 
-/** What the dialog of the records place says of the seal check a workflow posts, by the workflow's path: Owlery's posts `seal`, which an administrator makes required on GitHub, and AgenticSeal's `hygiene.yml` posts none. Nothing for no workflow. */
+/** What the dialog of the records place says of the inspection check a workflow posts, by the workflow's path: it posts `inspection`, which an administrator makes required on GitHub. Nothing for no workflow. */
 function requiredCheck(workflow: string | null): string {
   const unchanged = "Owlery changes no setting of the repository on GitHub.";
-  if (workflow?.endsWith("/hygiene.yml")) return `AgenticSeal's \`hygiene.yml\` posts no \`seal\` check, so GitHub offers none to require. ${unchanged}`;
   if (workflow === null) return "";
-  return `The workflow posts its verdict as the check \`seal\` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires \`seal\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`seal\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
+  return `The workflow posts its verdict as the check \`inspection\` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires \`inspection\` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no \`inspection\` check, so a required one holds it until an administrator lets it through. ${unchanged}`;
 }
 
 /**
@@ -2827,14 +2828,20 @@ function requiredCheck(workflow: string | null): string {
  * records go below its root, something other than a folder stands there,
  * or its checkout does not hold a file of the place as its commit does.
  * Whichever the plan, the dialog says of the workflow it names, written or
- * kept, how an administrator makes the seal check required on GitHub, or
- * that AgenticSeal's `hygiene.yml` posts no such check. A plan that moves
+ * kept, how an administrator makes the inspection check required on GitHub. A plan that moves
  * the check says the version the workflow fetches the check at and the one
  * the commit moves it to, shows the workflow alone with the text written
  * over the committed file, names each work item whose records the daemon's
  * readers refuse or did not read and what those readers read, hides the
  * field, and offers
- * "Move and commit", on where the plan is not blocked.
+ * "Move and commit", on where the plan is not blocked. A plan that moves
+ * the records from a root in the earlier form says where they stand and
+ * what the commit does with them, that an inspection cleared before the
+ * move lapses at its commit, names each file that moves with the path
+ * it moves to and whether it is rewritten, each file the commit removes and
+ * the workflow it writes whole, says that a rule that requires the check
+ * the removed workflow posted has to require `inspection`, hides the field, and offers "Move and
+ * commit", on where the plan is not blocked.
  */
 export function recordsDialog(repository: Repository, plan: RecordsPlanned | null, command: string, plannedFor: string | null): RecordsWords {
   const head = `Records and check: ${repository.name}`;
@@ -2849,6 +2856,25 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
   const required = requiredCheck(plan.files.find((file) => file.path.startsWith(".github/workflows/"))?.path ?? null);
   // The key's place and its value, as the daemon last read them.
   const kept = config === undefined ? "" : held?.broadGate == null ? `No \`Broad gate\` key in \`${config.path}\`.` : `Kept in \`${config.path}\`, under \`Broad gate\`.`;
+  const migration = plan.migration ?? null;
+  if (migration !== null) {
+    const { from, moves, removes } = migration;
+    const commit = plan.blocked === null && plan.branch !== null ? `This makes one commit on \`${plan.branch}\`: \`${plan.subject}\`. Nothing is pushed.` : "";
+    return {
+      ...unplanned,
+      move: `The work records of this repository stand in \`${from}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to \`${ROOT}/\`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires \`inspection\` in its place.`,
+      commit,
+      blocked: plan.blocked ?? "",
+      files: [
+        ...moves.map((move) => ({ path: move.from, text: null, says: move.rewritten ? `\`${move.from}\` moves to \`${move.to}\`, rewritten in IADD's forms.` : `\`${move.from}\` moves to \`${move.to}\` as it stands.` })),
+        ...removes.map((path) => ({ path, text: null, says: `The commit removes \`${path}\`.` })),
+        ...plan.files.filter((file) => file.text !== null).map((file) => ({ ...file, says: "The commit writes this file whole." })),
+      ],
+      // Owlery's workflow stands once the move is committed, written by it or kept.
+      required: requiredCheck(".github/workflows/owlery-inspection.yml"),
+      submit: { shown: true, enabled: plan.blocked === null && plannedFor === command, label: "Move and commit" },
+    };
+  }
   if (plan.blocked === null && plan.files.every((file) => file.text === null)) {
     const [readme, , workflow] = plan.files;
     const gate = config === undefined || held?.broadGate == null ? kept : `Broad gate: \`${held.broadGate}\`, kept in \`${config.path}\` under \`Broad gate\``;
@@ -2868,9 +2894,9 @@ export function recordsDialog(repository: Repository, plan: RecordsPlanned | nul
     const moved = plan.files.filter((file) => file.text !== null);
     const named = (plan.unread ?? []).map(({ title, why }) => ({ name: title, why }));
     const readers = "with the readers that cases hold to the check's answers. It read none of the check's other arms.";
-    const read = `Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, ${readers}`;
+    const read = `Owlery read the round records, the broad gate's run and the inspection of each work item of this repository at its branch's head, ${readers}`;
     // An entry can be a work item that was not read, so where any is named the sentence leaves those out by their own words.
-    const readBut = `Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
+    const readBut = `Owlery read the round records, the broad gate's run and the inspection at its branch's head of each work item of this repository but those named here as not read, ${readers}`;
     return {
       ...unplanned,
       move: `\`${moved[0]?.path ?? ""}\` fetches the pull request check of Owlery ${move.from}, older than this app. The commit moves it to Owlery ${move.to}.`,
@@ -2920,6 +2946,11 @@ export function rowButtons(repositoryName: string): Record<"add" | "menu", { nam
     add: { name: `New work item in ${repositoryName}`, says: `Create a work item in ${repositoryName}: a new worktree.` },
     menu: { name: `Menu of ${repositoryName}`, says: `Open the menu of ${repositoryName}: its settings, its icon, hiding it and removing it.` },
   };
+}
+
+/** The button a repository's row holds before its "+" where its main checkout holds a root in the earlier form, `root`, and no records root: its words, and what it says to a pointer and to a screen reader. A press opens the dialog of the records place, which shows the commit that moves the records. */
+export function earlierButton(repositoryName: string, root: string): { label: string; says: string } {
+  return { label: "Records in the earlier form", says: `The work records of ${repositoryName} stand in \`${root}/\`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. Open to read the commit that moves them to IADD's forms.` };
 }
 
 /** The button a repository's row holds before its "+" where its pull request check is of an older Owlery than the app: its words, and what it says to a pointer and to a screen reader. A press opens the dialog of the records place, which shows the commit that moves the check. */
@@ -3537,22 +3568,18 @@ export function settingsBases(plan: PlanAnswered | null, chosen: string | null):
  * What the settings dialog sends for a repository: the name where it is
  * another than the one a person gave, null for an empty one, and the base
  * where the menu's value is another than the repository's, null for the
- * first choice, the chain of its Claude Code panes where the menu's
- * value is another than the answer kept, null for no answer, and the
- * account where the menu's value, an account's id, is another than the one
+ * first choice, and the account where the menu's value, an account's id, is another than the one
  * set on the repository, null for the first choice, which leaves it to the
  * default. A field that did not change is left out, and an object with
  * none is nothing to send.
  */
-export function settingsFields(repository: Repository, name: string, base: string, chain: string = paneChainOf(repository)?.chosen ?? "", account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; paneChain?: ChainChoice | null; accountId?: number | null } {
+export function settingsFields(repository: Repository, name: string, base: string, account: string = String(repository.accountId ?? "")): { name?: string | null; defaultBase?: string | null; accountId?: number | null } {
   const named = name.trim() || null;
   const chosen = base || null;
-  const runs = chain === "owlery" || chain === "plugin" ? chain : null;
   const set = account === "" ? null : Number(account);
   return {
     ...(named === repository.customName ? {} : { name: named }),
     ...(chosen === repository.defaultBase ? {} : { defaultBase: chosen }),
-    ...(runs === (paneChainOf(repository)?.chosen ?? null) ? {} : { paneChain: runs }),
     ...(set === (repository.accountId ?? null) ? {} : { accountId: set }),
   };
 }
@@ -3781,46 +3808,9 @@ export function paneAccountChange(session: SessionInfo, label: string, paneKinds
   };
 }
 
-/** Which chain a repository's Claude Code panes run, or null for a repository of a daemon of an earlier build, which sends none: the window then asks no choice for it. */
-export function paneChainOf(repository: Repository | undefined): RepositoryChain | null {
-  return (repository as { chain?: RepositoryChain } | undefined)?.chain ?? null;
-}
-
-/**
- * Whether the window asks which chain runs before it opens a pane of `kind`
- * in a repository: for a Claude Code pane of a repository on the owl chain
- * whose Claude Code enables the AgenticSeal plugin, while the person gave no
- * answer. One chain seals a repository, and the daemon launches such a pane
- * with nothing of the owl chain until an answer is kept. A shell is asked
- * nothing, and neither is a repository the window does not hold.
- */
-export function asksChain(repository: Repository | undefined, kind: PaneKind): boolean {
-  const chain = paneChainOf(repository);
-  return kind === "claude" && chain !== null && chain.owl && chain.plugin && chain.chosen === null;
-}
-
-/** The menu's choices of a chain, by the value the menu holds for each: the empty value is no answer, which has the window ask at the next Claude Code pane. */
-export const CHAIN_CHOICES: readonly { value: "" | ChainChoice; label: string }[] = [
-  { value: "", label: "Ask at the next Claude Code pane" },
-  { value: "owlery", label: "The owl chain" },
-  { value: "plugin", label: "The AgenticSeal plugin" },
-];
-
-/**
- * The chain's field of a repository's settings: whether the dialog shows
- * it, and the value its menu holds. It is shown where the choice is read,
- * which is a repository on the owl chain whose Claude Code enables the
- * AgenticSeal plugin, and where an answer is kept, so an answer a person
- * gave can be seen and changed though the plugin is off now.
- */
-export function settingsChain(repository: Repository): { shown: boolean; value: "" | ChainChoice } {
-  const chain = paneChainOf(repository);
-  return { shown: chain !== null && ((chain.owl && chain.plugin) || chain.chosen !== null), value: chain?.chosen ?? "" };
-}
-
 /**
  * The sentence of a work item's chain, which stands at its view's foot under
- * the seal's words: where the chain of the daemon stands. It is empty where
+ * the inspection's words: where the chain of the daemon stands. It is empty where
  * no chain ran for the work item, and for a daemon of an earlier build,
  * which sends no chain. Nothing in the window starts a chain, so the foot
  * holds nothing to press. While the session of the stage a running chain
@@ -3942,12 +3932,12 @@ export function gateLine(workItem: WorkItem, read: GateOutput | null): GateLine 
 }
 
 /**
- * The list at a work item's view's foot, above the seal's place, which a
+ * The list at a work item's view's foot, above the inspection's place, which a
  * screen reader names "The daemon's chain": the line of the broad gate the
  * work item's chain ran last (`gateLine`), the lines of the headless
  * sessions the daemon lists for the work item (`headlessLines`), and
  * whether the list is drawn. It is not drawn where it holds no line, and
- * the foot then holds the seal's place alone.
+ * the foot then holds the inspection's place alone.
  */
 export function chainList(held: readonly HeadlessInfo[], workItem: WorkItem, read: GateOutput | null): { gate: GateLine | null; lines: HeadlessLine[]; drawn: boolean } {
   const gate = gateLine(workItem, read);

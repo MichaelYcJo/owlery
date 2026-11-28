@@ -1,4 +1,4 @@
-// The daemon's reader and writer of the `seal` blocks a work item's records
+// The daemon's reader and writer of the `iadd` blocks a work item's records
 // hold their fields in. The pull request check reads the same blocks in
 // Python, on GitHub, where the daemon does not run: this module follows the
 // grammar of `pr-check/lib/fields.py` and the walk of `pr-check/lib/blocks.py`,
@@ -7,7 +7,7 @@
 // with a fixture for it in that case.
 //
 // A block is a fenced code block outside every other fence, whose opener is
-// the line of three backticks and `seal` and nothing else. Each line inside it
+// the line of three backticks and `iadd` and nothing else. Each line inside it
 // is `<key> <value>`, the key spelt with its colon, or the key alone where its
 // shape takes nothing. The first line's key names the block's kind among the
 // kinds the caller gives.
@@ -15,15 +15,15 @@
 // This module adds two things to the Python grammar: a key a block may hold
 // any number of, and a kind's own check, a rule that spans two keys of the
 // kind, run after the block's lines parse. The Python reader has neither, and
-// the six kinds it shares with this module use neither: the sealer's verdict,
+// the six kinds it shares with this module use neither: the inspector's verdict,
 // the broad gate's run, and the four kinds of a round record.
 //
 // It reads no file and imports nothing, so a test and the daemon read alike.
 
 /** The one line that opens a block. */
-export const OPENER = "```seal";
+export const OPENER = "```iadd";
 const FENCE = "```";
-const INFO = "seal";
+const INFO = "iadd";
 const COMMENT_OPENER = "<!--";
 const COMMENT_CLOSER = "-->";
 
@@ -401,11 +401,12 @@ export const BUILDERS_JOIN = ", ";
 const BUILDER = `(?:${THE_SESSION}|${SESSION})`;
 
 /**
- * The sealer's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it.
- * The four keys after `Verdict:` are the lines the daemon writes into the
- * sealer's block: who built the work, who judged it, the judging model and
- * the version of the rules. A block written before the daemon wrote them
- * holds none.
+ * The inspector's verdict, as `pr-check/lib/fields.py#VERDICT_BLOCK` spells it.
+ * The six keys after `Verdict:` are the lines the daemon writes into the
+ * inspector's block: who built the work, who inspected it, the inspecting
+ * model, the version of the rules, the workflow and the inspector module that
+ * produced the inspection. A block written before the daemon wrote them holds
+ * none.
  */
 export const VERDICT_BLOCK = kind("verdict", [
   ["target:", spec(`(?<commit>${COMMIT}) against (?<base>${NOT_SPACE}+)`, "one", "it names the audited commit as `<sha> against <base>`, each one word")],
@@ -413,15 +414,17 @@ export const VERDICT_BLOCK = kind("verdict", [
   [
     "Verdict:",
     spec(
-      `sealed|withheld reason: ${NOT_SPACE}.*|undecided question: ${NOT_SPACE}.*`,
+      `cleared|withheld reason: ${NOT_SPACE}.*|undecided question: ${NOT_SPACE}.*`,
       "one",
-      "the verdict reads `Verdict: sealed`, `Verdict: withheld reason: <reason>` or `Verdict: undecided question: <question>`, written exactly so",
+      "the verdict reads `Verdict: cleared`, `Verdict: withheld reason: <reason>` or `Verdict: undecided question: <question>`, written exactly so",
     ),
   ],
   ["built-by:", spec(`${BUILDER}(?:${BUILDERS_JOIN}${BUILDER})*`, "at most one", `it names each session that built the work, \`${THE_SESSION}\` or a session's id that holds no white space and no comma, joined by \`, \``)],
-  ["judged-by:", spec(SESSION, "at most one", "it is the judging session's id, one word that holds no comma")],
-  ["model:", spec(`${NOT_SPACE}(?:.*${NOT_SPACE})?`, "at most one", "it is the judging model's name, which opens and ends with a character that is no white space")],
+  ["inspected-by:", spec(SESSION, "at most one", "it is the inspecting session's id, one word that holds no comma")],
+  ["model:", spec(`${NOT_SPACE}(?:.*${NOT_SPACE})?`, "at most one", "it is the inspecting model's name, which opens and ends with a character that is no white space")],
   ["rules:", spec(`owlery ${NOT_SPACE}+`, "at most one", "it reads `owlery <version>`, the version one word")],
+  ["workflow:", spec(`${NOT_SPACE}+`, "at most one", "it names the workflow that produced the inspection, one word")],
+  ["inspector:", spec(`${NOT_SPACE}+`, "at most one", "it names the inspector module that produced the inspection, one word")],
 ]);
 
 /** The names of a verdict block's `built-by:` line, in its order, and none for a block that holds no such line. */
@@ -543,7 +546,7 @@ export const RULING_BLOCK = kind(
 export const UNCLOSED = "a fence opened here never closes, so every line after it is hidden from the reader";
 export const COMMENT_LINE = "the line begins with `<!--`, and a record carries no HTML comment: the check reads one as text, so delete the comment";
 export const UNSURE =
-  "the walk cannot place this fence line: a line above it opens an HTML block, or a fence stands in a list item, a block quote or an indent, so no `seal` block from there on is read; write each fence at the start of its line";
+  "the walk cannot place this fence line: a line above it opens an HTML block, or a fence stands in a list item, a block quote or an indent, so no `iadd` block from there on is read; write each fence at the start of its line";
 const LINE_BREAK = "a value holds a line break, and a block's line holds one field";
 
 /** The words in backticks as a list in prose: `a`, `b` and `c`, with another word than "and" before the last where `last` names one. */
@@ -566,15 +569,15 @@ function blockAt(lines: readonly string[], first: number, last: number, kinds: r
     kinds.map((each) => each.opener),
     "or",
   );
-  if (last === first + 1) return refused(first + 1, `an empty \`seal\` block: its first line opens with ${openers}`);
+  if (last === first + 1) return refused(first + 1, `an empty \`iadd\` block: its first line opens with ${openers}`);
   const head = lines[first + 1] ?? "";
   const found = kinds.find((each) => keyOf(head, [each.opener]) !== undefined);
-  if (found === undefined) return refused(first + 2, `\`${head}\` opens no \`seal\` block this record holds: a block's first line opens with ${openers}`);
+  if (found === undefined) return refused(first + 2, `\`${head}\` opens no \`iadd\` block this record holds: a block's first line opens with ${openers}`);
   const fields = new Map<string, Field[]>();
   for (let index = first + 1; index < last; index += 1) {
     const line = lines[index] ?? "";
     const number = index + 1;
-    if (stripped(line) === "") return refused(number, "a blank line inside a `seal` block: its lines are fields, one after another, and the block is not read past it");
+    if (stripped(line) === "") return refused(number, "a blank line inside an `iadd` block: its lines are fields, one after another, and the block is not read past it");
     const key = keyOf(line, found.keys.keys());
     const its = key === undefined ? undefined : found.keys.get(key);
     if (key === undefined || its === undefined) return refused(number, `\`${line}\` is no field of a ${found.name} block, which takes ${listed([...found.keys.keys()])}, each written \`<key>: <value>\``);
@@ -618,12 +621,12 @@ export function read(text: string, kinds: readonly Kind[]): BlocksRead {
       else blocks.push(got);
       continue;
     }
-    // Python folds the case of the word, which also turns a long s into an s. Upper case and back does the same for the four letters of `seal`.
+    // Python folds the case of the word. For the four letters of `iadd` lower case does the same: upper case and back would also turn a dotless i into an i, which Python's fold keeps.
     const word = stripped(walked.opens.get(first) ?? "").split(SPACES)[0] ?? "";
-    if (word.toUpperCase().toLowerCase() === INFO) {
+    if (word.toLowerCase() === INFO) {
       notices.push({
         line: first + 1,
-        why: `not read: \`${lines[first]}\` opens a fence like a \`seal\` block and is not one, so its lines are no fields; a \`seal\` block opens with three backticks and \`seal\` alone on the line`,
+        why: `not read: \`${lines[first]}\` opens a fence like an \`iadd\` block and is not one, so its lines are no fields; an \`iadd\` block opens with three backticks and \`iadd\` alone on the line`,
       });
     }
   }

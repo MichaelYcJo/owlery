@@ -13,7 +13,7 @@ import type { MachineWait } from "../shared/protocol";
 /**
  * Where an ask stands in the order of those that wait, by what the person
  * waits on first: a work item's broad gate, which is one step from its
- * seal; a command of a work item whose branch holds a review round's record;
+ * inspection; a command of a work item whose branch holds a review round's record;
  * one of a work item whose branch holds none, still being built; and one run
  * in a folder no work item's records name.
  */

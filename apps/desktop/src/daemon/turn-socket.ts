@@ -10,7 +10,7 @@
 // and the peak memory, and the daemon answers `ran` with whether the machine
 // was over its load during the run. A connection that closes ends its ask or
 // its turn, so a command whose process is gone holds nothing. The chain
-// command's `owed`, `round`, `fix-pass` and `seal` open a connection of their
+// command's `owed`, `round`, `fix-pass` and `inspect` open a connection of their
 // own for one `stage` or `stage-ended` line (`StageLine`), which the daemon
 // hands its handler and answers with nothing, and close it. The chain command
 // is built without `ws` (build.mjs), so the socket is Node's own `net`; the
@@ -138,7 +138,7 @@ export interface TurnRequest {
 }
 
 /** The kinds of stage `owed` hands a pane's session, which a `stage` line names. */
-export const STAGE_KINDS = ["round", "fix-pass", "seal"] as const;
+export const STAGE_KINDS = ["round", "fix-pass", "inspection"] as const;
 
 /**
  * A line the chain command tells the daemon, which the daemon answers with

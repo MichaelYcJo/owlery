@@ -13,7 +13,7 @@
 // machine before `gate` runs the broad gate and before `run` runs a heavy
 // command, and runs the command at once where no daemon answers; and it tells
 // the daemon the stage `owed` handed the pane's session, and that the stage
-// ended once `round`, `fix-pass` or `seal` recorded the role's answer or
+// ended once `round`, `fix-pass` or `inspect` recorded the role's answer or
 // `owed` handed no stage, which the daemon carries as the work item's
 // `paneStage`. It waits for no answer to that, and prints the same where no
 // daemon listens.
@@ -33,21 +33,23 @@ import { constants } from "node:os";
 import { mkdirSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { RoleStage } from "../shared/protocol";
-import { composeBack } from "../shared/seal-back";
+import { composeBack } from "../shared/inspection-sheet";
 import { agentOf, rulesFileName, rulesText } from "./adapters/claude-roles";
 import { BASE_RECORDED, type ChainBase, ChainStop, ROUNDS_CEILING, type StagePrompt, type Standing, type Step, baseOf, chainStoppedSays, earlierRunSays, endedWith, gateBefore, gateNotRunSays, inFolder, promptText, recordedBase, roundNumber, stageName, standingOf, stepOwed, stoppedSays, twiceFailedWhy, whyNoBase } from "./chain";
 import { ROUTING_FILE, routingAnswer, workItemDirectories } from "./decision-record";
 import { GATE_LIMIT_MS, gateEnvironment, startGate } from "./gate";
-import { backSection, bodyRecords, sealSection } from "./github";
+import { backSection, bodyRecords, inspectionSection } from "./github";
 import { shellQuote } from "./hooks";
 import { BROAD_GATE_NAME, type TurnPlace } from "./machine-turns";
 import { ROUND_BASE, THE_SESSION, isSessionId, listed } from "./record-blocks";
-import { readHeavyCommands, readRecordsPlace, rootOf } from "./records-place";
+import { ROOT, readRecordsPlace, rootOf } from "./records-place";
+import { earlierRecordsSays, heavyCommandsOf, migrateRecords, planMigration } from "./records-migration";
 import { repositoryFileText } from "./repository-file";
-import { sealRecords } from "./seal-back-records";
+import { backRecords } from "./inspection-sheet-records";
 import { watchMemory } from "./heavy-runs";
+import { type Stage, loadWorkflow, stageFor } from "./workflow";
 import { type Ran, type RunEnd, type StageLine, TURN_SOCKET, type TurnRequest, takeTurn, tellStage } from "./turn-socket";
-import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
+import { type Place, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, inspectionStage } from "./stage-records";
 import { writeWholeFile } from "./whole-file";
 import { baseRef, commitNamed, newCommits, sharedCommit, uncommittedPaths, whyNoCommit, worktreeHead } from "./worktrees";
 
@@ -80,7 +82,7 @@ export interface CommandEnd {
 }
 
 /** The subcommands, in the order the usage names them. */
-export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "seal", "body", "ask", "run"] as const;
+export const SUBCOMMANDS = ["owed", "start", "round", "fix-pass", "gate", "inspect", "body", "migrate", "ask", "run"] as const;
 
 /** The usage, which a run with no subcommand or an unknown one is refused with. */
 export const USAGE = [
@@ -90,8 +92,9 @@ export const USAGE = [
   "  round <answer-file> [--base <base>]                   record a proofer's answer",
   "  fix-pass --by <session> [--persons-word <round>]      record a fix pass's close blocks",
   "  gate                                                  run the broad gate and record a pass",
-  "  seal <answer-file> --judged-by <id> --model <name>    record a sealer's answer",
+  "  inspect <answer-file> --inspected-by <id> --model <name>  record an inspector's answer",
   "  body                                                  write the pull request body's sections",
+  "  migrate                                               move the worktree's records from the earlier form to IADD's",
   "  ask                                                   answer the bundle's hook on an AskUserQuestion call",
   "  run <name> [-- <words>]                               run a heavy command the repository names, in its turn on the machine",
   "",
@@ -118,10 +121,10 @@ export const NO_DEFAULT = "No default can be taken: ";
 class Refusal extends Error {}
 
 /** The roles a pane's session runs as subagents, by the step that owes each. */
-const ROLE_OF: Record<"round" | "fix-pass" | "seal", RoleStage> = {
+const ROLE_OF: Record<"round" | "fix-pass" | "inspection", RoleStage> = {
   round: { role: "proofer", stage: "round" },
   "fix-pass": { role: "crafter", stage: "fix-pass" },
-  seal: { role: "sealer", stage: "seal" },
+  inspection: { role: "inspector", stage: "inspection" },
 };
 
 function gitSays(cwd: string, args: readonly string[]): Promise<string | null> {
@@ -165,9 +168,11 @@ const NO_BRANCH_HERE = "The worktree's HEAD names no branch yet. Owlery makes th
  * Reads where the command is run: the worktree's top, the branch its HEAD
  * names, and the work item's directory. It throws a `Refusal` where the
  * folder is in no worktree, where HEAD names no branch, where the worktree
- * cannot take a commit (`worktrees.ts#whyNoCommit`), where it holds no
- * records root, and where two directories name the branch, as the daemon
- * refuses a start of its chain for each.
+ * cannot take a commit (`worktrees.ts#whyNoCommit`), where its records
+ * stand in the earlier form (`records-migration.ts#earlierRecordsSays`),
+ * with the sentence that names `migrate`, where it holds no records root,
+ * and where two directories name the branch, as the daemon refuses a start
+ * of its chain for each.
  */
 async function here(context: CommandContext): Promise<Here> {
   const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
@@ -176,6 +181,8 @@ async function here(context: CommandContext): Promise<Here> {
   if (branch === null || branch === "") throw new Refusal(NO_BRANCH_HERE);
   const why = await whyNoCommit(worktree, branch);
   if (why !== null) throw new Refusal(`Owlery cannot commit a record in the worktree now: ${why}.`);
+  const earlier = earlierRecordsSays(worktree, branch);
+  if (earlier !== null) throw new Refusal(earlier);
   const root = rootOf(worktree);
   if (root === null) throw new Refusal("The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.");
   const directories = workItemDirectories(worktree, branch);
@@ -227,16 +234,30 @@ function stageFolder(context: CommandContext, workItem: string): string {
   return folder;
 }
 
-/** Writes a stage's prompt and its role's rules file, with the head of a pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and gives what the session starts the role with: the bundle agent's name and the two paths. */
-function handed(context: CommandContext, workItem: string, step: "round" | "fix-pass" | "seal", name: string, prompt: StagePrompt): { agent: string; prompt: string; rules: string } {
+/**
+ * Writes a stage's prompt and its role's rules file, with the head of a
+ * pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and
+ * gives what the session starts the role with: the bundle agent's name, the
+ * model the stage names or null for the CLI's default, and the two paths.
+ * The stage is read from the bundle's workflow first (`workflow.ts`), and a
+ * workflow the loader refuses is refused with its sentence, which names the
+ * file and the key, before anything is written.
+ */
+function handed(context: CommandContext, workItem: string, step: "round" | "fix-pass" | "inspection", name: string, prompt: StagePrompt): { agent: string; model: string | null; prompt: string; rules: string } {
   if (context.bundleDir === undefined) throw new Refusal("The chain command stands beside no role bundle, so it has no rules to hand the role.");
   const role = ROLE_OF[step];
+  let stage: Stage;
+  try {
+    stage = stageFor(loadWorkflow(context.bundleDir), role);
+  } catch (error) {
+    throw new Refusal(error instanceof Error ? error.message : String(error));
+  }
   const folder = stageFolder(context, workItem);
   const promptFile = join(folder, `${name}.prompt.md`);
   const rulesFile = join(folder, rulesFileName(role));
   writeWholeFile(promptFile, promptText(prompt));
-  writeWholeFile(rulesFile, rulesText(context.bundleDir, role, "pane"));
-  return { agent: agentOf(role), prompt: promptFile, rules: rulesFile };
+  writeWholeFile(rulesFile, rulesText(context.bundleDir, stage, "pane"));
+  return { agent: agentOf(stage), model: stage.model, prompt: promptFile, rules: rulesFile };
 }
 
 /** The order's reading of the work item at the head, as a run of a chain reads it. */
@@ -247,8 +268,8 @@ async function standingHere(at: Here & { directory: string }, base: ChainBase): 
 /** The step a subcommand records, which the records must owe. It throws a `Refusal` that names the step they owe where it is another. */
 function owes<K extends Step["is"]>(step: Step, is: K, subcommand: string): Extract<Step, { is: K }> {
   if (step.is === is) return step as Extract<Step, { is: K }>;
-  const owed = step.is === "parked" ? "the answers to the work item's open questions" : step.is === "sealed" ? "nothing more: the branch is sealed" : stageName(step.is, step.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase());
-  throw new Refusal(`The records owe ${owed}, and \`${subcommand}\` records ${is === "fix-pass" ? "a fix pass" : is === "round" ? "a review round" : is === "gate" ? "the broad gate" : "the seal"}. Ask \`owed\` for the step.`);
+  const owed = step.is === "parked" ? "the answers to the work item's open questions" : step.is === "cleared" ? "nothing more: the branch is cleared" : stageName(step.is, step.round).replace(/^[A-Z]/u, (letter) => letter.toLowerCase());
+  throw new Refusal(`The records owe ${owed}, and \`${subcommand}\` records ${is === "fix-pass" ? "a fix pass" : is === "round" ? "a review round" : is === "gate" ? "the broad gate" : "the inspection"}. Ask \`owed\` for the step.`);
 }
 
 /** The text of the file a subcommand is handed, by its path from the folder the command is run in. */
@@ -307,9 +328,10 @@ function tell(context: CommandContext, line: StageLine): Promise<void> {
 
 /**
  * Prints the step the records owe at the head (`chain.ts#stepOwed`), and for
- * a round, a fix pass and a seal writes the stage's prompt and its role's
- * rules file into the run folder. Where the step is a fix pass the ceiling of
- * rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
+ * a round, a fix pass and an inspection writes the stage's prompt and its role's
+ * rules file into the run folder, and prints the stage's agent and model as
+ * the bundle's workflow names them (`handed`). Where the step is a fix pass
+ * the ceiling of rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
  * the ceiling and the open findings, and writes and commits nothing; the
  * same call with `--persons-word` naming that round hands the pass. Once the
  * prompt is written it tells the daemon the stage it hands, with the pane
@@ -328,8 +350,8 @@ async function owed(context: CommandContext, args: readonly string[]): Promise<o
   return printed;
 }
 
-/** What `owed` prints, and the stage it hands, or null for a step that hands none. A round, a fix pass and a seal have their prompt and rules file written. */
-async function stepHere(context: CommandContext, found: Here, options: ReadonlyMap<string, string>, word: number | null): Promise<{ printed: object; stage: { kind: "round" | "fix-pass" | "seal"; round: number } | null }> {
+/** What `owed` prints, and the stage it hands, or null for a step that hands none. A round, a fix pass and an inspection have their prompt and rules file written. */
+async function stepHere(context: CommandContext, found: Here, options: ReadonlyMap<string, string>, word: number | null): Promise<{ printed: object; stage: { kind: "round" | "fix-pass" | "inspection"; round: number } | null }> {
   const none = (printed: object) => ({ printed, stage: null });
   if (found.directory === null) return none({ step: "start" });
   const at = declared(found);
@@ -338,14 +360,14 @@ async function stepHere(context: CommandContext, found: Here, options: ReadonlyM
   const step = stepOwed(standing);
   const workItem = basename(at.directory);
   if (step.is === "parked") return none({ step: "parked" });
-  if (step.is === "sealed") return none({ step: "sealed", round: step.round, commit: step.at });
+  if (step.is === "cleared") return none({ step: "cleared", round: step.round, commit: step.at });
   if (step.is === "gate") return none({ step: "gate", round: step.round, head: step.head });
   if (step.is === "fix-pass" && ceilingStops(context, step, word)) return none({ step: "ceiling", round: step.round, ceiling: ceilingOf(context), open: step.open });
   const stage = { kind: step.is, round: step.round };
   if (step.is === "round") return { printed: { step: "round", round: step.round, target: step.target, ...handed(context, workItem, "round", `round-${String(step.round)}`, await roundStage(placeOf(at), standing, step, base)) }, stage };
   if (step.is === "fix-pass") return { printed: { step: "fix-pass", round: step.round, open: step.open, reversals: step.reversals.map(({ id }) => id), ...handed(context, workItem, "fix-pass", `fix-pass-${String(step.round)}`, (await fixPassStage(placeOf(at), standing, step)).prompt) }, stage };
-  const { prompt, target } = await sealStage(placeOf(at), standing, step, base);
-  return { printed: { step: "seal", round: step.round, run: step.run, commit: step.commit, target, ...handed(context, workItem, "seal", `seal-${String(step.run)}`, prompt) }, stage };
+  const { prompt, target } = await inspectionStage(placeOf(at), standing, step, base);
+  return { printed: { step: "inspection", round: step.round, run: step.run, commit: step.commit, target, ...handed(context, workItem, "inspection", `inspection-${String(step.run)}`, prompt) }, stage };
 }
 
 /**
@@ -368,7 +390,7 @@ async function start(context: CommandContext, args: readonly string[]): Promise<
   const at = await here(context);
   const { worktree, branch, head } = at;
   const root = rootOf(worktree) ?? "";
-  if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") throw new Refusal(`${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository's check there, and commit it.`);
+  if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") throw new Refusal(`${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository's check there, and commit it.`);
   const inside = at.directory === null ? null : relative(worktree, at.directory);
   if (at.directory !== null && inside !== null && automation !== null) {
     const stands = routingAnswer(repositoryFileText(join(at.directory, ROUTING_FILE)) ?? "", "Automation");
@@ -513,34 +535,34 @@ async function gateRun(context: CommandContext, worktree: string, place: Place, 
   return { run, failure, output: end.output, again };
 }
 
-/** Commits a sealer's answer as the verdict (`stage-records.ts#recordVerdict`), and once it is committed tells the daemon that the worktree's stage ended. A refused call commits and tells nothing. */
-async function seal(context: CommandContext, args: readonly string[]): Promise<object> {
-  const { positional, options } = parsed(args, ["--judged-by", "--model"]);
-  const answer = answerOf(context, positional[0], "seal");
-  const judgedBy = options.get("--judged-by");
+/** Commits an inspector's answer as the verdict (`stage-records.ts#recordVerdict`), and once it is committed tells the daemon that the worktree's stage ended. A refused call commits and tells nothing. */
+async function inspect(context: CommandContext, args: readonly string[]): Promise<object> {
+  const { positional, options } = parsed(args, ["--inspected-by", "--model"]);
+  const answer = answerOf(context, positional[0], "inspect");
+  const inspectedBy = options.get("--inspected-by");
   const model = options.get("--model");
-  if (judgedBy === undefined || model === undefined) throw new Refusal(`\`seal\` takes \`--judged-by\` with the id of the sealer's subagent and \`--model\` with the model that judged.\n${USAGE}`);
-  if (context.version === undefined) throw new Refusal("This build of the chain command holds no version of Owlery, and a verdict names the version of the rules it was judged under.");
+  if (inspectedBy === undefined || model === undefined) throw new Refusal(`\`inspect\` takes \`--inspected-by\` with the id of the inspector's subagent and \`--model\` with the model that inspected.\n${USAGE}`);
+  if (context.version === undefined) throw new Refusal("This build of the chain command holds no version of Owlery, and a verdict names the version of the rules it was inspected under.");
   const at = declared(await here(context));
   const base = await baseHere(context, at, undefined);
   const standing = await standingHere(at, base);
-  const step = owes(stepOwed(standing), "seal", "seal");
+  const step = owes(stepOwed(standing), "inspection", "inspect");
   try {
     const place = placeOf(at);
-    const { target } = await sealStage(place, standing, step, base);
-    const verdict = await recordVerdict(place, standing, step, base, { answer, target, judgedBy, model, version: context.version });
+    const { target } = await inspectionStage(place, standing, step, base);
+    const verdict = await recordVerdict(place, standing, step, base, { answer, target, inspectedBy, model, version: context.version });
     await tell(context, { is: "stage-ended", folder: at.worktree });
-    return { recorded: "seal", run: step.run, verdict: verdict.is, says: verdict.says, commit: step.commit };
+    return { recorded: "inspection", run: step.run, verdict: verdict.is, says: verdict.says, commit: step.commit };
   } catch (error) {
     if (!(error instanceof ChainStop)) throw error;
-    throw new Refusal(stoppedSays("seal", step.round, error.message));
+    throw new Refusal(stoppedSays("inspection", step.round, error.message));
   }
 }
 
 /**
  * Writes the two sections of a pull request's body the records give at the
- * head, the seal section and the back's, each between its marker lines
- * (`github.ts#sealSection`, `#backSection`), into a file of the run folder,
+ * head, the inspection section and the back's, each between its marker lines
+ * (`github.ts#inspectionSection`, `#backSection`), into a file of the run folder,
  * and gives the file's path, for the session to hand to `gh`. The back is
  * composed with no entry of the ledger, since no stage of a pane's chain
  * runs in the daemon, so it says that the stages ran outside the daemon.
@@ -552,11 +574,11 @@ async function body(context: CommandContext, args: readonly string[]): Promise<o
   try {
     records = await bodyRecords(at.worktree, at.head, relative(at.worktree, at.directory));
   } catch (error) {
-    throw new Refusal(`${(error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "")}, so the body has no seal to carry.`);
+    throw new Refusal(`${(error instanceof Error ? error.message : String(error)).replace(/\.+$/u, "")}, so the body has no inspection to carry.`);
   }
-  const back = composeBack(await sealRecords(at.worktree, at.directory, at.head, null), [], 0);
+  const back = composeBack(await backRecords(at.worktree, at.directory, at.head, null), [], 0);
   const file = join(stageFolder(context, basename(at.directory)), "pull-request-body.md");
-  writeWholeFile(file, `${sealSection(records)}\n\n${backSection(back, records.directory)}\n`);
+  writeWholeFile(file, `${inspectionSection(records)}\n\n${backSection(back, records.directory)}\n`);
   return { body: file, head: at.head };
 }
 
@@ -677,7 +699,8 @@ function runLine(command: string, cwd: string, env: NodeJS.ProcessEnv, memoryRea
 
 /**
  * The runner of heavy commands: `run <name> [-- <words>]`. It looks the name
- * up in the worktree's `Heavy commands` (`records-place.ts#readHeavyCommands`),
+ * up in the worktree's `Heavy commands`, those of a root in the earlier form
+ * where the worktree holds no records root (`records-migration.ts#heavyCommandsOf`),
  * takes a turn on the machine in the place the worktree's committed records
  * give (`turnPlace`), and runs the command line at the worktree's top, with
  * each word after `--` added as one word, with the session's own input and
@@ -691,10 +714,10 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   if (next !== undefined && next !== "--") return refused(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
   const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
   if (worktree === null || worktree === "") return refused(`${context.cwd} is in no worktree of a repository, and a heavy command runs at the top of the worktree whose records name it.`);
-  const commands = readHeavyCommands(worktree);
+  const { root, commands } = heavyCommandsOf(worktree);
   const line = commands[name];
   const names = Object.keys(commands);
-  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${rootOf(worktree) ?? "seal"}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
+  if (line === undefined) return refused(`The repository names no heavy command "${name}" under "Heavy commands" of ${root ?? ROOT}/config.json. It names ${names.length === 0 ? "none" : listed(names)}.`);
   const turn = await inTurn(context, { folder: worktree, name, place: await turnPlace(worktree), alone: false });
   // The launcher sets ELECTRON_RUN_AS_NODE for the Node it runs this script with (`pane-chain.ts`). The command runs in the session's environment, which a pane gives without it (`pty.ts#terminalEnv`), so an Electron program it starts runs as Electron.
   const env: NodeJS.ProcessEnv = { ...context.env };
@@ -708,7 +731,36 @@ async function run(context: CommandContext, args: readonly string[]): Promise<Co
   }
 }
 
-const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask" | "run">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, seal, body };
+/**
+ * Moves the worktree's records from the earlier form to IADD's in one commit
+ * on its branch, as the dialog "Records and check" moves a repository's
+ * (`records-migration.ts#migrateRecords`): a root in the earlier form where
+ * the worktree holds no records root, and otherwise what the branch kept
+ * under the earlier root after it merged a base that moved, and the records
+ * of that form such a merge put under the records root, where `migrated` is
+ * null. It writes
+ * Owlery's workflow of the app's version where the worktree holds none. It
+ * refuses, with nothing committed, where the worktree cannot take a commit,
+ * where its records stand in no earlier form, where the build names no
+ * version, and where the plan is blocked, with the plan's sentence.
+ */
+async function migrate(context: CommandContext, args: readonly string[]): Promise<object> {
+  parsed(args, []);
+  const worktree = await gitSays(context.cwd, ["rev-parse", "--show-toplevel"]);
+  if (worktree === null || worktree === "") throw new Refusal(`${context.cwd} is in no worktree of a repository, and \`migrate\` moves a worktree's records.`);
+  const branch = await gitSays(worktree, ["symbolic-ref", "--quiet", "--short", "HEAD"]);
+  if (branch === null || branch === "") throw new Refusal(NO_BRANCH_HERE);
+  const why = await whyNoCommit(worktree, branch);
+  if (why !== null) throw new Refusal(`Owlery cannot commit a record in the worktree now: ${why}.`);
+  if (earlierRecordsSays(worktree, branch) === null) throw new Refusal("No work record of the worktree stands in the earlier form, so `migrate` has nothing to move.");
+  if (context.version === undefined) throw new Refusal("The chain command was built with no version, so it cannot write the workflow of the pull request check the move writes.");
+  const plan = await planMigration(worktree, context.version);
+  if (plan.blocked !== null) throw new Refusal(plan.blocked);
+  await migrateRecords(worktree, context.version, plan.stamp);
+  return { migrated: plan.from, moved: plan.moves.length, removed: plan.removes, written: plan.writes.map((write) => write.path), commit: await worktreeHead(worktree) };
+}
+
+const RUNS: Record<Exclude<(typeof SUBCOMMANDS)[number], "ask" | "run">, (context: CommandContext, args: readonly string[]) => Promise<object>> = { owed, start, round, "fix-pass": fixPass, gate, inspect, body, migrate };
 
 /** The subcommands that end in their own way, each as its own comment says. */
 const OWN_ENDS: Record<"ask" | "run", (context: CommandContext, args: readonly string[]) => Promise<CommandEnd>> = { ask, run };

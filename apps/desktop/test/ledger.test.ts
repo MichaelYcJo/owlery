@@ -146,13 +146,14 @@ describe("Ledger", () => {
       { ...good, workItemId: "7" },
       { ...good, repo: null },
       { ...good, branch: 1 },
-      { ...good, stage: { role: "proofer", stage: "seal" } },
+      { ...good, stage: { role: "proofer", stage: "inspection" } },
       { ...good, stage: { role: null, stage: "round" } },
       { ...good, stage: { role: "proofer", stage: "gate" } },
       { ...good, stage: "gate" },
       { ...good, chain: "round" },
       { ...good, chain: [] },
       { ...good, chain: { kind: "build", round: 1 } },
+      { ...good, chain: { kind: "constructor", round: 2 } },
       { ...good, chain: { round: 1 } },
       { ...good, chain: { kind: "round" } },
       { ...good, chain: { kind: "round", round: "1" } },
@@ -180,7 +181,7 @@ describe("Ledger", () => {
     ];
     const right = [
       entry(1001, { stage: { role: "crafter", stage: "fix-pass" }, chain: { kind: "fix-pass", round: 1 } }),
-      entry(1002, { stage: { role: "sealer", stage: "seal" }, chain: { kind: "seal", round: 2 } }),
+      entry(1002, { stage: { role: "inspector", stage: "inspection" }, chain: { kind: "inspection", round: 2 } }),
       entry(1003, { stage: null, chain: null, usage: null }),
       entry(1004, { usage: { costUsd: null, converted: false, models: [] } }),
       entry(1006, { state: "failed", stopped: "request", usage: null }),
@@ -198,6 +199,13 @@ describe("Ledger", () => {
     const { chain: _, ...earlier } = entry(1011);
     writeFileSync(join(runDir, "ledger.jsonl"), `${[...wrong, ...right, more, earlier].map((value) => JSON.stringify(value)).join("\n")}\n`);
     expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [...right, entry(1005), entry(1011, { chain: null })], unread: wrong.length });
+  });
+
+  it("reads a line an earlier build wrote for the stage of the sealer, `sealer` at `seal` with the chain's stage `seal`, as the inspector's at the stage `inspection`", () => {
+    const runDir = runFolder();
+    const earlier = { ...entry(1000), stage: { role: "sealer", stage: "seal" }, chain: { kind: "seal", round: 2 } };
+    writeFileSync(join(runDir, "ledger.jsonl"), `${JSON.stringify(earlier)}\n`);
+    expect(new Ledger(runDir).read(7, 0)).toEqual({ entries: [entry(1000, { stage: { role: "inspector", stage: "inspection" }, chain: { kind: "inspection", round: 2 } })], unread: 0 });
   });
 
   it("keeps an entry whose append failed, says so in its log, gives it in every read meanwhile, and writes it before the next entry once the file can be written", () => {

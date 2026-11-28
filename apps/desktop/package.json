@@ -1,6 +1,6 @@
 {
   "name": "@owlery/desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "The Owlery desktop app",
   "license": "Apache-2.0",
@@ -20,7 +20,7 @@
     "measure:launch": "OWLERY_MEASURE_LAUNCH=1 node scripts/test-in-electron.mjs test/launch.test.ts",
     "role:run": "OWLERY_ROLE_RUN=1 node scripts/test-in-electron.mjs test/role-session.test.ts",
     "role:refusal": "OWLERY_ROLE_REFUSAL=1 node scripts/test-in-electron.mjs test/role-session.test.ts --reporter=default",
-    "role:refusal:sealer": "OWLERY_ROLE_REFUSAL=sealer node scripts/test-in-electron.mjs test/role-session.test.ts --reporter=default",
+    "role:refusal:inspector": "OWLERY_ROLE_REFUSAL=inspector node scripts/test-in-electron.mjs test/role-session.test.ts --reporter=default",
     "role:refusal:crafter": "OWLERY_ROLE_REFUSAL=crafter node scripts/test-in-electron.mjs test/role-session.test.ts --reporter=default",
     "pane:run": "OWLERY_PANE_RUN=1 node scripts/test-in-electron.mjs test/pane-session.test.ts",
     "settle": "node scripts/settle.mjs",

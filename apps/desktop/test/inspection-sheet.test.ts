@@ -1,10 +1,10 @@
-// The back of a seal as one function composes it, for the window and for
+// The inspection sheet as one function composes it, for the window and for
 // the pull request's body alike, from what the committed records say and
 // the ledger's entries. It reads no file and no clock, so each case hands it
 // the values and reads what it gives.
 import { describe, expect, it } from "vitest";
-import type { BackFinding, BackRound, LedgerEntry, SealRecord, SealRecords, Usage } from "../src/shared/protocol";
-import { composeBack, costText, costWords, spanWords, tokenWords } from "../src/shared/seal-back";
+import type { BackFinding, BackRound, LedgerEntry, InspectionRecord, BackRecords, Usage } from "../src/shared/protocol";
+import { composeBack, costText, costWords, spanWords, tokenWords } from "../src/shared/inspection-sheet";
 
 const A = "3f2a9c1".padEnd(40, "a");
 const B = "86cb04d".padEnd(40, "b");
@@ -22,7 +22,7 @@ const PAIRS: Record<string, LedgerEntry["stage"]> = {
   "fix-pass": { role: "crafter", stage: "fix-pass" },
   judgment: { role: "orchestrator", stage: "judgment" },
   ruling: { role: "orchestrator", stage: "judgment" },
-  seal: { role: "sealer", stage: "seal" },
+  inspection: { role: "inspector", stage: "inspection" },
   gate: { role: null, stage: "gate" },
 };
 
@@ -52,16 +52,16 @@ function round(number: number, findings: BackFinding[] = [], more: Partial<BackR
   return { round: number, target: A, findings, confirms: [], unread: 0, ...more };
 }
 
-const RECORD: SealRecord = { commit: A, branch: "feat/x", base: "main", item: "1795400730-x", gate: A, rounds: 3, builtBy: ["the session", "s-1"], judgedBy: "s-2", model: "fake", rules: "owlery 0.0.2" };
+const RECORD: InspectionRecord = { commit: A, branch: "feat/x", base: "main", item: "1795400730-x", gate: A, rounds: 3, builtBy: ["the session", "s-1"], inspectedBy: "s-2", model: "fake", rules: "owlery 0.0.2" };
 
-function records(rounds: BackRound[], more: Partial<SealRecords> = {}): SealRecords {
-  return { head: A, record: RECORD, brokenBy: null, rounds, refusals: [], unreadRefusals: 0, ...more };
+function records(rounds: BackRound[], more: Partial<BackRecords> = {}): BackRecords {
+  return { head: A, record: RECORD, lapsedBy: null, rounds, refusals: [], unreadRefusals: 0, ...more };
 }
 
 /** What the back says of the costs where the ledger holds no stage of the chain. */
 const OUTSIDE_DAEMON = "The stages of this chain ran outside Owlery's daemon, in a pane's session or in another tool, and Owlery read no cost of them.";
 
-describe("the back of a seal, composed", () => {
+describe("the inspection sheet, composed", () => {
   it("says that rounds that caught nothing caught nothing, in the head and in the round's part, with the round's stage and the sum of its cost", () => {
     const back = composeBack(records([round(1)]), [entry({ kind: "round", round: 1 })], 0);
     expect(back.head).toEqual(["The review rounds caught nothing."]);
@@ -89,7 +89,7 @@ describe("the back of a seal, composed", () => {
       round(3, [], { confirms: [{ round: 2, finding: 1 }] }),
     ];
     const back = composeBack(records(rounds), [], 0);
-    expect(back.head).toEqual(["The review rounds caught 1 defect that was fixed before the seal.", "Findings by round: 1, 1, 0."]);
+    expect(back.head).toEqual(["The review rounds caught 1 defect that was fixed before the inspection.", "Findings by round: 1, 1, 0."]);
     expect(back.rounds.map(({ title, findings, says }) => ({ title, findings, says }))).toEqual([
       { title: "Round 1, on `3f2a9c1`", findings: [{ number: 1, says: "Symptom 1", severity: "must", places: ["src/a.ts:12"], close: "Fixed in `86cb04d`", open: false, names: null }], says: null },
       { title: "Round 2, on `86cb04d`", findings: [{ number: 1, says: "The fix does not hold", severity: "must", places: ["src/a.ts:3-9", "src/b.ts"], close: "Fixed in `86cb04d`", open: false, names: "It reopens round 1's finding 1." }], says: null },
@@ -105,7 +105,7 @@ describe("the back of a seal, composed", () => {
       [],
       0,
     );
-    expect(closes.head).toEqual(["The review rounds caught 2 defects that were fixed before the seal.", "1 finding was rejected, 1 was deferred and 1 is open.", "Findings by round: 3, 2."]);
+    expect(closes.head).toEqual(["The review rounds caught 2 defects that were fixed before the inspection.", "1 finding was rejected, 1 was deferred and 1 is open.", "Findings by round: 3, 2."]);
     expect(closes.rounds.map(({ title, findings }) => [title, findings.map(({ close, open, names }) => [close, open, names])])).toEqual([
       [
         "Round 1, on `3f2a9c1`",
@@ -153,7 +153,7 @@ describe("the back of a seal, composed", () => {
     ]);
     expect(back.after.map(({ name, ended, time, tokens, cost }) => [name, ended, time, tokens, cost, costText(cost)])).toEqual([["Broad gate", null, "under 1 min", null, null, ""]]);
     expect(back.sums).toEqual(["The chain's stages cost $0.28 converted.", "2 stages reported no cost."]);
-    const ended = (more: Partial<LedgerEntry>) => composeBack(records([]), [entry({ kind: "seal", round: 1 }, more)], 0).after[0]?.ended;
+    const ended = (more: Partial<LedgerEntry>) => composeBack(records([]), [entry({ kind: "inspection", round: 1 }, more)], 0).after[0]?.ended;
     expect([ended({ state: "failed", stopped: "request" }), ended({ state: "failed", stopped: "daemon" }), ended({ state: "finished" })]).toEqual(["Stopped", "Stopped with the daemon", null]);
   });
 
@@ -165,24 +165,24 @@ describe("the back of a seal, composed", () => {
     expect(composeBack(records([]), [entry(null, { usage: null })], 0).outside).toBe("1 session asked outside the chain reported no cost.");
   });
 
-  it("names a ruling apart from a judgment in its round's part, and sets a ruling that follows the sealer's entry after the sealer's line", () => {
+  it("names a ruling apart from a judgment in its round's part, and sets a ruling that follows the inspector's entry after the inspector's line", () => {
     const entries = [
       entry({ kind: "round", round: 2 }),
       entry({ kind: "judgment", round: 2 }),
       entry({ kind: "ruling", round: 2 }),
       entry({ kind: "gate", round: 2 }),
-      entry({ kind: "seal", round: 2 }),
+      entry({ kind: "inspection", round: 2 }),
       entry({ kind: "ruling", round: 2 }),
     ];
     const back = composeBack(records([round(1), round(2)]), entries, 0);
     expect(back.rounds.map(({ stages }) => stages.map(({ name }) => name))).toEqual([[], ["Round 2", "Judgment after round 2", "Ruling after round 2"]]);
-    expect(back.after.map(({ name }) => name)).toEqual(["Broad gate", "Sealer", "Ruling after round 2"]);
+    expect(back.after.map(({ name }) => name)).toEqual(["Broad gate", "Inspector", "Ruling after round 2"]);
   });
 
-  it("composes the back of a work item with no seal: no record, the rounds recorded and the stages entered so far, a round entered and not recorded among them, and their sum", () => {
+  it("composes the back of a work item with no inspection: no record, the rounds recorded and the stages entered so far, a round entered and not recorded among them, and their sum", () => {
     const back = composeBack(records([round(1, [finding(1)])], { record: null }), [entry({ kind: "round", round: 1 }), entry({ kind: "fix-pass", round: 1 }), entry({ kind: "round", round: 2 }, { state: "failed", usage: usage(0.1) })], 0);
     expect(back.record).toEqual([]);
-    expect(back.brokenBy).toBeNull();
+    expect(back.lapsedBy).toBeNull();
     expect(back.head).toEqual(["The review rounds caught 1 defect that was fixed.", "Findings by round: 1."]);
     expect(back.rounds.map(({ title, says, stages }) => [title, says, stages.map(({ name }) => name)])).toEqual([
       ["Round 1, on `3f2a9c1`", null, ["Round 1", "Fix pass on round 1"]],
@@ -202,10 +202,10 @@ describe("the back of a seal, composed", () => {
     expect(composeBack(records([], { record: null }), [], 0).sums).toEqual([]);
   });
 
-  it("gives the seal's record as rows of a label and a value, the commit that broke a broken seal, the refused calls of each stage, and the lines not read", () => {
+  it("gives the inspection's record as rows of a label and a value, the commit that lapsed a lapsed inspection, the refused calls of each stage, and the lines not read", () => {
     const back = composeBack(
       records([round(1), round(2, [], { unread: 3 }), round(3, [], { unread: 1 })], {
-        brokenBy: { commit: "e91b0d4".padEnd(40, "e"), subject: "fix: change the greeting" },
+        lapsedBy: { commit: "e91b0d4".padEnd(40, "e"), subject: "fix: change the greeting" },
         refusals: [
           { kind: "round", round: 1, rule: "no-write" },
           { kind: "round", round: 1, rule: "no-command" },
@@ -224,16 +224,16 @@ describe("the back of a seal, composed", () => {
       { label: "Gate", value: "`3f2a9c1`" },
       { label: "Rounds", value: "3" },
       { label: "Built by", value: "the session, s-1" },
-      { label: "Judged by", value: "s-2" },
+      { label: "Inspected by", value: "s-2" },
       { label: "Model", value: "fake" },
       { label: "Rules", value: "owlery 0.0.2" },
     ]);
-    expect(back.brokenBy).toEqual({ says: "Broken by `e91b0d4`", subject: "fix: change the greeting" });
+    expect(back.lapsedBy).toEqual({ says: "Lapsed by `e91b0d4`", subject: "fix: change the greeting" });
     expect(back.refused).toEqual(["Round 1 was refused 3 calls: 2 by `no-write` and 1 by `no-command`.", "Ruling after round 1 was refused 1 call: 1 by `no-write`."]);
     expect(back.rounds.map(({ unread }) => unread)).toEqual([null, "3 lines of round 2's record were not read.", "1 line of round 3's record was not read."]);
     expect(back.unread).toEqual(["1 row of the refused calls was not read.", "2 lines of the ledger were not read."]);
     // A record with no branch, no gate and none of the daemon's lines gives no row for each.
-    const bare = composeBack(records([], { record: { ...RECORD, branch: null, gate: null, builtBy: [], judgedBy: null, model: null, rules: null } }), [], 1);
+    const bare = composeBack(records([], { record: { ...RECORD, branch: null, gate: null, builtBy: [], inspectedBy: null, model: null, rules: null } }), [], 1);
     expect([bare.record.map(({ label }) => label), bare.record[0]?.value, bare.unread]).toEqual([["Tree", "Base", "Item", "Rounds"], "`3f2a9c1`", ["1 line of the ledger was not read."]]);
   });
 

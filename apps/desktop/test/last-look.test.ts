@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LastLook } from "../src/daemon/last-look";
-import type { AskedQuestion, Chain, Decision, Look, PullRequest, Question, Seal, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
+import type { AskedQuestion, Chain, Decision, Look, PullRequest, Question, Inspection, SessionInfo, Unread, WorkItem, WorktreeSetup } from "../src/shared/protocol";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => {
@@ -28,15 +28,15 @@ const ASK = { id: 3, headlessId: 2, tool: "Bash", action: "run", text: "printf x
 const DECISION: Decision = { id: 3, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: "orchestrator", state: "decided", reversal: null, landed: null, since: 1150 };
 const REVERSED: Decision = { id: 5, kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", by: null, state: "applied", reversal: "Frame it first.", landed: "abc1234", since: null };
 const QUESTIONS: Question[] = [
-  { id: 6, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main", answer: null, since: 1170 },
+  { id: 6, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "main", answer: null, since: 1170 },
   { id: 7, asks: "May the session push?", grounds: "A push needs an approval.", by: null, options: [], default: null, answer: "Yes.", since: null },
 ];
-const UNREAD: Unread[] = [{ line: 40, why: "an empty `seal` block" }];
+const UNREAD: Unread[] = [{ line: 40, why: "an empty `iadd` block" }];
 const SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [{ path: ".env.secret", why: "EACCES: permission denied" }], command: "pnpm install\n", paneId: 3, state: "failed", exitCode: 0, failure: null, startedAt: 1, endedAt: 2 };
 const CHAIN: Chain = { state: "stopped", says: "Review round 2 failed: the session reached its time limit and was stopped.", stages: [{ kind: "round", round: 1, state: "finished", failure: null, startedAt: 1, endedAt: 2, headlessId: 1, refusals: 0, gate: null }, { kind: "round", round: 2, state: "failed", failure: "the session reached its time limit and was stopped", startedAt: 3, endedAt: 4, headlessId: 2, refusals: 1, gate: null }], since: 6 };
 const PULL_REQUEST: PullRequest = { number: 12, url: "https://github.com/owner/project/pull/12", state: "open", head: "c".repeat(40), pushed: "c".repeat(40), checks: "pending", list: [{ name: "build", state: "pending", link: null }], listCount: 1, readAt: 5, failure: "gh pr view exited with code 1: HTTP 502" };
-const SEALED: Seal = { state: "sealed", commit: "a".repeat(40), why: null };
-const BROKEN: Seal = { state: "broken", commit: "a".repeat(40), why: "`src/form.ts` changed after the sealed commit `aaaaaaa`." };
+const CLEARED: Inspection = { state: "cleared", commit: "a".repeat(40), why: null };
+const LAPSED: Inspection = { state: "lapsed", commit: "a".repeat(40), why: "`src/form.ts` changed after the cleared commit `aaaaaaa`." };
 const WORK_ITEM: WorkItem = {
   id: 1,
   title: "Fix the login bug",
@@ -63,7 +63,7 @@ const WORK_ITEM: WorkItem = {
   setup: SETUP,
   chain: CHAIN,
   pullRequest: PULL_REQUEST,
-  seal: BROKEN,
+  inspection: LAPSED,
 };
 const LOOK: Look = { at: 1234, sessions: [SESSION], workItems: [WORK_ITEM] };
 
@@ -111,7 +111,7 @@ describe("LastLook", () => {
     workItem.unread.pop();
     workItem.setup!.copied.pop();
     workItem.setup!.failedCopies[0]!.why = "gone";
-    workItem.seal!.why = "changed";
+    workItem.inspection!.why = "changed";
     sessions.push({ ...SESSION, id: 5 });
     expect(look.get()).toEqual(LOOK);
   });
@@ -163,7 +163,7 @@ describe("LastLook", () => {
       questions: QUESTIONS.map((question) => ({ ...question, kind: "choice", options: question.options.map((option) => ({ ...option, note: "x" })) })),
       unread: UNREAD.map((unread) => ({ ...unread, block: 39 })),
       setup: { ...SETUP, shell: "/bin/zsh", failedCopies: SETUP.failedCopies.map((entry) => ({ ...entry, code: "EACCES" })) },
-      seal: { ...BROKEN, at: 1 },
+      inspection: { ...LAPSED, at: 1 },
     };
     const stateQuestions = ASKED.map((question) => ({ ...question, header: "Tests", options: question.options.map((option) => ({ ...option, preview: "x" })) }));
     writeFileSync(join(dir, "last-look.json"), JSON.stringify({ ...LOOK, by: "a window", sessions: [{ ...SESSION, pid: 7, stateQuestions }], workItems: [workItem] }));
@@ -229,8 +229,8 @@ describe("LastLook", () => {
     for (const unread of [null, "none", {}, [null], [{ line: "40", why: "x" }], [{ line: 40 }], [{ line: 40, why: 3 }]]) {
       expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, unread }] })), JSON.stringify(unread)).toBeNull();
     }
-    for (const seal of ["sealed", 1, [], { ...BROKEN, state: "holds" }, { ...BROKEN, state: undefined }, { ...BROKEN, commit: 7 }, { ...BROKEN, commit: undefined }, { ...BROKEN, why: 3 }, { ...BROKEN, why: undefined }]) {
-      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, seal }] })), JSON.stringify(seal)).toBeNull();
+    for (const inspection of ["cleared", 1, [], { ...LAPSED, state: "holds" }, { ...LAPSED, state: "broken" }, { ...LAPSED, state: undefined }, { ...LAPSED, commit: 7 }, { ...LAPSED, commit: undefined }, { ...LAPSED, why: 3 }, { ...LAPSED, why: undefined }]) {
+      expect(read(JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, inspection }] })), JSON.stringify(inspection)).toBeNull();
     }
     // The file as the first line of this case would have it read, so the reader is the one under test.
     expect(read(JSON.stringify(LOOK))).toEqual(LOOK);
@@ -354,12 +354,12 @@ describe("LastLook", () => {
     const gate = { ...CHAIN.stages[0], kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: 3, output: true } };
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages.map(({ gate: _gate, ...old }) => old), { ...gate, gate: { ...gate.gate, extra: 1 } }] } }] }));
     expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, stages: [...CHAIN.stages, gate] } }] });
-    // A chain that rests and a seal's stage are kept, and a field an earlier build wrote on every chain is dropped.
-    const seal = { ...CHAIN.stages[0], kind: "seal" };
-    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [seal] } }] }));
-    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [seal] } }] });
+    // A chain that rests and an inspection's stage are kept, and a field an earlier build wrote on every chain is dropped.
+    const inspection = { ...CHAIN.stages[0], kind: "inspection" };
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", reviewedAt: null, stages: [inspection] } }] }));
+    expect(new LastLook(dir).get()).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: { ...CHAIN, state: "rested", stages: [inspection] } }] });
     // A build before the seal rested a chain `reviewed`, and an earlier build of this release rested one `sealed`: the look is read, with that work item's chain as none.
-    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }, { ...CHAIN, state: "sealed", stages: [seal] }]) {
+    for (const reviewed of [{ ...CHAIN, state: "reviewed", reviewedAt: "c".repeat(40) }, { ...CHAIN, state: "reviewed" }, { ...CHAIN, state: "sealed", stages: [inspection] }]) {
       writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: reviewed }] }));
       expect(new LastLook(dir).get(), JSON.stringify(reviewed)).toEqual({ ...LOOK, workItems: [{ ...WORK_ITEM, chain: null }] });
     }
@@ -369,17 +369,28 @@ describe("LastLook", () => {
     }
   });
 
-  it("reads a look a build before the seal wrote, whose work items lack it, without it, and holds in a look recorded now each work item's seal reading as the lists carried it: sealed, broken, null and none", () => {
+  it("reads a look a build before the inspection wrote, whose work items lack it, without it, and holds in a look recorded now each work item's inspection reading as the lists carried it: cleared, lapsed, null and none", () => {
     const dir = runDir();
     const file = join(dir, "last-look.json");
-    const { seal: _seal, ...before } = WORK_ITEM;
+    const { inspection: _inspection, ...before } = WORK_ITEM;
     writeFileSync(file, JSON.stringify({ ...LOOK, workItems: [before, { ...before, id: 2 }] }));
     expect(new LastLook(dir).get()).toStrictEqual({ ...LOOK, workItems: [before, { ...before, id: 2 }] });
-    new LastLook(dir).record(1234, [SESSION], [{ ...WORK_ITEM, seal: SEALED }, { ...WORK_ITEM, id: 2 }, { ...WORK_ITEM, id: 3, seal: null }, { ...before, id: 4 }]);
-    // A work item the lists carried with no `seal` is held without the field, and not as null.
-    const readings = (workItems: WorkItem[]): unknown[] => workItems.map((item) => ("seal" in item ? item.seal : "none"));
-    expect(readings(JSON.parse(readFileSync(file, "utf8")).workItems)).toEqual([SEALED, BROKEN, null, "none"]);
-    expect(readings(new LastLook(dir).get()!.workItems)).toEqual([SEALED, BROKEN, null, "none"]);
+    new LastLook(dir).record(1234, [SESSION], [{ ...WORK_ITEM, inspection: CLEARED }, { ...WORK_ITEM, id: 2 }, { ...WORK_ITEM, id: 3, inspection: null }, { ...before, id: 4 }]);
+    // A work item the lists carried with no `inspection` is held without the field, and not as null.
+    const readings = (workItems: WorkItem[]): unknown[] => workItems.map((item) => ("inspection" in item ? item.inspection : "none"));
+    expect(readings(JSON.parse(readFileSync(file, "utf8")).workItems)).toEqual([CLEARED, LAPSED, null, "none"]);
+    expect(readings(new LastLook(dir).get()!.workItems)).toEqual([CLEARED, LAPSED, null, "none"]);
+  });
+
+  it("reads a look a build before the rename to IADD wrote, whose work items hold their reading under `seal`, as a look that says nothing of the inspection: the look is read, and its work items carry no inspection", () => {
+    const dir = runDir();
+    const file = join(dir, "last-look.json");
+    const { inspection: _inspection, ...rest } = WORK_ITEM;
+    const earlier = [{ ...rest, seal: { state: "sealed", commit: "a".repeat(40), why: null } }, { ...rest, id: 2, seal: { state: "broken", commit: "a".repeat(40), why: "`x` changed." } }, { ...rest, id: 3, seal: null }];
+    writeFileSync(file, JSON.stringify({ ...LOOK, workItems: earlier }));
+    const read = new LastLook(dir).get();
+    expect(read).toStrictEqual({ ...LOOK, workItems: [rest, { ...rest, id: 2 }, { ...rest, id: 3 }] });
+    expect(read?.workItems.map((item) => "inspection" in item)).toEqual([false, false, false]);
   });
 
   it("holds the look it was given though the file cannot be written, and says that it was not", () => {
