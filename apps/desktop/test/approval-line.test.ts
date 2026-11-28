@@ -7,8 +7,8 @@
 // routing that names the branch, and two round records. The daemon reads
 // them at its next pass, and the view's right column and the inbox's preview
 // draw the line. A second work item, made by a later case, has the records of
-// a seal committed on its branch as a chain commits them, and then one more
-// commit, which breaks that seal. One more work item stands in the run folder
+// an inspection committed on its branch as a chain commits them, and then one more
+// commit, which lapses that inspection. One more work item stands in the run folder
 // before the app starts, with a chain a daemon stored as stopped, so the
 // view's foot has a chain's sentence to say. The last case makes one more
 // work item, whose branch commits Owlery's workflow, and opens a Claude Code
@@ -26,7 +26,7 @@ import { MARKER, workflowText } from "../src/daemon/records-place";
 import { APPEARANCES, THEMES } from "../src/shared/appearance";
 import type { ClientMessage, ServerMessage, SessionInfo, WorkItem } from "../src/shared/protocol";
 import { BuiltApp, buildApp } from "./built-app";
-import { commitSeal } from "./chain-run";
+import { commitInspection } from "./chain-run";
 import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** What a place of the line shows, as a person and a screen reader read it. */
@@ -36,15 +36,15 @@ interface Shown {
   name: string;
   note: string;
   label: string;
-  seal: string | null;
+  inspection: string | null;
 }
 
-/** The places the line holds once the daemon has read the records: the crafter's and the proofer's finished, the framer's and the sealer's not started, and the seal's place in the sealer's. */
+/** The places the line holds once the daemon has read the records: the crafter's and the proofer's finished, the framer's and the inspector's not started, and the inspection's place in the inspector's. */
 const EXPECTED: Shown[] = [
-  { role: "framer", mark: ["no-agent"], name: "Framer", note: "Not started", label: "Framer: Not started", seal: null },
-  { role: "crafter", mark: ["finished"], name: "Crafter", note: "1 commit", label: "Crafter: 1 commit", seal: null },
-  { role: "proofer", mark: ["finished"], name: "Proofer", note: "2 rounds", label: "Proofer: 2 rounds", seal: null },
-  { role: "sealer", mark: ["no-agent"], name: "Sealer", note: "Not started", label: "Sealer: Not started", seal: "none" },
+  { role: "framer", mark: ["no-agent"], name: "Framer", note: "Not started", label: "Framer: Not started", inspection: null },
+  { role: "crafter", mark: ["finished"], name: "Crafter", note: "1 commit", label: "Crafter: 1 commit", inspection: null },
+  { role: "proofer", mark: ["finished"], name: "Proofer", note: "2 rounds", label: "Proofer: 2 rounds", inspection: null },
+  { role: "inspector", mark: ["no-agent"], name: "Inspector", note: "Not started", label: "Inspector: Not started", inspection: "none" },
 ];
 
 /** The sentence of the chain the run folder holds for the work item that stands there before the app starts. */
@@ -80,7 +80,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
   /** The approval sections under a part of the page, each with its heading and its places. */
   const sections = (within: string): Promise<{ head: string; places: Shown[] }[]> =>
     app.evaluate(
-      `[...document.querySelectorAll(${JSON.stringify(`${within} section.approval`)})].map((section) => ({ head: section.querySelector("h3").textContent, places: [...section.querySelectorAll(".place")].map((place) => { const mark = place.querySelector(".state-icon"); return { role: place.dataset.role, mark: [...mark.classList].filter((name) => name !== "state-icon" && name !== "state"), name: place.querySelector(".name").textContent, note: place.querySelector(".note").textContent, label: mark.getAttribute("aria-label"), seal: place.querySelector(".seal")?.dataset.seal ?? null }; }) }))`,
+      `[...document.querySelectorAll(${JSON.stringify(`${within} section.approval`)})].map((section) => ({ head: section.querySelector("h3").textContent, places: [...section.querySelectorAll(".place")].map((place) => { const mark = place.querySelector(".state-icon"); return { role: place.dataset.role, mark: [...mark.classList].filter((name) => name !== "state-icon" && name !== "state"), name: place.querySelector(".name").textContent, note: place.querySelector(".note").textContent, label: mark.getAttribute("aria-label"), inspection: place.querySelector(".mark")?.dataset.inspection ?? null }; }) }))`,
     );
 
   /** Each width that runs past its box: the column's, the section's and each place's, with the box's own, and the section's room. */
@@ -106,9 +106,9 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     buildApp();
     made = temporaryRepository();
     // The place for work records stands on the branch the work items are cut from.
-    mkdirSync(join(made.repo, "seal"));
-    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
+    mkdirSync(join(made.repo, "iadd"));
+    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
     git(made.repo, "add", "--all");
     git(made.repo, "commit", "--quiet", "-m", "chore: add the place for work records");
     // The daemon runs the CLI at its start, to read its version: that run prints one and is no session, and no case of this file starts one.
@@ -150,7 +150,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
 
     // One commit after the base, and the records a stage writes: the routing that names the branch, and two rounds.
     commitFile(workItem.worktree, "login.ts");
-    const directory = join(workItem.worktree, "seal", "threads", "1-alpha");
+    const directory = join(workItem.worktree, "iadd", "threads", "1-alpha");
     mkdirSync(join(directory, "trail", "rounds"), { recursive: true });
     writeFileSync(join(directory, "routing.md"), `| Axis | Answer |\n|---|---|\n| Review | through the review chain |\n| Destination | open the pull request |\n| Branch | ${workItem.branch} |\n`);
     for (const round of [1, 2]) writeFileSync(join(directory, "trail", "rounds", `round-${round}.md`), `# Round ${round}\n`);
@@ -165,7 +165,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     made?.remove();
   }, 30_000);
 
-  it('draws one section headed "Approval line" in the view\'s right column and in the inbox\'s preview, with the four places in order, each with its mark, its name and its note, and the seal\'s place in the sealer\'s', async () => {
+  it('draws one section headed "Approval line" in the view\'s right column and in the inbox\'s preview, with the four places in order, each with its mark, its name and its note, and the inspection\'s place in the inspector\'s', async () => {
     expect(await sections("#view-detail")).toEqual([{ head: "Approval line", places: EXPECTED }]);
     await app.click("#nav-inbox");
     await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector("#inbox-preview-detail section.approval")`, "the preview with its approval line");
@@ -199,20 +199,20 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     expect(found).toEqual([]);
   });
 
-  /** The seal's place where the window shows the work item's seal, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head, the chain's sentence and how many buttons it holds, and the sealer's place of the view's approval line with its note. */
-  const sealsOf = (id: number): Promise<Record<string, unknown>> =>
+  /** The inspection's place where the window shows the work item's inspection, each as its form and its words, or null where it is not drawn: the line of the inbox, the preview and the words beside it, the view's foot with the words at its head, the chain's sentence and how many buttons it holds, and the inspector's place of the view's approval line with its note. */
+  const inspectionsOf = (id: number): Promise<Record<string, unknown>> =>
     app.evaluate(`(() => {
-      const shown = (place) => (place ? [place.dataset.seal, place.getAttribute("aria-label")] : null);
-      const sealer = document.querySelector('#view-detail section.approval .place[data-role="sealer"]');
+      const shown = (place) => (place ? [place.dataset.inspection, place.getAttribute("aria-label")] : null);
+      const inspector = document.querySelector('#view-detail section.approval .place[data-role="inspector"]');
       return {
-        line: shown(document.querySelector('#inbox-lines button[data-work-item="${String(id)}"] .seal')),
-        preview: shown(document.querySelector("#inbox-screen .seal-slot .seal")),
-        previewWords: document.getElementById("inbox-preview-seal-words").textContent,
-        view: shown(document.querySelector("#view-seal .seal")),
-        viewHead: document.getElementById("view-seal-head").textContent,
-        says: document.getElementById("seal-says").textContent,
-        buttons: document.querySelectorAll("#view-seal button").length,
-        sealer: sealer ? [shown(sealer.querySelector(".seal")), sealer.querySelector(".note").textContent, [...sealer.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
+        line: shown(document.querySelector('#inbox-lines button[data-work-item="${String(id)}"] .mark')),
+        preview: shown(document.querySelector("#inbox-screen .mark-slot .mark")),
+        previewWords: document.getElementById("inbox-preview-mark-words").textContent,
+        view: shown(document.querySelector("#view-inspection .mark")),
+        viewHead: document.getElementById("view-inspection-head").textContent,
+        says: document.getElementById("inspection-says").textContent,
+        buttons: document.querySelectorAll("#view-inspection button").length,
+        inspector: inspector ? [shown(inspector.querySelector(".mark")), inspector.querySelector(".note").textContent, [...inspector.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
       };
     })()`);
 
@@ -224,82 +224,84 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     await app.until(`document.querySelector('#inbox-screen [data-part="preview-title"]')?.textContent === ${JSON.stringify(title)}`, `the preview of ${title}`);
   };
 
-  /** The second work item, whose branch the next case seals and the one after it breaks, and the commit its seal names. */
+  /** The second work item, whose branch the next case clears and the one after it lapses, and the commit its inspection names. */
   let gamma: WorkItem;
-  let sealedAt: string;
+  let clearedAt: string;
 
-  it("lights the seal where the seal holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Sealed at and the sealed commit, with no sentence of a chain and nothing to press at the foot, and marks the sealer's place finished", async () => {
+  it("lights the inspection where the inspection holds at the branch's head, on the work item's line, in the preview and at the view's foot, each with the words Cleared at and the cleared commit, with no sentence of a chain and nothing to press at the foot, and marks the inspector's place finished", async () => {
     second.send({ type: "createWorkItem", requestId: 2, repo: made.repo, title: "Gamma", kind: "shell", cols: 80, rows: 24 });
     for (const deadline = Date.now() + 15_000; !second.item("Gamma") && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 50));
     gamma = await branched(second.item("Gamma")!, 12);
-    sealedAt = commitSeal(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
-    for (const deadline = Date.now() + 20_000; second.item("Gamma")?.seal?.state !== "sealed" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
-    expect(second.item("Gamma")?.seal).toEqual({ state: "sealed", commit: sealedAt, why: null });
-    const words = `Sealed at ${sealedAt.slice(0, 7)}`;
+    clearedAt = commitInspection(gamma.worktree, { workItem: "1795396353-gamma", branch: branchOf(gamma), base: gamma.baseCommit! });
+    for (const deadline = Date.now() + 20_000; second.item("Gamma")?.inspection?.state !== "cleared" && Date.now() < deadline; ) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(second.item("Gamma")?.inspection).toEqual({ state: "cleared", commit: clearedAt, why: null });
+    const words = `Cleared at ${clearedAt.slice(0, 7)}`;
     await preview(gamma);
-    await app.until(`document.getElementById("inbox-preview-seal-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the seal");
+    await app.until(`document.getElementById("inbox-preview-mark-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the inspection");
     await openView(gamma);
-    await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the seal");
-    expect(await sealsOf(gamma.id)).toEqual({
-      line: ["sealed", words],
-      preview: ["sealed", words],
+    await app.until(`document.getElementById("view-inspection-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the inspection");
+    expect(await inspectionsOf(gamma.id)).toEqual({
+      line: ["cleared", words],
+      preview: ["cleared", words],
       previewWords: words,
-      view: ["sealed", words],
+      view: ["cleared", words],
       viewHead: words,
       says: "",
       buttons: 0,
-      sealer: [["sealed", words], "Sealed", ["finished"]],
+      inspector: [["cleared", words], "Cleared", ["finished"]],
     });
   });
 
-  it("parts the seal in two once a commit lands after it, on the line, in the preview and at the view's foot, with the words Seal broken and the sealed commit: the line waits and says Seal broken in its second row, the window notifies of the broken seal, the foot says the seal's sentence under its head and holds nothing to press, and the sealer's place waits with the seal's sentence under the line", async () => {
-    // The inbox is in front, so the person is not looking at the work item, and the window tells of the seal that broke.
+  it("parts the inspection in two once a commit lands after it, on the line, in the preview and at the view's foot, with the words Inspection lapsed and the cleared commit: the line waits and says Inspection lapsed in its second row, the window notifies of the lapsed inspection, the foot says the inspection's sentence under its head and holds nothing to press, and the inspector's place waits with the inspection's sentence under the line", async () => {
+    // The inbox is in front, so the person is not looking at the work item, and the window tells of the inspection that lapsed.
     await preview(gamma);
     const line = `#inbox-lines button[data-work-item="${String(gamma.id)}"]`;
-    commitFile(gamma.worktree, "after-the-seal.ts");
-    await app.until(`document.querySelector('${line} .says')?.textContent === "Seal broken"`, "the broken seal in the line's second row", 20_000);
+    commitFile(gamma.worktree, "after-the-inspection.ts");
+    await app.until(`document.querySelector('${line} .says')?.textContent === "Inspection lapsed"`, "the lapsed inspection in the line's second row", 20_000);
     expect(await app.evaluate(`document.querySelector('${line} .state-icon').classList.contains("waiting")`)).toBe(true);
-    expect(await app.evaluate(`window.__notifications.filter((told) => told.body === "Seal broken").map((told) => told.title)`)).toEqual(["Gamma"]);
-    const words = `Seal broken, sealed at ${sealedAt.slice(0, 7)}`;
+    expect(await app.evaluate(`window.__notifications.filter((told) => told.body === "Inspection lapsed").map((told) => told.title)`)).toEqual(["Gamma"]);
+    const words = `Inspection lapsed, cleared at ${clearedAt.slice(0, 7)}`;
     await openView(gamma);
-    await app.until(`document.getElementById("view-seal-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the broken seal", 20_000);
-    const why = second.item("Gamma")?.seal?.why;
-    expect(why).toBe(`\`after-the-seal.ts\` changed after the sealed commit \`${sealedAt.slice(0, 7)}\`.`);
-    const inView = await sealsOf(gamma.id);
-    expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.sealer]).toEqual([["broken", words], words, "", 0, [["broken", words], "Seal broken", ["waiting"]]]);
-    // The seal's sentence stands under the head, in the foot.
-    expect(await app.evaluate(`[document.getElementById("view-seal-head").nextElementSibling.id, document.getElementById("view-seal-why").textContent]`)).toEqual(["view-seal-why", why]);
-    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under", `Sealer: ${why}`]]);
-    // The drawing is the seal's, parted by the page's two clips, under the theme's light that takes the red out.
+    await app.until(`document.getElementById("view-inspection-head").textContent === ${JSON.stringify(words)}`, "the view's foot with the lapsed inspection", 20_000);
+    const why = second.item("Gamma")?.inspection?.why;
+    expect(why).toBe(`\`after-the-inspection.ts\` changed after the cleared commit \`${clearedAt.slice(0, 7)}\`.`);
+    const inView = await inspectionsOf(gamma.id);
+    expect([inView.view, inView.viewHead, inView.says, inView.buttons, inView.inspector]).toEqual([["lapsed", words], words, "", 0, [["lapsed", words], "Inspection lapsed", ["waiting"]]]);
+    // "Inspection lapsed" is wider than the inspector's place, so it breaks between its words, and the section and each place stay within the view's right column.
+    expect((await overflows("view")).over).toEqual([]);
+    // The inspection's sentence stands under the head, in the foot.
+    expect(await app.evaluate(`[document.getElementById("view-inspection-head").nextElementSibling.id, document.getElementById("view-inspection-why").textContent]`)).toEqual(["view-inspection-why", why]);
+    expect(await app.evaluate(`[...document.querySelectorAll("#view-detail section.approval .under")].map((under) => [under.className, under.textContent])`)).toEqual([["under", `Inspector: ${why}`]]);
+    // The drawing is the inspection's, parted by the page's two clips, under the theme's light that takes the red out.
     expect(
       await app.evaluate(`(() => {
-        const place = document.querySelector("#view-seal .seal");
+        const place = document.querySelector("#view-inspection .mark");
         const halves = ["::before", "::after"].map((half) => getComputedStyle(place, half));
         return [getComputedStyle(place).filter.includes("grayscale"), halves.map((half) => half.clipPath.startsWith("polygon(") && half.backgroundImage.includes("owl.svg")), halves[0].clipPath !== halves[1].clipPath];
       })()`),
     ).toEqual([true, [true, true], true]);
     await preview(gamma);
-    await app.until(`document.getElementById("inbox-preview-seal-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the broken seal");
-    const inInbox = await sealsOf(gamma.id);
-    expect([inInbox.line, inInbox.preview, inInbox.previewWords]).toEqual([["broken", words], ["broken", words], words]);
+    await app.until(`document.getElementById("inbox-preview-mark-words").textContent === ${JSON.stringify(words)}`, "the preview's words of the lapsed inspection");
+    const inInbox = await inspectionsOf(gamma.id);
+    expect([inInbox.line, inInbox.preview, inInbox.previewWords]).toEqual([["lapsed", words], ["lapsed", words], words]);
   });
 
-  it("says at the view's foot the sentence of the chain the daemon holds for the work item, under the seal's words, and holds nothing to press there", async () => {
+  it("says at the view's foot the sentence of the chain the daemon holds for the work item, under the inspection's words, and holds nothing to press there", async () => {
     const stored = second.item("Stored");
     expect(stored?.chain).toMatchObject({ state: "stopped", says: STORED_SAYS });
     await openView(stored!);
-    await app.until(`document.getElementById("seal-says").textContent !== ""`, "the chain's sentence at the view's foot");
-    const foot = await sealsOf(stored!.id);
+    await app.until(`document.getElementById("inspection-says").textContent !== ""`, "the chain's sentence at the view's foot");
+    const foot = await inspectionsOf(stored!.id);
     expect([foot.says, foot.buttons]).toEqual([STORED_SAYS, 0]);
-    // The sentence stands in the foot, after the seal's words.
-    expect(await app.evaluate(`(() => { const says = document.getElementById("seal-says"); return [document.getElementById("view-seal").contains(says), Boolean(document.getElementById("view-seal-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);
+    // The sentence stands in the foot, after the inspection's words.
+    expect(await app.evaluate(`(() => { const says = document.getElementById("inspection-says"); return [document.getElementById("view-inspection").contains(says), Boolean(document.getElementById("view-inspection-head").compareDocumentPosition(says) & Node.DOCUMENT_POSITION_FOLLOWING)]; })()`)).toEqual([true, true]);
   });
 
-  it('holds no "Ask" section in the view, and no list above the seal\'s place where the daemon lists no session of the work item and its chain holds no gate\'s run: the list of the daemon\'s chain stands between the column\'s text and the seal\'s place, hidden and taking no height', async () => {
+  it('holds no "Ask" section in the view, and no list above the inspection\'s place where the daemon lists no session of the work item and its chain holds no gate\'s run: the list of the daemon\'s chain stands between the column\'s text and the inspection\'s place, hidden and taking no height', async () => {
     // The stored work item's chain holds no stage, and the daemon started no session for it.
     const stored = second.item("Stored")!;
     await openView(stored);
-    await app.until(`document.getElementById("seal-says").textContent !== ""`, "the stored work item's view");
+    await app.until(`document.getElementById("inspection-says").textContent !== ""`, "the stored work item's view");
     expect(
       await app.evaluate(`(() => {
         const list = document.getElementById("view-chain");
@@ -310,7 +312,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
           around: [list.previousElementSibling.id, list.nextElementSibling.id],
         };
       })()`),
-    ).toEqual({ section: [], heading: 0, list: ["UL", "The daemon's chain", true, 0, 0], around: ["view-scroll", "view-seal"] });
+    ).toEqual({ section: [], heading: 0, list: ["UL", "The daemon's chain", true, 0, 0], around: ["view-scroll", "view-inspection"] });
   });
 
   it("marks the proofer's place working with the note Round 1 and the stage's age while a Claude Code pane's session holds round 1 open through the built chain command, and leaves the place to the records once the pane is closed", async () => {
@@ -319,7 +321,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
     const delta = await branched(second.item("Delta")!, 13);
     // The branch puts the repository on the owl chain, with Owlery's workflow, so a Claude Code pane opened in its worktree carries the chain.
     mkdirSync(join(delta.worktree, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-seal.yml"), workflowText("0.0.0"));
+    writeFileSync(join(delta.worktree, ".github", "workflows", "owlery-inspection.yml"), workflowText("0.0.0"));
     git(delta.worktree, "add", "--all");
     git(delta.worktree, "commit", "--quiet", "-m", "ci: the check");
     writeFileSync(join(made.base, "stand-in-base"), delta.baseCommit!);

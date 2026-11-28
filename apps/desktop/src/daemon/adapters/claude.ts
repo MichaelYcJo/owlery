@@ -14,6 +14,7 @@ import type { RoleStage, Usage } from "../../shared/protocol";
 import type { PermissionAction, RoleAdapter, RoleEvent, RoleRun, RoleStart } from "./adapter";
 import { CONFIG_DIR_VARIABLE, claudeLogins, conversationsIn } from "./claude-accounts";
 import { agentOf, rulesFileName, rulesText, toolsOf } from "./claude-roles";
+import { loadWorkflow, stageFor } from "../workflow";
 
 /** How much of the end of what the CLI printed on its error stream a run keeps, in a string's characters. A crash prints its cause last. */
 export const ERROR_OUTPUT_CHARS = 2000;
@@ -72,11 +73,12 @@ function firstOf(text: string): string {
  * session's own streams, where the adapter answers it. A role launch names
  * the built-in tools the session holds, as one value so that no other
  * reaches it, and adds the role bundle as a plugin of this session alone,
- * the role's agent of it, the file of rules appended to the system prompt,
- * and the bundle's folder among the folders the session works in, so it
- * reads the bundle's other documents. A role launch also turns Claude Code's
- * own sandbox on in the settings it passes, which on macOS runs each command
- * under `sandbox-exec`: its commands write in `sandbox.allowWrite` and
+ * the role's agent of it, the model its stage names where it names one,
+ * the file of rules appended to the system prompt, and the bundle's folder
+ * among the folders the session works in, so it reads the bundle's other
+ * documents. A role launch also turns Claude Code's own sandbox on in the
+ * settings it passes, which on macOS runs each command under
+ * `sandbox-exec`: its commands write in `sandbox.allowWrite` and
  * where that sandbox lets a command write by default, never in
  * `sandbox.denyWrite`, which wins over both; they read no file of
  * `sandbox.denyRead` but in `sandbox.allowRead`, so not the port and the
@@ -111,7 +113,7 @@ export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[
     "default",
     "--permission-prompt-tool",
     "stdio",
-    ...(launch === "refresh" ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--tools", launch.tools.join(","), "--plugin-dir", launch.bundleDir, "--agent", launch.agent, "--append-system-prompt-file", launch.rulesFile]),
+    ...(launch === "refresh" ? ["--tools", "", "--max-turns", "1", "--no-session-persistence"] : ["--tools", launch.tools.join(","), "--plugin-dir", launch.bundleDir, "--agent", launch.agent, ...(launch.model === null ? [] : ["--model", launch.model]), "--append-system-prompt-file", launch.rulesFile]),
     // Last, because it takes every argument that follows it as a folder.
     "--add-dir",
     cwd,
@@ -119,10 +121,11 @@ export function claudeArgs(cwd: string, launch: RoleLaunch | "refresh"): string[
   ];
 }
 
-/** What a role launch adds to the arguments: the bundle, the role's agent, its rules file and its tools, the folders its commands write in and are refused, the folders they read nothing of and the folders inside those they read again, and its scratch folder or none. */
+/** What a role launch adds to the arguments: the bundle, the role's agent, its stage's model or null for the CLI's default, its rules file and its tools, the folders its commands write in and are refused, the folders they read nothing of and the folders inside those they read again, and its scratch folder or none. */
 export interface RoleLaunch {
   bundleDir: string;
   agent: string;
+  model: string | null;
   rulesFile: string;
   tools: readonly string[];
   sandbox: { allowWrite: readonly string[]; denyWrite: readonly string[]; denyRead: readonly string[]; allowRead: readonly string[] };
@@ -505,9 +508,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     }));
 
   /**
-   * What a role launch adds to the arguments, after writing the pair's rules
-   * file: whole, so a session that starts meanwhile never reads half of one,
-   * and again at each launch, so it holds the bundle as it stands. The folder
+   * What a role launch adds to the arguments, after reading the pair's stage
+   * from the bundle's workflow (`workflow.ts#loadWorkflow`), which throws
+   * naming the file and the key where it refuses the file, and writing the
+   * stage's rules file: whole, so a session that starts meanwhile never reads
+   * half of one. Both are read again at each launch, so a launch holds the
+   * bundle as it stands: the agent, the documents and the model. The folder
    * and the file are the user's alone, as the daemon's other files are. The
    * session's commands write where `commands` lets them, and are refused the
    * bundle's folder beside what `commands` refuses. They read no file of the
@@ -520,11 +526,12 @@ export function claudeAdapter(env: NodeJS.ProcessEnv, options: { lookupTimeoutMs
     const { bundleDir, rulesDir } = options;
     if (!bundleDir) throw new Error("this adapter was given no role bundle, so it launches no role");
     if (!rulesDir) throw new Error("this adapter was given no folder for the rules files, so it launches no role");
-    const text = rulesText(bundleDir, role);
+    const stage = stageFor(loadWorkflow(bundleDir), role);
+    const text = rulesText(bundleDir, stage);
     mkdirSync(rulesDir, { recursive: true, mode: 0o700 });
     const rulesFile = join(rulesDir, rulesFileName(role));
     writeWholeFile(rulesFile, text);
-    return { bundleDir, agent: agentOf(role), rulesFile, tools: toolsOf(role), sandbox: { allowWrite: commands.write, denyWrite: [...commands.refuse, bundleDir], denyRead: commands.unread, allowRead: scratch === undefined ? [] : [scratch] }, scratch: scratch ?? null };
+    return { bundleDir, agent: agentOf(stage), model: stage.model, rulesFile, tools: toolsOf(role), sandbox: { allowWrite: commands.write, denyWrite: [...commands.refuse, bundleDir], denyRead: commands.unread, allowRead: scratch === undefined ? [] : [scratch] }, scratch: scratch ?? null };
   };
 
   // The folder the login shell names, which a pane's `claude` reads, and `.claude` of the home where it names none, as Claude Code itself reads it.

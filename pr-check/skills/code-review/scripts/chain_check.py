@@ -2,14 +2,15 @@
 """chain-check — at the pull request, the records the declared parties owe
 are in the tree and agree with HEAD.
 
-Run by CI on every pull request (`.github/workflows/owlery-seal.yml`). It
-judges the `seal/threads/<id>/routing.md` naming the pull request's branch and
+Run by CI on every pull request (`.github/workflows/owlery-inspection.yml`).
+It judges the `iadd/threads/<id>/routing.md` naming the pull request's branch and
 every one its own commits add or change. One that reached the branch inside
 another pull request's squash was judged at that pull request and is named,
 not judged (`carried_by`). The arms are nine:
 
   trailer       on every pull request, a declaration or none: each
-                `Seal-Routing` trailer of the pull request's own commits
+                `IADD-Routing` trailer of the pull request's own commits,
+                and `Seal-Routing` trailer of one written before the rename,
                 names a work item a judged declaration names, or reads
                 `no work item`, which is printed (`routing_trailers`); a
                 commit with no such trailer is not judged
@@ -34,7 +35,7 @@ not judged (`carried_by`). The arms are nine:
                 heading near `## Rule changes` outside the section is another
                 section; in a section that parses, each `check:` line inside
                 an `add` or `change` `to` is read by `.github/scripts/rules.py`,
-                the reader `seal rules --check` uses, and a line it refuses is
+                the reader `rules.py --check` uses, and a line it refuses is
                 refused at its line in the design (`check_lines_in`); a `from`
                 is read for no check line; and against each operation, the
                 string constants of the tracked tests under `tests/` and the
@@ -51,36 +52,38 @@ not judged (`carried_by`). The arms are nine:
                 `regression:` lines, and none stands in the last record but
                 a `fixed` finding located in the work item's own records
                 alone (`located_in_records`) whose commit touched them alone
-                (`records_only`), which the sealer reads; the
+                (`records_only`), which the inspector reads; the
                 last record's `target:` commit is HEAD, or every commit after
                 it touches only the work item's own directory
-  original      where git carries `seal/parity.json` at HEAD and the pull
+  original      where git carries `iadd/parity.json` at HEAD and the pull
                 request changes a path outside the document roots
                 `lib/gate.py#touches_code` reads: the config's `Baseline
                 commit` key names a SHA (`lib/config.py#baseline_commit`),
                 and one `original:` line naming it stands in the round block
                 of every round record under `Review | through the review
                 chain`, and in
-                the newest verdict block of `guarantee.md` under `Review |
-                straight to the PR` (`originals_of`, `guarantee_original`)
+                the newest verdict block of `inspection.md` under `Review |
+                straight to the PR` (`originals_of`, `inspection_original`)
   broad gate    the last run block of `trail/gate.md`, the newest run, read
                 through `lib/fields.py`, is HEAD, or every commit after
                 it touches only the work item's own directory; a record with
                 no run block, or with a line the reader refuses, fails
-  guarantee     the last verdict block of `guarantee.md`, the newest run of
-                the sealer, read through `lib/fields.py`, names HEAD,
+  inspection    the last verdict block of `inspection.md`, the newest run of
+                the inspector, read through `lib/fields.py`, names HEAD,
                 or every commit after it touches only the closing records
-                (`trail/gate.md`, `guarantee.md` and `trail/refusals.md`),
-                its `Verdict:` reads `sealed`, and its `judged-by:` session
-                is none of its `built-by:` sessions; a guarantee with no
+                (`trail/gate.md`, `inspection.md` and `trail/refusals.md`),
+                its `Verdict:` reads `cleared`, and its `inspected-by:`
+                session is none of its `built-by:` sessions; an inspection
+                with no
                 verdict block, or with a line the reader refuses, fails
   body          where the event payload holds `pull_request.body` with one
-                seal section, the lines between one `<!-- owlery:seal -->`
-                line and one `<!-- /owlery:seal -->` line after it, which
+                inspection section, the lines between one
+                `<!-- owlery:inspection -->` line and one
+                `<!-- /owlery:inspection -->` line after it, which
                 Owlery's daemon writes: those lines read whole through
-                `lib/fields.py` as a guarantee's, and hold one verdict block
+                `lib/fields.py` as an inspection's, and hold one verdict block
                 whose keys and values are those of the newest verdict block
-                of a judged work item's `guarantee.md` at HEAD; each refusal
+                of a judged work item's `inspection.md` at HEAD; each refusal
                 stands on the work item's directory naming the body's line,
                 and no other line of the body is read; a payload with no
                 body, `--worktree`, a body with no marker line, and one with
@@ -92,10 +95,10 @@ A ready pull request fails on any of them. A draft, or a run that observed no
 pull request, prints the same lines and exits 0.
 `docs/checks/the-pull-request-check.md` *What the check reads at the pull request* states the rules these arms hold,
 and `docs/forms/the-round-record.md` *The round record* and
-`docs/forms/the-guarantee.md` *The guarantee* the records they read.
+`docs/forms/the-inspection.md` *The inspection* the records they read.
 
-In a round record, `guarantee.md` and `trail/gate.md` a field stands in a
-`seal` block, every line of which parses or is refused at its line, and a
+In a round record, `inspection.md` and `trail/gate.md` a field stands in an
+`iadd` block, every line of which parses or is refused at its line, and a
 line outside every block is prose to every arm. A fence like the block's and
 not it, and a file under `trail/rounds/` that is no `round-N.md`, are not
 read; the check names each (`blocks_of`, `unread`) and decides nothing on
@@ -119,17 +122,18 @@ named as notices at their lines in the design and refuse nothing
 proofer's judgment at review.
 
 Usage:
-  chain_check.py --baseline <ref> [--root DIR] [--worktree] [--sealing] [--post]
+  chain_check.py --baseline <ref> [--root DIR] [--worktree] [--inspecting] [--post]
 
 `--worktree` reads the records from the working tree instead of HEAD, for a
-check before the commit; CI never passes it. `--sealing` is the broad gate's
-own run, before it writes `trail/gate.md` and the sealer `guarantee.md`: those
-two arms and the guarantee's `original:` line print and do not fail.
-`--post` sends the check's outcome to GitHub as the check `seal` on
+check before the commit; CI never passes it. `--inspecting` is the broad
+gate's own run, before it writes `trail/gate.md` and the inspector
+`inspection.md`: those two arms and the inspection's `original:` line print and
+do not fail. `--post` sends the check's outcome to GitHub as the check
+`inspection` on
 the payload's `pull_request.head.sha`, with the token of `GITHUB_TOKEN`
 (`post`). `outcome` is the one reading of that outcome: its conclusion and
 title, and the exit code below. A request GitHub refuses is a notice and
-changes no exit code; nothing is sent under `--worktree` or `--sealing`, or
+changes no exit code; nothing is sent under `--worktree` or `--inspecting`, or
 without `GITHUB_TOKEN`.
 
 Exit: 0 nothing to refuse · 1 a refusal, each named `path:line  why` (a
@@ -172,26 +176,26 @@ READER = "lib/lines.py"
 ROUTING = "lib/routing.py"
 FIELDS_READER = "lib/fields.py"
 RULE_CHANGES_READER = "skills/settle/scripts/rule_changes.py"
-# `.github/scripts/rules.py`, the one reader of a `check:` line, which `seal
-# rules --check` runs over the rule files. A user's CI clones the plugin
-# whole, so it stands here there too (`templates/setup/hygiene.yml`).
+# `.github/scripts/rules.py`, the one reader of a `check:` line, which
+# `rules.py --check` runs over the rule files. The workflow clones this
+# folder whole, so it stands here there too.
 CHECK_LINES_READER = ".github/scripts/rules.py"
 
 # A thread's files, relative to its directory: `lib/optin.py`'s `GATE`,
-# `GUARANTEE`, `DESIGN` and `PLAN`, spelt here because this module loads
+# `INSPECTION`, `DESIGN` and `PLAN`, spelt here because this module loads
 # `routing` only inside the functions that are handed it.
 BROAD_GATE_FILE = "trail/gate.md"
-GUARANTEE_FILE = "guarantee.md"
+INSPECTION_FILE = "inspection.md"
 SPEC_FILE = "frame/design.md"
 PLAN_FILE = "frame/plan.md"
 REFUSALS_FILE = "trail/refusals.md"
 # The closing records: the daemon's gate writes the first on a passed run,
-# and the sealer's stage the second, with the rows of the calls the sealer's
-# role was refused in the third. They are the only files that may follow the
-# commit the guarantee names, since the sealer audited everything else on
-# the branch.
-CLOSING_RECORDS = (BROAD_GATE_FILE, GUARANTEE_FILE, REFUSALS_FILE)
-# A round record's fields stand in `seal` blocks, and `lib/fields.py`
+# and the inspector's stage the second, with the rows of the calls the
+# inspector's role was refused in the third. They are the only files that may
+# follow the commit the inspection names, since the inspector audited
+# everything else on the branch.
+CLOSING_RECORDS = (BROAD_GATE_FILE, INSPECTION_FILE, REFUSALS_FILE)
+# A round record's fields stand in `iadd` blocks, and `lib/fields.py`
 # is the one spelling of their grammar. What this file holds is where
 # a block stands, which turns on headings that module does not read: the one
 # `## Findings` section, and a finding's `### <n>. <symptom>` heading in it,
@@ -242,10 +246,10 @@ MARK_RE = re.compile(r"^Framed\s+(.+?)\s+by\s+(.+?),\s+before the build\.$")
 REFRAME_RE = re.compile(r"^Reframed\s+(.+?)\s+by\s+(.+?),\s+after round\s+(.+?)\.$")
 
 VERIFYING_ROUND = "a verifying round is owed"
-SEALING = "--sealing"
-SEALING_SAYS = (
-    f"{SEALING}: `{BROAD_GATE_FILE}` is the file this run writes and "
-    f"`{GUARANTEE_FILE}` the one the sealer writes after it, so their arms "
+INSPECTING = "--inspecting"
+INSPECTING_SAYS = (
+    f"{INSPECTING}: `{BROAD_GATE_FILE}` is the file this run writes and "
+    f"`{INSPECTION_FILE}` the one the inspector writes after it, so their arms "
     "print and do not fail"
 )
 UNSEEN_SAYS = (
@@ -301,12 +305,12 @@ try:
     SHARED_READER = sibling.load(READER)
     # `lib/blocks.py`, the one split of a text into GFM lines.
     BLOCKS = sibling.load("lib/blocks.py")
-    # `lib/fields.py`, the one reader of a record's `seal` blocks.
+    # `lib/fields.py`, the one reader of a record's `iadd` blocks.
     FIELDS = sibling.load(FIELDS_READER)
     # `lib/gitcmd.py`, which builds every git command `git` runs and spells
     # a path as git does.
     GITCMD = sibling.load("lib/gitcmd.py")
-    # `lib/optin.py`, which finds the repository and its `seal/` root.
+    # `lib/optin.py`, which finds the repository and its `iadd/` root.
     OPTIN = sibling.load("lib/optin.py")
     # `lib/console.py`, whose `annotate` prints a line about a file.
     CONSOLE = sibling.load("lib/console.py")
@@ -318,7 +322,7 @@ except (OSError, SyntaxError, ImportError) as _exc:
 
 # What the check prints of a file it did not read. `main` prints it as a
 # notice, `path:line  not read: <why>` and a notice annotation in CI, and it
-# changes no exit code; a fence like a `seal` block and not one is named in
+# changes no exit code; a fence like an `iadd` block and not one is named in
 # `lib/fields.py`'s words (`blocks_of`).
 UNREAD_FILE = (
     "not read: `{name}` is no `round-N.md`, so the check read nothing of it "
@@ -327,7 +331,7 @@ UNREAD_FILE = (
 # What the records arm refuses of where a round record's blocks stand. A
 # refusal in a finding is led by its heading.
 NO_ROUND_BLOCK = (
-    "no round block: since #1198 a round record's fields stand in `seal` "
+    "no round block: a round record's fields stand in `iadd` "
     "blocks, its `target:` line in the round block outside every finding, as "
     f"`{ROUND_TEMPLATE}` shows; a record written before then is rewritten "
     "into blocks with its verdicts unchanged"
@@ -347,7 +351,7 @@ SECOND_NUMBER = (
     "would name both"
 )
 NO_FINDING_BLOCK = (
-    "no finding block: under its heading a finding holds one `seal` block "
+    "no finding block: under its heading a finding holds one `iadd` block "
     f"opening with `severity:`, as `{ROUND_TEMPLATE}` shows"
 )
 SECOND_BLOCK = "a second {kind} block: a finding holds one"
@@ -555,9 +559,9 @@ def unread(reader, routing, root, item, chained):
     """[(path, line, why)] for what the check did not read of a work item:
     under `chained`, each file under `trail/rounds/` that is no
     `round-N.md` (`UNREAD_FILE`) and each fence of a round record like a
-    `seal` block and not one (`blocks_of`). `main` prints them as notices;
-    such a fence of `guarantee.md` or `trail/gate.md` is named by
-    `guarantee` and `broad_gate`."""
+    `iadd` block and not one (`blocks_of`). `main` prints them as notices;
+    such a fence of `inspection.md` or `trail/gate.md` is named by
+    `inspection` and `broad_gate`."""
     found = []
     if chained:
         records, others = rounds_listed(routing, root, item)
@@ -734,7 +738,7 @@ NOT_A_BLOCK_LINE = (FIELDS.COMMENT_LINE, *HIDING)
 
 
 def round_read(reader, text, rel):
-    """`Parsed` for one round record: its `seal` blocks read through
+    """`Parsed` for one round record: its `iadd` blocks read through
     `lib/fields.py`, placed by its headings, read once.
 
     Every line that module refuses is an error at its line, led by the
@@ -888,7 +892,7 @@ def finding_of(rel, heading, number, first, blocks):
 
 def record_findings(reader, text, rel):
     """`(findings, errors)` of one round record through `round_read`: the
-    one reader the arm, the panel and the release seal read a record
+    one reader the arm and the panel read a record
     through, so a comment line, a fence that hides blocks, or a record
     naming no commit it reviewed, fails closed for each of them."""
     parsed = round_read(reader, text, rel)
@@ -921,7 +925,7 @@ def channel(rounds, read_at_head=lambda finding: False):
     a `fixed` one `read_at_head` does not pass, is refused as owing a
     verifying round, since nothing after it read the fix or the rejection.
     `records` passes it a `fixed` finding located in the work item's own
-    records alone whose commit touched them alone, which the sealer reads at
+    records alone whose commit touched them alone, which the inspector reads at
     HEAD. A `deferred` finding owes
     nothing."""
     problems = []
@@ -1068,20 +1072,20 @@ def follows_reason(found, what):
     )
 
 
-def since_sealed(root, sha, item, base):
+def since_cleared(root, sha, item, base):
     """None where nothing but the closing records of `item/` differs between
     the tree of `sha` and HEAD's, HEAD descends from `sha`, and no commit of
     the base that a merge brought after `sha` touches a path outside
     `item/`; else why not.
 
     The two trees are compared, so a merge commit, and a change one brings,
-    is read as any other commit, as Owlery's daemon reads a seal
-    (`seal-state.ts#sealAt`). The base's own commits that a merge brought
+    is read as any other commit, as Owlery's daemon reads an inspection
+    (`inspection-state.ts#inspectionAt`). The base's own commits that a merge brought
     after `sha` are walked too: those `git merge-base HEAD <base>` holds and
     `sha` does not, read with the paths `git log --name-only` prints for
     them, as the daemon reads the commits after a round
     (`worktrees.ts#pathsOfCommits`). The rounds arm's walk (`follows`)
-    leaves them out, and the two trees hold the same where the sealed tree
+    leaves them out, and the two trees hold the same where the cleared tree
     already held what they changed. `base` is the check's baseline, a ref
     the checkout resolves; where git names no fork of HEAD and `base`,
     nothing of the base is walked. `("unseen", sha, "")` for a commit this
@@ -1112,47 +1116,47 @@ def since_sealed(root, sha, item, base):
     return None
 
 
-# What the guarantee arm says of a seal that does not hold at HEAD, after
-# the reason `since_sealed` gives.
-BROKEN_SAYS = "the seal is broken: {why}; a new seal is owed at HEAD"
+# What the inspection arm says of an inspection that lapsed at HEAD, after
+# the reason `since_cleared` gives.
+LAPSED_SAYS = "the inspection lapsed: {why}; a new inspection is owed at HEAD"
 
 
-def since_sealed_reason(found, sealed):
-    """The sentence `since_sealed`'s answer is refused with: that the seal is
-    broken where the newest verdict block reads `sealed`, and that the
-    guarantee is behind HEAD where it does not. Where the two trees hold the
-    same and a commit of the base that a merge brought after the sealed
+def since_cleared_reason(found, cleared):
+    """The sentence `since_cleared`'s answer is refused with: that the
+    inspection lapsed where the newest verdict block reads `cleared`, and that the
+    inspection is behind HEAD where it does not. Where the two trees hold the
+    same and a commit of the base that a merge brought after the cleared
     commit touched a path outside the work item's records, it names that
     path."""
     kind, sha, path = found
-    if not sealed:
+    if not cleared:
         if kind == "differs":
             return (
-                f"the guarantee is behind HEAD: `{path}` changed after the commit "
+                f"the inspection is behind HEAD: `{path}` changed after the commit "
                 f"it names, `{sha[:7]}`, outside the closing records"
             )
         if kind == "brought":
             return (
-                "the guarantee is behind HEAD: a commit of the base that a merge "
+                "the inspection is behind HEAD: a commit of the base that a merge "
                 f"brought after the commit it names, `{sha[:7]}`, touches "
                 f"`{path}`, outside the work item's records"
             )
-        return follows_reason(found, "the guarantee")
+        return follows_reason(found, "the inspection")
     if kind == "unseen":
-        why = f"this repository cannot resolve the sealed commit `{sha}`"
+        why = f"this repository cannot resolve the cleared commit `{sha}`"
     elif kind == "off":
-        why = f"HEAD does not descend from the sealed commit `{sha[:7]}`"
+        why = f"HEAD does not descend from the cleared commit `{sha[:7]}`"
     elif kind == "brought":
         why = (
-            "a commit of the base that a merge brought after the sealed commit "
+            "a commit of the base that a merge brought after the cleared commit "
             f"`{sha[:7]}` touches `{path}`, outside the work item's records"
         )
     else:
         why = (
-            f"`{path}` changed after the sealed commit `{sha[:7]}`, outside the "
+            f"`{path}` changed after the cleared commit `{sha[:7]}`, outside the "
             "closing records"
         )
-    return BROKEN_SAYS.format(why=why)
+    return LAPSED_SAYS.format(why=why)
 
 
 def frame_foot(reader, text):
@@ -1215,7 +1219,7 @@ RULE_CHANGES_SAYS = (
 RULE_CHANGES_UNREAD = "not read: {why}"
 # A check line inside an `add` or `change` `to` that `rules.py` refuses.
 CHECK_LINE_SAYS = (
-    "`.github/scripts/rules.py`, the reader `seal rules --check` uses, refuses "
+    "`.github/scripts/rules.py`, the reader `rules.py --check` uses, refuses "
     "this check line, which the settle writes into `{file}` as it stands: {why}"
 )
 # A string constant of a test that an operation takes out of the policy root
@@ -1457,7 +1461,7 @@ def rule_changes_reader():
 
 def policy_root(root):
     """The policy root of the repository at ROOT: `lib/config.py#policy_root`
-    of the `seal/` root `lib/optin.py#home_at` resolves there."""
+    of the `iadd/` root `lib/optin.py#home_at` resolves there."""
     config = sibling.load("lib/config.py")
     return config.policy_root(OPTIN.home_at(root, OPTIN.git_common_dir(root)))
 
@@ -1578,7 +1582,7 @@ def records(reader, routing, root, item, rel, base, behind=None):
     one that changed no path the finding's or its close's `location:` names
     or lies under; what `channel` names between the rounds, a `fixed` of the
     last record located in the work item's own records alone, whose commit
-    touched them alone, passing as read at HEAD by the sealer; a last record
+    touched them alone, passing as read at HEAD by the inspector; a last record
     behind HEAD. A finding is named by its line and its heading. Where the
     last record is behind HEAD, what `follows` answered is appended to
     BEHIND."""
@@ -1658,12 +1662,12 @@ def parity_readers():
     return config, gate
 
 
-NO_GUARANTEE_ORIGINAL = (
+NO_INSPECTION_ORIGINAL = (
     f"no `{FIELDS.ORIGINAL}` line in the newest verdict block: `{{config}}` "
     "declares a migration, this work "
     "item answers `straight to the PR`, and this pull request changes a path "
     "outside the document roots, so no round record compares it and the "
-    f"sealer's guarantee carries `{FIELDS.ORIGINAL} {{sha}}`, the migration "
+    f"inspector's inspection carries `{FIELDS.ORIGINAL} {{sha}}`, the migration "
     "config's baseline, written once it compared the audited commit with the "
     "original through `legacy-parity`"
 )
@@ -1674,8 +1678,8 @@ def original_of(reader, text, rel, sha, config, missing=NO_ORIGINAL):
     round block, held against SHA, the `Baseline commit` of the migration
     config at CONFIG: a round block with no such line, said as MISSING at
     its opener, and one naming a commit that is not a prefix of SHA and of
-    which SHA is not a prefix, at its line. A guarantee's line is
-    `guarantee_original`'s. A record holding a line `lib/fields.py`
+    which SHA is not a prefix, at its line. An inspection's line is
+    `inspection_original`'s. A record holding a line `lib/fields.py`
     refuses, an `original:` line in a finding block, a second one or one
     spelt otherwise among them, or holding no round block, is the records
     arm's refusal, and none is added here."""
@@ -1691,23 +1695,23 @@ def original_of(reader, text, rel, sha, config, missing=NO_ORIGINAL):
     return [(rel, said.line, OTHER_ORIGINAL.format(said=commit, sha=sha))]
 
 
-def guarantee_original(text, rel, sha, config):
+def inspection_original(text, rel, sha, config):
     """[(rel, line, problem)] for the `original:` line of the newest verdict
-    block of the guarantee TEXT at REL, held against SHA, the `Baseline
+    block of the inspection TEXT at REL, held against SHA, the `Baseline
     commit` of the migration config at CONFIG: a newest block with no such
     line, at its opener, and one naming a commit that is not a prefix of SHA
     and of which SHA is not a prefix, at its line. An earlier block's line
-    stands for no later run. A guarantee `lib/fields.py`
-    refuses, or one holding no verdict block, is the guarantee arm's
+    stands for no later run. An inspection `lib/fields.py`
+    refuses, or one holding no verdict block, is the inspection arm's
     refusal, and none is added here."""
-    found = FIELDS.read(text, FIELDS.GUARANTEE)
+    found = FIELDS.read(text, FIELDS.INSPECTION)
     if found.refusals or not found.blocks:
         return []
     newest = found.blocks[-1]
     said = newest.fields.get(FIELDS.ORIGINAL)
     if said is None:
         return [
-            (rel, newest.line, NO_GUARANTEE_ORIGINAL.format(config=config, sha=sha))
+            (rel, newest.line, NO_INSPECTION_ORIGINAL.format(config=config, sha=sha))
         ]
     commit = said.match["commit"]
     if commit.startswith(sha) or sha.startswith(commit):
@@ -1717,14 +1721,14 @@ def guarantee_original(text, rel, sha, config):
 
 def originals_of(reader, routing, root, home, paths, items, direct=()):
     """[(path, line, problem)] for the round records of ITEMS, each declared
-    through the review chain, and the `guarantee.md` of DIRECT, each
+    through the review chain, and the `inspection.md` of DIRECT, each
     declared `straight to the PR`, where git carries the migration config at
     HEAD under HOME, the root's name there (`root_name`), and PATHS, this
     pull request's, reach outside the document roots, `docs/` and HOME;
     `lib/gate.py#touches_code` decides that, and paths git could not list
-    reach outside them. A guarantee git does not carry is `guarantee`'s
-    refusal, and none is added here; a guarantee's line is its newest
-    verdict block's (`guarantee_original`). A config whose `Baseline commit`
+    reach outside them. An inspection git does not carry is `inspection`'s
+    refusal, and none is added here; an inspection's line is its newest
+    verdict block's (`inspection_original`). A config whose `Baseline commit`
     names no SHA is one refusal naming it. None where `lib/` would not
     load, said on stderr."""
     config = f"{home}/{routing.optin.PARITY_CONFIG}"
@@ -1748,17 +1752,17 @@ def originals_of(reader, routing, root, home, paths, items, direct=()):
         for rel in round_records(routing, root, item):
             found.extend(original_of(reader, read_record(root, rel), rel, sha, config))
     for item in direct:
-        rel = f"{item}/{GUARANTEE_FILE}"
+        rel = f"{item}/{INSPECTION_FILE}"
         said = read_record(root, rel)
         if said is not None:
-            found.extend(guarantee_original(said, rel, sha, config))
+            found.extend(inspection_original(said, rel, sha, config))
     return found
 
 
 # A gate record with no run block: one of the older shape, its run written
 # outside any block, or one nobody wrote a run into.
 NO_RUN_BLOCK = (
-    "no run block: a passed run of the broad gate stands in a `seal` block "
+    "no run block: a passed run of the broad gate stands in an `iadd` block "
     "holding `run: <tree> against <base commit>`, which Owlery's daemon "
     "appends below the text already there"
 )
@@ -1805,93 +1809,94 @@ def broad_gate(reader, root, item, base, notices=None, behind=None):
     return [(rel, 0, follows_reason(found, "the newest gate run"))]
 
 
-# A guarantee with no verdict block: one of the older shape, its verdict
-# written outside any block, or one the sealer never filled.
+# An inspection with no verdict block: one of the older shape, its verdict
+# written outside any block, or one the inspector never filled.
 NO_VERDICT_BLOCK = (
-    "no verdict block: the sealer's verdict stands in a `seal` block holding "
+    "no verdict block: the inspector's verdict stands in an `iadd` block holding "
     "`target: <sha> against <base>`, the `original:` line where one is owed "
-    "and `Verdict:`, which the sealer's stage of Owlery's daemon appends "
+    "and `Verdict:`, which the inspector's stage of Owlery's daemon appends "
     "below the text already there once the broad gate has passed on the "
     "branch's head"
 )
-# A verdict block whose judge is one of its builders: the daemon writes no
-# such block, and one written by hand or by another tool is no seal.
-JUDGE_BUILT = (
+# A verdict block whose inspector is one of its builders: the daemon writes
+# no such block, and one written by hand or by another tool clears nothing.
+INSPECTOR_BUILT = (
     "`{line}` names a session that the block's `{built}` line names too: "
-    "the session that judges a work item built none of it, so this verdict "
-    "block is no seal"
+    "the session that inspects a work item built none of it, so this verdict "
+    "block clears nothing"
 )
 
 
-def guarantee(reader, root, item, base, notices=None, behind=None):
-    """[(path, line, problem)] for the work item's `guarantee.md`: absent, a
+def inspection(reader, root, item, base, notices=None, behind=None):
+    """[(path, line, problem)] for the work item's `inspection.md`: absent, a
     line `lib/fields.py` refuses, a fence nobody closed and a line that
     begins with `<!--` among them, no verdict block, or a newest block, the
     last, naming a commit HEAD does not hold, whose tree differs from HEAD's
     in anything but the closing records, or after which a merge brought a
     commit of BASE, the check's baseline, that touched a path outside the
-    work item's records (`since_sealed`), a verdict other than `sealed`, or
-    as its judge one of the sessions its `built-by:` line names. A fence
-    named as not read goes to NOTICES, and what `since_sealed` answered of
+    work item's records (`since_cleared`), a verdict other than `cleared`, or
+    as its inspector one of the sessions its `built-by:` line names. A fence
+    named as not read goes to NOTICES, and what `since_cleared` answered of
     a newest block that does not hold to BEHIND."""
-    rel = f"{item}/{GUARANTEE_FILE}"
+    rel = f"{item}/{INSPECTION_FILE}"
     text = read_record(root, rel)
     if text is None:
         return [
             (
                 rel,
                 0,
-                "git carries no guarantee file: the sealer's stage of Owlery's "
+                "git carries no inspection file: the inspector's stage of Owlery's "
                 "daemon writes it once the broad gate has passed on the "
                 "branch's head",
             )
         ]
-    verdicts, problems = blocks_of(rel, text, FIELDS.GUARANTEE, notices)
+    verdicts, problems = blocks_of(rel, text, FIELDS.INSPECTION, notices)
     if problems:
         return problems
     if not verdicts:
         return [(rel, 0, NO_VERDICT_BLOCK)]
     newest = verdicts[-1]
     sha = newest.fields[FIELDS.TARGET].match["commit"]
-    sealed = FIELDS.verdict_word(newest) == FIELDS.SEALED
-    found = since_sealed(root, sha, item, base)
+    cleared = FIELDS.verdict_word(newest) == FIELDS.CLEARED
+    found = since_cleared(root, sha, item, base)
     if found is not None:
-        problems.append((rel, 0, since_sealed_reason(found, sealed)))
+        problems.append((rel, 0, since_cleared_reason(found, cleared)))
         if behind is not None:
             behind.append(found)
-    said = newest.fields[FIELDS.SEALER_VERDICT]
-    if not sealed:
-        line = f"{FIELDS.SEALER_VERDICT} {said.value}"
+    said = newest.fields[FIELDS.INSPECTION_VERDICT]
+    if not cleared:
+        line = f"{FIELDS.INSPECTION_VERDICT} {said.value}"
         problems.append(
             (
                 rel,
                 said.line,
-                f"the sealer's verdict reads `{line}`: a ready pull request needs "
-                f"`{FIELDS.SEALED}`. Where the reason of a `withheld` verdict "
+                f"the inspector's verdict reads `{line}`: a ready pull request needs "
+                f"`{FIELDS.CLEARED}`. Where the reason of a `withheld` verdict "
                 "names something to fix, fix it and start the chain again, in "
                 "the pane's session or by Owlery's daemon. The question of an "
                 "`undecided` verdict is decided by the pane's session or by "
                 "Owlery's orchestrator agent, or answered by the person. The chain "
-                "then runs the broad gate and the sealer's stage on the new "
+                "then runs the broad gate and the inspector's stage on the new "
                 "head, and each appends its block",
             )
         )
-    judge = newest.fields.get(FIELDS.JUDGED_BY)
-    if judge and judge.value in FIELDS.builders(newest):
-        line = f"{FIELDS.JUDGED_BY} {judge.value}"
-        said = JUDGE_BUILT.format(line=line, built=FIELDS.BUILT_BY)
-        problems.append((rel, judge.line, said))
+    inspector = newest.fields.get(FIELDS.INSPECTED_BY)
+    if inspector and inspector.value in FIELDS.builders(newest):
+        line = f"{FIELDS.INSPECTED_BY} {inspector.value}"
+        said = INSPECTOR_BUILT.format(line=line, built=FIELDS.BUILT_BY)
+        problems.append((rel, inspector.line, said))
     return problems
 
 
-# The pull request's body, read from the event payload: its seal section
+# The pull request's body, read from the event payload: its inspection section
 # alone, the lines between two marker lines, which Owlery's daemon writes as
-# a copy of the newest verdict block of the work item's `guarantee.md`. No
-# arm reads another line of the body: neither the back of the seal, which the
-# daemon writes between markers of its own below the seal section, nor the
+# a copy of the newest verdict block of the work item's `inspection.md`. No
+# arm reads another line of the body: neither the back of the inspection,
+# which the daemon writes between markers of its own below the inspection
+# section, nor the
 # lines the person writes.
-SECTION_OPEN = "<" + "!-- owlery:seal -->"
-SECTION_CLOSE = "<" + "!-- /owlery:seal -->"
+SECTION_OPEN = "<" + "!-- owlery:inspection -->"
+SECTION_CLOSE = "<" + "!-- /owlery:inspection -->"
 
 
 def marker_of(line):
@@ -1906,14 +1911,14 @@ def marker_of(line):
 
 
 SECTION_IS = (
-    f"the seal section, between `{SECTION_OPEN}` and `{SECTION_CLOSE}`, is the "
-    f"newest verdict block of the work item's `{GUARANTEE_FILE}` at the head "
+    f"the inspection section, between `{SECTION_OPEN}` and `{SECTION_CLOSE}`, is the "
+    f"newest verdict block of the work item's `{INSPECTION_FILE}` at the head "
     "commit, which Owlery's daemon copies there line for line"
 )
 BODY_LINE = "the pull request's body, line {line}: {why}; " + SECTION_IS
 BODY_UNREAD = (
-    "not read: the pull request's body, since {why}, so no seal section of it "
-    f"is compared with `{GUARANTEE_FILE}`, whose newest verdict block Owlery's "
+    "not read: the pull request's body, since {why}, so no inspection section of it "
+    f"is compared with `{INSPECTION_FILE}`, whose newest verdict block Owlery's "
     "daemon copies there"
 )
 BODY_WORKTREE = (
@@ -1922,33 +1927,33 @@ BODY_WORKTREE = (
 NO_SECTION = (
     f"it holds no `{SECTION_OPEN}` line and no `{SECTION_CLOSE}` line"
 )
-SECTION_TWICE = "it holds {count} `{marker}` lines, and a body holds one seal section"
+SECTION_TWICE = "it holds {count} `{marker}` lines, and a body holds one inspection section"
 SECTION_UNCLOSED = f"it holds no `{SECTION_CLOSE}` line after a `{SECTION_OPEN}` line"
 NO_JUDGED = "no declaration of this pull request reads"
-SECTION_NO_BLOCK = "the seal section holds no verdict block"
-SECTION_SECOND_BLOCK = "the seal section holds a second verdict block"
+SECTION_NO_BLOCK = "the inspection section holds no verdict block"
+SECTION_SECOND_BLOCK = "the inspection section holds a second verdict block"
 SECTION_DIFFERS = (
     "the section's verdict block holds {got} where the newest verdict block of "
     "`{rel}` at the head commit holds {want}"
 )
 SECTION_NO_RECORD = (
     "the section's verdict block copies none, since no judged work item's "
-    f"`{GUARANTEE_FILE}` holds a verdict block that reads at the head commit"
+    f"`{INSPECTION_FILE}` holds a verdict block that reads at the head commit"
 )
 
 
 def newest_verdict(root, item):
     """`(rel, block, lines)` of the newest verdict block of the work item's
-    `guarantee.md` at HEAD, the last, read through `lib/fields.py`: the
+    `inspection.md` at HEAD, the last, read through `lib/fields.py`: the
     record's path, the block, and its lines from its opening fence to its
     closing fence as the record holds them. None where git carries no such
     file, where the reader refuses a line of it, or where it holds no verdict
-    block, each of which the guarantee arm refuses."""
-    rel = f"{item}/{GUARANTEE_FILE}"
+    block, each of which the inspection arm refuses."""
+    rel = f"{item}/{INSPECTION_FILE}"
     text = read_record(root, rel)
     if text is None:
         return None
-    found = FIELDS.read(text, FIELDS.GUARANTEE)
+    found = FIELDS.read(text, FIELDS.INSPECTION)
     if found.refusals or not found.blocks:
         return None
     block = found.blocks[-1]
@@ -1966,22 +1971,22 @@ def _said(block, keys):
 
 
 def body(root, items, text, why):
-    """`(problems, notices)` of the pull request's body TEXT: its seal
-    section against the newest verdict block of the `guarantee.md` of each of
+    """`(problems, notices)` of the pull request's body TEXT: its inspection
+    section against the newest verdict block of the `inspection.md` of each of
     ITEMS, the judged work item directories, at HEAD. Where TEXT is None the
     body is named as not read for WHY; so is a body with no marker line
     (`marker_of`), one
     with more than one opening or closing marker, one whose closing marker
     does not follow its opening one, and one judged with no work item. The
     lines between the markers are read through `lib/fields.py` with the
-    grammar of a guarantee, and refused, naming the body's line: a line the
+    grammar of an inspection, and refused, naming the body's line: a line the
     reader refuses, a section with no verdict block or with a second, and a
     block whose keys and values are those of no item's newest verdict block,
     named at its first line that differs, or at its opening fence where that
     line is missing. A refusal stands on the work item's directory where
     ITEMS holds one, and on the pull request where it holds several. The arm
-    reads neither the verdict's word nor the judge against the builders: the
-    guarantee arm reads both on the record."""
+    reads neither the verdict's word nor the inspector against the builders:
+    the inspection arm reads both on the record."""
     if text is None:
         return [], [("", 0, BODY_UNREAD.format(why=why))]
     lines = BLOCKS.gfm_lines(text)
@@ -2002,7 +2007,7 @@ def body(root, items, text, why):
         return [], [(where, 0, BODY_UNREAD.format(why=said))]
     # The section's line N is the body's line `first + N`, each 1-based.
     first = opens[0] + 1
-    found = FIELDS.read("\n".join(lines[first : closes[0]]), FIELDS.GUARANTEE)
+    found = FIELDS.read("\n".join(lines[first : closes[0]]), FIELDS.INSPECTION)
     notices = [
         (where, 0, f"the pull request's body, line {first + line}: {why}")
         for line, why in found.notices
@@ -2053,7 +2058,7 @@ def local_root(root, routing):
 def root_name(routing, root, fork):
     """The root's repository-relative name the check reads the declarations
     under: the name `lib/optin.py#home_name_in` gives for the tree the check
-    reads, `seal`, or the second name beside a project's own `seal/`. That
+    reads, `iadd`. That
     tree is HEAD, and the working tree under `WORKTREE`, as
     `read_record` reads it.
 
@@ -2061,7 +2066,7 @@ def root_name(routing, root, fork):
     FORK gives, so a pull request that deletes only the marker keeps its
     declarations judged, and one that deletes the root is read under the
     name the root had. Where neither has one, or FORK is None, it is
-    `lib/optin.py#HOME`: a committed `seal/` with no marker is still read
+    `lib/optin.py#HOME`: a committed `iadd/` with no marker is still read
     under that name, and a repository whose root is local has nothing
     committed under any name.
 
@@ -2124,7 +2129,7 @@ def declared_for_this_branch(root, routing, work_items):
                 f"this repository keeps its root at {home} — local mode, where "
                 "nothing under the root is committed. So no routing declaration "
                 f"for `{branch}` can be read from what git carries, and the "
-                "review-chain check examined nothing. `seal mode shared` moves "
+                "review-chain check examined nothing. AgenticSeal's `mode shared` moves "
                 "the root into the tree and gets the check running."
             )
         return [], (
@@ -2151,29 +2156,35 @@ ROOT_LEFT_SAYS = (
 )
 
 # The trailer a session's commit ends with (`docs/checks/the-routing-check.md` *At
-# the pull request*), and its one value that names no work item.
-TRAILER = "Seal-Routing"
+# the pull request*), and its one value that names no work item. A commit
+# written before the rename carries the earlier key, and no commit can be
+# rewritten, so the check reads both; Owlery writes the first alone.
+TRAILER = "IADD-Routing"
+EARLIER_TRAILER = "Seal-Routing"
+TRAILERS = (TRAILER, EARLIER_TRAILER)
 NO_WORK_ITEM = "no work item"
 UNDECLARED_TRAILER = (
-    f"commit {{sha}} carries `{TRAILER}: {{item}}`, and no routing declaration "
+    "commit {sha} carries `{key}: {item}`, and no routing declaration "
     "this pull request judges names that work item: commit its `routing.md`, "
     "naming this branch, or correct the trailer"
 )
 LOCAL_TRAILER = (
-    f"commit {{sha}} carries `{TRAILER}: {{item}}` in a repository whose root "
+    "commit {sha} carries `{key}: {item}` in a repository whose root "
     "is local, where no routing declaration is committed for it to name: "
     "printed, not judged"
 )
 NO_WORK_ITEM_TRAILER = (
-    f"commit {{sha}} carries `{TRAILER}: {NO_WORK_ITEM}`: its session recorded "
+    f"commit {{sha}} carries `{{key}}: {NO_WORK_ITEM}`: its session recorded "
     "that the change belongs to no work item, and nothing here checks it "
     "further"
 )
 
 
 def routing_trailers(root, base):
-    """`[(commit, value)]` for each `Seal-Routing` trailer of this pull
-    request's own commits, oldest first, or None where git cannot list them.
+    """`[(commit, key, value)]` for each `IADD-Routing` trailer of this pull
+    request's own commits, and each `Seal-Routing` trailer a commit written
+    before the rename carries, oldest first, or None where git cannot list
+    them.
 
     The commits are `base..HEAD` with merges left out, read by git's own
     trailer parser so the key matches as git matches it. A commit someone
@@ -2190,7 +2201,8 @@ def routing_trailers(root, base):
         "--reverse",
         "-z",
         "--format=%H%x1f%ae%x1f%ce%x1f%(trailers:"
-        f"key={TRAILER},valueonly,separator=%x1e)",
+        + "".join(f"key={key}," for key in TRAILERS)
+        + "separator=%x1e)",
         f"{base}..HEAD",
     )
     if out is None:
@@ -2203,26 +2215,27 @@ def routing_trailers(root, base):
         sha, author, committer, values = parts
         if author.strip().lower() != committer.strip().lower():
             continue
-        for value in values.split("\x1e"):
-            if value.strip():
-                found.append((sha.strip(), value.strip()))
+        for trailer in values.split("\x1e"):
+            key, colon, value = trailer.partition(":")
+            if colon and value.strip():
+                found.append((sha.strip(), key.strip(), value.strip()))
     return found
 
 
 def trailer_findings(trailers, judged, local=False):
-    """`(problems, notices)` for TRAILERS, each `(commit, value)`: a value
+    """`(problems, notices)` for TRAILERS, each `(commit, key, value)`: a value
     naming a work item that is not among JUDGED, the ids of the declarations
     this pull request judges, is a problem; `no work item` is a notice. Where
     LOCAL, the root is under the common git directory and no declaration is
     ever committed, so a work item's value is a notice too."""
     problems, notices = [], []
-    for sha, value in trailers:
+    for sha, key, value in trailers:
         if value == NO_WORK_ITEM:
-            notices.append(("", 0, NO_WORK_ITEM_TRAILER.format(sha=sha[:8])))
+            notices.append(("", 0, NO_WORK_ITEM_TRAILER.format(sha=sha[:8], key=key)))
         elif local:
-            notices.append(("", 0, LOCAL_TRAILER.format(sha=sha[:8], item=value)))
+            notices.append(("", 0, LOCAL_TRAILER.format(sha=sha[:8], key=key, item=value)))
         elif value not in judged:
-            problems.append(("", 0, UNDECLARED_TRAILER.format(sha=sha[:8], item=value)))
+            problems.append(("", 0, UNDECLARED_TRAILER.format(sha=sha[:8], key=key, item=value)))
     return problems, notices
 
 
@@ -2329,16 +2342,16 @@ def retired(reader, root, fork, records):
 
 # What `judge` found, which `outcome` reads: whether the check ran, whether
 # it judged a work item, the refusals, whether a refusal fails the pull
-# request, whether the guarantee arm refused, the newest verdict block of
-# each judged work item whose seal is broken, the newest verdict block of each
+# request, whether the inspection arm refused, the newest verdict block of
+# each judged work item whose inspection lapsed, the newest verdict block of each
 # judged work item as `newest_verdict` gives it, and the sentence that says
-# why nothing was judged or why the check stopped. A seal is broken where
-# the newest verdict block reads `sealed` and the rounds arm, the gate arm
-# or the guarantee arm found its record behind HEAD, off it, or naming a
+# why nothing was judged or why the check stopped. An inspection lapsed where
+# the newest verdict block reads `cleared` and the rounds arm, the gate arm
+# or the inspection arm found its record behind HEAD, off it, or naming a
 # commit the repository cannot resolve: a fact the arms' comparisons
 # answered, and no sentence read back.
 Judged = collections.namedtuple(
-    "Judged", "ran judged problems strict unsealed broken verdicts why"
+    "Judged", "ran judged problems strict uncleared lapsed verdicts why"
 )
 COULD_NOT_RUN = Judged(
     False,
@@ -2403,7 +2416,7 @@ def judge(args):
     # from. An entry is anything at that name, a file or a link as much as a
     # directory, so a root that is not a directory, or one whose marker alone
     # left, keeps the declarations judged. A root that left is named by the
-    # merge base (`root_name`), so a project's own `seal/` at HEAD is not the
+    # merge base (`root_name`), so a project's own `iadd/` at HEAD is not the
     # root that stayed. Where git cannot answer, `git()` is None and
     # the declarations stay judged.
     if WORKTREE:
@@ -2463,9 +2476,9 @@ def judge(args):
     # The judged work items whose declaration reads, which the body arm
     # chooses its one work item from.
     bodied = []
-    # Whether the guarantee arm refused, and the newest verdict block of each
-    # work item whose seal is broken, which `outcome` tells apart.
-    unsealed, broken = False, []
+    # Whether the inspection arm refused, and the newest verdict block of each
+    # work item whose inspection lapsed, which `outcome` tells apart.
+    uncleared, lapsed = False, []
     for rel in declarations:
         item = os.path.dirname(rel)
         text = texts[rel]
@@ -2512,18 +2525,18 @@ def judge(args):
             direct.append(item)
         notices.extend(unread(reader, routing, root, item, item in chained))
         gate = broad_gate(reader, root, item, args.baseline, notices, closing)
-        sealing = guarantee(reader, root, item, args.baseline, notices, closing)
-        if args.sealing:
+        inspecting = inspection(reader, root, item, args.baseline, notices, closing)
+        if args.inspecting:
             notices.extend(
-                (p, n, f"{SEALING_SAYS}: {m}") for p, n, m in gate + sealing
+                (p, n, f"{INSPECTING_SAYS}: {m}") for p, n, m in gate + inspecting
             )
         else:
-            problems.extend(gate + sealing)
-            unsealed = unsealed or bool(sealing)
+            problems.extend(gate + inspecting)
+            uncleared = uncleared or bool(inspecting)
             behind.extend(closing)
         newest = newest_verdict(root, item) if behind else None
-        if newest and FIELDS.verdict_word(newest[1]) == FIELDS.SEALED:
-            broken.append(newest[1])
+        if newest and FIELDS.verdict_word(newest[1]) == FIELDS.CLEARED:
+            lapsed.append(newest[1])
     text, said = (None, BODY_WORKTREE) if WORKTREE else pull_request_body()
     found, unread_body = body(root, bodied, text, said)
     notices.extend(unread_body)
@@ -2536,10 +2549,10 @@ def judge(args):
     if found is None:
         return COULD_NOT_RUN
     for rel, line, message in found:
-        # The guarantee's line is the sealer's to write, so `--sealing` reads
-        # it as it reads every other guarantee check.
-        if args.sealing and rel.endswith(f"/{GUARANTEE_FILE}"):
-            notices.append((rel, line, f"{SEALING_SAYS}: {message}"))
+        # The inspection's line is the inspector's to write, so `--inspecting`
+        # reads it as it reads every other inspection check.
+        if args.inspecting and rel.endswith(f"/{INSPECTION_FILE}"):
+            notices.append((rel, line, f"{INSPECTING_SAYS}: {message}"))
         else:
             problems.append((rel, line, message))
 
@@ -2548,22 +2561,22 @@ def judge(args):
     for rel, line, message in problems:
         print(CONSOLE.annotate(kind, rel, line, message))
     verdicts = [v for v in (newest_verdict(root, item) for item in bodied) if v]
-    return Judged(True, True, problems, strict, unsealed, broken, verdicts, "")
+    return Judged(True, True, problems, strict, uncleared, lapsed, verdicts, "")
 
 
-# The check `--post` sends, and its title for each outcome. A seal and a
-# broken seal have a title that names the owl chain, for verdict blocks the
-# owl chain wrote, and one that names no chain.
-CHECK_NAME = "seal"
+# The check `--post` sends, and its title for each outcome. A cleared and a
+# lapsed inspection have a title that names the Owl Chain, for verdict blocks
+# whose `workflow:` line names it, and one that names no workflow.
+CHECK_NAME = "inspection"
 POST = "--post"
 SUCCESS, FAILURE, NEUTRAL = "success", "failure", "neutral"
-COULD_NOT_RUN_TITLE = "The seal check could not run"
+COULD_NOT_RUN_TITLE = "The inspection check could not run"
 NOT_JUDGED_TITLE = "Not judged: no work item is declared"
-SEALED_TITLE = "Sealed at {commits}"
-OWL_CHAIN_SEALED_TITLE = "Sealed by the owl chain at {commits}"
-BROKEN_TITLE = "Seal broken: a commit landed after {commits}"
-OWL_CHAIN_BROKEN_TITLE = "Seal of the owl chain broken: a commit landed after {commits}"
-NO_SEAL_TITLE = "No seal at the head commit"
+CLEARED_TITLE = "Cleared at {commits}"
+OWL_CHAIN_CLEARED_TITLE = "Cleared by the Owl Chain at {commits}"
+LAPSED_TITLE = "Inspection lapsed: a commit landed after {commits}"
+OWL_CHAIN_LAPSED_TITLE = "Inspection of the Owl Chain lapsed: a commit landed after {commits}"
+NOT_CLEARED_TITLE = "Not cleared: no inspection at the head commit"
 REFUSED_TITLE = "The records are refused"
 DRAFT_TITLE = "Draft: judged when it is ready"
 # GitHub keeps a check's summary up to 65,535 characters, and the cut stays
@@ -2581,40 +2594,47 @@ def outcome(judged):
     `post` sends. The exit code is 2 where the check could not run, 1 where a
     refusal fails the pull request, and 0 otherwise. A refusal in a draft is
     `neutral`. One in a ready pull request is a `failure`, titled with each
-    broken seal's sealed commit where a seal is broken, and otherwise by
-    whether the guarantee arm refused. With none the check passes, titled
-    with each judged work item's sealed commit, or as not judged where it
-    judged none. The title of a seal and of a broken seal names the owl
-    chain where every verdict block it names is one the owl chain wrote
-    (`by_owl_chain`)."""
+    lapsed inspection's cleared commit where an inspection lapsed, and
+    otherwise by whether the inspection arm refused. With none the check
+    passes, titled with each judged work item's cleared commit, or as not
+    judged where it judged none. The title of a cleared and of a lapsed
+    inspection names the Owl Chain where every verdict block it names says
+    the Owl Chain produced it (`by_owl_chain`)."""
     if not judged.ran:
         return Outcome(2, FAILURE, COULD_NOT_RUN_TITLE)
     if judged.problems and not judged.strict:
         return Outcome(0, NEUTRAL, DRAFT_TITLE)
-    if judged.problems and judged.broken:
-        commits = ", ".join(sealed_commits(judged.broken))
-        title = OWL_CHAIN_BROKEN_TITLE if by_owl_chain(judged.broken) else BROKEN_TITLE
+    if judged.problems and judged.lapsed:
+        commits = ", ".join(cleared_commits(judged.lapsed))
+        title = OWL_CHAIN_LAPSED_TITLE if by_owl_chain(judged.lapsed) else LAPSED_TITLE
         return Outcome(1, FAILURE, title.format(commits=commits))
     if judged.problems:
-        title = NO_SEAL_TITLE if judged.unsealed else REFUSED_TITLE
+        title = NOT_CLEARED_TITLE if judged.uncleared else REFUSED_TITLE
         return Outcome(1, FAILURE, title)
     blocks = [block for _rel, block, _lines in judged.verdicts]
-    sealed = sealed_commits(blocks)
-    if not judged.judged or not sealed:
+    cleared = cleared_commits(blocks)
+    if not judged.judged or not cleared:
         return Outcome(0, SUCCESS, NOT_JUDGED_TITLE)
-    title = OWL_CHAIN_SEALED_TITLE if by_owl_chain(blocks) else SEALED_TITLE
-    return Outcome(0, SUCCESS, title.format(commits=", ".join(sealed)))
+    title = OWL_CHAIN_CLEARED_TITLE if by_owl_chain(blocks) else CLEARED_TITLE
+    return Outcome(0, SUCCESS, title.format(commits=", ".join(cleared)))
+
+
+# The name of the Owl Chain's workflow, as a verdict block's `workflow:` line
+# names it (`apps/desktop/src/daemon/workflow.ts#OWL_CHAIN`).
+OWL_CHAIN = "owl-chain"
 
 
 def by_owl_chain(blocks):
-    """Whether the owl chain wrote each verdict block of BLOCKS: a block that
-    holds a `rules:` line is one it wrote, since the owl chain writes the
-    version of its rules there and the AgenticSeal plugin's sealer writes no
-    such line."""
-    return all(FIELDS.RULES in block.fields for block in blocks)
+    """Whether the Owl Chain produced each verdict block of BLOCKS: the block's
+    `workflow:` line names it. No title is read from another line."""
+    return all(
+        FIELDS.WORKFLOW in block.fields
+        and block.fields[FIELDS.WORKFLOW].value == OWL_CHAIN
+        for block in blocks
+    )
 
 
-def sealed_commits(blocks):
+def cleared_commits(blocks):
     """The commit each verdict block of BLOCKS targets, each distinct one by
     its first seven characters, in the order they come, as a title names
     them."""
@@ -2666,7 +2686,7 @@ def head_commit():
 
 
 def post(result, judged, environ=None, opener=None):
-    """Sends RESULT as the check `seal` on the payload's head commit:
+    """Sends RESULT as the check `inspection` on the payload's head commit:
     one `POST` to `<GITHUB_API_URL>/repos/<GITHUB_REPOSITORY>/check-runs`
     with the token of `GITHUB_TOKEN`. Returns None where GitHub took it, and
     the sentence of a notice where nothing was sent or GitHub refused it. The
@@ -2698,7 +2718,7 @@ def post(result, judged, environ=None, opener=None):
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json",
-            "User-Agent": "owlery-seal-check",
+            "User-Agent": "owlery-inspection-check",
         },
     )
     try:
@@ -2714,7 +2734,7 @@ def post(result, judged, environ=None, opener=None):
 
 def main(argv=None):
     """The check. Returns the exit code `outcome` gives, and with `--post`
-    sends the outcome as the check `seal`."""
+    sends the outcome as the check `inspection`."""
     ap = argparse.ArgumentParser(
         prog="chain-check",
         description="At the pull request: the declared parties left the records "
@@ -2723,7 +2743,7 @@ def main(argv=None):
     ap.add_argument("--baseline", metavar="REF", required=True)
     ap.add_argument("--root", default=".")
     ap.add_argument("--worktree", action="store_true")
-    ap.add_argument(SEALING, action="store_true")
+    ap.add_argument(INSPECTING, action="store_true")
     ap.add_argument(POST, action="store_true")
     args = ap.parse_args(argv)
     judged = judge(args)
@@ -2733,9 +2753,9 @@ def main(argv=None):
             said = NOT_POSTED.format(
                 why="--worktree reads the working tree, and CI posts the check from HEAD"
             )
-        elif args.sealing:
+        elif args.inspecting:
             said = NOT_POSTED.format(
-                why=f"{SEALING} runs before the sealer writes `{GUARANTEE_FILE}`"
+                why=f"{INSPECTING} runs before the inspector writes `{INSPECTION_FILE}`"
             )
         else:
             said = post(result, judged)

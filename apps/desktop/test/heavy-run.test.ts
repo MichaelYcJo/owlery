@@ -31,8 +31,8 @@ const holds = (name: string): string => `touch "$OUT/${name}.started"; while [ -
 
 /** Writes the records root's config.json of a folder with these heavy commands, and commits it. */
 function naming(folder: string, heavy: unknown): void {
-  write(folder, "seal/README.md", `${MARKER}\n`);
-  write(folder, "seal/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
+  write(folder, "iadd/README.md", `${MARKER}\n`);
+  write(folder, "iadd/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": heavy }, null, 2)}\n`);
   commitAll(folder, "chore: name the heavy commands");
 }
 
@@ -78,7 +78,7 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
     const out = stood.made.base;
     const appends = 'echo "$(basename "$PWD")" >> "$OUT/order"';
     for (const [index, item] of [reviewed, built].entries()) {
-      const directory = `seal/threads/${String(index + 1)}-work`;
+      const directory = `iadd/threads/${String(index + 1)}-work`;
       write(item.worktree, `${directory}/routing.md`, routingText(`${String(index + 1)}-work`, branchOf(item), "2026-11-25"));
       if (item === reviewed) write(item.worktree, `${directory}/trail/rounds/round-1.md`, "# Review round 1\n");
       naming(item.worktree, { mark: appends });
@@ -235,12 +235,25 @@ describe("the runner of heavy commands", { timeout: 60_000 }, () => {
       return end.err;
     };
     expect(RUN_REFUSED).toBe(64);
-    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of seal/config.json. It names `test` and `install`.\n');
+    expect(await refused(["lint"])).toBe('The repository names no heavy command "lint" under "Heavy commands" of iadd/config.json. It names `test` and `install`.\n');
     expect(await refused([])).toBe(`\`run\` takes the name of a heavy command the repository names.\n${USAGE}`);
     expect(await refused(["test", "a.test.ts"])).toBe(`\`run\` takes the words it adds to the command after \`--\`.\n${USAGE}`);
     naming(on.repo, "pnpm test");
-    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of seal/config.json. It names none.\n');
+    expect(await refused(["test"])).toBe('The repository names no heavy command "test" under "Heavy commands" of iadd/config.json. It names none.\n');
     expect(existsSync(join(on.folder, "ran"))).toBe(false);
+  });
+
+  it("runs a command a root in the earlier form names where the worktree holds no records root, as this repository's runner does until its own move, and refuses a name it does not hold with that root's config.json", async () => {
+    const made = temporaryRepository();
+    cleanups.push(made.remove);
+    write(made.repo, "seal/README.md", "# What AgenticSeal maintains in seal/\n");
+    write(made.repo, "seal/config.json", `${JSON.stringify({ "Broad gate": "true", "Heavy commands": { test: 'touch "$OUT/ran"' } }, null, 2)}\n`);
+    commitAll(made.repo, "chore: the plugin's root");
+    const run = runner(made.repo, join(made.base, "run"), made.base, ["test"]);
+    expect((await run.end).code).toBe(0);
+    expect(existsSync(join(made.base, "ran"))).toBe(true);
+    const lint = await runner(made.repo, join(made.base, "run"), made.base, ["lint"]).end;
+    expect(lint).toEqual({ code: RUN_REFUSED, out: "", err: 'The repository names no heavy command "lint" under "Heavy commands" of seal/config.json. It names `test`.\n' });
   });
 });
 
@@ -269,9 +282,9 @@ describe("the stage lines of the turn socket", { timeout: 60_000 }, () => {
     const stage = { is: "stage", folder: on.repo, pane: 7, kind: "round", round: 1 };
     expect(await wrote(socketPath, JSON.stringify(stage))).toBe("");
     expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "fix-pass", round: 2 }))).toBe("");
-    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "seal" }))).toBe("");
+    expect(await wrote(socketPath, JSON.stringify({ ...stage, kind: "inspection" }))).toBe("");
     expect(await wrote(socketPath, JSON.stringify({ is: "stage-ended", folder: on.repo }))).toBe("");
-    expect(told).toEqual([stage, { ...stage, kind: "fix-pass", round: 2 }, { ...stage, kind: "seal" }, { is: "stage-ended", folder: on.repo }]);
+    expect(told).toEqual([stage, { ...stage, kind: "fix-pass", round: 2 }, { ...stage, kind: "inspection" }, { is: "stage-ended", folder: on.repo }]);
     told.length = 0;
     const { folder: _folder, ...noFolder } = stage;
     const { pane: _pane, ...noPane } = stage;

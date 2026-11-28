@@ -8,12 +8,12 @@ The Owlery and AgenticSeal names, the owl emblem and its drawings are not
 licensed under the Apache License 2.0. All rights reserved. The drawings in
 this repository are:
 
-- [`apps/desktop/assets/seals/owl.svg`](apps/desktop/assets/seals/owl.svg),
-  the red wax seal with a raised owl, which the app draws a seal's place
-  from.
-- [`apps/desktop/assets/seals/owl-icon-cream.svg`](apps/desktop/assets/seals/owl-icon-cream.svg),
-  the little owl on a wax seal drawn for a small size, which the app shows on
-  the line of a sealed work item.
+- [`apps/desktop/assets/marks/owl.svg`](apps/desktop/assets/marks/owl.svg),
+  a disc of red wax with a raised owl, which the app draws the inspection's
+  mark from.
+- [`apps/desktop/assets/marks/owl-icon-cream.svg`](apps/desktop/assets/marks/owl-icon-cream.svg),
+  the little owl on red wax drawn for a small size, which the app shows on
+  the line of a work item whose inspection is cleared.
 - [`apps/desktop/assets/icon/app-icon.svg`](apps/desktop/assets/icon/app-icon.svg),
   Owlery's emblem: a warm white owl on a black rounded square, which both
   READMEs open with.
@@ -30,8 +30,8 @@ this repository are:
   rsvg-convert -w 1024 -h 1024 assets/icon/app-icon.svg -o assets/icon/app-icon.png
   ```
 
-Each of the two seal drawings is the file of the same name from the
-AgenticSeal plugin 0.38.2, unchanged. The emblem's owl is the seal's little
-owl taken out of its wax.
+Each of the two drawings of the inspection's mark is the file of the same name
+from the AgenticSeal plugin 0.38.2, unchanged. The emblem's owl is the mark's
+little owl taken out of its wax.
 
 Nothing here reserves any code.

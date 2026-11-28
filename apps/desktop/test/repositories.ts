@@ -27,7 +27,7 @@ export type StoredPlace = Pick<StoredWorkItem, "id" | "title" | "createdAt" | "w
  */
 export function writeStore(runDir: string, repo: string, workItems: readonly StoredPlace[]): void {
   const items = workItems.map((place): StoredWorkItem => ({ ...place, pinned: false, muted: false, groupId: null, archivedAt: null, setup: null, chain: null, pullRequest: null, accountId: null, worktreeSize: null }));
-  const repository = { id: 1, folder: repo, name: null, icon: null, defaultBase: null, hidden: false, paneChain: null, addedAt: 1, groups: [], workItems: items, accountId: null };
+  const repository = { id: 1, folder: repo, name: null, icon: null, defaultBase: null, hidden: false, addedAt: 1, groups: [], workItems: items, accountId: null };
   writeFileSync(join(runDir, "repositories.json"), JSON.stringify({ nextWorkItemId: Math.max(0, ...workItems.map(({ id }) => id)) + 1, nextRepositoryId: 2, nextGroupId: 1, repositories: [repository] }), { mode: 0o600 });
 }
 

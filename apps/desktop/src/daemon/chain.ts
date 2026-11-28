@@ -17,22 +17,22 @@
 // Once the rounds settle the chain owes the repository's broad gate, which
 // is no session: `Daemon#runGate` runs the command, and this module reads
 // whether the gate holds at the branch's head. Where it holds the chain owes
-// the seal, a sealer's session on the gate's commit (`Daemon#runSeal`), until
-// the newest verdict block of the work item's guarantee seals that commit.
-// The step `sealed` then owes the pull request stage where the work item's
+// the inspection, an inspector's session on the gate's commit
+// (`Daemon#runInspection`), until the newest verdict block of the work item's
+// inspection clears that commit. The step `cleared` then owes the pull request stage where the work item's
 // routing sends it to a pull request and the pull request the daemon stores
 // does not carry the branch's head (`pullRequestOwed`): no step of the order,
 // since what GitHub holds is no record. `Daemon#runPullRequest` runs it, and
-// commits nothing, so the seal it carries stands.
+// commits nothing, so the inspection it carries stands.
 //
 // The order is code and two things are the orchestrator agent's: whether the
 // rounds are converging, asked before a fix pass on the record of round 2 or
 // a later round (`gateBefore`), and what a stage's question is decided as,
-// from the code and the policy, or whether it parks the work item. A sealer's
-// `undecided` verdict is such a question.
+// from the code and the policy, or whether it parks the work item. An
+// inspector's `undecided` verdict is such a question.
 import { join, relative } from "node:path";
 import type { Chain, ChainStage, ChainStageKind, GateRun, PullRequest, RoleStage } from "../shared/protocol";
-import { CHAIN_STAGE_KINDS } from "../shared/protocol";
+import { CHAIN_STAGE_KINDS, roleStageOf } from "../shared/protocol";
 import type { PermissionAction } from "./adapters/adapter";
 import { RECORD_FILE, readDecisionRecord } from "./decision-record";
 import { shellQuote } from "./hooks";
@@ -40,7 +40,7 @@ import { ASK_BLOCK, CONVERGENCE_BLOCK, ROUND_BASE, RULING_BLOCK, type Block, typ
 import { repositoryFileText } from "./repository-file";
 import { REFUSAL_RULES, type RefusalRule } from "./role-grants";
 import { type Close, type Finding, type Reference, type RoundRecord, type Target, readRoundRecord } from "./round-record";
-import { GATE_FILE, GUARANTEE_FILE, type Verdict, readGate, readGuarantee, runHeading } from "./seal-records";
+import { GATE_FILE, INSPECTION_FILE, type Verdict, readGate, readInspection, runHeading } from "./inspection-records";
 import { baseRef, commitNamed, fileAt, filesAt, holdsCommit, pathsBetween, pathsOfCommit, pathsOfCommits, sharedCommit } from "./worktrees";
 
 /** How many of a chain's stages the daemon keeps with its work item, the newest. A chain of two rounds and one fix pass is three, and each round after them adds two or three. */
@@ -52,7 +52,7 @@ export const PROMPT_DIFF_CHARS = 200_000;
 /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer, where the daemon's options, or the chain command's context in a pane, name no other. It bounds the usage a chain spends with nobody watching. */
 export const ROUNDS_CEILING = 6;
 
-/** For how many `undecided` verdicts of one guarantee the daemon asks the orchestrator for a ruling, where the daemon's options name no other number. The question of each later one parks the work item with no ruling asked. It bounds the gates and the sessions a sealer that keeps asking spends with nobody watching. */
+/** For how many `undecided` verdicts of one inspection the daemon asks the orchestrator for a ruling, where the daemon's options name no other number. The question of each later one parks the work item with no ruling asked. It bounds the gates and the sessions an inspector that keeps asking spends with nobody watching. */
 export const UNDECIDED_CEILING = 2;
 
 /** The file of a work item's directory that holds each call a role's rule refused. */
@@ -67,19 +67,25 @@ export const ROUNDS_FOLDER = join("trail", "rounds");
  * request check holds the same list
  * (`pr-check/skills/code-review/scripts/chain_check.py#CLOSING_RECORDS`).
  */
-export const CLOSING_RECORDS: readonly string[] = [GATE_FILE, GUARANTEE_FILE, REFUSALS_FILE];
+export const CLOSING_RECORDS: readonly string[] = [GATE_FILE, INSPECTION_FILE, REFUSALS_FILE];
 
 /** The subject of the commit that records a passed run of the broad gate. */
 export const GATE_SUBJECT = "chore: record the broad gate's run";
 
-/** The subject of the commit that records a sealer's verdict. */
-export const VERDICT_SUBJECT = "chore: record the sealer's verdict";
+/** The subject of the commit that records an inspector's verdict. */
+export const VERDICT_SUBJECT = "chore: record the inspector's verdict";
 
-/** The subject of the commit that records the orchestrator's ruling on the question of a sealer's `undecided` verdict. */
-export const SEAL_RULING_SUBJECT = "chore: record the orchestrator's ruling on the sealer's question";
+/** The subject of the commit that records the orchestrator's ruling on the question of an inspector's `undecided` verdict. */
+export const INSPECTION_RULING_SUBJECT = "chore: record the orchestrator's ruling on the inspector's question";
+
+/** The trailer of each commit that writes a work item's records: the work item's directory, which the pull request check reads (`pr-check/skills/code-review/scripts/chain_check.py#TRAILER`). */
+export const ROUTING_TRAILER = "IADD-Routing";
 
 /** The trailer of the commit that records a fix pass: the id its crafter's session named, which a verdict block then names among the sessions that built the work. */
-export const BUILT_BY_TRAILER = "Seal-Built-By";
+export const BUILT_BY_TRAILER = "IADD-Built-By";
+
+/** The trailer a fix pass's commit carried before the rename to IADD, which no commit can rewrite, so the sessions that built a work item are read from both. Owlery writes `BUILT_BY_TRAILER` alone. */
+export const EARLIER_BUILT_BY_TRAILER = "Seal-Built-By";
 
 /** The name of a round's record. */
 export function roundFile(round: number): string {
@@ -98,10 +104,10 @@ export class ChainStop extends Error {}
 /** A stage that failed: its message is the chain's whole sentence, which names the stage and says why. */
 export class StageStopped extends Error {}
 
-/** What a stage is called in a sentence. The broad gate, the seal and the pull request stage are named without their round: a chain runs each after its rounds. */
+/** What a stage is called in a sentence. The broad gate, the inspection and the pull request stage are named without their round: a chain runs each after its rounds. */
 export function stageName(kind: ChainStageKind, round: number): string {
   if (kind === "gate") return "The broad gate";
-  if (kind === "seal") return "The sealer's session";
+  if (kind === "inspection") return "The inspector's session";
   if (kind === "pull-request") return "The pull request stage";
   if (kind === "round") return `Review round ${String(round)}`;
   if (kind === "fix-pass") return `The fix pass of round ${String(round)}`;
@@ -158,9 +164,9 @@ export const READING_SAYS = "Owlery is reading the work item's records.";
 /** The sentence of a chain that waits for the person's answers. */
 export const PARKED_SAYS = "The chain waits for the answers to the work item's open questions.";
 
-/** The sentence of a chain that rests at the step `sealed` with no pull request stage owed: the commit the sealer sealed, which the broad gate passed on, and the last round. It says what that run ended with, and stays after a later commit breaks the seal. */
-export function sealedSays(round: number, commit: string): string {
-  return `The sealer sealed ${commit.slice(0, 7)}, after round ${String(round)}.`;
+/** The sentence of a chain that rests at the step `cleared` with no pull request stage owed: the commit the inspector cleared, which the broad gate passed on, and the last round. It says what that run ended with, and stays after a later commit lapses the inspection. */
+export function clearedSays(round: number, commit: string): string {
+  return `The inspector cleared ${commit.slice(0, 7)}, after round ${String(round)}.`;
 }
 
 /** The sentence of a chain that rests after the pull request stage opened its pull request. */
@@ -168,16 +174,16 @@ export function pullRequestOpenSays(number: number): string {
   return `Pull request #${String(number)} is open.`;
 }
 
-/** The sentence of a chain that rests after the pull request stage gave an open pull request the seal of the commit given. */
+/** The sentence of a chain that rests after the pull request stage gave an open pull request the inspection of the commit given. */
 export function pullRequestCarriesSays(number: number, commit: string): string {
-  return `Pull request #${String(number)} carries the seal at ${commit.slice(0, 7)}.`;
+  return `Pull request #${String(number)} carries the inspection at ${commit.slice(0, 7)}.`;
 }
 
 /** The `Destination` answer of a `routing.md` that sends the work to a pull request, as `pr-check/lib/routing.py#OPEN_PR` spells it. */
 export const OPEN_PULL_REQUEST = "open the pull request";
 
 /**
- * Whether the step `sealed` owes the pull request stage: the work item's
+ * Whether the step `cleared` owes the pull request stage: the work item's
  * `routing.md` at the branch's head answers `Destination` with
  * `OPEN_PULL_REQUEST`, and the pull request the daemon stores for the work
  * item is none, is `closed`, or is `open` and was last pushed at a commit
@@ -191,9 +197,9 @@ export function pullRequestOwed(destination: string | null, stored: PullRequest 
   return stored.state === "open" && stored.pushed !== head;
 }
 
-/** The sentence of a chain a sealer's `withheld` verdict stopped: the verdict's reason, as the sealer wrote it, ended with one full stop. */
+/** The sentence of a chain an inspector's `withheld` verdict stopped: the verdict's reason, as the inspector wrote it, ended with one full stop. */
 export function withheldSays(reason: string): string {
-  return `The sealer withheld its verdict: ${reason.replace(/\.+$/u, "")}.`;
+  return `The inspector withheld its verdict: ${reason.replace(/\.+$/u, "")}.`;
 }
 
 /** The sentence of a chain whose broad gate did not start: why, as a sentence's second half. */
@@ -258,10 +264,10 @@ export interface Standing {
   gateCommit: string | null;
   /** The paths that differ between the gate's commit and the branch's head, from the worktree's top, and none where `gateCommit` is null. */
   sinceGate: string[];
-  /** The verdict blocks of `guarantee.md` as the branch's head holds the file, the oldest first, and none where the head holds no such file. */
+  /** The verdict blocks of `inspection.md` as the branch's head holds the file, the oldest first, and none where the head holds no such file. */
   verdicts: Verdict[];
-  /** The commit, whole, that the newest of those verdict blocks names where it reads `sealed`. Null where no verdict stands, where the newest reads `withheld` or `undecided`, and where the repository holds no commit of that name. */
-  sealCommit: string | null;
+  /** The commit, whole, that the newest of those verdict blocks names where it reads `cleared`. Null where no verdict stands, where the newest reads `withheld` or `undecided`, and where the repository holds no commit of that name. */
+  clearedCommit: string | null;
 }
 
 /**
@@ -287,7 +293,7 @@ export interface ChainBase {
   named: string;
   /** The base's commit, whole, which a run of the broad gate names and the commits of the base stand at or before. Null where the chain has none. */
   commit: string | null;
-  /** What git reads the branch against for round 1's diff and the sealer's: a name that names a commit in the worktree. */
+  /** What git reads the branch against for round 1's diff and the inspector's: a name that names a commit in the worktree. */
   reads: string;
   /** The base as a branch's name, which a pull request is opened against, or null where the base is no branch. */
   branch: string | null;
@@ -352,10 +358,10 @@ export type Step =
   | { is: "fix-pass"; round: number; open: number[]; reversals: Reversal[] }
   // `round` is the last round, and `head` the branch's head, which the command runs on.
   | { is: "gate"; round: number; head: string }
-  // `round` is the last round, `commit` the gate's commit, which the verdict names, and `run` the sealer's run: one more than the verdict blocks that stand.
-  | { is: "seal"; round: number; commit: string; run: number }
-  // `round` is the last round, and `at` the gate's commit, which the newest verdict block seals.
-  | { is: "sealed"; round: number; at: string };
+  // `round` is the last round, `commit` the gate's commit, which the verdict names, and `run` the inspector's run: one more than the verdict blocks that stand.
+  | { is: "inspection"; round: number; commit: string; run: number }
+  // `round` is the last round, and `at` the gate's commit, which the newest verdict block clears.
+  | { is: "cleared"; round: number; at: string };
 
 /** Whether a path is the folder's own or below it. Both are read from the worktree's top, with `/` between their parts, as git prints them. */
 export function inFolder(path: string, folder: string): boolean {
@@ -394,12 +400,12 @@ export function gateHolds(standing: Pick<Standing, "gateCommit" | "sinceGate" | 
  *   round, on the commits after that target.
  * - The broad gate does not hold at the branch's head (`gateHolds`): the
  *   gate, on that head.
- * - The newest verdict block of the guarantee is no seal of the gate's
+ * - The newest verdict block of the inspection does not clear the gate's
  *   commit: none stands, it reads `withheld` or `undecided`, or it names
- *   another commit. The seal, on the gate's commit.
- * - Otherwise the step is `sealed`, at the gate's commit.
+ *   another commit. The inspection, on the gate's commit.
+ * - Otherwise the step is `cleared`, at the gate's commit.
  *
- * So no seal is asked for a commit other than the one the gate passed on,
+ * So no inspection is asked for a commit other than the one the gate passed on,
  * and none while a decision stands `reversed` or a commit is unread.
  */
 export function stepOwed(standing: Standing): Step {
@@ -413,8 +419,8 @@ export function stepOwed(standing: Standing): Step {
   if (answered || outside) return { is: "round", round: last.round + 1, target: `${standing.head}, fixes ${last.target.commit}..${standing.head}`, from: last.target.commit };
   const gate = gateHolds(standing) ? standing.gateCommit : null;
   if (gate === null) return { is: "gate", round: last.round, head: standing.head };
-  if (standing.sealCommit !== gate) return { is: "seal", round: last.round, commit: gate, run: standing.verdicts.length + 1 };
-  return { is: "sealed", round: last.round, at: gate };
+  if (standing.clearedCommit !== gate) return { is: "inspection", round: last.round, commit: gate, run: standing.verdicts.length + 1 };
+  return { is: "cleared", round: last.round, at: gate };
 }
 
 /** What a chain does before a fix pass: nothing, the orchestrator's judgment of whether the rounds are converging, or a stop at the ceiling of its rounds. */
@@ -491,16 +497,16 @@ function firstRefusal(record: Pick<RoundRecord, "refusals">, what: string): stri
  * paths the commits after the last
  * record's target changed, the gate's commit with the paths that differ
  * between it and the head, from the gate's record as the commit `head`
- * holds it, and the verdicts of the guarantee as that commit holds it. A
+ * holds it, and the verdicts of the inspection as that commit holds it. A
  * round record that only the worktree holds is not read: a round reads a
  * committed tree, and the next round reads what a commit holds. The record
  * of decisions is read as the worktree holds it, committed or not, where
  * `decisionsAt` is `worktree`, which is how a chain's run reads it, and as
- * the commit `head` holds it where it is `head`, which is how the seal at
- * the head is read (`seal-state.ts`). It throws a `ChainStop` where a
+ * the commit `head` holds it where it is `head`, which is how the inspection
+ * at the head is read (`inspection-state.ts`). It throws a `ChainStop` where a
  * round record the head holds does not read whole or names no target,
  * where its target names no commit, and where the reader refuses a line of
- * the gate's record or of the guarantee, with the file and the line, and what
+ * the gate's record or of the inspection, with the file and the line, and what
  * `repository-file.ts#repositoryFileText` throws where the record of
  * decisions stands in the worktree and cannot be read.
  */
@@ -535,11 +541,11 @@ export async function standingOf(worktree: string, directory: string, head: stri
   const newest = gate.runs.at(-1);
   // A run that names a commit the repository does not hold is no run of this branch, and the gate is owed.
   const gateCommit = newest === undefined ? null : await commitNamed(worktree, newest.commit);
-  const guaranteeFile = join(from(directory), GUARANTEE_FILE);
-  const guarantee = readGuarantee((await fileAt(worktree, head, guaranteeFile)) ?? "");
-  const unreadVerdict = firstRefusal(guarantee, guaranteeFile);
+  const inspectionFile = join(from(directory), INSPECTION_FILE);
+  const inspection = readInspection((await fileAt(worktree, head, inspectionFile)) ?? "");
+  const unreadVerdict = firstRefusal(inspection, inspectionFile);
   if (unreadVerdict !== null) throw new ChainStop(unreadVerdict);
-  const verdict = guarantee.verdicts.at(-1);
+  const verdict = inspection.verdicts.at(-1);
   return {
     rounds,
     openQuestion: decisions?.questions.some((question) => question.state.is === "open") ?? false,
@@ -551,8 +557,8 @@ export async function standingOf(worktree: string, directory: string, head: stri
     directory: from(directory),
     gateCommit,
     sinceGate: gateCommit === null ? [] : await pathsBetween(worktree, gateCommit, head),
-    verdicts: guarantee.verdicts,
-    sealCommit: verdict?.is === "sealed" ? await commitNamed(worktree, verdict.commit) : null,
+    verdicts: inspection.verdicts,
+    clearedCommit: verdict?.is === "cleared" ? await commitNamed(worktree, verdict.commit) : null,
   };
 }
 
@@ -586,7 +592,7 @@ export function routingText(workItem: string, branch: string, date: string, auto
     "",
     "## Why this way",
     "",
-    `The branch was built in the person's own session, and its chain was started for a seal on it.${automation === null ? "" : " The session that started the chain gave the answer on \`Automation\`."}`,
+    `The branch was built in the person's own session, and its chain was started for an inspection of it.${automation === null ? "" : " The session that started the chain gave the answer on \`Automation\`."}`,
     "",
   ].join("\n");
 }
@@ -685,11 +691,11 @@ export function fixPassPrompt(given: { round: number; worktree: string; director
   return { shown, diff: "" };
 }
 
-/** The role and the stage the sealer is launched as. */
-export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
+/** The role and the stage the inspector is launched as. */
+export const INSPECTOR: RoleStage = { role: "inspector", stage: "inspection" };
 
 /**
- * The seal's prompt: the sealer's run, the work item's worktree, the work
+ * The inspection's prompt: the inspector's run, the work item's worktree, the work
  * item's directory, the heading its section opens with and the `target:`
  * line its verdict carries, the paths of the routing, of every round record
  * and of the gate's record, the paths of the record of decisions, of the
@@ -698,21 +704,21 @@ export const SEALER: RoleStage = { role: "sealer", stage: "seal" };
  * and their diff, cut at `PROMPT_DIFF_CHARS` characters with a line that
  * says so. Every path but the worktree's is from the top of the worktree
  * the prompt names (`openingLine`). The form of the answer is named by the
- * sealer's definition, whose paths are the bundle's, so the prompt gives
+ * inspector's definition, whose paths are the bundle's, so the prompt gives
  * no path of the bundle. It says to write no file of that worktree, and
- * names no place for the sealer's commands, as `roundPrompt` does.
+ * names no place for the inspector's commands, as `roundPrompt` does.
  *
- * `earlier` is the seal a later commit broke, where the run follows one: its
- * run and its sealed commit, which the prompt names. The paths and the diff
+ * `earlier` is the inspection a later commit lapsed, where the run follows
+ * one: its run and its cleared commit, which the prompt names. The paths and the diff
  * are then what changed since that commit, and otherwise since the branch
  * left its base. The target line is the caller's either way, so the verdict
  * still names the gate's commit against the base.
  */
-export function sealPrompt(given: { run: number; worktree: string; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
+export function inspectionPrompt(given: { run: number; worktree: string; directory: string; target: string; rounds: readonly number[]; decisions: boolean; frame: boolean; phases: boolean; changelog: boolean; earlier: { run: number; commit: string } | null; paths: readonly string[]; diff: string }): StagePrompt {
   const workItem = given.directory.slice(given.directory.lastIndexOf("/") + 1);
-  const since = given.earlier === null ? "since it left its base" : `since the commit run ${String(given.earlier.run)} sealed`;
+  const since = given.earlier === null ? "since it left its base" : `since the commit run ${String(given.earlier.run)} cleared`;
   const shown = [
-    openingLine(`Run ${String(given.run)} of the sealer on the work item \`${workItem}\``, given.worktree),
+    openingLine(`Run ${String(given.run)} of the inspector on the work item \`${workItem}\``, given.worktree),
     "",
     `- The work item's directory: \`${given.directory}\``,
     `- Your section's heading: \`${runHeading(given.run)}\``,
@@ -725,9 +731,9 @@ export function sealPrompt(given: { run: number; worktree: string; directory: st
     ...(given.phases ? [`- The phase records: \`${given.directory}/trail/phases/\``] : []),
     ...(given.changelog ? [`- The changelog fragment: \`${given.directory}/changelog.md\``] : []),
     "- The issue: the work item names none, so no issue's text is among what you read",
-    ...(given.earlier === null ? [] : [`- The seal this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${GUARANTEE_FILE}\` sealed \`${given.earlier.commit}\`, and a commit after it broke that seal`]),
+    ...(given.earlier === null ? [] : [`- The inspection this run follows: run ${String(given.earlier.run)} of \`${given.directory}/${INSPECTION_FILE}\` cleared \`${given.earlier.commit}\`, and a commit after it lapsed that inspection`]),
     "",
-    `Your answer is your run's section of the guarantee, whole, from its heading to its end, in the form of the guarantee's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who judged it, appends the section to \`${given.directory}/${GUARANTEE_FILE}\` and commits it. Write no file of that worktree: read its files.`,
+    `Your answer is your run's section of the inspection, whole, from its heading to its end, in the form of the inspection's template that your definition names. Its verdict block holds the target line above and one \`Verdict:\` line, and no other line: Owlery adds who built the work and who inspected it, appends the section to \`${given.directory}/${INSPECTION_FILE}\` and commits it. Write no file of that worktree: read its files.`,
     "",
     given.paths.length === 0 ? `The branch changed no path ${since}.` : `The branch changed these paths ${since}:`,
     ...given.paths.map((path) => `- \`${path}\``),
@@ -754,9 +760,9 @@ export function convergencePrompt(given: { round: number; worktree: string; dire
     `- The round records, the oldest first: ${given.rounds.map((round) => `\`${given.directory}/trail/rounds/${roundFile(round)}\``).join(", ")}`,
     ...(given.decisions ? [`- The decisions and the answers to hold to: \`${given.directory}/${RECORD_FILE}\``] : []),
     "",
-    `Round ${String(given.round)} left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one \`seal\` block, written so:`,
+    `Round ${String(given.round)} left a finding open, and a fix pass on its record is owed. Judge from the records whether the review rounds are converging. Your answer holds one \`iadd\` block, written so:`,
     "",
-    "```seal",
+    "```iadd",
     "converging: <yes or no>",
     "grounds: <why, on one line>",
     "```",
@@ -793,9 +799,9 @@ export function rulingPrompt(given: { round: number; worktree: string; directory
       ...(ask.default === null ? [] : [`   - Its default: \`${ask.default}\``]),
     ]),
     "",
-    "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `seal` block for each question, written so:",
+    "Decide each question from the code and the policy, and park only one they cannot answer. Your answer holds one `iadd` block for each question, written so:",
     "",
-    "```seal",
+    "```iadd",
     "rules: <the question's number> <default, scope, answered or park>",
     "decided: <what was decided, on one line; a park holds no such line>",
     "grounds: <why, on one line>",
@@ -818,14 +824,14 @@ export interface Ask {
   default: string | null;
 }
 
-/** The question of a sealer's `undecided` verdict as a stage's question: the verdict's question, grounds that name the run of the guarantee it stands in, and no option. */
+/** The question of an inspector's `undecided` verdict as a stage's question: the verdict's question, grounds that name the run of the inspection it stands in, and no option. */
 export function undecidedAsk(run: number, question: string): Ask {
-  return { asks: question, grounds: `The sealer asked it in place of a verdict, in run ${String(run)} of ${GUARANTEE_FILE}.`, options: [], default: null };
+  return { asks: question, grounds: `The inspector asked it in place of a verdict, in run ${String(run)} of ${INSPECTION_FILE}.`, options: [], default: null };
 }
 
-/** The question of a sealer's `undecided` verdict that parks the work item with no ruling asked: its grounds also say that the guarantee already holds as many such verdicts as the daemon asks a ruling for. */
+/** The question of an inspector's `undecided` verdict that parks the work item with no ruling asked: its grounds also say that the inspection already holds as many such verdicts as the daemon asks a ruling for. */
 export function undecidedParked(ask: Ask, ceiling: number): Ask {
-  return { ...ask, grounds: `${ask.grounds} The guarantee already holds ${ceiling === 1 ? "one verdict" : `${String(ceiling)} verdicts`} that asked, and Owlery asks the orchestrator for a ruling on no more than that.` };
+  return { ...ask, grounds: `${ask.grounds} The inspection already holds ${ceiling === 1 ? "one verdict" : `${String(ceiling)} verdicts`} that asked, and Owlery asks the orchestrator for a ruling on no more than that.` };
 }
 
 /** The orchestrator's ruling on one question: a decision of its kind, or a park. `question` is the question's number in the prompt, from 1. */
@@ -834,7 +840,7 @@ export type Ruling = { question: number; is: "default" | "scope" | "answered"; d
 /**
  * The blocks of one kind an answer holds, in its order. An answer is prose
  * around its blocks, so what the reader says of the rest of it is not read:
- * another `seal` block, a comment's line, a fence it cannot place. It throws
+ * another `iadd` block, a comment's line, a fence it cannot place. It throws
  * a `ChainStop` where the reader refuses a block that opens as this kind
  * does, with the line and the reader's reason.
  */
@@ -875,7 +881,7 @@ export function asksOf(answer: string): Ask[] {
 export function convergenceOf(answer: string): { converging: boolean; grounds: string } {
   const blocks = blocksOf(answer, CONVERGENCE_BLOCK, "its judgment");
   const [block] = blocks;
-  if (block === undefined) throw new ChainStop("its answer holds no judgment: no `seal` block of it opens with `converging:`");
+  if (block === undefined) throw new ChainStop("its answer holds no judgment: no `iadd` block of it opens with `converging:`");
   if (blocks.length > 1) throw new ChainStop(`its answer holds ${String(blocks.length)} blocks that open with \`converging:\`, and a judgment is one`);
   return { converging: field(block, "converging:")?.value === "yes", grounds: field(block, "grounds:")?.value ?? "" };
 }
@@ -898,7 +904,7 @@ export function rulingsOf(answer: string, questions: number): Ruling[] {
   }
   const asked = Array.from({ length: questions }, (_, index) => index + 1);
   const unruled = asked.filter((question) => !rulings.has(question));
-  if (unruled.length > 0) throw new ChainStop(`its answer holds no ruling on ${unruled.length === 1 ? "question" : "questions"} ${listed(unruled)}: no \`seal\` block of it opens with \`rules: ${String(unruled[0] ?? 0)} \``);
+  if (unruled.length > 0) throw new ChainStop(`its answer holds no ruling on ${unruled.length === 1 ? "question" : "questions"} ${listed(unruled)}: no \`iadd\` block of it opens with \`rules: ${String(unruled[0] ?? 0)} \``);
   return asked.flatMap((question) => rulings.get(question) ?? []);
 }
 
@@ -935,7 +941,7 @@ function kindCell(kind: ChainStageKind): string {
   return kind === "fix-pass" ? "fix pass" : kind;
 }
 
-/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`, `seal 2`. */
+/** A stage as a row of the refusals names it: `round 2`, `fix pass 1`, `judgment 2`, `ruling 2`, `inspection 2`. */
 function stageCell(kind: ChainStageKind, round: number): string {
   return `${kindCell(kind)} ${String(round)}`;
 }
@@ -1153,13 +1159,28 @@ function isGateRun(value: unknown): value is GateRun {
   return isRecord(value) && typeof value.command === "string" && isNumberOrNull(value.exitCode) && typeof value.output === "boolean";
 }
 
-/** A stage as a file holds one: one written before a chain ran a broad gate has no `gate`. */
-type WrittenStage = Omit<ChainStage, "gate"> & { gate?: GateRun | null };
+/** A stage as a file holds one: one written before a chain ran a broad gate has no `gate`, and one written before the rename to IADD may hold an earlier kind (`storedKind`). */
+type WrittenStage = Omit<ChainStage, "gate" | "kind"> & { kind: string; gate?: GateRun | null };
+
+/** The kinds a build before the rename to IADD stored a stage under, by the kind this build names: `seal` is the stage `inspection`. A map, so a member name of `Object.prototype`, such as `constructor`, names no kind. */
+const EARLIER_KINDS: ReadonlyMap<string, ChainStageKind> = new Map<string, ChainStageKind>([["seal", "inspection"]]);
+
+/** The kind of `CHAIN_STAGE_KINDS` a stored value names: one of them, or an earlier kind (`EARLIER_KINDS`); nothing where it names none. The cost ledger reads a stage's kind with it too. */
+export function storedKind(value: unknown): ChainStageKind | undefined {
+  if (typeof value !== "string") return undefined;
+  return CHAIN_STAGE_KINDS.includes(value as ChainStageKind) ? (value as ChainStageKind) : EARLIER_KINDS.get(value);
+}
+
+/** The pair of `ROLE_STAGES` a stored value names, as `roleStageOf` reads it, or the inspector's pair where it names the sealer at the seal, as a build before the rename to IADD stored it; nothing where it names none. */
+export function storedRoleStage(value: unknown): RoleStage | undefined {
+  if (isRecord(value) && value.role === "sealer" && value.stage === "seal") return INSPECTOR;
+  return roleStageOf(value);
+}
 
 function isChainStage(value: unknown): value is WrittenStage {
   return (
     isRecord(value) &&
-    CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind) &&
+    storedKind(value.kind) !== undefined &&
     typeof value.round === "number" &&
     ["working", "finished", "failed"].includes(value.state as string) &&
     isTextOrNull(value.failure) &&
@@ -1208,9 +1229,10 @@ export function isChain(value: unknown): value is WrittenChain {
  * takes the end of its newest stage, the start of that stage where it did
  * not end, and 0 where it holds no stage. A chain an earlier build stored
  * `reviewed` or `sealed` is no chain of this build, and is read as none.
- * `reviewed` said that nothing was owed, and a seal now is. `sealed` said
- * that the branch was sealed, and stayed so after a later commit broke the
- * seal, which `WorkItem.seal` now says from the branch's head. The next
+ * `reviewed` said that nothing was owed, and an inspection now is. `sealed`
+ * said that the branch was sealed, and stayed so after a later commit lapsed
+ * that inspection, which `WorkItem.inspection` now says from the branch's
+ * head. The next
  * start reads the step owed from the records.
  */
 export function chainOf(chain: WrittenChain): Chain | null {
@@ -1219,7 +1241,7 @@ export function chainOf(chain: WrittenChain): Chain | null {
   return {
     state: chain.state,
     says: chain.says,
-    stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate }) => ({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate: gate ? { command: gate.command, exitCode: gate.exitCode, output: gate.output } : null })),
+    stages: chain.stages.map(({ kind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate }) => ({ kind: storedKind(kind) as ChainStageKind, round, state, failure, startedAt, endedAt, headlessId, refusals, gate: gate ? { command: gate.command, exitCode: gate.exitCode, output: gate.output } : null })),
     since: chain.since ?? newest?.endedAt ?? newest?.startedAt ?? 0,
   };
 }

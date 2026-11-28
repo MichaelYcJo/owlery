@@ -1,6 +1,6 @@
 // The summary screen: what changed since the person last looked, in one
 // sentence and one line per changed work item, with no terminal on it.
-import { byId, changes, held, part, sealPlace, stateIcon } from "./shared";
+import { byId, changes, held, part, markPlace, stateIcon } from "./shared";
 import { ageOf, lastHere, lineSince, summaryControls, summaryHead } from "./view";
 
 export interface SummaryActions {
@@ -70,8 +70,8 @@ function draw(): void {
     ...changed.map(({ workItem, line, session, sentence }) => {
       const button = document.createElement("button");
       button.dataset.workItem = String(workItem.id);
-      // The age is of the state the sentence opens with, as the pane carries it now, or of the park for a work item parked with questions. The seal is the work item's as the lists now give it.
-      button.append(stateIcon(line.state), part("title", line.title), part("change", sentence), part("age", ageOf(lineSince(workItem, session), Date.now())), sealPlace("line", workItem.seal));
+      // The age is of the state the sentence opens with, as the pane carries it now, or of the park for a work item parked with questions. The inspection is the work item's as the lists now give it.
+      button.append(stateIcon(line.state), part("title", line.title), part("change", sentence), part("age", ageOf(lineSince(workItem, session), Date.now())), markPlace("line", workItem.inspection));
       button.addEventListener("click", () => actions.openView(workItem.id));
       const item = document.createElement("li");
       item.append(button);

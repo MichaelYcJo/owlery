@@ -1,17 +1,17 @@
 // The pull request stage's parts that read no daemon: the remote the branch
 // is pushed to, the base and the title the pull request is opened with, the
 // body composed from the records the head commit holds and the back of the
-// seal, and the seal section and the back's section replaced in a body a
+// inspection, and the inspection section and the back's section replaced in a body a
 // person may have edited. Each case runs on a temporary repository, and none
 // reaches a remote.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { OPEN_PULL_REQUEST, pullRequestOwed } from "../src/daemon/chain";
-import { BACK_CLOSE, BACK_OPEN, BODY_LIMIT, CHECKS_KEPT, SECTION_CLOSE, SECTION_OPEN, backSection, bodyRecords, checksOf, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, withBackSection, withSealSection } from "../src/daemon/github";
+import { BACK_CLOSE, BACK_OPEN, BODY_LIMIT, CHECKS_KEPT, SECTION_CLOSE, SECTION_OPEN, backSection, bodyRecords, checksOf, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, withBackSection, withInspectionSection } from "../src/daemon/github";
 import { type Cleanups, bareRemote, commitAll, write } from "./chain-run";
-import type { BackFinding, ChainStageKind, LedgerEntry, PullRequest, SealRecords } from "../src/shared/protocol";
-import { composeBack } from "../src/shared/seal-back";
+import type { BackFinding, ChainStageKind, LedgerEntry, PullRequest, BackRecords } from "../src/shared/protocol";
+import { composeBack } from "../src/shared/inspection-sheet";
 import { git, runs, temporaryClone, temporaryRepository } from "./repositories";
 
 const cleanups: Cleanups = [];
@@ -36,7 +36,7 @@ async function refusal(promise: Promise<unknown>): Promise<string> {
   }
 }
 
-describe("whether a sealed chain owes the pull request stage", () => {
+describe("whether a cleared chain owes the pull request stage", () => {
   const HEAD = "c".repeat(40);
   const stored = (state: PullRequest["state"], pushed = HEAD): PullRequest => ({ number: 3, url: "https://github.com/owner/project/pull/3", state, head: pushed, pushed, checks: "none", list: [], listCount: 0, readAt: 1, failure: null });
 
@@ -144,40 +144,40 @@ describe("where the branch goes", () => {
 });
 
 const NAME = "1-x";
-const DIRECTORY = `seal/threads/${NAME}`;
+const DIRECTORY = `iadd/threads/${NAME}`;
 const GATE = "a".repeat(40);
 const OLDER = "b".repeat(40);
 const BASE = "c".repeat(40);
 
-/** A verdict block's lines between its fences, sealing the gate's commit. */
-const BLOCK = [`target: ${GATE} against main`, "Verdict: sealed", "built-by: the session, s-1", "judged-by: s-2", "model: fake", "rules: owlery 0.0.2"];
+/** A verdict block's lines between its fences, clearing the gate's commit. */
+const BLOCK = [`target: ${GATE} against main`, "Verdict: cleared", "built-by: the session, s-1", "inspected-by: s-2", "model: fake", "rules: owlery 0.0.2"];
 
-/** The seal section the composer writes for `BLOCK`. */
-const SECTION = [SECTION_OPEN, "## Seal", "", `The newest verdict of \`${DIRECTORY}/guarantee.md\`. A seal binds the commit it names, and the check \`seal\` says whether it holds at this pull request's head commit:`, "", "```seal", ...BLOCK, "```", SECTION_CLOSE].join("\n");
+/** The inspection section the composer writes for `BLOCK`. */
+const SECTION = [SECTION_OPEN, "## Inspection", "", `The newest verdict of \`${DIRECTORY}/inspection.md\`. An inspection binds the commit it names, and the check \`inspection\` says whether it holds at this pull request's head commit:`, "", "```iadd", ...BLOCK, "```", SECTION_CLOSE].join("\n");
 
 /** A round record with one finding closed by the verdict given, or with none. */
 function round(number: number, closed: string | null): string {
-  const lines = [`# Review round ${String(number)}: ${NAME}`, "", "```seal", `target: ${GATE} against main`, "```", "", "## Findings", ""];
-  if (closed !== null) lines.push("### 1. The greeting misses its full stop.", "", "```seal", "severity: must", "location: `feature.txt:1`", "evidence: read `feature.txt:1`", "```", "", "Why it matters: it reads as cut off.", "", "```seal", `verdict: ${closed}`, "answer: The greeting ends with a full stop.", "```", "");
+  const lines = [`# Review round ${String(number)}: ${NAME}`, "", "```iadd", `target: ${GATE} against main`, "```", "", "## Findings", ""];
+  if (closed !== null) lines.push("### 1. The greeting misses its full stop.", "", "```iadd", "severity: must", "location: `feature.txt:1`", "evidence: read `feature.txt:1`", "```", "", "Why it matters: it reads as cut off.", "", "```iadd", `verdict: ${closed}`, "answer: The greeting ends with a full stop.", "```", "");
   return lines.join("\n");
 }
 
-/** Commits a work item's records as a sealed chain leaves them, with the changelog's text and the decisions given where each is given, and gives the head. */
-function records(made: { repo: string }, parts: { changelog?: string; decisions?: string; guarantee?: string } = {}): string {
+/** Commits a work item's records as a cleared chain leaves them, with the changelog's text and the decisions given where each is given, and gives the head. */
+function records(made: { repo: string }, parts: { changelog?: string; decisions?: string; inspection?: string } = {}): string {
   write(made.repo, `${DIRECTORY}/routing.md`, "# Routing\n");
   if (parts.changelog !== undefined) write(made.repo, `${DIRECTORY}/changelog.md`, parts.changelog);
   write(made.repo, `${DIRECTORY}/trail/rounds/round-1.md`, round(1, `fixed ${OLDER.slice(0, 7)}`));
   write(made.repo, `${DIRECTORY}/trail/rounds/round-2.md`, round(2, null));
-  write(made.repo, `${DIRECTORY}/trail/gate.md`, [`# Broad gate: ${NAME}`, "", "```seal", `run: ${OLDER} against ${BASE}`, "```", "", "```seal", `run: ${GATE} against ${BASE}`, "```", ""].join("\n"));
+  write(made.repo, `${DIRECTORY}/trail/gate.md`, [`# Broad gate: ${NAME}`, "", "```iadd", `run: ${OLDER} against ${BASE}`, "```", "", "```iadd", `run: ${GATE} against ${BASE}`, "```", ""].join("\n"));
   if (parts.decisions !== undefined) write(made.repo, `${DIRECTORY}/decisions.md`, parts.decisions);
-  write(made.repo, `${DIRECTORY}/guarantee.md`, parts.guarantee ?? [`# Guarantee: ${NAME}`, "", "## Run 1", "", "```seal", `target: ${OLDER} against main`, "Verdict: withheld reason: The suite failed.", "```", "", "## Run 2", "", "Read the records.", "", "```seal", ...BLOCK, "```", ""].join("\n"));
-  return commitAll(made.repo, "chore: record the sealer's verdict");
+  write(made.repo, `${DIRECTORY}/inspection.md`, parts.inspection ?? [`# Inspection: ${NAME}`, "", "## Run 1", "", "```iadd", `target: ${OLDER} against main`, "Verdict: withheld reason: The suite failed.", "```", "", "## Run 2", "", "Read the records.", "", "```iadd", ...BLOCK, "```", ""].join("\n"));
+  return commitAll(made.repo, "chore: record the inspector's verdict");
 }
 
 const DECISIONS = [
   `# Decisions and questions: ${NAME}`,
   "",
-  "```seal",
+  "```iadd",
   "decision: 1 route",
   "decided: The work item runs through the review chain.",
   "grounds: The routing reads so.",
@@ -185,7 +185,7 @@ const DECISIONS = [
   "state: decided",
   "```",
   "",
-  "```seal",
+  "```iadd",
   "decision: 2 default",
   "decided: The base is main.",
   "grounds: The repository names no other.",
@@ -212,17 +212,17 @@ function entry(kind: ChainStageKind, round: number, minutes: number, cost: numbe
   };
 }
 
-/** The ledger's entries of a chain of two rounds and one fix pass, then the broad gate and the sealer. */
-const ENTRIES = [entry("round", 1, 4, 0.28), entry("fix-pass", 1, 6, 0.41), entry("round", 2, 3, 0.19), entry("gate", 2, 2, null), entry("seal", 2, 3, 0.22)];
+/** The ledger's entries of a chain of two rounds and one fix pass, then the broad gate and the inspector. */
+const ENTRIES = [entry("round", 1, 4, 0.28), entry("fix-pass", 1, 6, 0.41), entry("round", 2, 3, 0.19), entry("gate", 2, 2, null), entry("inspection", 2, 3, 0.22)];
 
 /** Round 1's finding, closed by a fix. */
 const FIXED: BackFinding = { number: 1, says: "The greeting misses its full stop.", severity: "must", places: [{ path: "feature.txt", lines: "1" }], close: { verdict: "fixed", commit: OLDER.slice(0, 7), home: null, answer: "The greeting ends with a full stop." }, reopens: null, regression: null };
 
-/** What the records of a sealed chain of two rounds say for the back of its seal: round 1 left one finding, which a fix pass closed, and round 2 left none. */
-const RECORDS: SealRecords = {
+/** What the records of a cleared chain of two rounds say for the inspection sheet: round 1 left one finding, which a fix pass closed, and round 2 left none. */
+const RECORDS: BackRecords = {
   head: GATE,
-  record: { commit: GATE, branch: null, base: BASE, item: NAME, gate: GATE, rounds: 2, builtBy: ["the session"], judgedBy: "s-2", model: "fake", rules: "owlery 0.0.2" },
-  brokenBy: null,
+  record: { commit: GATE, branch: null, base: BASE, item: NAME, gate: GATE, rounds: 2, builtBy: ["the session"], inspectedBy: "s-2", model: "fake", rules: "owlery 0.0.2" },
+  lapsedBy: null,
   rounds: [
     { round: 1, target: GATE, findings: [FIXED], confirms: [], unread: 0 },
     { round: 2, target: GATE, findings: [], confirms: [], unread: 0 },
@@ -231,13 +231,13 @@ const RECORDS: SealRecords = {
   unreadRefusals: 0,
 };
 
-/** The back of that seal, and its section as the body writes it. */
+/** The back of that inspection, and its section as the body writes it. */
 const BACK = composeBack(RECORDS, ENTRIES, 0);
 const BACK_PART = [
   BACK_OPEN,
-  "## The back of the seal",
+  "## Inspection sheet",
   "",
-  "The review rounds caught 1 defect that was fixed before the seal. Findings by round: 1, 0.",
+  "The review rounds caught 1 defect that was fixed before the inspection. Findings by round: 1, 0.",
   "",
   "### Round 1, on `aaaaaaa`",
   "",
@@ -253,7 +253,7 @@ const BACK_PART = [
   "| Fix pass on round 1 | | 6 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.41 converted |",
   "| Round 2 | | 3 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.19 converted |",
   "| Broad gate | | 2 min | | | |",
-  "| Sealer | | 3 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.22 converted |",
+  "| Inspector | | 3 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.22 converted |",
   "",
   "The chain's stages cost $1.10 converted. A converted cost is the usage priced at API prices, and it is not a charge.",
   BACK_CLOSE,
@@ -261,14 +261,14 @@ const BACK_PART = [
 
 /** The body's parts below the back's section, as the composer writes them for `records` with a changelog and `DECISIONS`. */
 const CHANGED = ["## What changed", "", "- The greeting ends with a full stop."].join("\n");
-const GATE_PART = ["## Broad gate", "", "```seal", `run: ${GATE} against ${BASE}`, "```"].join("\n");
+const GATE_PART = ["## Broad gate", "", "```iadd", `run: ${GATE} against ${BASE}`, "```"].join("\n");
 const DECIDED = ["## Decided without asking", "", "- Decided: The work item runs through the review chain.", "  Grounds: The routing reads so.", "  State: decided", "- Decided: The base is main.", "  Grounds: The repository names no other.", "  State: reversed"].join("\n");
 
 /** The line that stands for a part the limit took, under its heading. */
 const held = (heading: string, path: string): string => `${heading}\n\n\`${DIRECTORY}/${path}\` holds this part.`;
 
 describe("the body of a pull request", () => {
-  it("opens with the seal section, which copies the newest verdict block of guarantee.md line for line, then holds the back of the seal between its markers, the changelog, the newest run of the broad gate and each decision, in that order, each under its heading", async () => {
+  it("opens with the inspection section, which copies the newest verdict block of inspection.md line for line, then holds the inspection sheet between its markers, the changelog, the newest run of the broad gate and each decision, in that order, each under its heading", async () => {
     const made = repository();
     const head = records(made, { changelog: "- The greeting ends with a full stop.\n", decisions: DECISIONS });
     const body = pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), BACK);
@@ -290,15 +290,15 @@ describe("the body of a pull request", () => {
     expect(pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), BACK)).toBe(`${[SECTION, BACK_PART, CHANGED, GATE_PART].join("\n\n")}\n`);
   });
 
-  it("refuses records whose guarantee holds no verdict block", async () => {
+  it("refuses records whose inspection holds no verdict block", async () => {
     const made = repository();
-    const head = records(made, { guarantee: `# Guarantee: ${NAME}\n\nNo verdict yet.\n` });
-    expect(await refusal(bodyRecords(made.repo, head, DIRECTORY))).toBe(`${DIRECTORY}/guarantee.md holds no verdict block at the head commit`);
+    const head = records(made, { inspection: `# Inspection: ${NAME}\n\nNo verdict yet.\n` });
+    expect(await refusal(bodyRecords(made.repo, head, DIRECTORY))).toBe(`${DIRECTORY}/inspection.md holds no verdict block at the head commit`);
   });
 
-  it("replaces a part whose text holds a marker line of the seal section or of the back's by the line that names its record, whatever the body's length, so the body holds each marker once", async () => {
+  it("replaces a part whose text holds a marker line of the inspection section or of the back's by the line that names its record, whatever the body's length, so the body holds each marker once", async () => {
     const made = repository();
-    const changelog = ["- The body opens with the seal section:", "", "```", SECTION_OPEN, "## Seal", `  ${SECTION_CLOSE}  `, "```", ""].join("\n");
+    const changelog = ["- The body opens with the inspection section:", "", "```", SECTION_OPEN, "## Inspection", `  ${SECTION_CLOSE}  `, "```", ""].join("\n");
     const head = records(made, { changelog, decisions: DECISIONS });
     const body = pullRequestBody(await bodyRecords(made.repo, head, DIRECTORY), BACK, 1_000_000);
     expect(body).toBe(`${[SECTION, BACK_PART, held("## What changed", "changelog.md"), GATE_PART, DECIDED].join("\n\n")}\n`);
@@ -318,7 +318,7 @@ describe("the body of a pull request", () => {
     }
   });
 
-  it("replaces the parts below the back's section, the last first, by a line that names each part's record, until the body is within the limit, and never cuts the seal section", async () => {
+  it("replaces the parts below the back's section, the last first, by a line that names each part's record, until the body is within the limit, and never cuts the inspection section", async () => {
     const made = repository();
     const changelog = `${"- A line of the changelog.\n".repeat(3000)}`;
     const head = records(made, { changelog, decisions: DECISIONS });
@@ -366,17 +366,17 @@ describe("the body of a pull request", () => {
   });
 });
 
-describe("the back of the seal in a pull request's body", () => {
+describe("the inspection sheet in a pull request's body", () => {
   it("writes the head's sentences, each round's findings with their places and closes, a round's lines not read, one table of the stages, the sums, the sessions outside the chain, the refused calls and the lines not read, between its two markers", () => {
     const open: BackFinding = { number: 2, says: "The farewell is missing", severity: "should", places: [{ path: "feature.txt", lines: "2-3" }, { path: "other.txt", lines: null }], close: null, reopens: null, regression: { round: 1, finding: 1 } };
-    const records: SealRecords = { ...RECORDS, rounds: [{ ...RECORDS.rounds[0]!, findings: [FIXED, open], unread: 2 }, { ...RECORDS.rounds[1]!, confirms: [{ round: 1, finding: 1 }] }], refusals: [{ kind: "round", round: 1, rule: "no-write" }, { kind: "round", round: 1, rule: "no-write" }, { kind: "seal", round: 2, rule: "no-command" }], unreadRefusals: 1 };
-    const entries = [entry("round", 1, 4, 0.28), entry("fix-pass", 1, 75, null, { state: "failed", stopped: "limit" }), entry("round", 2, 3, 0.19, { usage: { costUsd: 0.19, converted: false, models: [] } }), entry("gate", 2, 0, null), entry("seal", 2, 3, 0.22), { ...entry("round", 1, 1, 0.05), chain: null }];
+    const records: BackRecords = { ...RECORDS, rounds: [{ ...RECORDS.rounds[0]!, findings: [FIXED, open], unread: 2 }, { ...RECORDS.rounds[1]!, confirms: [{ round: 1, finding: 1 }] }], refusals: [{ kind: "round", round: 1, rule: "no-write" }, { kind: "round", round: 1, rule: "no-write" }, { kind: "inspection", round: 2, rule: "no-command" }], unreadRefusals: 1 };
+    const entries = [entry("round", 1, 4, 0.28), entry("fix-pass", 1, 75, null, { state: "failed", stopped: "limit" }), entry("round", 2, 3, 0.19, { usage: { costUsd: 0.19, converted: false, models: [] } }), entry("gate", 2, 0, null), entry("inspection", 2, 3, 0.22), { ...entry("round", 1, 1, 0.05), chain: null }];
     expect(backSection(composeBack(records, entries, 1), DIRECTORY)).toBe(
       [
         BACK_OPEN,
-        "## The back of the seal",
+        "## Inspection sheet",
         "",
-        "The review rounds caught 1 defect that was fixed before the seal. 1 finding is open. Findings by round: 2, 0.",
+        "The review rounds caught 1 defect that was fixed before the inspection. 1 finding is open. Findings by round: 2, 0.",
         "",
         "### Round 1, on `aaaaaaa`",
         "",
@@ -395,14 +395,14 @@ describe("the back of the seal in a pull request's body", () => {
         "| Fix pass on round 1 | Stopped at its limit | 1 h 15 min | | | No cost reported |",
         "| Round 2 | | 3 min | | | $0.19 |",
         "| Broad gate | | under 1 min | | | |",
-        "| Sealer | | 3 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.22 converted |",
+        "| Inspector | | 3 min | 12,300 / 2,100 | 48,000 / 9,200 | $0.22 converted |",
         "",
         "The chain's stages cost $0.50 converted and $0.19 charged. 1 stage reported no cost. A converted cost is the usage priced at API prices, and it is not a charge.",
         "",
         "1 session asked outside the chain cost $0.05 converted.",
         "",
         "- Round 1 was refused 2 calls: 2 by `no-write`.",
-        "- Sealer was refused 1 call: 1 by `no-command`.",
+        "- Inspector was refused 1 call: 1 by `no-command`.",
         "",
         "1 row of the refused calls was not read. 1 line of the ledger was not read.",
         BACK_CLOSE,
@@ -418,13 +418,13 @@ describe("the back of the seal in a pull request's body", () => {
   });
 
   it("says that no review round is recorded and holds no table where the records hold no round and the ledger no entry", () => {
-    expect(backSection(composeBack({ ...RECORDS, record: null, rounds: [] }, [], 0), DIRECTORY)).toBe([BACK_OPEN, "## The back of the seal", "", "No review round is recorded.", BACK_CLOSE].join("\n"));
+    expect(backSection(composeBack({ ...RECORDS, record: null, rounds: [] }, [], 0), DIRECTORY)).toBe([BACK_OPEN, "## Inspection sheet", "", "No review round is recorded.", BACK_CLOSE].join("\n"));
   });
 });
 
-describe("the seal section and the back's section of a body a person may have edited", () => {
-  const OLD = [SECTION_OPEN, "## Seal", "", "```seal", `target: ${OLDER} against main`, "Verdict: sealed", "```", SECTION_CLOSE];
-  const OLD_BACK = [BACK_OPEN, "## The back of the seal", "", "The review rounds caught nothing. Findings by round: 0.", BACK_CLOSE];
+describe("the inspection section and the back's section of a body a person may have edited", () => {
+  const OLD = [SECTION_OPEN, "## Inspection", "", "```iadd", `target: ${OLDER} against main`, "Verdict: cleared", "```", SECTION_CLOSE];
+  const OLD_BACK = [BACK_OPEN, "## Inspection sheet", "", "The review rounds caught nothing. Findings by round: 0.", BACK_CLOSE];
   /** The reason a replacing of the back's section was refused with, or the text "replaced". */
   const backRefused = (body: string): string => {
     try {
@@ -435,13 +435,13 @@ describe("the seal section and the back's section of a body a person may have ed
     }
   };
 
-  it("replaces the back's section from its opening marker to its closing marker and changes no other line, with the lines ended as the body ends them, and puts it after the seal section where the body holds none", () => {
+  it("replaces the back's section from its opening marker to its closing marker and changes no other line, with the lines ended as the body ends them, and puts it after the inspection section where the body holds none", () => {
     for (const end of ["\n", "\r\n"]) {
       const above = ["A person's line above.", "", ...SECTION.split("\n"), ""];
       const below = ["", "A person's line below.", ""];
       const expected = [...above, ...BACK_PART.split("\n"), ...below].join(end);
       expect(withBackSection([...above, ...OLD_BACK, ...below].join(end), BACK, DIRECTORY)).toBe(expected);
-      // No back's section: it stands after the seal section, a blank line on each side, whether or not one follows the seal section.
+      // No back's section: it stands after the inspection section, a blank line on each side, whether or not one follows the inspection section.
       expect(withBackSection([...above.slice(0, -1), ...below].join(end), BACK, DIRECTORY)).toBe(expected);
       expect(withBackSection([...above.slice(0, -1), ...below.slice(1)].join(end), BACK, DIRECTORY)).toBe(expected);
       expect(withBackSection([...above.slice(0, -1)].join(end), BACK, DIRECTORY)).toBe([...above, ...BACK_PART.split("\n"), ""].join(end));
@@ -449,16 +449,16 @@ describe("the seal section and the back's section of a body a person may have ed
     // A marker line is one of the two markers with spaces and tabs at its ends, and with no other character there.
     expect(withBackSection(`${SECTION}\n\n  ${BACK_OPEN} \nold\n${BACK_CLOSE}\t\nbelow`, BACK, DIRECTORY)).toBe(`${SECTION}\n\n${BACK_PART}\nbelow`);
     expect(withBackSection(`${SECTION}\n\n\u0085${BACK_OPEN}\nold\n﻿${BACK_CLOSE}\n`, BACK, DIRECTORY)).toBe(`${SECTION}\n\n${BACK_PART}\n\n\u0085${BACK_OPEN}\nold\n﻿${BACK_CLOSE}\n`);
-    // A body with no seal section takes the back's section before its first line.
+    // A body with no inspection section takes the back's section before its first line.
     expect(withBackSection("A person's body.\n", BACK, DIRECTORY)).toBe(`${BACK_PART}\n\nA person's body.\n`);
   });
 
   it("refuses a body with two opening markers of the back, with two closing ones, with an opening marker and no closing one after it, and with a closing marker alone, saying which", () => {
-    expect(backRefused([...OLD, ...OLD_BACK, ...OLD_BACK].join("\n"))).toBe(`the body holds 2 \`${BACK_OPEN}\` lines, and Owlery replaces one section of the back of the seal`);
-    expect(backRefused([BACK_OPEN, "x", BACK_CLOSE, BACK_CLOSE].join("\n"))).toBe(`the body holds 2 \`${BACK_CLOSE}\` lines, and Owlery replaces one section of the back of the seal`);
-    expect(backRefused([BACK_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the back of the seal ends`);
-    expect(backRefused([BACK_CLOSE, "x", BACK_OPEN].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the back of the seal ends`);
-    expect(backRefused(["x", BACK_CLOSE].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the back of the seal ends`);
+    expect(backRefused([...OLD, ...OLD_BACK, ...OLD_BACK].join("\n"))).toBe(`the body holds 2 \`${BACK_OPEN}\` lines, and Owlery replaces one section of the inspection sheet`);
+    expect(backRefused([BACK_OPEN, "x", BACK_CLOSE, BACK_CLOSE].join("\n"))).toBe(`the body holds 2 \`${BACK_CLOSE}\` lines, and Owlery replaces one section of the inspection sheet`);
+    expect(backRefused([BACK_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the inspection sheet ends`);
+    expect(backRefused([BACK_CLOSE, "x", BACK_OPEN].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the inspection sheet ends`);
+    expect(backRefused(["x", BACK_CLOSE].join("\n"))).toBe(`the body holds no \`${BACK_CLOSE}\` line after its \`${BACK_OPEN}\` line, so Owlery cannot tell where its section of the inspection sheet ends`);
   });
 
   it("lets the back's findings give way, the last round first, where the body with its new back would pass the limit, and cuts no line a person wrote", () => {
@@ -476,37 +476,37 @@ describe("the seal section and the back's section of a body a person may have ed
   it("replaces the lines from the opening marker to the closing marker and changes no other line, with the lines ended as the body ends them", () => {
     for (const end of ["\n", "\r\n"]) {
       const body = ["A person's line above.", "", ...OLD, "", "A person's line below, with `<!-- a comment -->` in it.", ""].join(end);
-      expect(withSealSection(body, SECTION)).toBe(["A person's line above.", "", ...SECTION.split("\n"), "", "A person's line below, with `<!-- a comment -->` in it.", ""].join(end));
+      expect(withInspectionSection(body, SECTION)).toBe(["A person's line above.", "", ...SECTION.split("\n"), "", "A person's line below, with `<!-- a comment -->` in it.", ""].join(end));
     }
     // A marker line is one of the two markers with spaces and tabs at its ends, and with no other character there.
-    expect(withSealSection(`  ${SECTION_OPEN} \nold\n${SECTION_CLOSE}\t\nbelow`, SECTION)).toBe(`${SECTION}\nbelow`);
-    expect(withSealSection(`\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`, SECTION)).toBe(`${SECTION}\n\n\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`);
+    expect(withInspectionSection(`  ${SECTION_OPEN} \nold\n${SECTION_CLOSE}\t\nbelow`, SECTION)).toBe(`${SECTION}\nbelow`);
+    expect(withInspectionSection(`\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`, SECTION)).toBe(`${SECTION}\n\n\u0085${SECTION_OPEN}\nold\n\ufeff${SECTION_CLOSE}\n`);
   });
 
   it("puts the section before the body's first line where the body holds no marker line, and is the section alone for an empty body", () => {
-    expect(withSealSection("A person's body.\n", SECTION)).toBe(`${SECTION}\n\nA person's body.\n`);
-    expect(withSealSection("", SECTION)).toBe(`${SECTION}\n`);
+    expect(withInspectionSection("A person's body.\n", SECTION)).toBe(`${SECTION}\n\nA person's body.\n`);
+    expect(withInspectionSection("", SECTION)).toBe(`${SECTION}\n`);
   });
 
   it("refuses a body with two opening markers, with two closing markers, with an opening marker and no closing one after it, and with a closing marker alone, saying which", () => {
     const refused = (body: string): string => {
       try {
-        withSealSection(body, SECTION);
+        withInspectionSection(body, SECTION);
         return "replaced";
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }
     };
-    expect(refused([...OLD, ...OLD].join("\n"))).toBe(`the body holds 2 \`${SECTION_OPEN}\` lines, and Owlery replaces one seal section`);
-    expect(refused([SECTION_OPEN, "x", SECTION_CLOSE, SECTION_CLOSE].join("\n"))).toBe(`the body holds 2 \`${SECTION_CLOSE}\` lines, and Owlery replaces one seal section`);
-    expect(refused([SECTION_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
-    expect(refused([SECTION_CLOSE, "x", SECTION_OPEN].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
-    expect(refused(["x", SECTION_CLOSE].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its seal section ends`);
+    expect(refused([...OLD, ...OLD].join("\n"))).toBe(`the body holds 2 \`${SECTION_OPEN}\` lines, and Owlery replaces one inspection section`);
+    expect(refused([SECTION_OPEN, "x", SECTION_CLOSE, SECTION_CLOSE].join("\n"))).toBe(`the body holds 2 \`${SECTION_CLOSE}\` lines, and Owlery replaces one inspection section`);
+    expect(refused([SECTION_OPEN, "x"].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
+    expect(refused([SECTION_CLOSE, "x", SECTION_OPEN].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
+    expect(refused(["x", SECTION_CLOSE].join("\n"))).toBe(`the body holds no \`${SECTION_CLOSE}\` line after its \`${SECTION_OPEN}\` line, so Owlery cannot tell where its inspection section ends`);
   });
 });
 
 describe("the checks of a pull request, as gh pr view's statusCheckRollup gives them", () => {
-  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "seal" });
+  const run = (name: string, status: string, conclusion: string | null = null) => ({ __typename: "CheckRun", name, status, conclusion, detailsUrl: `https://github.com/owner/project/runs/${name}`, workflowName: "inspection" });
   const context = (name: string, state: string) => ({ __typename: "StatusContext", context: name, state, targetUrl: `https://ci.example/${name}` });
 
   it("reads a check run as pending until it completes, then passed for success, neutral and skipped, and failed for every other conclusion", () => {

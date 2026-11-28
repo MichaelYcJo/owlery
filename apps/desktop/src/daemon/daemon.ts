@@ -7,8 +7,8 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { WebSocketServer, type WebSocket } from "ws";
 import { TerminalSession } from "./pty";
 import { isKeepAwakeChoice } from "../shared/keep-awake";
-import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainChoice, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Seal, type SealRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
-import { composeBack } from "../shared/seal-back";
+import { type Account, type AccountRefresh, accountFor, type Cap, type Chain, type ChainStage, type ChainStageKind, type Changes, type ClientMessage, type CommitInfo, type Decision, type DecisionKind, type GateRun, type HeadlessInfo, type KeepAwake, type LedgerEntry, losesWork, type Machine, type MachineReading, PANE_NAME_CHARS, type PaneKind, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlace, type Repository, type RoleStage, type Running, type Inspection, type BackRecords, type ServerMessage, type SessionInfo, SYSTEM_DEFAULT_ID, SYSTEM_DEFAULT_NAME, TAB_COLOURS, type TabColour, UNAUTHORIZED, type Unread, type Usage, type WordOwed, type WorkItem, type WorktreeSetup } from "../shared/protocol";
+import { composeBack } from "../shared/inspection-sheet";
 import type { AccountLogins, LoginStatus, RoleAdapter, RoleEvent, RoleFeature, RoleRun } from "./adapters/adapter";
 import { agentEventFor, agentSaid, isInterruptionEntry } from "./agent-events";
 import { agentStateAfter } from "./agent-state";
@@ -29,8 +29,9 @@ import {
   PARKED_SAYS,
   READING_SAYS,
   ROUNDS_CEILING,
-  SEALER,
-  SEAL_RULING_SUBJECT,
+  INSPECTOR,
+  INSPECTION_RULING_SUBJECT,
+  ROUTING_TRAILER,
   UNDECIDED_CEILING,
   type RefusedCall,
   type StagePrompt,
@@ -64,7 +65,7 @@ import {
   rulingPrompt,
   rulingsOf,
   runningSays,
-  sealedSays,
+  clearedSays,
   standingOf,
   stepOwed,
   stoppedSays,
@@ -76,7 +77,7 @@ import {
 } from "./chain";
 import { RECORD_FILE, ROUTING_FILE, type DecisionRecord, holdsWords, type OwedWords, owedWords, readDecisionRecord, routingAnswer, withAnswer, withBranch, withDecision, withQuestion, withReversal, workItemDirectories, workItemDirectory, writeRecord } from "./decision-record";
 import { GATE_LIMIT_MS, GATE_OUTPUT_CHARS, GATE_OUTPUT_FOLDER, type GateProcess, gateEnvironment, loginPath, outputCut, startGate } from "./gate";
-import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, sealSection, viewPullRequest, withBackSection, withSealSection } from "./github";
+import { GITHUB_LIMIT_MS, type GitHubCli, PR_POLL_MS, PR_REST_POLL_MS, bodyRecords, createPullRequest, editPullRequest, findOnPath, ghEnvironment, openPullRequests, pullRequestBody, pullRequestTitle, pushBranch, pushTarget, inspectionSection, viewPullRequest, withBackSection, withInspectionSection } from "./github";
 import { setupPaneCommand, withoutPaneVariables } from "./hooks";
 import { type HoldAwake, KeepAwakeStore, type WakeDisplay, wantsAwake } from "./keep-awake";
 import { LastLook } from "./last-look";
@@ -90,21 +91,22 @@ import { AccountStore, type StoredAccount } from "./accounts";
 import { Ledger } from "./ledger";
 import { RecordTimes } from "./record-times";
 import { onOwlChain, planRecords, readRecordsPlace, rootOf, setUpRecords } from "./records-place";
+import { earlierRecordsSays, earlierRootOf, migrateRecords, planMigration } from "./records-migration";
 import { type Held, RepositoryStore, setAsideNotice, type StoredRepository, type StoredWorkItem } from "./repositories";
 import { writeRecordFile } from "./record-writer";
 import { SessionLogWatch } from "./session-log";
-import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, sealStage } from "./stage-records";
+import { type InTurn, type Place, commitRecords, declaredDirectory, fixPassStage, gateOwed, recordFixPass, recordGate, recordRound, recordVerdict, roundStage, inspectionStage } from "./stage-records";
 import { repositoryFileText } from "./repository-file";
 import { grantOf, verdictOn } from "./role-grants";
-import type { Verdict } from "./seal-records";
-import { noSealRecords, sealRecords } from "./seal-back-records";
-import { refusedAt, workItemSeal } from "./seal-state";
+import type { Verdict } from "./inspection-records";
+import { noBackRecords, backRecords } from "./inspection-sheet-records";
+import { refusedAt, workItemInspection } from "./inspection-state";
 import type { StopCounts } from "./stop-record";
 import { writeWholeFile } from "./whole-file";
 import { INCLUDE_FILE, PANE_ENDED, SETUP_FILE, beginSetup, endedSetup, readSetup, signalEnded } from "./worktree-setup";
 import { BaseFetches, baseDistance, branchChanges, branchCommits, branchHead, branchName, type CommitBounds, commitNamed, commitPaths, createWorktree, fileAt, gitFolderOf, headCounts, headStands, makeBranch, newCommits, planBranchMaking, planBranchRename, planWorktree, readLoss, removeBranch, removeWorktree, renameBranch, repositoryOf, uncommittedPaths, whyNoCommit, worktreeHead, worktreesRoot } from "./worktrees";
 
-/** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a broken seal's sentence it sends. */
+/** How much of a state's text the daemon keeps, of each text it writes into a work item's record, and of a lapsed inspection's sentence it sends. */
 const STATE_TEXT_CHARS = 2000;
 
 /** The text of a session's state where the person interrupted its turn. */
@@ -273,13 +275,13 @@ interface WordTries {
   head: string | null;
 }
 
-/** What the records say for the back of a seal as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
-function sealRecordsOf(records: SealRecords): SealRecords {
-  const { record, brokenBy } = records;
+/** What the records say for the inspection sheet as a client is sent it: each string cut at `STATE_TEXT_CHARS`. */
+function backRecordsOf(records: BackRecords): BackRecords {
+  const { record, lapsedBy } = records;
   return {
     head: records.head,
-    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), judgedBy: cutText(record.judgedBy), model: cutText(record.model), rules: cutText(record.rules) },
-    brokenBy: brokenBy === null ? null : { commit: brokenBy.commit, subject: cutText(brokenBy.subject) },
+    record: record === null ? null : { ...record, commit: cutText(record.commit), branch: cutText(record.branch), base: cutText(record.base), item: cutText(record.item), gate: cutText(record.gate), builtBy: record.builtBy.map(cutText), inspectedBy: cutText(record.inspectedBy), model: cutText(record.model), rules: cutText(record.rules) },
+    lapsedBy: lapsedBy === null ? null : { commit: lapsedBy.commit, subject: cutText(lapsedBy.subject) },
     rounds: records.rounds.map((round) => ({
       ...round,
       findings: round.findings.map((finding) => ({
@@ -310,15 +312,12 @@ export interface PaneCommand {
   env: Record<string, string>;
 }
 
-/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none, the main checkout of the work item's repository, the chain the person chose for that repository's Claude Code panes, or null where they gave no answer, the config folder of the pane's account, or null where the account has none, as System default has none, and the config folder the pane's agent reads: the account's, or under System default the default login's as the adapter last found it, and null while it has found none. */
+/** What a pane's command is made from, beside its kind and its id: whether the pane starts on the latest conversation of its folder, the folder it opens in, which is its work item's worktree, the base the work item's chain reads the branch against, as round 1's target would name it (`chain.ts#roundBase`), or null where the work item records none, and the config folder of the pane's account, or null where the account has none, as System default has none. */
 export interface PaneStart {
   continueLatest: boolean;
   folder: string;
   base: string | null;
-  checkout: string;
-  chosen: ChainChoice | null;
   accountDir: string | null;
-  configDir: string | null;
   /** The id of the conversation a pane resumes, given only where a pane's account is changed and its hook events carried one. */
   resume?: string;
 }
@@ -331,8 +330,6 @@ export interface DaemonOptions {
   commandFor: (kind: PaneKind, id: number, start: PaneStart) => PaneCommand;
   /** The command of a setup pane, given the command a repository's `.worktreesetup` holds and the pane's id; `setupPaneCommand` of the daemon's environment when absent. */
   setupCommandFor?: (command: string, id: number) => PaneCommand;
-  /** Whether Claude Code enables the AgenticSeal plugin for a session in a folder of a repository, given the folder, the repository's main checkout and the config folder the session reads, which is null while the adapter has found no default login's folder. A daemon given none reads no settings of the person's, and tells a client that no repository has the plugin enabled. */
-  pluginEnabled?: (folder: string, checkout: string, configDir: string | null) => boolean;
   /** The adapter every headless session is started through. */
   roleAdapter: RoleAdapter;
   /** Where the repositories and their work items are kept, in `repositories.json`, the accounts, in `accounts.json`, the last look, in `last-look.json`, the choice of when to keep the Mac awake, in `keep-awake.json`, the caps a person set on the machine, in `limits.json`, the times the daemon first read each block of a work item's record at, in `record-times.json`, the cost ledger, in `ledger.jsonl`, what each work item's newest broad gate printed, in `gate-output/`, and what each heavy command took, in `heavy-runs.jsonl`, and the scratch folder of each headless session whose commands write in one, in `scratch/`; without it the first eight are in memory alone, no heavy command's run is kept, and each scratch folder is made under the system's temporary folder. */
@@ -393,7 +390,7 @@ export interface DaemonOptions {
   keptHeadless?: number;
   /** The round a chain stops at where it leaves a finding open, whatever the orchestrator would answer; `ROUNDS_CEILING` of `chain.ts` when absent. */
   roundsCeiling?: number;
-  /** For how many `undecided` verdicts of one guarantee the daemon asks the orchestrator for a ruling before it parks the next one's question with no ruling asked; `UNDECIDED_CEILING` of `chain.ts` when absent. */
+  /** For how many `undecided` verdicts of one inspection the daemon asks the orchestrator for a ruling before it parks the next one's question with no ruling asked; `UNDECIDED_CEILING` of `chain.ts` when absent. */
   undecidedCeiling?: number;
   /** How long a broad gate's command may run, from its start, before the daemon ends it; `GATE_LIMIT_MS` of `gate.ts` when absent. */
   gateLimitMs?: number;
@@ -580,12 +577,12 @@ export class Daemon {
   private readonly wordRunning = new Set<number>();
   // The pass over the owed words, which runs while a work item that is not archived owes one.
   private wordTimer: NodeJS.Timeout | undefined;
-  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits, the changes and the seal read there.
-  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; seal: Seal | null }>();
+  // What was last read of each work item's branch, by the work item's id: the head it was read at, and the commits, the changes and the inspection read there.
+  private readonly branches = new Map<number, { head: string; commits: CommitInfo[] | null; changes: Changes | null; inspection: Inspection | null }>();
   /** What each repository's main checkout held of the records place when it was last read, by the repository's id. */
   private readonly records = new Map<number, RecordsPlace>();
   /** Which chain each repository's Claude Code panes would run, as `readRecords` last read it, by the repository's id. */
-  private readonly paneChains = new Map<number, { owl: boolean; plugin: boolean }>();
+  private readonly repositoryChains = new Map<number, { owl: boolean }>();
   // The work items whose branch is being renamed, by their ids. What a read of the commits finds under the old name meanwhile is dropped.
   private readonly renaming = new Set<number>();
   // The work items an archive is ending the sessions of, by their ids. Each is archived once the wait for its panes is over, so no pane and no headless session starts in one meanwhile.
@@ -1104,9 +1101,9 @@ export class Daemon {
               // The worktree was checked out at its base commit a moment ago, so it holds nothing new and git is not asked.
               this.commitCounts.set(stored.item.id, 0);
               if (place.baseBranch !== null) this.aheadCounts.set(stored.item.id, { ahead: 0, behind: 0 });
-              this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, seal: null });
+              this.branches.set(stored.item.id, { head: place.baseCommit, commits: [], changes: { files: 0, added: 0, removed: 0, list: [] }, inspection: null });
             } else {
-              // A branch the person picked holds whatever commits it holds, so git is asked, for its seal too.
+              // A branch the person picked holds whatever commits it holds, so git is asked, for its inspection too.
               await this.readBranch(stored);
             }
             // The setup pane starts first, and the answer carries the pane the creation named. A worktree whose setup runs no pane is measured now, and one whose setup runs at that pane's exit.
@@ -1177,25 +1174,20 @@ export class Daemon {
       }
       case "setRepository": {
         try {
-          const { name, icon, defaultBase, hidden, paneChain } = message;
+          const { name, icon, defaultBase, hidden } = message;
           if ((name !== undefined && !isTextOrNull(name)) || (icon !== undefined && !isTextOrNull(icon)) || (defaultBase !== undefined && !isTextOrNull(defaultBase)) || (hidden !== undefined && typeof hidden !== "boolean")) {
             throw new Error("a repository's name, its icon and its base are each a text or null, and whether it is hidden is true or false");
           }
-          if (paneChain !== undefined && paneChain !== null && paneChain !== "owlery" && paneChain !== "plugin") throw new Error('the chain of a repository\'s Claude Code panes is "owlery", "plugin" or null');
           // An empty name and an empty icon are none: the repository is then named by its folder, and shows no icon.
           const trimmed = (text: string | null | undefined): string | null | undefined => (typeof text === "string" ? text.trim() || null : text);
           const character = trimmed(icon);
           if (typeof character === "string" && characters(character) > 1) throw new Error("An icon is one character.");
           const accountId = this.accountSetting(message.accountId);
-          const was = this.store.repository(message.id)?.accountId;
-          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden, paneChain, accountId });
+          const changed = this.store.setRepository(message.id, { name: trimmed(name), icon: character, defaultBase, hidden, accountId });
           if (changed === undefined) throw new Error(`no repository ${String(message.id)}`);
-          // The repository's chain is read in the folder of its account, so another account reads it again.
-          const stored = this.store.repository(message.id);
-          const read = stored !== undefined && stored.accountId !== was && this.readRecords(stored);
           // The answer first, so the client that asked knows its request was carried out when the inbox carries the change.
           this.send(socket, { type: "done", requestId: message.requestId });
-          if (changed || read) this.broadcastInbox();
+          if (changed) this.broadcastInbox();
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
@@ -1210,12 +1202,9 @@ export class Daemon {
           const { id } = message as { id: unknown };
           if (typeof id !== "number") throw new Error("The default account is named by its id.");
           const changed = this.accounts.setDefault(id);
-          // A repository set to no account takes the default, so its chain is read again in the new default's folder. Every repository is read, so `some` is not what gathers the answers.
-          const read = changed ? this.store.repositories().filter((repository) => repository.accountId === null).map((repository) => this.readRecords(repository)) : [];
           // The answer first, so the client that asked knows its request was carried out when the accounts carry the change.
           this.send(socket, { type: "done", requestId: message.requestId });
           if (changed) this.broadcastAccounts();
-          if (read.includes(true)) this.broadcastInbox();
         } catch (error) {
           this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
         }
@@ -1308,7 +1297,7 @@ export class Daemon {
             // The repository's own folder is not touched here, whatever was chosen.
             this.store.removeRepository(repository.id);
             this.records.delete(repository.id);
-            this.paneChains.delete(repository.id);
+            this.repositoryChains.delete(repository.id);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries the removal.
             this.send(socket, { type: "done", requestId: message.requestId });
             this.broadcastInbox();
@@ -1331,6 +1320,13 @@ export class Daemon {
             const repository = this.store.repository(message.id);
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             if (typeof message.broadGate !== "string") throw new Error("a plan of the records place names the broad gate command, which may be empty");
+            // A main checkout whose records stand in the earlier form is offered their move, and no setup beside them.
+            if (this.migrates(repository.folder)) {
+              const moving = await planMigration(repository.folder, this.version());
+              const { from, moves, removes, writes, branch, subject, blocked, stamp } = moving;
+              this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { branch, subject, files: writes, blocked, proposedBroadGate: null, move: null, migration: from === null ? null : { from, moves, removes }, unread: [], stamp } });
+              return;
+            }
             const made = await planRecords(repository.folder, message.broadGate, this.version());
             this.send(socket, { type: "recordsPlan", requestId: message.requestId, id: repository.id, plan: { ...made, unread: made.move ? await this.unreadRecords(repository.id) : [] } });
           } catch (error) {
@@ -1348,7 +1344,8 @@ export class Daemon {
             if (!repository) throw new Error(`no repository ${String(message.id)}`);
             const { broadGate, stamp } = message as { broadGate: unknown; stamp: unknown };
             if (typeof broadGate !== "string" || typeof stamp !== "string") throw new Error("a setup of the records place names the broad gate command and the stamp of the plan the person read");
-            await setUpRecords(repository.folder, broadGate, this.version(), stamp, this.options.commitLimitMs);
+            if (this.migrates(repository.folder)) await migrateRecords(repository.folder, this.version(), stamp, this.options.commitLimitMs);
+            else await setUpRecords(repository.folder, broadGate, this.version(), stamp, this.options.commitLimitMs);
             const read = this.readRecords(repository);
             // The answer first, so the client that asked knows its request was carried out when the inbox carries what the repository holds now.
             this.send(socket, { type: "done", requestId: message.requestId });
@@ -1734,19 +1731,19 @@ export class Daemon {
         this.send(socket, { type: "ledger", requestId: message.requestId, workItemId: held.item.id, entries, unread });
         return;
       }
-      case "readSealRecords": {
+      case "readBackRecords": {
         const answer = async (): Promise<void> => {
           try {
             const held = this.store.workItem(message.workItemId);
             if (!held) throw new Error(`no work item ${String(message.workItemId)}`);
             const { item } = held;
-            // A work item with no branch yet is read at its worktree's `HEAD`, and no routing names its directory, so it holds no records of a seal.
+            // A work item with no branch yet is read at its worktree's `HEAD`, and no routing names its directory, so it holds no records of an inspection.
             const head = item.branch === null ? await worktreeHead(item.worktree).catch(() => null) : await branchHead(held.repository.folder, item.branch);
             if (head === null) throw new Error(item.branch === null ? `Owlery cannot read the head of the worktree ${item.worktree}.` : `Owlery cannot read the head of the branch ${item.branch}.`);
             const directory = workItemDirectory(item.worktree, item.branch);
-            // The seal the records are read with is the one the head holds, read again, so the commit that broke it is named for that head.
-            const records = directory === null ? noSealRecords(head) : await sealRecords(item.worktree, directory, head, await workItemSeal(item, head));
-            this.send(socket, { type: "sealRecords", requestId: message.requestId, workItemId: item.id, records: sealRecordsOf(records) });
+            // The inspection the records are read with is the one the head holds, read again, so the commit that lapsed it is named for that head.
+            const records = directory === null ? noBackRecords(head) : await backRecords(item.worktree, directory, head, await workItemInspection(item, head));
+            this.send(socket, { type: "backRecords", requestId: message.requestId, workItemId: item.id, records: backRecordsOf(records) });
           } catch (error) {
             this.send(socket, { type: "error", requestId: message.requestId, message: error instanceof Error ? error.message : String(error) });
           }
@@ -2039,12 +2036,10 @@ export class Daemon {
         if (this.runningUnder(id).length > 0) throw refused(this.runningUnder(id));
         if (this.accounts.account(id) !== account) throw new Error(`No account ${String(id)} is kept.`);
       }
-      const defaultChanged = this.accounts.remove(id);
+      this.accounts.remove(id);
       const cleared = this.store.repositories().filter((repository) => repository.accountId === id);
       for (const repository of cleared) this.store.setRepository(repository.id, { accountId: null });
       for (const { item } of this.store.workItems()) if (item.accountId === id) this.store.setWorkItem(item.id, { accountId: null });
-      // A repository set to no account takes the default, so where the default was this account those are read again too.
-      for (const repository of this.store.repositories()) if (cleared.some((was) => was.id === repository.id) || (defaultChanged && repository.accountId === null)) this.readRecords(repository);
       // The answer first, so the client that asked knows its request was carried out when the accounts and the lists carry the change.
       this.send(socket, { type: "done", requestId: message.requestId });
       this.broadcastAccounts();
@@ -2138,9 +2133,8 @@ export class Daemon {
       Object.assign(info, { accountId: to, state: null, stateSince: null, stateText: null, stateTool: null, stateQuestions: null });
       session.interrupted = false;
       session.logUnread = false;
-      const { repository } = held;
       try {
-        const launch = this.options.commandFor(info.kind, id, { continueLatest: false, folder: session.cwd, base: this.paneBase(held.item.id), checkout: repository.folder, chosen: repository.paneChain ?? null, ...this.foldersOf(to), ...(session.conversation === undefined ? {} : { resume: session.conversation }) });
+        const launch = this.options.commandFor(info.kind, id, { continueLatest: false, folder: session.cwd, base: this.paneBase(held.item.id), accountDir: this.foldersOf(to).accountDir, ...(session.conversation === undefined ? {} : { resume: session.conversation }) });
         session.terminal = this.spawnPane(launch, session.cwd, session.size);
       } catch (error) {
         this.standsEnded(session, `\r\n[the pane could not start under "${this.accountNamed(to)}": ${error instanceof Error ? error.message : String(error)}]\r\n`);
@@ -2457,8 +2451,8 @@ export class Daemon {
    * null where the grant names none. A crafter's commands write in the
    * worktree and the repository's git folder, which a commit in a linked
    * worktree writes, and are refused that folder's `hooks` and `config`, so
-   * a command plants no hook through either. A proofer's and a
-   * sealer's are given the scratch folder alone, and the orchestrator's no
+   * a command plants no hook through either. A proofer's and an
+   * inspector's are given the scratch folder alone, and the orchestrator's no
    * folder; each of those is refused the worktree and the repository's git
    * folder, which Claude Code 2.1.332's sandbox let a command write by
    * default in a session of a linked worktree, and through which a command
@@ -2757,10 +2751,9 @@ export class Daemon {
   private startSession(socket: WebSocket, pane: { kind: PaneKind; cols: number; rows: number }, cwd: string, workItemId: number | null, continueLatest = false, own: number | null = null, commandOf?: (id: number) => PaneCommand, signsIn: number | null = null): SessionInfo {
     const id = this.nextId++;
     const held = workItemId === null ? undefined : this.store.workItem(workItemId);
-    const repository = held?.repository;
     const accountId = signsIn ?? (commandOf || !held || !this.options.paneKinds.some((offered) => offered.kind === pane.kind && offered.accounts === true) ? null : accountFor(own, held.item, held.repository, this.accounts.defaultId()));
     this.furnish(accountId);
-    const launch = commandOf ? commandOf(id) : workItemId === null ? undefined : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), checkout: repository?.folder ?? cwd, chosen: repository?.paneChain ?? null, ...this.foldersOf(accountId) });
+    const launch = commandOf ? commandOf(id) : workItemId === null ? undefined : this.options.commandFor(pane.kind, id, { continueLatest, folder: cwd, base: this.paneBase(workItemId), accountDir: this.foldersOf(accountId).accountDir });
     // Only a pane that runs a command of its own opens in no work item.
     if (launch === undefined) throw new Error("a pane opens in a work item");
     const size = { cols: pane.cols, rows: pane.rows };
@@ -3051,37 +3044,35 @@ export class Daemon {
   }
 
   /** A repository as a client is sent it: without its work items, which name it by its id, and with the name a person reads. */
-  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, paneChain, groups, accountId }: StoredRepository): Repository {
-    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null }, chain: { ...(this.paneChains.get(id) ?? { owl: false, plugin: false }), chosen: paneChain }, accountId };
+  private repositoryOf({ id, folder, name, icon, defaultBase, hidden, groups, accountId }: StoredRepository): Repository {
+    return { id, folder, name: name ?? basename(folder), customName: name, icon, defaultBase, hidden, groups: groups.map((group) => ({ ...group })), records: this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null, earlier: null }, chain: this.repositoryChains.get(id) ?? { owl: false }, accountId };
   }
 
   /**
    * Reads what a repository's main checkout holds of the records place, from
-   * its working tree, and which chain its Claude Code panes would run there:
-   * whether the checkout is on the owl chain, and whether Claude Code enables
-   * the AgenticSeal plugin for it under the config folder of the account a
-   * new pane of the repository takes where neither the pane nor its work
-   * item names one. The older check is read against the daemon's own
-   * version. It answers whether any of it is another than was last read.
+   * its working tree, with the root in the earlier form where it holds one
+   * and no records root (`records-migration.ts#earlierRootOf`), and whether
+   * the checkout is on the owl chain. The older check is read against the
+   * daemon's own version. It answers whether any of it is another than was
+   * last read.
    */
   private readRecords(repository: StoredRepository): boolean {
     const { id, folder } = repository;
-    const read = readRecordsPlace(folder, this.options.version);
-    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null };
+    const place = readRecordsPlace(folder, this.options.version);
+    const read = { ...place, earlier: place.root === null ? earlierRootOf(folder) : null };
+    const known = this.records.get(id) ?? { root: null, check: null, broadGate: null, olderCheck: null, earlier: null };
     this.records.set(id, read);
-    // Read under the account a new pane of the repository takes where neither the pane nor its work item names one.
-    const { configDir } = this.foldersOf(accountFor(null, { accountId: null }, repository, this.accounts.defaultId()));
-    const chain = { owl: onOwlChain(folder), plugin: this.options.pluginEnabled?.(folder, folder, configDir) ?? false };
-    const chained = this.paneChains.get(id) ?? { owl: false, plugin: false };
-    this.paneChains.set(id, chain);
-    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || chain.owl !== chained.owl || chain.plugin !== chained.plugin;
+    const chain = { owl: onOwlChain(folder) };
+    const chained = this.repositoryChains.get(id) ?? { owl: false };
+    this.repositoryChains.set(id, chain);
+    return read.root !== known.root || read.check !== known.check || read.broadGate !== known.broadGate || read.olderCheck !== known.olderCheck || read.earlier !== (known.earlier ?? null) || chain.owl !== chained.owl;
   }
 
   /**
    * The work items of the repository whose records the daemon's readers
    * refuse, for the plan that moves its check: each one that is not
    * archived and has a branch, read at the head of its branch the daemon
-   * last read (`seal-state.ts#refusedAt`), with the reader's sentence cut at
+   * last read (`inspection-state.ts#refusedAt`), with the reader's sentence cut at
    * `STATE_TEXT_CHARS`. A work item whose head the daemon holds no reading
    * of is named with the sentence that its records were not read yet. One
    * whose worktree's folder is gone, and one whose reading throws anything
@@ -3116,6 +3107,11 @@ export class Daemon {
   private version(): string {
     if (this.options.version === undefined) throw new Error("This build of Owlery names no version, so it cannot write the workflow of the pull request check.");
     return this.options.version;
+  }
+
+  /** Whether a plan of the records place in a main checkout is the move of its records: it holds a root in the earlier form and no records root, read from its working tree. */
+  private migrates(folder: string): boolean {
+    return rootOf(folder) === null && earlierRootOf(folder) !== null;
   }
 
   /**
@@ -3160,7 +3156,7 @@ export class Daemon {
     return this.store.workItems().find(({ item }) => realPathOf(item.worktree) === real)?.item.worktree ?? folder;
   }
 
-  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the seal its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `seal`, so a null says that the head holds none. */
+  /** A work item as a client is sent it: with its repository's id, folder and name, with what was last read of its branch, the inspection its head holds among it, and with what was last read of its record: its decisions, its questions and what the reader did not read, and of its records of the chain; with the requests of its headless sessions that wait for the person, the oldest first; and with the heavy command of its worktree that waits for a turn on the machine. Where the daemon holds no reading of its branch, as before its first read after the daemon starts, it carries no `inspection`, so a null says that the head holds none. */
   private workItemOf({ repository, item }: Held): WorkItem {
     const read = this.branches.get(item.id);
     // The size of its worktree is the daemon's, which a plan carries as what the repository's next worktree needs.
@@ -3175,7 +3171,7 @@ export class Daemon {
       newCommits: this.commitCounts.get(item.id) ?? null,
       commits: read?.commits ?? null,
       changes: read?.changes ?? null,
-      ...(read === undefined ? {} : { seal: read.seal }),
+      ...(read === undefined ? {} : { inspection: read.inspection }),
       ...(this.recordsRead.get(item.id) ?? NO_RECORD),
       machineWait: this.turns.waitOf(item.worktree),
       wordOwed: this.wordOwedOf(item),
@@ -3313,7 +3309,7 @@ export class Daemon {
    * Commits the `routing.md` of a work item's directory, and that file
    * alone, on the work item's branch in its worktree, after a rename of the
    * branch wrote the new name into it: with the subject given and the
-   * trailer `Seal-Routing:` that names the work item's directory, which the
+   * trailer `IADD-Routing:` that names the work item's directory, which the
    * pull request check reads, under the daemon's bounds of a commit
    * (`commitBounds`). It returns at once, and the commit is made after every
    * earlier one of the same worktree has ended. Where a live pane of the
@@ -3333,7 +3329,7 @@ export class Daemon {
       // No routing names a directory of a work item with no branch, so a rename that makes its branch writes no routing to commit.
       if (working || branch === null) return;
       try {
-        await commitPaths(worktree, branch, [relative(worktree, join(directory, ROUTING_FILE))], subject, [`Seal-Routing: ${basename(directory)}`], this.commitBounds());
+        await commitPaths(worktree, branch, [relative(worktree, join(directory, ROUTING_FILE))], subject, [`${ROUTING_TRAILER}: ${basename(directory)}`], this.commitBounds());
       } catch (error) {
         console.error(`the renamed branch's routing was not committed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -3447,7 +3443,7 @@ export class Daemon {
    * or a headless session of it is working, it commits nothing, and the
    * words wait for a session. Otherwise it commits the record alone
    * (`worktrees.ts#commitPaths`) under the daemon's bounds, with the trailer
-   * `Seal-Routing:` that names the work item's directory and a subject made
+   * `IADD-Routing:` that names the work item's directory and a subject made
    * from what is owed (`wordSubject`). Where the commit fails, or its limit
    * ends it, the file stands written, the next try is due `wordRetryMs`
    * after the failure, twice that after the next one, and so on to
@@ -3479,7 +3475,7 @@ export class Daemon {
       return told();
     }
     try {
-      await commitPaths(worktree, branch, [relative(worktree, join(directory, RECORD_FILE))], wordSubject(read.words), [`Seal-Routing: ${basename(directory)}`], this.commitBounds());
+      await commitPaths(worktree, branch, [relative(worktree, join(directory, RECORD_FILE))], wordSubject(read.words), [`${ROUTING_TRAILER}: ${basename(directory)}`], this.commitBounds());
       this.wordTries.delete(workItemId);
     } catch (error) {
       // The close ended it, and the next daemon finds the word in the tree.
@@ -3671,7 +3667,11 @@ export class Daemon {
    * first of these that holds is the reason: a chain of the work item is
    * running; a session of it is working; the work item has no branch yet
    * (`NO_BRANCH_FOR_CHAIN`); the worktree cannot take a commit
-   * (`worktrees.ts#whyNoCommit`); it holds no records root; the `Broad gate`
+   * (`worktrees.ts#whyNoCommit`); its records stand in the earlier form,
+   * a root of it in place of the records root, the work item's own
+   * directory under one, or records of that form in its directory under the
+   * records root (`records-migration.ts#earlierRecordsSays`), which
+   * the sentence names `migrate` for; it holds no records root; the `Broad gate`
    * key of its `config.json` holds no command, so no gate could pass and a
    * round would be spent for nothing; two directories
    * of its records name the branch; it holds a change no commit holds, or an
@@ -3694,9 +3694,11 @@ export class Daemon {
     if (branch === null) return NO_BRANCH_FOR_CHAIN;
     const why = await whyNoCommit(worktree, branch);
     if (why !== null) return `Owlery cannot commit a record in the worktree now: ${why}.`;
+    const earlier = earlierRecordsSays(worktree, branch);
+    if (earlier !== null) return earlier;
     const root = rootOf(worktree);
     if (root === null) return "The worktree holds no place for work records, so a round's record has nowhere to stand. Set up the records in the repository, and bring them onto this branch.";
-    if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") return `${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no seal can be given. Name the repository's check there, and commit it.`;
+    if ((readRecordsPlace(worktree).broadGate ?? "").trim() === "") return `${root}/config.json of the worktree names no command under "Broad gate", so no broad gate can run on this branch and no inspection can be given. Name the repository's check there, and commit it.`;
     const directories = workItemDirectories(worktree, branch);
     if (directories.length > 1) return `Two directories of the worktree's records name the branch ${branch}: ${directories.map((directory) => relative(worktree, directory)).join(" and ")}. Owlery cannot tell which is the work item's.`;
     const [directory] = directories;
@@ -3732,13 +3734,13 @@ export class Daemon {
   /**
    * Runs a work item's chain from where its records stand until it rests:
    * before each stage it reads the step the records owe (`chain.ts#stepOwed`)
-   * and runs that stage, the broad gate (`runGate`) and the seal (`runSeal`)
-   * among them. It rests `parked` where the records hold an open question,
-   * and `rested` where they owe no stage, the step `sealed`. Before it rests
+   * and runs that stage, the broad gate (`runGate`) and the inspection
+   * (`runInspection`) among them. It rests `parked` where the records hold an
+   * open question, and `rested` where they owe no stage, the step `cleared`. Before it rests
    * `rested` it runs the pull request stage where that is owed
    * (`runPullRequest`), and rests with that stage's sentence once it ended
-   * well. No state of the chain says whether a seal holds: `WorkItem.seal`
-   * does, read from the branch's head. A sealer's `withheld` verdict stops
+   * well. No state of the chain says whether an inspection holds: `WorkItem.inspection`
+   * does, read from the branch's head. An inspector's `withheld` verdict stops
    * the chain with its reason.
    * Before a fix pass it reads what the chain owes first
    * (`chain.ts#gateBefore`): the orchestrator's judgment of whether the
@@ -3751,7 +3753,7 @@ export class Daemon {
    * daemon that closes ends the run at its next step and stores nothing, so
    * the chain stays stored `running`, which the next daemon reads as stopped.
    * A chain that rests or stops asks for the read of its branch
-   * (`readBranchNow`), so the seal its stages committed reaches the window
+   * (`readBranchNow`), so the inspection its stages committed reaches the window
    * without a wait of one interval.
    * `byPerson` says that a person's word started the run.
    */
@@ -3784,11 +3786,11 @@ export class Daemon {
         if (this.closed) return;
         const step = stepOwed(standing);
         if (step.is === "parked") return rest("parked", PARKED_SAYS);
-        // The step `sealed` owes the pull request stage where the routing sends the work to one and the stored pull request does not carry the head.
-        if (step.is === "sealed") return rest("rested", (await this.runPullRequest(held, directory, standing, step, base)) ?? sealedSays(step.round, step.at));
+        // The step `cleared` owes the pull request stage where the routing sends the work to one and the stored pull request does not carry the head.
+        if (step.is === "cleared") return rest("rested", (await this.runPullRequest(held, directory, standing, step, base)) ?? clearedSays(step.round, step.at));
         if (step.is === "gate") await this.runGate(held, directory, standing, step.round, base);
-        else if (step.is === "seal") {
-          const withheld = await this.runSeal(held, directory, standing, step, base);
+        else if (step.is === "inspection") {
+          const withheld = await this.runInspection(held, directory, standing, step, base);
           if (withheld !== null) return rest("stopped", withheldSays(withheld));
         } else if (step.is === "round") {
           const asks = await this.runRound(held, directory, standing, step, base);
@@ -3945,9 +3947,9 @@ export class Daemon {
    * and the worktree holds no change outside the work item's directory.
    * Where one does not hold, nothing is committed. The record's commit
    * carries each decision the prompt gave as reversed, written `applied`
-   * with the branch's head after the pass, and the trailer `Seal-Built-By:`
+   * with the branch's head after the pass, and the trailer `IADD-Built-By:`
    * with the id the crafter's session named, where it named one that a
-   * verdict block can name (`record-blocks.ts#isSessionId`): a later seal
+   * verdict block can name (`record-blocks.ts#isSessionId`): a later inspection
    * reads the sessions that built the work from that trailer. It gives the
    * questions the answer asks (`chain.ts#asksOf`). A pass that leaves a finding open and
    * asks nothing fails after the record's commit, and so does a second pass
@@ -3998,13 +4000,13 @@ export class Daemon {
    * the work item with the questions the orchestrator parked, in one
    * `Daemon#park` with the asking role as who asks, and commits the record
    * of decisions, with the subject given, and the subject of a judgment
-   * after the round where none is. The question of a sealer's `undecided`
+   * after the round where none is. The question of an inspector's `undecided`
    * verdict is ruled on here as a round's and a fix pass's are. An answer that does not rule on each question once fails
    * the stage, and nothing is recorded. The stage is stored as a `ruling`,
    * so `chain.ts#gateBefore` reads a stored `judgment` as the judgment of
    * convergence alone.
    */
-  private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass" | "seal", round: number, by: "proofer" | "crafter" | "sealer", asks: Ask[], subject = `chore: record the orchestrator's judgment after round ${String(round)}`): Promise<void> {
+  private async runRuling({ item }: Held, directory: string, inside: string, asked: "round" | "fix-pass" | "inspection", round: number, by: "proofer" | "crafter" | "inspector", asks: Ask[], subject = `chore: record the orchestrator's judgment after round ${String(round)}`): Promise<void> {
     const record = join(directory, RECORD_FILE);
     const prompt = rulingPrompt({ round, worktree: item.worktree, directory: inside, by, asked, asks, decisions: existsSync(record) });
     await this.runStage(item.id, "ruling", round, ORCHESTRATOR, item.worktree, prompt, async (answer, refused) => {
@@ -4023,26 +4025,28 @@ export class Daemon {
   }
 
   /**
-   * Runs the seal: a fresh sealer session that resumes no conversation, in
+   * Runs the inspection: a fresh inspector session that resumes no
+   * conversation, in
    * the work item's worktree, whose prompt names its run, the `target:`
    * line its verdict carries, `<gate's commit> against <base>`, the records
    * to read, and the paths the branch changed with their diff
-   * (`chain.ts#sealPrompt`): since the commit the newest verdict block
-   * seals, where it is a seal and an ancestor of the gate's commit, which a
-   * later commit broke, and otherwise since the branch left its base. Its
-   * answer is its run's section of the guarantee. The daemon takes the
-   * section from the answer (`seal-records.ts#sectionOf`), puts its own lines into the section's
-   * verdict block, appends the section to `guarantee.md` as the head holds
-   * the file (`seal-records.ts#guaranteeText`) and commits it, with the
-   * rows of the calls the sealer's rule refused, and with the work item's
+   * (`chain.ts#inspectionPrompt`): since the commit the newest verdict block
+   * clears, where it clears and is an ancestor of the gate's commit, which a
+   * later commit lapsed, and otherwise since the branch left its base. Its
+   * answer is its run's section of the inspection. The daemon takes the
+   * section from the answer (`inspection-records.ts#sectionOf`), puts its own
+   * lines into the section's verdict block, appends the section to
+   * `inspection.md` as the head holds the file
+   * (`inspection-records.ts#inspectionText`) and commits it, with the
+   * rows of the calls the inspector's rule refused, and with the work item's
    * record of decisions where a word of the person's changed it during the
-   * seal, which leaves the gate owed again, where each of these holds:
+   * inspection, which leaves the gate owed again, where each of these holds:
    * the answer's first line that opens a run's section is this run's
    * heading, the reader refuses no line of the section, it holds one
    * verdict block, whose `target:` line is the prompt's and which holds
    * none of the daemon's lines; the session named its id and a model; the
    * daemon was given its version; one session or more is named as having
-   * built the work, and the judging session is none of them; and the
+   * built the work, and the inspecting session is none of them; and the
    * worktree's head is the one the step was read at, so the gate still
    * holds there, with no change outside the work item's directory. Where
    * one does not hold, nothing is written, and the stage fails with a
@@ -4051,37 +4055,38 @@ export class Daemon {
    * The sessions that built the work are `the session` where the
    * `Implementation` row of the `routing.md` the head holds reads so, then
    * the id of each fix pass's session, read from the trailer
-   * `Seal-Built-By:` of the commits on the gate's commit's own line that
+   * `IADD-Built-By:`, and from `Seal-Built-By:` of a commit written before
+   * the rename, of the commits on the gate's commit's own line that
    * neither the work item's base commit nor the base the branch left holds,
    * so of none of the base's commits, whether a merge,
    * a fast-forward or a rebase put it on the branch.
    *
-   * The verdict decides what follows. `sealed`: nothing here, and the order
-   * then reads the step `sealed`. `withheld`: it gives the reason, which
+   * The verdict decides what follows. `cleared`: nothing here, and the order
+   * then reads the step `cleared`. `withheld`: it gives the reason, which
    * stops the chain. `undecided`: the question is a stage's question, and
    * the orchestrator is asked for a ruling on it (`runRuling`), for the
-   * first verdicts of the guarantee that read `undecided`, as many as the
+   * first verdicts of the inspection that read `undecided`, as many as the
    * ceiling; the question of a later one parks the work item with no ruling
    * asked, in the commit that carries the verdict. It gives null for every
    * verdict but `withheld`.
    */
-  private async runSeal(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "seal" }>, base: ChainBase): Promise<string | null> {
+  private async runInspection(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "inspection" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
     const place = this.placeOf(item, directory);
-    const { prompt, target } = await sealStage(place, standing, step, base);
+    const { prompt, target } = await inspectionStage(place, standing, step, base);
     // Whether this run's `undecided` verdict is one the orchestrator rules on, or one past the ceiling.
     const ceiling = this.options.undecidedCeiling ?? UNDECIDED_CEILING;
     const ruled = standing.verdicts.filter((verdict) => verdict.is === "undecided").length < ceiling;
-    const verdict = await this.runStage(item.id, "seal", step.round, SEALER, item.worktree, prompt, async (answer, refused, named) => {
+    const verdict = await this.runStage(item.id, "inspection", step.round, INSPECTOR, item.worktree, prompt, async (answer, refused, named) => {
       const version = this.options.version;
-      if (version === undefined) throw new ChainStop("this daemon was given no version of Owlery, and a verdict names the version of the rules it was judged under");
+      if (version === undefined) throw new ChainStop("this daemon was given no version of Owlery, and a verdict names the version of the rules it was inspected under");
       // The question of an `undecided` verdict past the ceiling parks the work item in the commit that carries the verdict.
       const before = (newest: Verdict): void => {
-        if (newest.is === "undecided" && !ruled && this.park(item.id, { by: SEALER.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), ceiling)] }) === undefined) throw new ChainStop("its question was not written into the work item's record of decisions");
+        if (newest.is === "undecided" && !ruled && this.park(item.id, { by: INSPECTOR.role, questions: [undecidedParked(undecidedAsk(step.run, newest.says ?? ""), ceiling)] }) === undefined) throw new ChainStop("its question was not written into the work item's record of decisions");
       };
-      return recordVerdict(place, standing, step, base, { answer, target, judgedBy: named?.id ?? null, model: named?.model ?? null, version, refused, before }, this.turnOf(item));
+      return recordVerdict(place, standing, step, base, { answer, target, inspectedBy: named?.id ?? null, model: named?.model ?? null, version, refused, before }, this.turnOf(item));
     });
-    if (verdict.is === "undecided" && ruled) await this.runRuling(held, directory, standing.directory, "seal", step.round, "sealer", [undecidedAsk(step.run, verdict.says ?? "")], SEAL_RULING_SUBJECT);
+    if (verdict.is === "undecided" && ruled) await this.runRuling(held, directory, standing.directory, "inspection", step.round, "inspector", [undecidedAsk(step.run, verdict.says ?? "")], INSPECTION_RULING_SUBJECT);
     return verdict.is === "withheld" ? (verdict.says ?? "") : null;
   }
 
@@ -4127,7 +4132,7 @@ export class Daemon {
    * Only the exit of the daemon's own process counts. Where the command
    * exits with 0, and the head and the tree then stand as they stood, the
    * daemon appends one run block, `run: <head> against <base commit>`, to
-   * `trail/gate.md` as the head holds the file (`seal-records.ts#gateText`)
+   * `trail/gate.md` as the head holds the file (`inspection-records.ts#gateText`)
    * and commits it. Every other end fails the stage and commits nothing: an
    * exit with another code, a signal, the time limit, a `stopGate`, an end
    * of the work item's sessions, a head that moved, and a change the
@@ -4260,7 +4265,7 @@ export class Daemon {
   }
 
   /**
-   * Runs the pull request stage at the step `sealed` where it is owed
+   * Runs the pull request stage at the step `cleared` where it is owed
    * (`chain.ts#pullRequestOwed`): the `Destination` row of the work item's
    * `routing.md` at the branch's head, and the pull request the daemon
    * stores, decide it. Where no stage is owed it gives the sentence of the
@@ -4271,14 +4276,15 @@ export class Daemon {
    * stage, in the form of `runGate`.
    *
    * The stage reads the records the head commit holds (`github.ts#bodyRecords`),
-   * composes the back of the seal from what those records say for it and the
-   * ledger's entries of the work item as they stand then, as `readSealRecords`
-   * and `readLedger` give them to the window (`../shared/seal-back`), pushes
+   * composes the inspection sheet from what those records say for it and the
+   * ledger's entries of the work item as they stand then, as `readBackRecords`
+   * and `readLedger` give them to the window (`../shared/inspection-sheet`), pushes
    * that head commit, by its id, to the branch on the remote
    * `github.ts#pushTarget` names with the person's git and writes the
    * branch's upstream, then asks the person's `gh` for the branch's open pull
-   * requests. Where it lists one, the stage replaces that body's seal section
-   * and its back's section, putting the back's after the seal section where
+   * requests. Where it lists one, the stage replaces that body's inspection
+   * section and its back's section, putting the back's after the inspection
+   * section where
    * the body holds none, and sends the body with `gh pr edit`; where it lists
    * none, it opens one with `gh pr create`, ready, with the work item's
    * title, its base and the body `github.ts#pullRequestBody` composes. It then reads the pull request
@@ -4288,11 +4294,12 @@ export class Daemon {
    * The body's file stands in the run folder, or in the system's temporary
    * folder for a daemon given none, and is removed when the stage ends. The
    * stage commits nothing and writes no file in the worktree, since a commit
-   * after the sealed one that is no closing record would break the seal.
+   * after the cleared one that is no closing record would lapse the
+   * inspection.
    *
    * The stage fails where no `gh` is found, where the worktree's head moved
    * after the records were read, where no remote can be told
-   * (`github.ts#pushTarget`), where `guarantee.md` holds no verdict block at
+   * (`github.ts#pushTarget`), where `inspection.md` holds no verdict block at
    * the head, where the push, the writing of the upstream or a call of `gh` fails or passes its time
    * limit, where an answer of `gh` does not read, where `gh` lists more than
    * one open pull request of the branch, and where the body it lists holds
@@ -4300,7 +4307,7 @@ export class Daemon {
    * with the chain's sentence, and the stored pull request is as it was. A
    * daemon that closed meanwhile stores nothing.
    */
-  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "sealed" }>, base: ChainBase): Promise<string | null> {
+  private async runPullRequest(held: Held, directory: string, standing: Standing, step: Extract<Step, { is: "cleared" }>, base: ChainBase): Promise<string | null> {
     const { item } = held;
     const { worktree, title } = item;
     const branch = chainBranch(item);
@@ -4329,9 +4336,9 @@ export class Daemon {
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, base.branch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
-      // The stage runs at a seal that holds at the head, so no commit broke it, and the reader is handed no seal: the body names no breaking commit.
+      // The stage runs at an inspection that holds at the head, so no commit lapsed it, and the reader is handed no inspection: the body names no commit that lapsed an inspection.
       const { entries, unread } = this.ledger.read(item.id, item.createdAt);
-      const back = composeBack(await sealRecords(worktree, directory, head, null), entries, unread);
+      const back = composeBack(await backRecords(worktree, directory, head, null), entries, unread);
       const named = await pullRequestTitle(worktree, title, base.commit, head);
       await pushBranch(cli, target.remote, branch, head);
       const listed = await openPullRequests(cli, branch);
@@ -4345,7 +4352,7 @@ export class Daemon {
       } else {
         let text: string;
         try {
-          text = withBackSection(withSealSection(open.body, sealSection(records)), back, records.directory);
+          text = withBackSection(withInspectionSection(open.body, inspectionSection(records)), back, records.directory);
         } catch (error) {
           throw new Error((error instanceof Error ? error.message : String(error)).replace(/^the body/u, `the body of pull request #${String(open.number)}`));
         }
@@ -4829,14 +4836,14 @@ export class Daemon {
    * changed or its branch's head moved. How far a branch is ahead of its
    * base branch and behind it is counted at every read, since the base moves
    * by itself, and a base that moved while the head stayed is a change. The
-   * commits, the changed files and the seal the head holds
-   * (`seal-state.ts#workItemSeal`) are read only where the head is another
+   * commits, the changed files and the inspection the head holds
+   * (`inspection-state.ts#workItemInspection`) are read only where the head is another
    * commit than the one they were last read at, and so once for each branch
-   * after the daemon starts. The seal is kept in memory alone, and the copy a
+   * after the daemon starts. The inspection is kept in memory alone, and the copy a
    * look keeps of the lists is never read for it: a daemon that starts reads
    * it again from git. A work item with no branch yet is read at the commit
    * its worktree's `HEAD` stands at, as its branch's head would be, and its
-   * head holds no seal, since no routing names its directory. Where that
+   * head holds no inspection, since no routing names its directory. Where that
    * `HEAD` names a branch or holds a commit made in the worktree, the work
    * item is then given its branch (`branchUp`).
    */
@@ -4869,8 +4876,8 @@ export class Daemon {
       return true;
     }
     // Read at the commit and not at the branch, so what is kept is what that head holds though the branch moves meanwhile.
-    const [commits, changes, seal] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.sealAt(item, head)]);
-    this.branches.set(item.id, { head, commits, changes, seal });
+    const [commits, changes, inspection] = await Promise.all([branchCommits(repo, baseCommit, head), branchChanges(repo, baseCommit, head), this.inspectionOf(item, head)]);
+    this.branches.set(item.id, { head, commits, changes, inspection });
     return true;
   }
 
@@ -4909,13 +4916,13 @@ export class Daemon {
     this.changing = this.changing.then(up);
   }
 
-  /** The seal a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */
-  private async sealAt(item: Held["item"], head: string): Promise<Seal | null> {
+  /** The inspection a head of the work item's branch holds, its sentence cut at `STATE_TEXT_CHARS`, since a sentence that quotes a line the reader refuses can be long. Null where it holds none and where git could not say, which the log then says. */
+  private async inspectionOf(item: Held["item"], head: string): Promise<Inspection | null> {
     try {
-      const seal = await workItemSeal(item, head);
-      return seal?.why ? { ...seal, why: cutText(seal.why) } : seal;
+      const inspection = await workItemInspection(item, head);
+      return inspection?.why ? { ...inspection, why: cutText(inspection.why) } : inspection;
     } catch (error) {
-      console.error(`the seal of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`the inspection of work item ${String(item.id)} was not read: ${error instanceof Error ? error.message : String(error)}`);
       return null;
     }
   }
@@ -4923,7 +4930,7 @@ export class Daemon {
   /**
    * Reads the work item's branch now, after the read of every branch that is
    * under way, and tells every client where it moved: a chain that rested or
-   * stopped has committed the records of its stages, and the seal they hold
+   * stopped has committed the records of its stages, and the inspection they hold
    * is read without a wait of one interval. A read that began before the
    * chain's last commit ends first, so it does not put an earlier head's
    * reading back over this one.

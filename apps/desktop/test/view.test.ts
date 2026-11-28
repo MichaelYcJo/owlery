@@ -17,7 +17,6 @@ import {
   archivedIn,
   answersFor,
   approvalPlaces,
-  asksChain,
   askedSection,
   asksFetch,
   backKey,
@@ -33,6 +32,7 @@ import {
   chainNotifications,
   chainList,
   checkButton,
+  earlierButton,
   chainSays,
   stageAhead,
   machineQueue,
@@ -44,7 +44,6 @@ import {
   changedSetAfter,
   changesOf,
   changesSince,
-  CHAIN_CHOICES,
   choiceNote,
   closeAsks,
   closeSays,
@@ -156,13 +155,12 @@ import {
   sameValues,
   screenMoves,
   screenTurns,
-  sealNotifications,
-  sealShown,
-  sealSinceLook,
+  lapseNotifications,
+  inspectionShown,
+  inspectionSinceLook,
   selectedLine,
   sessionSections,
   settingsBases,
-  settingsChain,
   settingsFields,
   setupMark,
   setupSection,
@@ -199,14 +197,14 @@ import {
   type InboxLine,
   type MenuEntry,
   type MenuRowItem,
-  type SealSince,
+  type InspectionSince,
   unanswered,
   unreadLines,
   wordOwedMark,
   wordOwedSays,
 } from "../src/renderer/view";
-import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Seal, type SealRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
-import { composeBack } from "../src/shared/seal-back";
+import { type Account, type AskedQuestion, BASE_FETCH_MS, type BaseFetch, type Cap, type Chain, type ChainStage, type CommitInfo, type Decision, type GateRun, type HeadlessInfo, type LedgerEntry, type Look, type Machine, type PaneKindInfo, type PaneStage, type PlanDisk, type PullRequest, type Question, type Recorded, type RecordsPlan, type Repository, type Inspection, type BackRecords, type SessionInfo, type TabColour, type WorkItem, type WorkItemLoss, type WorktreeSetup } from "../src/shared/protocol";
+import { composeBack } from "../src/shared/inspection-sheet";
 
 const LOGIN: WorkItem = {
   id: 1,
@@ -237,7 +235,7 @@ const LOGIN: WorkItem = {
 };
 /** A setup whose command runs in pane 3, begun at 1000, which copied two paths. */
 const RUNNING_SETUP: WorktreeSetup = { copied: [".env", "node_modules/"], copiedCount: 2, failedCopies: [], command: "pnpm install\n", paneId: 3, state: "running", exitCode: null, failure: null, startedAt: 1000, endedAt: null };
-const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false, plugin: false, chosen: null } };
+const PROJECT: Repository = { id: 1, folder: "/r/project", name: "project", customName: null, icon: null, defaultBase: null, hidden: false, groups: [], records: { root: null, check: null, broadGate: null }, chain: { owl: false } };
 const SEARCH: WorkItem = { ...LOGIN, id: 2, title: "Speed up search", branch: "owlery/speed-up-search", worktree: "/w/project/speed-up-search" };
 
 // What the daemon offers today, as `ready` carries it.
@@ -817,6 +815,13 @@ describe("submenuPlace", () => {
   it("names the button of a repository's older check by the word Check and the version, and says to a pointer and to a screen reader whose check it is, that it is older than this app, and that a press opens the commit that moves it", () => {
     expect(checkButton("the project", "0.0.4")).toEqual({ label: "Check 0.0.4", says: "The pull request check of the project is Owlery 0.0.4's, older than this app. Open to read the commit that moves it." });
   });
+
+  it("names the button of a repository whose records stand in the earlier form, and says to a pointer and to a screen reader where they stand, that Owlery reads none of them, and that a press opens the commit that moves them", () => {
+    expect(earlierButton("the project", "seal")).toEqual({
+      label: "Records in the earlier form",
+      says: "The work records of the project stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. Open to read the commit that moves them to IADD's forms.",
+    });
+  });
 });
 
 describe("hiddenRepositories", () => {
@@ -849,17 +854,17 @@ describe("removalOf", () => {
 
   it("names each running session of those work items, a pane by its tab's label and a headless session by its stage, never by its prompt, and gives their ids: no pane that exited, no headless session that ended, and none of another repository's work item", () => {
     const sessions = [session(5, { kind: "shell" }), session(6, { kind: "shell", alive: false }), session(7, { kind: "shell" }), session(8, { workItemId: 3 }), session(9, { workItemId: 4 }), session(10, { workItemId: null })];
-    const stages = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } })];
+    const stages = [headless(1), headless(2, { state: "finished" }), headless(3, { state: "failed" }), headless(4, { workItemId: 3 }), headless(5, { workItemId: 2, prompt: "Where is the index built?", role: { role: "inspector", stage: "inspection" } })];
     expect(removalOf(PROJECT, [LOGIN, DOCS, SEARCH], [SHELVED], sessions, stages, KINDS)).toMatchObject({
-      sessions: { running: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Proofer, round in Fix the login bug", "Sealer, verdict in Speed up search"], queued: [] },
+      sessions: { running: ["Shell 1 in Fix the login bug", "Shell 3 in Fix the login bug", "Claude Code in Shelved", "Proofer, round in Fix the login bug", "Inspector, verdict in Speed up search"], queued: [] },
       running: { panes: [5, 7, 9], headless: [1, 5] },
     });
   });
 
   it("names a headless session that waits for the machine apart from the running ones, by its stage and its work item, and gives its id among those the removal sends (scenario 9)", () => {
-    const stages = [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } }), headless(3, { workItemId: 2, state: "queued", prompt: "Who asked?", role: { role: "crafter", stage: "fix-pass" } })];
+    const stages = [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "inspector", stage: "inspection" } }), headless(3, { workItemId: 2, state: "queued", prompt: "Who asked?", role: { role: "crafter", stage: "fix-pass" } })];
     expect(removalOf(PROJECT, [LOGIN, SEARCH], [], [session(5, { kind: "shell" })], stages, KINDS)).toMatchObject({
-      sessions: { running: ["Shell in Fix the login bug", "Sealer, verdict in Fix the login bug"], queued: ["Proofer, round in Fix the login bug", "Crafter, fix pass in Speed up search"] },
+      sessions: { running: ["Shell in Fix the login bug", "Inspector, verdict in Fix the login bug"], queued: ["Proofer, round in Fix the login bug", "Crafter, fix pass in Speed up search"] },
       running: { panes: [5], headless: [2, 1, 3] },
     });
   });
@@ -977,8 +982,8 @@ describe("archivalOf", () => {
   });
 
   it("names a headless session that waits for the machine apart from the running ones, by its stage, and gives its id among those the archive sends (scenario 9)", () => {
-    expect(archivalOf(LOGIN, [session(5, { kind: "shell" })], [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "sealer", stage: "seal" } })], KINDS)).toEqual({
-      sessions: { running: ["Shell", "Sealer, verdict"], queued: ["Proofer, round"] },
+    expect(archivalOf(LOGIN, [session(5, { kind: "shell" })], [headless(1, { state: "queued" }), headless(2, { prompt: "Where is the index built?", role: { role: "inspector", stage: "inspection" } })], KINDS)).toEqual({
+      sessions: { running: ["Shell", "Inspector, verdict"], queued: ["Proofer, round"] },
       running: { panes: [5], headless: [2, 1] },
     });
     expect(archivalOf(LOGIN, [], [headless(1, { state: "queued" })], KINDS)).toEqual({ sessions: { running: [], queued: ["Proofer, round"] }, running: { panes: [], headless: [1] } });
@@ -1000,8 +1005,8 @@ describe("sessionSections", () => {
   const WAITS = "Sessions waiting for the machine that leave the queue";
 
   it("gives a section of the sessions that run, headed as what ends, and under it a section of the sessions that wait for the machine, headed as what leaves the queue, each with its lines in their order", () => {
-    expect(sessionSections({ running: ["Shell", "Sealer, verdict"], queued: ["Proofer, round 1", "Crafter, fix pass 1"] })).toEqual([
-      { caption: RUNS, lines: ["Shell", "Sealer, verdict"] },
+    expect(sessionSections({ running: ["Shell", "Inspector, verdict"], queued: ["Proofer, round 1", "Crafter, fix pass 1"] })).toEqual([
+      { caption: RUNS, lines: ["Shell", "Inspector, verdict"] },
       { caption: WAITS, lines: ["Proofer, round 1", "Crafter, fix pass 1"] },
     ]);
   });
@@ -1141,76 +1146,14 @@ describe("settingsFields", () => {
     expect(settingsFields(PROJECT, "  ", "")).toEqual({});
   });
 
-  it("sends the chain of the Claude Code panes where the menu's value is another than the answer kept, null for no answer, and nothing where it is the answer kept or the dialog gives no value", () => {
-    const BOTH: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: null } };
-    const ANSWERED: Repository = { ...PROJECT, chain: { owl: true, plugin: true, chosen: "owlery" } };
-    expect(settingsFields(BOTH, "", "", "owlery")).toEqual({ paneChain: "owlery" });
-    expect(settingsFields(BOTH, "", "", "plugin")).toEqual({ paneChain: "plugin" });
-    expect(settingsFields(BOTH, "", "", "")).toEqual({});
-    expect(settingsFields(ANSWERED, "", "", "owlery")).toEqual({});
-    expect(settingsFields(ANSWERED, "", "", "plugin")).toEqual({ paneChain: "plugin" });
-    expect(settingsFields(ANSWERED, "", "", "")).toEqual({ paneChain: null });
-    // A caller that gives no value changes no answer.
-    expect(settingsFields(ANSWERED, "Named", "")).toEqual({ name: "Named" });
-    // A repository of a daemon of an earlier build has no chain, and a menu left on its first choice sends nothing for it.
-    const { chain: _, ...earlier } = ANSWERED;
-    expect(settingsFields(earlier as Repository, "", "", "")).toEqual({});
-  });
-
   it("sends the account where the menu's value is another than the one set on the repository, null for the first choice, which leaves it to the default, and nothing where it is the one set or the dialog gives no value", () => {
     const SET: Repository = { ...PROJECT, accountId: 2 };
-    expect(settingsFields(PROJECT, "", "", "", "2")).toEqual({ accountId: 2 });
-    expect(settingsFields(PROJECT, "", "", "", "0")).toEqual({ accountId: 0 });
-    expect(settingsFields(PROJECT, "", "", "", "")).toEqual({});
-    expect(settingsFields(SET, "", "", "", "2")).toEqual({});
-    expect(settingsFields(SET, "", "", "", "")).toEqual({ accountId: null });
+    expect(settingsFields(PROJECT, "", "", "2")).toEqual({ accountId: 2 });
+    expect(settingsFields(PROJECT, "", "", "0")).toEqual({ accountId: 0 });
+    expect(settingsFields(PROJECT, "", "", "")).toEqual({});
+    expect(settingsFields(SET, "", "", "2")).toEqual({});
+    expect(settingsFields(SET, "", "", "")).toEqual({ accountId: null });
     expect(settingsFields(SET, "Named", "")).toEqual({ name: "Named" });
-  });
-});
-
-describe("asksChain", () => {
-  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
-
-  it("asks before a Claude Code pane of a repository on the owl chain whose Claude Code enables the AgenticSeal plugin, while no answer is kept, and never before a shell", () => {
-    expect(asksChain(of(true, true, null), "claude")).toBe(true);
-    expect(asksChain(of(true, true, null), "shell")).toBe(false);
-  });
-
-  it("asks nothing once an answer is kept, where the repository is on no chain of Owlery's, where the plugin is not enabled, for a repository of a daemon of an earlier build, and for a folder the window holds no repository of", () => {
-    expect(asksChain(of(true, true, "owlery"), "claude")).toBe(false);
-    expect(asksChain(of(true, true, "plugin"), "claude")).toBe(false);
-    expect(asksChain(of(false, true, null), "claude")).toBe(false);
-    expect(asksChain(of(true, false, null), "claude")).toBe(false);
-    const { chain: _, ...earlier } = of(true, true, null);
-    expect(asksChain(earlier as Repository, "claude")).toBe(false);
-    expect(asksChain(undefined, "claude")).toBe(false);
-  });
-});
-
-describe("settingsChain", () => {
-  const of = (owl: boolean, plugin: boolean, chosen: "owlery" | "plugin" | null): Repository => ({ ...PROJECT, chain: { owl, plugin, chosen } });
-
-  it("shows the chain's field where the choice is read, with the answer kept as the menu's value and the first choice where none is", () => {
-    expect(settingsChain(of(true, true, null))).toEqual({ shown: true, value: "" });
-    expect(settingsChain(of(true, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
-    expect(settingsChain(of(true, true, "plugin"))).toEqual({ shown: true, value: "plugin" });
-  });
-
-  it("shows the field where an answer is kept though the choice is not read now, and hides it where neither holds and for a repository of a daemon of an earlier build", () => {
-    expect(settingsChain(of(true, false, "plugin"))).toEqual({ shown: true, value: "plugin" });
-    expect(settingsChain(of(false, true, "owlery"))).toEqual({ shown: true, value: "owlery" });
-    expect(settingsChain(of(true, false, null))).toEqual({ shown: false, value: "" });
-    expect(settingsChain(of(false, true, null))).toEqual({ shown: false, value: "" });
-    const { chain: _, ...earlier } = of(true, true, null);
-    expect(settingsChain(earlier as Repository)).toEqual({ shown: false, value: "" });
-  });
-
-  it("offers the two chains by the values the daemon keeps, after the choice that takes the answer away", () => {
-    expect(CHAIN_CHOICES.map(({ value, label }) => [value, label])).toEqual([
-      ["", "Ask at the next Claude Code pane"],
-      ["owlery", "The owl chain"],
-      ["plugin", "The AgenticSeal plugin"],
-    ]);
   });
 });
 
@@ -1298,7 +1241,7 @@ describe("the decisions made without asking", () => {
       decision(1, { kind: "route", says: "Build it with no framer.", grounds: "The issue names one file.", since: NOW - 3 * 60 * MINUTE }),
       decision(2, REVERSAL),
       decision(3, { kind: "scope", says: "Leave the phone's screen out.", grounds: "docs/roadmap.md, Milestones, row 3.", by: "orchestrator", since: NOW - 5 * MINUTE }),
-      decision(4, { kind: "answered", says: "The base is main.", grounds: "seal/config.json names no other.", since: NOW }),
+      decision(4, { kind: "answered", says: "The base is main.", grounds: "iadd/config.json names no other.", since: NOW }),
       decision(5, { ...REVERSAL, state: "applied", landed: "abc1234", since: null }),
       decision(6, { ...REVERSAL, state: "carried", landed: "#53", since: NOW - 2 * MINUTE }),
     ];
@@ -1306,7 +1249,7 @@ describe("the decisions made without asking", () => {
     expect(decisionLines({ ...LOGIN, decisions }, NOW)).toEqual([
       { id: 6, ...DEFAULT, age: "2 min", reversed: { head: "Carried to #53", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 5, ...DEFAULT, age: "", reversed: { head: "Applied in abc1234", message: "기본값 말고 main에서 시작해 주세요" } },
-      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: seal/config.json names no other.", by: "", age: "less than a minute", reversed: null },
+      { id: 4, kind: "Answered from the tree", says: "The base is main.", grounds: "Grounds: iadd/config.json names no other.", by: "", age: "less than a minute", reversed: null },
       { id: 3, kind: "Scope chosen", says: "Leave the phone's screen out.", grounds: "Grounds: docs/roadmap.md, Milestones, row 3.", by: "Decided by orchestrator", age: "5 min", reversed: null },
       { id: 2, ...DEFAULT, age: "3 min", reversed: { head: "Reversed", message: "기본값 말고 main에서 시작해 주세요" } },
       { id: 1, kind: "Route", says: "Build it with no framer.", grounds: "Grounds: The issue names one file.", by: "", age: "3 h", reversed: null },
@@ -1315,9 +1258,9 @@ describe("the decisions made without asking", () => {
   });
 
   it("names each line of the record that was not read, by its number and the reader's reason, in the order given, and none where the record was read whole", () => {
-    expect(unreadLines({ ...LOGIN, unread: [{ line: 4, why: "the block holds no id" }, { line: 19, why: "a fence opens like a seal block and is not one" }] })).toEqual([
+    expect(unreadLines({ ...LOGIN, unread: [{ line: 4, why: "the block holds no id" }, { line: 19, why: "a fence opens like an inspection block and is not one" }] })).toEqual([
       "Line 4 of decisions.md was not read: the block holds no id",
-      "Line 19 of decisions.md was not read: a fence opens like a seal block and is not one",
+      "Line 19 of decisions.md was not read: a fence opens like an inspection block and is not one",
     ]);
     expect(unreadLines(LOGIN)).toEqual([]);
   });
@@ -1370,8 +1313,8 @@ describe("a word of the person's that no commit holds", () => {
 describe("a work item parked with its questions", () => {
   const MINUTE = 60_000;
   const NOW = 100 * MINUTE;
-  const BASE: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "sealer", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "release/v0.0.2", answer: null, since: NOW - 12 * MINUTE };
-  const FREE: Question = { id: 2, asks: "What should the screen be called?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: NOW - 10 * MINUTE };
+  const BASE: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "inspector", options: [{ label: "main", implies: "The release's fixes are not in it." }, { label: "release/v0.0.2", implies: "It merges after the release." }], default: "release/v0.0.2", answer: null, since: NOW - 12 * MINUTE };
+  const FREE: Question = { id: 2, asks: "What should the screen be called?", grounds: "No document names it.", by: "inspector", options: [], default: null, answer: null, since: NOW - 10 * MINUTE };
   const OPEN: Question = { id: 3, asks: "Squash or merge?", grounds: "The repository's config names neither.", by: null, options: [{ label: "squash", implies: "" }, { label: "merge", implies: "Every commit stays." }], default: null, answer: null, since: null };
   const TYPED = "둘 다 아니고, 세 번째 방법으로";
   const ANSWERED: Question[] = [{ ...BASE, answer: "main", since: NOW - 4 * MINUTE }, { ...FREE, answer: TYPED, since: NOW - 3 * MINUTE }];
@@ -1426,8 +1369,8 @@ describe("a work item parked with its questions", () => {
       parked: true,
       key: "1:open:1,2,3",
       questions: [
-        { id: 1, asks: "Which base does the branch start from?", by: "Asked by sealer", grounds: "Grounds: No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
-        { id: 2, asks: "What should the screen be called?", by: "Asked by sealer", grounds: "Grounds: No document names it.", options: [], chosen: null, answer: null },
+        { id: 1, asks: "Which base does the branch start from?", by: "Asked by inspector", grounds: "Grounds: No document names the base of a hotfix.", options: [{ label: "main", implies: "The release's fixes are not in it.", mark: "" }, { label: "release/v0.0.2", implies: "It merges after the release.", mark: "Default" }], chosen: 1, answer: null },
+        { id: 2, asks: "What should the screen be called?", by: "Asked by inspector", grounds: "Grounds: No document names it.", options: [], chosen: null, answer: null },
         { id: 3, asks: "Squash or merge?", by: "", grounds: "Grounds: The repository's config names neither.", options: [{ label: "squash", implies: "", mark: "" }, { label: "merge", implies: "Every commit stays.", mark: "" }], chosen: null, answer: null },
       ],
     });
@@ -1471,7 +1414,7 @@ describe("a work item parked with its questions", () => {
     expect(askedSection(AGAIN, NOW, null)).toMatchObject({ head: "Waiting for your answer", age: "Asked 1 min ago", parked: true, key: "1:open:3", questions: [{ id: 3, by: "", answer: null }] });
     // A question the daemon has no time for gives the section no age, and the age is counted from the earliest time among the others.
     expect(askedSection({ ...LOGIN, questions: [OPEN] }, NOW, null)?.age).toBe("");
-    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW, null)).toMatchObject({ age: "Asked 10 min ago", questions: [{ by: "" }, { by: "Asked by sealer" }] });
+    expect(askedSection({ ...LOGIN, questions: [OPEN, FREE] }, NOW, null)).toMatchObject({ age: "Asked 10 min ago", questions: [{ by: "" }, { by: "Asked by inspector" }] });
     // A default that names no option of its question chooses none.
     expect(askedSection({ ...LOGIN, questions: [{ ...BASE, default: "develop" }] }, NOW, null)?.questions.map(({ chosen, options }) => [chosen, options.map(({ mark }) => mark)])).toEqual([[null, ["", ""]]]);
     // The key differs between two work items, two sets of questions of one, and a park and its answer, so the section is drawn again at each.
@@ -1539,18 +1482,18 @@ describe("the approval line", () => {
   const TARGET = "2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   /** What the daemon sends for a work item with no directory of its own. */
   const NOTHING: Recorded = { framed: false, rounds: 0, gate: null, verdict: null };
-  /** A work item's records with the frame, three round records, a gate's run and a last verdict that seals. */
-  const SEALED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "sealed", commit: TARGET, says: null } };
-  /** The seal of that verdict, which holds at the branch's head, and the same seal once a later commit broke it. */
-  const HOLDS: Seal = { state: "sealed", commit: TARGET, why: null };
-  const BROKE: Seal = { state: "broken", commit: TARGET, why: "`src/app.ts` changed after the sealed commit `2222222`." };
-  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: SEALED, seal: HOLDS };
+  /** A work item's records with the frame, three round records, a gate's run and a last verdict that clears. */
+  const CLEARED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "cleared", commit: TARGET, says: null } };
+  /** The inspection of that verdict, which holds at the branch's head, and the same inspection once a later commit lapsed it. */
+  const HOLDS: Inspection = { state: "cleared", commit: TARGET, why: null };
+  const LAPSED: Inspection = { state: "lapsed", commit: TARGET, why: "`src/app.ts` changed after the cleared commit `2222222`." };
+  const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: CLEARED, inspection: HOLDS };
   const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
   const NONE_STARTED = [
     ["framer", "no-agent", "Not started", "Framer: Not started"],
     ["crafter", "no-agent", "Not started", "Crafter: Not started"],
     ["proofer", "no-agent", "Not started", "Proofer: Not started"],
-    ["sealer", "no-agent", "Not started", "Sealer: Not started"],
+    ["inspector", "no-agent", "Not started", "Inspector: Not started"],
   ];
   const ASKS: Question = { id: 1, asks: "Does a stopped round count as a round?", grounds: "No document says.", by: "proofer", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
 
@@ -1568,16 +1511,16 @@ describe("the approval line", () => {
   /** The lines of text under the places. */
   const under = (workItem: WorkItem): string[] | null => approvalPlaces(workItem)?.flatMap((place) => (place.under === null ? [] : [place.under])) ?? null;
 
-  it("fills the four places in the order framer, crafter, proofer, sealer from what the records say and the branch's commits, and leaves each not started where they say nothing", () => {
+  it("fills the four places in the order framer, crafter, proofer, inspector from what the records say and the branch's commits, and leaves each not started where they say nothing", () => {
     expect(read(RECORDED)).toEqual([
       ["framer", "finished", "Framed", "Framer: Framed"],
       ["crafter", "finished", "1 commit", "Crafter: 1 commit"],
       ["proofer", "finished", "3 rounds", "Proofer: 3 rounds"],
-      ["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"],
+      ["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"],
     ]);
     expect(under(RECORDED)).toEqual([]);
-    expect(approvalPlaces(RECORDED)?.map(({ name }) => name)).toEqual(["Framer", "Crafter", "Proofer", "Sealer"]);
-    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...SEALED, rounds: 1 } })?.slice(1, 3)).toEqual([
+    expect(approvalPlaces(RECORDED)?.map(({ name }) => name)).toEqual(["Framer", "Crafter", "Proofer", "Inspector"]);
+    expect(read({ ...RECORDED, newCommits: 3, recorded: { ...CLEARED, rounds: 1 } })?.slice(1, 3)).toEqual([
       ["crafter", "finished", "3 commits", "Crafter: 3 commits"],
       ["proofer", "finished", "1 round", "Proofer: 1 round"],
     ]);
@@ -1587,39 +1530,39 @@ describe("the approval line", () => {
     expect(read({ ...EMPTY, newCommits: null })).toEqual(NONE_STARTED);
   });
 
-  it("marks the sealer's place failed at a withheld verdict and waiting at an undecided one, each with the verdict's commit and its reason or question under the line, and says a gate's run where no verdict stands", () => {
+  it("marks the inspector's place failed at a withheld verdict and waiting at an undecided one, each with the verdict's commit and its reason or question under the line, and says a gate's run where no verdict stands", () => {
     const withheld: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "withheld", commit: TARGET, says: "The broad gate did not run at the head." } } };
-    expect(read(withheld)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
-    expect(under(withheld)).toEqual(["Sealer: The broad gate did not run at the head."]);
+    expect(read(withheld)?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
+    expect(under(withheld)).toEqual(["Inspector: The broad gate did not run at the head."]);
     const undecided: WorkItem = { ...EMPTY, recorded: { ...NOTHING, verdict: { is: "undecided", commit: TARGET, says: "Which base does the hotfix merge into?" } } };
-    expect(read(undecided)?.[3]).toEqual(["sealer", "waiting", "Undecided", "Sealer: Undecided at 2222222"]);
-    expect(under(undecided)).toEqual(["Sealer: Which base does the hotfix merge into?"]);
+    expect(read(undecided)?.[3]).toEqual(["inspector", "waiting", "Undecided", "Inspector: Undecided at 2222222"]);
+    expect(under(undecided)).toEqual(["Inspector: Which base does the hotfix merge into?"]);
     const gated: WorkItem = { ...EMPTY, recorded: { ...NOTHING, gate: GATE } };
-    expect(read(gated)?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
+    expect(read(gated)?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
     expect(under(gated)).toEqual([]);
     // A verdict stands over the gate's run, and a verdict whose record gives no text puts no line under the places.
-    expect(read({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
-    expect(under({ ...withheld, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
+    expect(read({ ...withheld, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: null } } })?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
+    expect(under({ ...withheld, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: null } } })).toEqual([]);
     // The other three places are as the records give them.
     expect(read(withheld)?.slice(0, 3)).toEqual(NONE_STARTED.slice(0, 3));
   });
 
-  it("marks the sealer's place finished with the sealed commit where the seal holds at the branch's head, waiting with the note Seal broken and the seal's sentence under the line where a later commit broke it, and reads a verdict that seals in the worktree while the head holds no seal as no verdict", () => {
-    expect(read(RECORDED)?.[3]).toEqual(["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"]);
+  it("marks the inspector's place finished with the cleared commit where the inspection holds at the branch's head, waiting with the note Inspection lapsed and the inspection's sentence under the line where a later commit lapsed it, and reads a verdict that clears in the worktree while the head holds no inspection as no verdict", () => {
+    expect(read(RECORDED)?.[3]).toEqual(["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"]);
     expect(under(RECORDED)).toEqual([]);
-    const broken: WorkItem = { ...RECORDED, seal: BROKE };
-    expect(read(broken)?.[3]).toEqual(["sealer", "waiting", "Seal broken", "Sealer: Seal broken, sealed at 2222222"]);
-    expect(under(broken)).toEqual(["Sealer: `src/app.ts` changed after the sealed commit `2222222`."]);
-    expect(read(broken)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    // The worktree's verdict seals and the head holds no seal: the gate's run says the place, or nothing does. A daemon of an earlier build sends no seal.
-    const { seal: _seal, ...unread } = RECORDED;
-    for (const none of [{ ...RECORDED, seal: null }, unread as WorkItem]) {
-      expect(read(none)?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
-      expect(read({ ...none, recorded: { ...SEALED, gate: null } })?.[3]).toEqual(NONE_STARTED[3]);
+    const lapsed: WorkItem = { ...RECORDED, inspection: LAPSED };
+    expect(read(lapsed)?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
+    expect(under(lapsed)).toEqual(["Inspector: `src/app.ts` changed after the cleared commit `2222222`."]);
+    expect(read(lapsed)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    // The worktree's verdict clears and the head holds no inspection: the gate's run says the place, or nothing does. A daemon of an earlier build sends no inspection.
+    const { inspection: _inspection, ...unread } = RECORDED;
+    for (const none of [{ ...RECORDED, inspection: null }, unread as WorkItem]) {
+      expect(read(none)?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
+      expect(read({ ...none, recorded: { ...CLEARED, gate: null } })?.[3]).toEqual(NONE_STARTED[3]);
       expect(under(none)).toEqual([]);
     }
-    // A broken seal stands over a verdict the worktree holds and no commit does.
-    expect(read({ ...broken, recorded: { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Not committed." } } })?.[3]).toEqual(["sealer", "waiting", "Seal broken", "Sealer: Seal broken, sealed at 2222222"]);
+    // A lapsed inspection stands over a verdict the worktree holds and no commit does.
+    expect(read({ ...lapsed, recorded: { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: "Not committed." } } })?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
   });
 
   it("marks a role's place waiting where an open question names that role exactly as its asker, with the question's age in the mark's words and its text under the line, and marks no place for another asker or once the question is answered", () => {
@@ -1631,8 +1574,8 @@ describe("the approval line", () => {
     expect(read({ ...RECORDED, questions: [{ ...ASKS, since: null }] })?.[2]).toEqual(["proofer", "waiting", "Needs you", "Proofer: Needs you"]);
     // Of two open questions of the role, the first stands under the line.
     expect(under({ ...RECORDED, questions: [ASKS, { ...ASKS, id: 2, asks: "And a failed one?" }] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
-    // An open question marks the place over what the records say: the sealer waits on a question while its verdict seals.
-    expect(read({ ...RECORDED, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+    // An open question marks the place over what the records say: the inspector waits on a question while its verdict clears.
+    expect(read({ ...RECORDED, questions: [{ ...ASKS, by: "inspector" }] })?.[3]).toEqual(["inspector", "waiting", "Needs you", "Inspector: Needs you, 12 min"]);
     for (const by of ["orchestrator", "Proofer", " proofer", null]) {
       expect(read({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual(read(RECORDED));
       expect(under({ ...RECORDED, questions: [{ ...ASKS, by }] })).toEqual([]);
@@ -1709,51 +1652,51 @@ describe("the approval line", () => {
     expect(under({ ...round, questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
   });
 
-  it("marks the sealer's place working while the chain runs the broad gate, with the note Broad gate, and while it runs the seal, with the note Judging, each with the stage's age in the mark's words, and leaves the place to the records once either has finished", () => {
+  it("marks the inspector's place working while the chain runs the broad gate, with the note Broad gate, and while it runs the inspection, with the note Judging, each with the stage's age in the mark's words, and leaves the place to the records once either has finished", () => {
     const gate = (fields: Partial<ChainStage>): ChainStage => stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false }, ...fields });
     const runsGate = chained("running", ROUND_ONE, gate({}));
-    expect(read(runsGate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(runsGate)?.[3]).toEqual(["inspector", "working", "Broad gate", "Inspector: Broad gate, 4 min"]);
     expect(read(runsGate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     expect(under(runsGate)).toEqual([]);
-    const runsSeal = chained("running", ROUND_ONE, stage({ kind: "seal" }));
-    expect(read(runsSeal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
-    expect(read(runsSeal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    expect(under(runsSeal)).toEqual([]);
-    // A gate that passed and a seal whose verdict was written have finished: the records say the place, a gate's run or the verdict.
+    const runsInspection = chained("running", ROUND_ONE, stage({ kind: "inspection" }));
+    expect(read(runsInspection)?.[3]).toEqual(["inspector", "working", "Judging", "Inspector: Judging, 4 min"]);
+    expect(read(runsInspection)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    expect(under(runsInspection)).toEqual([]);
+    // A gate that passed and an inspection whose verdict was written have finished: the records say the place, a gate's run or the verdict.
     const passed = gate({ state: "finished", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 0, output: true } });
-    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...SEALED, verdict: null }, seal: null })?.[3]).toEqual(["sealer", "no-agent", "Gate passed", "Sealer: Gate passed at 3333333"]);
-    const withheld: Recorded = { ...SEALED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
-    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "seal", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld, seal: null };
-    expect(read(stopped)?.[3]).toEqual(["sealer", "failed", "Withheld", "Sealer: Withheld at 2222222"]);
-    expect(under(stopped)).toEqual(["Sealer: Round 2 closed a finding the tree still holds."]);
-    // An open question of the sealer's stands over the stage that runs.
-    expect(read({ ...runsSeal, questions: [{ ...ASKS, by: "sealer" }] })?.[3]).toEqual(["sealer", "waiting", "Needs you", "Sealer: Needs you, 12 min"]);
+    expect(read({ ...chained("running", ROUND_ONE, passed), recorded: { ...CLEARED, verdict: null }, inspection: null })?.[3]).toEqual(["inspector", "no-agent", "Gate passed", "Inspector: Gate passed at 3333333"]);
+    const withheld: Recorded = { ...CLEARED, verdict: { is: "withheld", commit: TARGET, says: "Round 2 closed a finding the tree still holds." } };
+    const stopped: WorkItem = { ...chained("stopped", ROUND_ONE, passed, stage({ kind: "inspection", state: "finished", endedAt: NOW - MINUTE })), recorded: withheld, inspection: null };
+    expect(read(stopped)?.[3]).toEqual(["inspector", "failed", "Withheld", "Inspector: Withheld at 2222222"]);
+    expect(under(stopped)).toEqual(["Inspector: Round 2 closed a finding the tree still holds."]);
+    // An open question of the inspector's stands over the stage that runs.
+    expect(read({ ...runsInspection, questions: [{ ...ASKS, by: "inspector" }] })?.[3]).toEqual(["inspector", "waiting", "Needs you", "Inspector: Needs you, 12 min"]);
   });
 
-  it("marks the sealer's place waiting where the chain's newest stage is a broad gate that failed, with the note Gate failed, and failed where it is a sealer's session that failed, each over what the records say and with the stage's failure under the line", () => {
+  it("marks the inspector's place waiting where the chain's newest stage is a broad gate that failed, with the note Gate failed, and failed where it is a inspector's session that failed, each over what the records say and with the stage's failure under the line", () => {
     const failedGate = stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } });
     const gated = chained("stopped", ROUND_ONE, failedGate);
-    expect(read(gated)?.[3]).toEqual(["sealer", "waiting", "Gate failed", "Sealer: Gate failed"]);
+    expect(read(gated)?.[3]).toEqual(["inspector", "waiting", "Gate failed", "Inspector: Gate failed"]);
     expect(read(gated)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    expect(under(gated)).toEqual(["Sealer: The command exited with code 3."]);
-    // The records of this work item hold a verdict that seals an earlier commit, and the failed gate stands over it.
-    expect(read(RECORDED)?.[3]).toEqual(["sealer", "finished", "Sealed", "Sealer: Sealed at 2222222"]);
-    const judged = chained("stopped", ROUND_ONE, stage({ kind: "seal", state: "failed", failure: "the session reached its time limit and was stopped", endedAt: NOW - MINUTE }));
-    expect(read(judged)?.[3]).toEqual(["sealer", "failed", "Failed", "Sealer: Judging failed"]);
+    expect(under(gated)).toEqual(["Inspector: The command exited with code 3."]);
+    // The records of this work item hold a verdict that clears an earlier commit, and the failed gate stands over it.
+    expect(read(RECORDED)?.[3]).toEqual(["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"]);
+    const judged = chained("stopped", ROUND_ONE, stage({ kind: "inspection", state: "failed", failure: "the session reached its time limit and was stopped", endedAt: NOW - MINUTE }));
+    expect(read(judged)?.[3]).toEqual(["inspector", "failed", "Failed", "Inspector: Judging failed"]);
     expect(read(judged)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
-    expect(under(judged)).toEqual(["Sealer: The session reached its time limit and was stopped."]);
+    expect(under(judged)).toEqual(["Inspector: The session reached its time limit and was stopped."]);
     // A gate that runs again after its failure is at work, and the failure leaves the line.
     const again = chained("running", ROUND_ONE, failedGate, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
-    expect(read(again)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(again)?.[3]).toEqual(["inspector", "working", "Broad gate", "Inspector: Broad gate, 4 min"]);
     expect(under(again)).toEqual([]);
-    // A failed gate marks no other role's place, and a failed round after it leaves the sealer's place to the records.
+    // A failed gate marks no other role's place, and a failed round after it leaves the inspector's place to the records.
     expect(read(chained("stopped", failedGate, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE })))?.[3]).toEqual(read(RECORDED)?.[3]);
   });
 
   /** The work item of the records with the stage a pane's session runs: round 1, told 4 minutes ago, but for the fields given. */
   const inPane = (workItem: WorkItem, fields: Partial<PaneStage> = {}): WorkItem => ({ ...workItem, paneStage: { kind: "round", round: 1, since: NOW - 4 * MINUTE, ...fields } });
 
-  it("marks the place of the role whose stage a pane's session runs working, the proofer's at its round, the crafter's at its fix pass and the sealer's at its seal and at its broad gate, each with the stage's age in the mark's words, and leaves every place to the records where the work item carries no such stage", () => {
+  it("marks the place of the role whose stage a pane's session runs working, the proofer's at its round, the crafter's at its fix pass and the inspector's at its inspection and at its broad gate, each with the stage's age in the mark's words, and leaves every place to the records where the work item carries no such stage", () => {
     const round = inPane(RECORDED);
     expect(read(round)?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"]);
     expect(read(round)?.filter((_, place) => place !== 2)).toEqual(read(RECORDED)?.filter((_, place) => place !== 2));
@@ -1761,11 +1704,11 @@ describe("the approval line", () => {
     const fix = inPane(RECORDED, { kind: "fix-pass", round: 2 });
     expect(read(fix)?.[1]).toEqual(["crafter", "working", "Fix pass", "Crafter: Fix pass on round 2, 4 min"]);
     expect(read(fix)?.filter((_, place) => place !== 1)).toEqual(read(RECORDED)?.filter((_, place) => place !== 1));
-    const seal = inPane(RECORDED, { kind: "seal", round: 2 });
-    expect(read(seal)?.[3]).toEqual(["sealer", "working", "Judging", "Sealer: Judging, 4 min"]);
-    expect(read(seal)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
+    const inspection = inPane(RECORDED, { kind: "inspection", round: 2 });
+    expect(read(inspection)?.[3]).toEqual(["inspector", "working", "Judging", "Inspector: Judging, 4 min"]);
+    expect(read(inspection)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     const gate = inPane(RECORDED, { kind: "gate", round: 2 });
-    expect(read(gate)?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(gate)?.[3]).toEqual(["inspector", "working", "Broad gate", "Inspector: Broad gate, 4 min"]);
     expect(read(gate)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
     // A work item whose records hold nothing yet: the pane's round stands where the place said "Not started".
     expect(read(inPane(EMPTY))).toEqual([NONE_STARTED[0], NONE_STARTED[1], ["proofer", "working", "Round 1", "Proofer: Round 1, 4 min"], NONE_STARTED[3]]);
@@ -1781,21 +1724,21 @@ describe("the approval line", () => {
     expect(under({ ...inPane(RECORDED, told), questions: [ASKS] })).toEqual(["Proofer: Does a stopped round count as a round?"]);
     // The daemon's chain runs round 2, from 4 minutes ago: it says the proofer's place, and a pane's stage of another role marks nothing while it runs.
     expect(read(inPane(RUNS_ROUND, told))).toEqual(read(RUNS_ROUND));
-    expect(read(inPane(RUNS_ROUND, { ...told, kind: "seal" }))).toEqual(read(RUNS_ROUND));
+    expect(read(inPane(RUNS_ROUND, { ...told, kind: "inspection" }))).toEqual(read(RUNS_ROUND));
     // The daemon's own broad gate asks the keeper with the place of a gate, so the work item carries a pane's gate from that ask: the place keeps the daemon's stage and its age.
     const runsGate = chained("running", ROUND_ONE, stage({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }));
-    expect(read(inPane(runsGate, { kind: "gate", round: 1, since: NOW - MINUTE }))?.[3]).toEqual(["sealer", "working", "Broad gate", "Sealer: Broad gate, 4 min"]);
+    expect(read(inPane(runsGate, { kind: "gate", round: 1, since: NOW - MINUTE }))?.[3]).toEqual(["inspector", "working", "Broad gate", "Inspector: Broad gate, 4 min"]);
     // A chain a restarted daemon reads as stopped runs no stage, though its newest says it works: the pane's stage says the place.
     expect(read(inPane(chained("stopped", ROUND_ONE, stage({})), told))?.[2]).toEqual(["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"]);
     // The daemon chain's round failed and the pane's session runs it again: the place works, and the failure leaves the line.
     const failed = chained("stopped", ROUND_ONE, stage({ state: "failed", failure: "stopped", endedAt: NOW - MINUTE }));
     expect(read(inPane(failed, { ...told, round: 2 }))?.[2]).toEqual(["proofer", "working", "Round 2", "Proofer: Round 2, 9 min"]);
     expect(under(inPane(failed, { ...told, round: 2 }))).toEqual([]);
-    // A failed broad gate of the daemon's chain keeps the sealer's place while the pane's session runs a round.
+    // A failed broad gate of the daemon's chain keeps the inspector's place while the pane's session runs a round.
     const failedGate = chained("stopped", ROUND_ONE, stage({ kind: "gate", headlessId: null, state: "failed", failure: "the command exited with code 3", endedAt: NOW - MINUTE, gate: { command: "pnpm -r run check", exitCode: 3, output: true } }));
     expect(read(inPane(failedGate, told))?.slice(2)).toEqual([
       ["proofer", "working", "Round 1", "Proofer: Round 1, 9 min"],
-      ["sealer", "waiting", "Gate failed", "Sealer: Gate failed"],
+      ["inspector", "waiting", "Gate failed", "Inspector: Gate failed"],
     ]);
   });
 
@@ -1810,7 +1753,7 @@ describe("the approval line", () => {
     expect(says("is the CLI signed in?")).toEqual(["Proofer: Is the CLI signed in?"]);
     expect(says("the CLI said: no!")).toEqual(["Proofer: The CLI said: no!"]);
     // A first word that is a path, a file's name or a number is no word to give a capital.
-    expect(says("seal/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: seal/threads/one/trail/rounds/round-2.md was written and not committed."]);
+    expect(says("iadd/threads/one/trail/rounds/round-2.md was written and not committed")).toEqual(["Proofer: iadd/threads/one/trail/rounds/round-2.md was written and not committed."]);
     expect(says("round-2.md holds no target line")).toEqual(["Proofer: round-2.md holds no target line."]);
     expect(says("2 blocks open with a verdict")).toEqual(["Proofer: 2 blocks open with a verdict."]);
     // A first word that a mark ends, before a space or the text's end, is a word of letters alone.
@@ -1836,7 +1779,7 @@ describe("a work item's chain", () => {
   const chain = (state: Chain["state"], fields: Partial<Chain> = {}): Chain => ({ state, says: state === "stopped" ? STOPPED_SAYS : state === "running" ? "Review round 1 is running." : "", stages: [], since: NOW - 4 * MINUTE, ...fields });
   const RUNNING: WorkItem = { ...LOGIN, chain: chain("running", { stages: [{ ...ROUND, state: "working", endedAt: null }] }) };
   const STOPPED: WorkItem = { ...LOGIN, chain: chain("stopped", { stages: [ROUND, FIX] }) };
-  const RESTED: WorkItem = { ...LOGIN, chain: chain("rested", { says: "The sealer sealed 1a2b3c4, after round 1.", stages: [ROUND] }) };
+  const RESTED: WorkItem = { ...LOGIN, chain: chain("rested", { says: "The inspector cleared 1a2b3c4, after round 1.", stages: [ROUND] }) };
   const PARKED: WorkItem = { ...LOGIN, chain: chain("parked", { says: "The work item waits for the answers to its questions.", stages: [ROUND] }) };
   const QUESTION: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names the base of a hotfix.", by: "crafter", options: [], default: null, answer: null, since: NOW - 12 * MINUTE };
   const working = session(2, { state: "working", stateSince: NOW - 40 * MINUTE, stateText: "Running the tests" });
@@ -1884,10 +1827,10 @@ describe("a work item's chain", () => {
     expect(lineText(runs({ kind: "fix-pass" }), finished, false)).toEqual({ says: "stage", text: "Crafter, fix pass" });
     expect(lineText(runs({ kind: "judgment", round: 2 }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, judgment" });
     expect(lineText(runs({ kind: "ruling" }), finished, false)).toEqual({ says: "stage", text: "Orchestrator, ruling" });
-    // The broad gate is no role's session, so its words name no role, and the seal is the sealer's.
+    // The broad gate is no role's session, so its words name no role, and the inspection is the inspector's.
     expect(lineText(runs({ kind: "gate", headlessId: null, gate: { command: "pnpm -r run check", exitCode: null, output: false } }), finished, false)).toEqual({ says: "stage", text: "Broad gate" });
-    expect(lineText(runs({ kind: "seal" }), finished, false)).toEqual({ says: "stage", text: "Sealer, verdict" });
-    // The pull request stage is no role's session either, and runs after the seal.
+    expect(lineText(runs({ kind: "inspection" }), finished, false)).toEqual({ says: "stage", text: "Inspector, verdict" });
+    // The pull request stage is no role's session either, and runs after the inspection.
     expect(lineText(runs({ kind: "pull-request", headlessId: null }), finished, false)).toEqual({ says: "stage", text: "Pull request" });
     // A line that waits keeps saying what it waits on while the stage runs.
     expect(lineText({ ...RUNNING, questions: [QUESTION] }, finished, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
@@ -1952,7 +1895,7 @@ describe("a work item's chain", () => {
   it("says at the view's foot the sentence of the chain the daemon sent, in whichever state it stands, and nothing where no chain ran for the work item", () => {
     expect(chainSays(LOGIN)).toBe("");
     expect(chainSays(STOPPED)).toBe(STOPPED_SAYS);
-    expect(chainSays(RESTED)).toBe("The sealer sealed 1a2b3c4, after round 1.");
+    expect(chainSays(RESTED)).toBe("The inspector cleared 1a2b3c4, after round 1.");
     expect(chainSays(PARKED)).toBe("The work item waits for the answers to its questions.");
     expect(chainSays(RUNNING)).toBe("Review round 1 is running.");
   });
@@ -1994,120 +1937,120 @@ describe("a work item's chain", () => {
   });
 });
 
-describe("the seal a work item's head holds", () => {
+describe("the inspection a work item's head holds", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
-  const HOLDS: Seal = { state: "sealed", commit: COMMIT, why: null };
-  const BROKE: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
-  const SEALED: WorkItem = { ...LOGIN, seal: HOLDS };
-  const BROKEN: WorkItem = { ...LOGIN, seal: BROKE };
+  const HOLDS: Inspection = { state: "cleared", commit: COMMIT, why: null };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+  const CLEARED: WorkItem = { ...LOGIN, inspection: HOLDS };
+  const LAPSED_ITEM: WorkItem = { ...LOGIN, inspection: LAPSED };
 
-  it("gives the seal's place its state and its words: none and No seal yet where the head holds no seal, where the daemon read none and for a daemon of an earlier build, the sealed commit in short where the seal holds, and the same commit after Seal broken where a later commit broke it", () => {
-    expect(sealShown(null)).toEqual({ state: "none", words: "No seal yet", why: "" });
-    expect(sealShown(undefined)).toEqual({ state: "none", words: "No seal yet", why: "" });
-    expect(sealShown(HOLDS)).toEqual({ state: "sealed", words: "Sealed at 3f2a9c1", why: "" });
-    expect(sealShown(BROKE)).toEqual({ state: "broken", words: "Seal broken, sealed at 3f2a9c1", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." });
+  it("gives the inspection's place its state and its words: none and No inspection yet where the head holds no inspection, where the daemon read none and for a daemon of an earlier build, the cleared commit in short where the inspection holds, and the same commit after Inspection lapsed where a later commit lapsed it", () => {
+    expect(inspectionShown(null)).toEqual({ state: "none", words: "No inspection yet", why: "" });
+    expect(inspectionShown(undefined)).toEqual({ state: "none", words: "No inspection yet", why: "" });
+    expect(inspectionShown(HOLDS)).toEqual({ state: "cleared", words: "Cleared at 3f2a9c1", why: "" });
+    expect(inspectionShown(LAPSED)).toEqual({ state: "lapsed", words: "Inspection lapsed, cleared at 3f2a9c1", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." });
     // A commit the repository does not hold is shown as the block writes it, cut to seven characters as any other.
-    expect(sealShown({ ...BROKE, commit: "abc" }).words).toBe("Seal broken, sealed at abc");
-    // The sentence under the head of the view's foot is a broken seal's alone, and a broken seal the daemon sent no sentence for says none.
-    expect(sealShown({ ...HOLDS, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." }).why).toBe("");
-    expect(sealShown({ ...BROKE, why: null }).why).toBe("");
+    expect(inspectionShown({ ...LAPSED, commit: "abc" }).words).toBe("Inspection lapsed, cleared at abc");
+    // The sentence under the head of the view's foot is a lapsed inspection's alone, and a lapsed inspection the daemon sent no sentence for says none.
+    expect(inspectionShown({ ...HOLDS, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." }).why).toBe("");
+    expect(inspectionShown({ ...LAPSED, why: null }).why).toBe("");
   });
 
-  it("makes the line of a work item whose seal is broken wait, saying Seal broken in its second row with no age, where nothing says more, and leaves the line to a park, a running or stopped chain and a pane that works or waits", () => {
-    expect(inboxLine(BROKEN, [], KINDS).state).toBe("waiting");
-    expect(lineText(BROKEN, undefined, false)).toEqual({ says: "seal", text: "Seal broken" });
-    // A finished pane and a chain that rests say no more than the seal, and the daemon stores no time the seal broke at, so the line says no age.
+  it("makes the line of a work item whose inspection is lapsed wait, saying Inspection lapsed in its second row with no age, where nothing says more, and leaves the line to a park, a running or stopped chain and a pane that works or waits", () => {
+    expect(inboxLine(LAPSED_ITEM, [], KINDS).state).toBe("waiting");
+    expect(lineText(LAPSED_ITEM, undefined, false)).toEqual({ says: "inspection", text: "Inspection lapsed" });
+    // A finished pane and a chain that rests say no more than the inspection, and the daemon stores no time the inspection lapsed at, so the line says no age.
     const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
-    const rests = { ...BROKEN, chain: { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] } satisfies Chain };
+    const rests = { ...LAPSED_ITEM, chain: { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] } satisfies Chain };
     expect(inboxLine(rests, [finished], KINDS).state).toBe("waiting");
-    expect(lineText(rests, finished, false)).toEqual({ says: "seal", text: "Seal broken" });
+    expect(lineText(rests, finished, false)).toEqual({ says: "inspection", text: "Inspection lapsed" });
     expect(lineSince(rests, finished)).toBeNull();
-    expect(lineSince(BROKEN, undefined)).toBeNull();
-    const entries = workItemEntries([BROKEN, SEARCH], [], KINDS);
+    expect(lineSince(LAPSED_ITEM, undefined)).toBeNull();
+    const entries = workItemEntries([LAPSED_ITEM, SEARCH], [], KINDS);
     expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Asleep", [2]]]);
-    // What says more than the seal keeps the line.
+    // What says more than the inspection keeps the line.
     const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
     const waiting = session(2, { state: "waiting", stateSince: 60, stateText: "May I run the tests?" });
-    expect([inboxLine(BROKEN, [working], KINDS).state, lineText(BROKEN, working, false), lineSince(BROKEN, working)]).toEqual(["working", { says: "state", text: "Running the tests" }, 50]);
-    expect([inboxLine(BROKEN, [waiting], KINDS).state, lineText(BROKEN, waiting, false), lineSince(BROKEN, waiting)]).toEqual(["waiting", { says: "state", text: "May I run the tests?" }, 60]);
+    expect([inboxLine(LAPSED_ITEM, [working], KINDS).state, lineText(LAPSED_ITEM, working, false), lineSince(LAPSED_ITEM, working)]).toEqual(["working", { says: "state", text: "Running the tests" }, 50]);
+    expect([inboxLine(LAPSED_ITEM, [waiting], KINDS).state, lineText(LAPSED_ITEM, waiting, false), lineSince(LAPSED_ITEM, waiting)]).toEqual(["waiting", { says: "state", text: "May I run the tests?" }, 60]);
     const stage: ChainStage = { kind: "round", round: 2, state: "working", failure: null, startedAt: 70, endedAt: null, headlessId: 3, refusals: 0, gate: null };
-    const running = { ...BROKEN, chain: { state: "running", says: "Review round 2 is running.", since: 70, stages: [stage] } satisfies Chain };
+    const running = { ...LAPSED_ITEM, chain: { state: "running", says: "Review round 2 is running.", since: 70, stages: [stage] } satisfies Chain };
     expect([inboxLine(running, [], KINDS).state, lineText(running, undefined, false), lineSince(running, undefined)]).toEqual(["working", { says: "stage", text: "Proofer, round 2" }, 70]);
-    const stopped = { ...BROKEN, chain: { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    const stopped = { ...LAPSED_ITEM, chain: { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
     expect([inboxLine(stopped, [], KINDS).state, lineText(stopped, undefined, false), lineSince(stopped, undefined)]).toEqual(["waiting", { says: "chain", text: "Review round 2 failed: the session ended." }, 80]);
-    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 90 };
-    expect([inboxLine({ ...BROKEN, questions: [asked] }, [], KINDS).state, lineText({ ...BROKEN, questions: [asked] }, undefined, false).says, lineSince({ ...BROKEN, questions: [asked] }, undefined)]).toEqual(["waiting", "question", 90]);
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "inspector", options: [], default: null, answer: null, since: 90 };
+    expect([inboxLine({ ...LAPSED_ITEM, questions: [asked] }, [], KINDS).state, lineText({ ...LAPSED_ITEM, questions: [asked] }, undefined, false).says, lineSince({ ...LAPSED_ITEM, questions: [asked] }, undefined)]).toEqual(["waiting", "question", 90]);
     // A search shows the branch, as it does on every line.
-    expect(lineText(BROKEN, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+    expect(lineText(LAPSED_ITEM, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
   });
 
-  it("finishes the line of a work item whose seal holds and that holds no pull request, saying Sealed in its second row with no age, where nothing says more, and says nothing of a seal the daemon read none of", () => {
-    expect(inboxLine(SEALED, [], KINDS).state).toBe("finished");
-    expect(lineText(SEALED, undefined, false)).toEqual({ says: "seal", text: "Sealed" });
+  it("finishes the line of a work item whose inspection holds and that holds no pull request, saying Cleared in its second row with no age, where nothing says more, and says nothing of an inspection the daemon read none of", () => {
+    expect(inboxLine(CLEARED, [], KINDS).state).toBe("finished");
+    expect(lineText(CLEARED, undefined, false)).toEqual({ says: "inspection", text: "Cleared" });
     const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
-    expect([inboxLine(SEALED, [finished], KINDS).state, lineText(SEALED, finished, false), lineSince(SEALED, finished)]).toEqual(["finished", { says: "seal", text: "Sealed" }, null]);
+    expect([inboxLine(CLEARED, [finished], KINDS).state, lineText(CLEARED, finished, false), lineSince(CLEARED, finished)]).toEqual(["finished", { says: "inspection", text: "Cleared" }, null]);
     const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
-    expect([inboxLine(SEALED, [working], KINDS).state, lineText(SEALED, working, false)]).toEqual(["working", { says: "state", text: "Running the tests" }]);
-    // No seal, and a daemon of an earlier build, which sends none, leave the line as it was.
-    const { seal: _, ...earlier } = SEALED;
-    for (const workItem of [{ ...LOGIN, seal: null }, earlier as WorkItem]) expect([inboxLine(workItem, [finished], KINDS).state, lineText(workItem, finished, false), lineSince(workItem, finished)]).toEqual(["finished", { says: "state", text: "The form is done." }, 40]);
+    expect([inboxLine(CLEARED, [working], KINDS).state, lineText(CLEARED, working, false)]).toEqual(["working", { says: "state", text: "Running the tests" }]);
+    // No inspection, and a daemon of an earlier build, which sends none, leave the line as it was.
+    const { inspection: _, ...earlier } = CLEARED;
+    for (const workItem of [{ ...LOGIN, inspection: null }, earlier as WorkItem]) expect([inboxLine(workItem, [finished], KINDS).state, lineText(workItem, finished, false), lineSince(workItem, finished)]).toEqual(["finished", { says: "state", text: "The form is done." }, 40]);
   });
 
-  it("notifies of a seal that broke since the window's lists were held, sealed then and broken now, titled with the work item's title and saying Seal broken, and of none that was broken already, had no seal, is muted or whose view is in front", () => {
-    const told = { workItemId: 1, title: "Fix the login bug", body: "Seal broken" };
-    expect(sealNotifications([SEALED, SEARCH], [BROKEN, SEARCH], undefined)).toEqual([told]);
-    expect(sealNotifications([SEALED, { ...SEARCH, seal: HOLDS }], [BROKEN, { ...SEARCH, seal: BROKE }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Seal broken" }]);
-    expect(sealNotifications([SEALED, { ...SEARCH, seal: HOLDS }], [BROKEN, { ...SEARCH, seal: BROKE }], 2)).toEqual([told]);
-    // Broken in both lists, and broken where the window held no seal, as at its start.
-    expect(sealNotifications([BROKEN], [BROKEN], undefined)).toEqual([]);
-    expect(sealNotifications([{ ...LOGIN, seal: null }], [BROKEN], undefined)).toEqual([]);
-    expect(sealNotifications([LOGIN], [BROKEN], undefined)).toEqual([]);
-    expect(sealNotifications([], [BROKEN], undefined)).toEqual([]);
-    expect(sealNotifications([SEALED], [{ ...BROKEN, muted: true }], undefined)).toEqual([]);
-    expect(sealNotifications([SEALED], [BROKEN], 1)).toEqual([]);
-    // A seal that still holds, or that the head no longer holds at all, tells nothing.
-    expect(sealNotifications([SEALED], [SEALED], undefined)).toEqual([]);
-    expect(sealNotifications([SEALED], [{ ...LOGIN, seal: null }], undefined)).toEqual([]);
-    expect(sealNotifications([BROKEN], [SEALED], undefined)).toEqual([]);
+  it("notifies of an inspection that lapsed since the window's lists were held, cleared then and lapsed now, titled with the work item's title and saying Inspection lapsed, and of none that was lapsed already, had no inspection, is muted or whose view is in front", () => {
+    const told = { workItemId: 1, title: "Fix the login bug", body: "Inspection lapsed" };
+    expect(lapseNotifications([CLEARED, SEARCH], [LAPSED_ITEM, SEARCH], undefined)).toEqual([told]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [LAPSED_ITEM, { ...SEARCH, inspection: LAPSED }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Inspection lapsed" }]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [LAPSED_ITEM, { ...SEARCH, inspection: LAPSED }], 2)).toEqual([told]);
+    // Lapsed in both lists, and lapsed where the window held no inspection, as at its start.
+    expect(lapseNotifications([LAPSED_ITEM], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([{ ...LOGIN, inspection: null }], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([LOGIN], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [{ ...LAPSED_ITEM, muted: true }], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [LAPSED_ITEM], 1)).toEqual([]);
+    // An inspection that still holds, or that the head no longer holds at all, tells nothing.
+    expect(lapseNotifications([CLEARED], [CLEARED], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [{ ...LOGIN, inspection: null }], undefined)).toEqual([]);
+    expect(lapseNotifications([LAPSED_ITEM], [CLEARED], undefined)).toEqual([]);
   });
 });
 
-describe("the back of a seal in a work item's view", () => {
+describe("the inspection sheet in a work item's view", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
-  const HOLDS: Seal = { state: "sealed", commit: COMMIT, why: null };
-  const BROKE: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const HOLDS: Inspection = { state: "cleared", commit: COMMIT, why: null };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   const ROUNDS: Recorded = { framed: false, rounds: 1, gate: null, verdict: null };
   const RESTS: Chain = { state: "rested", says: "The chain rests.", since: 5, stages: [] };
-  const RECORDS: SealRecords = { head: COMMIT, record: null, brokenBy: null, rounds: [], refusals: [], unreadRefusals: 0 };
+  const RECORDS: BackRecords = { head: COMMIT, record: null, lapsedBy: null, rounds: [], refusals: [], unreadRefusals: 0 };
   const ENTRY: LedgerEntry = { workItemId: 1, repo: "/r/project", branch: "owlery/fix-the-login-bug", stage: null, chain: null, startedAt: 0, endedAt: 60_000, state: "finished", stopped: null, usage: { costUsd: 0.12, converted: true, models: [] } };
 
-  it("gives the strip the back's tab where the work item's seal is a seal, sealed or broken, where its records count a round, or where the daemon sent its chain, and none where its seal is null or was not sent and nothing else holds", () => {
-    expect(hasBack({ ...LOGIN, seal: HOLDS })).toBe(true);
-    expect(hasBack({ ...LOGIN, seal: BROKE })).toBe(true);
+  it("gives the strip the back's tab where the work item's inspection is an inspection, cleared or lapsed, where its records count a round, or where the daemon sent its chain, and none where its inspection is null or was not sent and nothing else holds", () => {
+    expect(hasBack({ ...LOGIN, inspection: HOLDS })).toBe(true);
+    expect(hasBack({ ...LOGIN, inspection: LAPSED })).toBe(true);
     expect(hasBack({ ...LOGIN, recorded: ROUNDS })).toBe(true);
     expect(hasBack({ ...LOGIN, chain: RESTS })).toBe(true);
-    // A null seal and one the daemon sent none of are read alike, and records that count no round hold no back.
+    // A null inspection and one the daemon sent none of are read alike, and records that count no round hold no back.
     expect(hasBack(LOGIN)).toBe(false);
-    expect(hasBack({ ...LOGIN, seal: null })).toBe(false);
-    expect(hasBack({ ...LOGIN, seal: null, recorded: { ...ROUNDS, rounds: 0 } })).toBe(false);
+    expect(hasBack({ ...LOGIN, inspection: null })).toBe(false);
+    expect(hasBack({ ...LOGIN, inspection: null, recorded: { ...ROUNDS, rounds: 0 } })).toBe(false);
   });
 
-  it("opens a view entered with no pane to the back where the work item's seal is a seal, sealed or broken, and to a pane where one is given or where no seal is held", () => {
-    expect(opensToBack({ ...LOGIN, seal: HOLDS }, undefined)).toBe(true);
-    expect(opensToBack({ ...LOGIN, seal: BROKE }, undefined)).toBe(true);
+  it("opens a view entered with no pane to the back where the work item's inspection is an inspection, cleared or lapsed, and to a pane where one is given or where no inspection is held", () => {
+    expect(opensToBack({ ...LOGIN, inspection: HOLDS }, undefined)).toBe(true);
+    expect(opensToBack({ ...LOGIN, inspection: LAPSED }, undefined)).toBe(true);
     // A pane given, as from a session's notification, is the one in front.
-    expect(opensToBack({ ...LOGIN, seal: HOLDS }, 3)).toBe(false);
+    expect(opensToBack({ ...LOGIN, inspection: HOLDS }, 3)).toBe(false);
     // Rounds and a chain give the strip the back's tab, and the view still opens to a pane.
-    expect(opensToBack({ ...LOGIN, seal: null, recorded: ROUNDS, chain: RESTS }, undefined)).toBe(false);
+    expect(opensToBack({ ...LOGIN, inspection: null, recorded: ROUNDS, chain: RESTS }, undefined)).toBe(false);
     expect(opensToBack(LOGIN, undefined)).toBe(false);
     expect(opensToBack(undefined, undefined)).toBe(false);
   });
 
-  it("asks for the back again where the work item's seal, its records or its chain differ from the ones it asked at, a seal read where none was sent among them, and not where another field differs", () => {
+  it("asks for the back again where the work item's inspection, its records or its chain differ from the ones it asked at, an inspection read where none was sent among them, and not where another field differs", () => {
     const asked = backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS });
     expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, title: "Fix the login", newCommits: 4 })).toBe(asked);
-    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: null })).not.toBe(asked);
-    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: HOLDS })).not.toBe(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, seal: BROKE }));
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: null })).not.toBe(asked);
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: HOLDS })).not.toBe(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: LAPSED }));
     expect(backKey({ ...LOGIN, recorded: { ...ROUNDS, rounds: 2 }, chain: RESTS })).not.toBe(asked);
     expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: { ...RESTS, state: "running" } })).not.toBe(asked);
   });
@@ -2229,7 +2172,7 @@ describe("changesSince", () => {
         session: waits,
         sentence: "Needs you. 2 new commits since you were last here.",
         decided: 0,
-        sealSince: null,
+        inspectionSince: null,
       },
     ]);
     expect(summarySentence(changes)).toBe("1 needs you");
@@ -2294,12 +2237,12 @@ describe("changesSince", () => {
     ]);
   });
 
-  it("reads a look that keeps no seal as holding the seal the work item holds now, so a seal changes no line of the summary, and shows the present line with its seal", () => {
-    const broken: Seal = { state: "broken", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
-    const holds: Seal = { state: "sealed", commit: broken.commit, why: null };
-    for (const seal of [broken, holds]) expect(changesSince(look([LOGIN]), [{ ...LOGIN, seal }], [], KINDS), seal.state).toEqual([]);
-    // A change the look shows for another reason carries the line the seal gives now.
-    const changes = changesSince(look([{ ...LOGIN, newCommits: 0 }]), [{ ...LOGIN, newCommits: 1, seal: broken }], [], KINDS);
+  it("reads a look that keeps no inspection as holding the inspection the work item holds now, so an inspection changes no line of the summary, and shows the present line with its inspection", () => {
+    const lapsed: Inspection = { state: "lapsed", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+    const holds: Inspection = { state: "cleared", commit: lapsed.commit, why: null };
+    for (const inspection of [lapsed, holds]) expect(changesSince(look([LOGIN]), [{ ...LOGIN, inspection }], [], KINDS), inspection.state).toEqual([]);
+    // A change the look shows for another reason carries the line the inspection gives now.
+    const changes = changesSince(look([{ ...LOGIN, newCommits: 0 }]), [{ ...LOGIN, newCommits: 1, inspection: lapsed }], [], KINDS);
     expect(changes.map((change) => [change.line.state, change.sentence])).toEqual([["waiting", "Needs you. 1 new commit since you were last here."]]);
   });
 
@@ -2311,96 +2254,96 @@ describe("changesSince", () => {
     expect(changes.map((change) => change.workItem.id)).toEqual([3, 4, 2, 1]);
   });
 
-  describe("the seal since the look", () => {
+  describe("the inspection since the look", () => {
     const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
     const OTHER = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d";
-    const WHY = "`src/app.ts` changed after the sealed commit `3f2a9c1`.";
-    const sealedAt = (commit: string): Seal => ({ state: "sealed", commit, why: null });
-    const brokenAt = (commit: string): Seal => ({ state: "broken", commit, why: WHY });
-    const TWO_ROUNDS: Recorded = { framed: true, rounds: 2, gate: COMMIT, verdict: { is: "sealed", commit: COMMIT, says: null } };
+    const WHY = "`src/app.ts` changed after the cleared commit `3f2a9c1`.";
+    const clearedAt = (commit: string): Inspection => ({ state: "cleared", commit, why: null });
+    const lapsedAt = (commit: string): Inspection => ({ state: "lapsed", commit, why: WHY });
+    const TWO_ROUNDS: Recorded = { framed: true, rounds: 2, gate: COMMIT, verdict: { is: "cleared", commit: COMMIT, says: null } };
     const MERGED: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "merged", head: COMMIT, pushed: COMMIT, checks: "passed", list: [], listCount: 0, readAt: 10, failure: null };
 
-    it("gives a work item whose seal was given since the look as the one change, its sentence opening with the sealed commit in short and how many review rounds came before it, of one and of several, with the commit alone where the daemon sent no count or the count is 0, and what follows as before", () => {
-      const before = look([{ ...LOGIN, seal: null, newCommits: 1 }]);
-      const sealed = (fields: Partial<WorkItem>) => changesSince(before, [{ ...LOGIN, seal: sealedAt(COMMIT), newCommits: 1, ...fields }], [], KINDS);
-      expect(sealed({ recorded: TWO_ROUNDS }).map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "given", "Sealed at 3f2a9c1 after 2 review rounds."]]);
-      expect(sealed({ recorded: { ...TWO_ROUNDS, rounds: 1 } })[0]?.sentence).toBe("Sealed at 3f2a9c1 after 1 review round.");
-      expect(sealed({})[0]?.sentence).toBe("Sealed at 3f2a9c1.");
-      expect(sealed({ recorded: { ...TWO_ROUNDS, rounds: 0 } })[0]?.sentence).toBe("Sealed at 3f2a9c1.");
-      // The new commits and the decisions follow the seal's words as they follow a state's.
-      expect(sealed({ recorded: TWO_ROUNDS, newCommits: 3 })[0]?.sentence).toBe("Sealed at 3f2a9c1 after 2 review rounds. 2 new commits since you were last here.");
+    it("gives a work item whose inspection was given since the look as the one change, its sentence opening with the cleared commit in short and how many review rounds came before it, of one and of several, with the commit alone where the daemon sent no count or the count is 0, and what follows as before", () => {
+      const before = look([{ ...LOGIN, inspection: null, newCommits: 1 }]);
+      const cleared = (fields: Partial<WorkItem>) => changesSince(before, [{ ...LOGIN, inspection: clearedAt(COMMIT), newCommits: 1, ...fields }], [], KINDS);
+      expect(cleared({ recorded: TWO_ROUNDS }).map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "cleared", "Cleared at 3f2a9c1 after 2 review rounds."]]);
+      expect(cleared({ recorded: { ...TWO_ROUNDS, rounds: 1 } })[0]?.sentence).toBe("Cleared at 3f2a9c1 after 1 review round.");
+      expect(cleared({})[0]?.sentence).toBe("Cleared at 3f2a9c1.");
+      expect(cleared({ recorded: { ...TWO_ROUNDS, rounds: 0 } })[0]?.sentence).toBe("Cleared at 3f2a9c1.");
+      // The new commits and the decisions follow the inspection's words as they follow a state's.
+      expect(cleared({ recorded: TWO_ROUNDS, newCommits: 3 })[0]?.sentence).toBe("Cleared at 3f2a9c1 after 2 review rounds. 2 new commits since you were last here.");
     });
 
-    it("gives a work item whose seal broke since the look as the one change, its sentence opening with Seal broken and then the seal's own sentence as the daemon sent it, and with Seal broken alone where it sent none", () => {
-      const before = look([{ ...LOGIN, seal: sealedAt(COMMIT) }]);
-      const changes = changesSince(before, [{ ...LOGIN, seal: brokenAt(COMMIT) }], [], KINDS);
-      expect(changes.map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "broke", "Seal broken. `src/app.ts` changed after the sealed commit `3f2a9c1`."]]);
-      expect(changesSince(before, [{ ...LOGIN, seal: { ...brokenAt(COMMIT), why: null } }], [], KINDS)[0]?.sentence).toBe("Seal broken.");
+    it("gives a work item whose inspection lapsed since the look as the one change, its sentence opening with Inspection lapsed and then the inspection's own sentence as the daemon sent it, and with Inspection lapsed alone where it sent none", () => {
+      const before = look([{ ...LOGIN, inspection: clearedAt(COMMIT) }]);
+      const changes = changesSince(before, [{ ...LOGIN, inspection: lapsedAt(COMMIT) }], [], KINDS);
+      expect(changes.map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "lapsed", "Inspection lapsed. `src/app.ts` changed after the cleared commit `3f2a9c1`."]]);
+      expect(changesSince(before, [{ ...LOGIN, inspection: { ...lapsedAt(COMMIT), why: null } }], [], KINDS)[0]?.sentence).toBe("Inspection lapsed.");
     });
 
-    it("answers each pair of the look's seal and the present one by the table: given where the present seal holds and the look did not hold it at that commit, broke where it is broken and the look did not hold it broken at that commit, and nothing of the seal otherwise, a work item the look does not hold counting its seal as since the look, and a broken seal under a merged pull request saying nothing", () => {
-      const rows: [Seal | null, Seal | null, SealSince | null][] = [
-        [null, sealedAt(COMMIT), "given"],
-        [null, brokenAt(COMMIT), "broke"],
+    it("answers each pair of the look's inspection and the present one by the table: given where the present inspection holds and the look did not hold it at that commit, lapsed where it is lapsed and the look did not hold it lapsed at that commit, and nothing of the inspection otherwise, a work item the look does not hold counting its inspection as since the look, and a lapsed inspection under a merged pull request saying nothing", () => {
+      const rows: [Inspection | null, Inspection | null, InspectionSince | null][] = [
+        [null, clearedAt(COMMIT), "cleared"],
+        [null, lapsedAt(COMMIT), "lapsed"],
         [null, null, null],
-        [sealedAt(COMMIT), sealedAt(COMMIT), null],
-        [sealedAt(COMMIT), brokenAt(COMMIT), "broke"],
-        [sealedAt(COMMIT), null, null],
-        [sealedAt(OTHER), sealedAt(COMMIT), "given"],
-        [sealedAt(OTHER), brokenAt(COMMIT), "broke"],
-        [sealedAt(OTHER), null, null],
-        [brokenAt(COMMIT), sealedAt(COMMIT), "given"],
-        [brokenAt(COMMIT), brokenAt(COMMIT), null],
-        [brokenAt(COMMIT), null, null],
-        [brokenAt(OTHER), sealedAt(COMMIT), "given"],
-        [brokenAt(OTHER), brokenAt(COMMIT), "broke"],
-        [brokenAt(OTHER), null, null],
+        [clearedAt(COMMIT), clearedAt(COMMIT), null],
+        [clearedAt(COMMIT), lapsedAt(COMMIT), "lapsed"],
+        [clearedAt(COMMIT), null, null],
+        [clearedAt(OTHER), clearedAt(COMMIT), "cleared"],
+        [clearedAt(OTHER), lapsedAt(COMMIT), "lapsed"],
+        [clearedAt(OTHER), null, null],
+        [lapsedAt(COMMIT), clearedAt(COMMIT), "cleared"],
+        [lapsedAt(COMMIT), lapsedAt(COMMIT), null],
+        [lapsedAt(COMMIT), null, null],
+        [lapsedAt(OTHER), clearedAt(COMMIT), "cleared"],
+        [lapsedAt(OTHER), lapsedAt(COMMIT), "lapsed"],
+        [lapsedAt(OTHER), null, null],
       ];
       for (const [then, now, answer] of rows) {
         const row = `${then ? `${then.state} at ${then.commit.slice(0, 1)}` : "null"} to ${now ? `${now.state} at ${now.commit.slice(0, 1)}` : "null"}`;
-        expect(changesSince(look([{ ...LOGIN, seal: then }]), [{ ...LOGIN, seal: now }], [], KINDS)[0]?.sealSince ?? null, row).toBe(answer);
-        expect(sealSinceLook({ ...LOGIN, seal: then }, { ...LOGIN, seal: now }), row).toBe(answer);
+        expect(changesSince(look([{ ...LOGIN, inspection: then }]), [{ ...LOGIN, inspection: now }], [], KINDS)[0]?.inspectionSince ?? null, row).toBe(answer);
+        expect(inspectionSinceLook({ ...LOGIN, inspection: then }, { ...LOGIN, inspection: now }), row).toBe(answer);
       }
       // A work item the look does not hold.
-      expect(sealSinceLook(undefined, { ...LOGIN, seal: sealedAt(COMMIT) })).toBe("given");
-      expect(sealSinceLook(undefined, { ...LOGIN, seal: brokenAt(COMMIT) })).toBe("broke");
-      expect(sealSinceLook(undefined, { ...LOGIN, seal: null })).toBeNull();
-      const fresh = changesSince(look([]), [{ ...LOGIN, seal: sealedAt(COMMIT), recorded: TWO_ROUNDS }], [], KINDS);
-      expect(fresh.map((change) => [change.sealSince, change.sentence])).toEqual([["given", "Sealed at 3f2a9c1 after 2 review rounds. New since you were last here."]]);
-      // A merged pull request says more than a broken seal on the line, and so in the summary.
-      expect(sealSinceLook({ ...LOGIN, seal: sealedAt(COMMIT), pullRequest: MERGED }, { ...LOGIN, seal: brokenAt(COMMIT), pullRequest: MERGED })).toBeNull();
-      const merged = changesSince(look([{ ...LOGIN, seal: sealedAt(COMMIT), pullRequest: MERGED, newCommits: 0 }]), [{ ...LOGIN, seal: brokenAt(COMMIT), pullRequest: MERGED, newCommits: 1 }], [], KINDS);
-      expect(merged.map((change) => [change.sealSince, change.sentence])).toEqual([[null, "Finished. 1 new commit since you were last here."]]);
+      expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: clearedAt(COMMIT) })).toBe("cleared");
+      expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: lapsedAt(COMMIT) })).toBe("lapsed");
+      expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: null })).toBeNull();
+      const fresh = changesSince(look([]), [{ ...LOGIN, inspection: clearedAt(COMMIT), recorded: TWO_ROUNDS }], [], KINDS);
+      expect(fresh.map((change) => [change.inspectionSince, change.sentence])).toEqual([["cleared", "Cleared at 3f2a9c1 after 2 review rounds. New since you were last here."]]);
+      // A merged pull request says more than a lapsed inspection on the line, and so in the summary.
+      expect(inspectionSinceLook({ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED }, { ...LOGIN, inspection: lapsedAt(COMMIT), pullRequest: MERGED })).toBeNull();
+      const merged = changesSince(look([{ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED, newCommits: 0 }]), [{ ...LOGIN, inspection: lapsedAt(COMMIT), pullRequest: MERGED, newCommits: 1 }], [], KINDS);
+      expect(merged.map((change) => [change.inspectionSince, change.sentence])).toEqual([[null, "Finished. 1 new commit since you were last here."]]);
     });
 
-    it("reads a side that carries no seal with the other side's seal, so a daemon that has read no branch yet and a look written before the look kept the seal change nothing of the seal, and a pane that moved still changes the work item, with no word of the seal", () => {
-      const sealed = { ...LOGIN, seal: sealedAt(COMMIT) };
-      expect(changesSince(look([sealed]), [LOGIN], [], KINDS)).toEqual([]);
-      expect(changesSince(look([LOGIN]), [sealed], [], KINDS)).toEqual([]);
-      expect(sealSinceLook(sealed, LOGIN)).toBeNull();
-      expect(sealSinceLook(LOGIN, sealed)).toBeNull();
+    it("reads a side that carries no inspection with the other side's inspection, so a daemon that has read no branch yet and a look written before the look kept the inspection change nothing of the inspection, and a pane that moved still changes the work item, with no word of the inspection", () => {
+      const cleared = { ...LOGIN, inspection: clearedAt(COMMIT) };
+      expect(changesSince(look([cleared]), [LOGIN], [], KINDS)).toEqual([]);
+      expect(changesSince(look([LOGIN]), [cleared], [], KINDS)).toEqual([]);
+      expect(inspectionSinceLook(cleared, LOGIN)).toBeNull();
+      expect(inspectionSinceLook(LOGIN, cleared)).toBeNull();
       for (const [then, now] of [
-        [sealed, LOGIN],
-        [LOGIN, sealed],
+        [cleared, LOGIN],
+        [LOGIN, cleared],
       ] as const) {
         const changes = changesSince(look([then], [session(3, { state: "working" })]), [now], [session(3, { state: "finished" })], KINDS);
-        expect(changes.map((change) => [change.sealSince, change.sentence])).toEqual([[null, "Finished."]]);
+        expect(changes.map((change) => [change.inspectionSince, change.sentence])).toEqual([[null, "Finished."]]);
       }
     });
 
-    it("puts the work items whose seal was given first and the ones whose seal broke next, each in the daemon's order, then the others in the order of the inbox's groups, and counts each once, the seals first", () => {
-      const ids = (id: number, title: string, seal: Seal | null): WorkItem => ({ ...LOGIN, id, title, seal });
-      const before = look([ids(1, "Waits", null), ids(2, "Works", null), ids(3, "Broke", sealedAt(COMMIT)), ids(4, "Given", null), ids(5, "Given first", null)]);
-      const now = [ids(1, "Waits", null), ids(2, "Works", null), ids(5, "Given first", sealedAt(COMMIT)), ids(3, "Broke", brokenAt(COMMIT)), ids(4, "Given", sealedAt(OTHER))];
+    it("puts the work items whose inspection was given first and the ones whose inspection lapsed next, each in the daemon's order, then the others in the order of the inbox's groups, and counts each once, the inspections first", () => {
+      const ids = (id: number, title: string, inspection: Inspection | null): WorkItem => ({ ...LOGIN, id, title, inspection });
+      const before = look([ids(1, "Waits", null), ids(2, "Works", null), ids(3, "Lapses", clearedAt(COMMIT)), ids(4, "Given", null), ids(5, "Given first", null)]);
+      const now = [ids(1, "Waits", null), ids(2, "Works", null), ids(5, "Given first", clearedAt(COMMIT)), ids(3, "Lapses", lapsedAt(COMMIT)), ids(4, "Given", clearedAt(OTHER))];
       const changes = changesSince(before, now, [session(6, { workItemId: 1, state: "waiting" }), session(7, { workItemId: 2, state: "working" })], KINDS);
-      expect(changes.map((change) => [change.workItem.id, change.sealSince])).toEqual([
-        [5, "given"],
-        [4, "given"],
-        [3, "broke"],
+      expect(changes.map((change) => [change.workItem.id, change.inspectionSince])).toEqual([
+        [5, "cleared"],
+        [4, "cleared"],
+        [3, "lapsed"],
         [1, null],
         [2, null],
       ]);
-      expect(summarySentence(changes)).toBe("2 sealed, 1 seal broken, 1 needs you, 1 working");
+      expect(summarySentence(changes)).toBe("2 cleared, 1 inspection lapsed, 1 needs you, 1 working");
     });
   });
 
@@ -2408,7 +2351,7 @@ describe("changesSince", () => {
     function decision(id: number, fields: Partial<Decision> = {}): Decision {
       return { id, kind: "default", says: "Start from main.", grounds: "frame/questions.md Q1 states main as its default.", by: null, state: "decided", reversal: null, landed: null, since: 2000, ...fields };
     }
-    const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: 3000 };
+    const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [], default: null, answer: null, since: 3000 };
     const THIRD: WorkItem = { ...LOGIN, id: 3, title: "Third", newCommits: 1 };
 
     it("gives a parked work item, one that gained decisions alone and one that gained a commit and a decision as changed, the parked one first, counts the decisions apart from the one that waits, and opens the parked one", () => {
@@ -2464,57 +2407,57 @@ describe("changesSince", () => {
 
 describe("the changed set of a load", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
-  const SEALED: Seal = { state: "sealed", commit: COMMIT, why: null };
-  const BROKEN: Seal = { state: "broken", commit: COMMIT, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const CLEARED: Inspection = { state: "cleared", commit: COMMIT, why: null };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   function look(workItems: WorkItem[], sessions: SessionInfo[] = []): Look {
     return { at: 1000, sessions, workItems };
   }
 
-  it("keeps the work items the load changed, and works out what each says from the present lists: a seal that broke since the load says so and counts as a broken seal, one nothing of which differs from the look any more says its state alone, one the lists no longer hold has no line, and a work item outside the set has none", () => {
-    const before = look([{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
-    const set = changedSet(before, [{ ...LOGIN, seal: SEALED }, { ...SEARCH, seal: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
+  it("keeps the work items the load changed, and works out what each says from the present lists: an inspection that lapsed since the load says so and counts as a lapsed inspection, one nothing of which differs from the look any more says its state alone, one the lists no longer hold has no line, and a work item outside the set has none", () => {
+    const before = look([{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
+    const set = changedSet(before, [{ ...LOGIN, inspection: CLEARED }, { ...SEARCH, inspection: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
     expect(set.ids).toEqual([1, 2]);
-    const later = [{ ...LOGIN, seal: BROKEN }, { ...SEARCH, seal: null }];
+    const later = [{ ...LOGIN, inspection: LAPSED }, { ...SEARCH, inspection: null }];
     const changes = changesOf(before, set.ids, later, [], KINDS);
-    expect(changes.map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([
-      [1, "broke", "Seal broken. `src/app.ts` changed after the sealed commit `3f2a9c1`."],
+    expect(changes.map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([
+      [1, "lapsed", "Inspection lapsed. `src/app.ts` changed after the cleared commit `3f2a9c1`."],
       [2, null, "No agent is running."],
     ]);
-    expect(summarySentence(changes)).toBe("1 seal broken");
+    expect(summarySentence(changes)).toBe("1 inspection lapsed");
     expect(changesOf(before, set.ids, [later[0] as WorkItem], [], KINDS).map((change) => change.workItem.id)).toEqual([1]);
-    const third: WorkItem = { ...LOGIN, id: 3, title: "Third", seal: null };
+    const third: WorkItem = { ...LOGIN, id: 3, title: "Third", inspection: null };
     const withThird = changesOf(look([...before.workItems, third]), set.ids, [...later, third], [session(5, { workItemId: 3, state: "waiting" })], KINDS);
     expect(withThird.map((change) => change.workItem.id)).toEqual([1, 2]);
   });
 
-  it("names the work items the load carried without a seal reading, and lets one join the set once, at the first lists that carry its reading, where its seal was given or broke since the look, and no other", () => {
-    const before = look([{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
-    const load = [LOGIN, { ...SEARCH, seal: null }];
+  it("names the work items the load carried without an inspection reading, and lets one join the set once, at the first lists that carry its reading, where its inspection was given or lapsed since the look, and no other", () => {
+    const before = look([{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
+    const load = [LOGIN, { ...SEARCH, inspection: null }];
     const set = changedSet(before, load, [], KINDS);
     expect(set).toEqual({ ids: [], unread: [1] });
     // Lists that still carry no reading leave the set as it was.
     expect(changedSetAfter(before, set, load)).toEqual(set);
-    const sealed = [{ ...LOGIN, seal: SEALED }, { ...SEARCH, seal: SEALED }];
-    const joined = changedSetAfter(before, set, sealed);
+    const cleared = [{ ...LOGIN, inspection: CLEARED }, { ...SEARCH, inspection: CLEARED }];
+    const joined = changedSetAfter(before, set, cleared);
     expect(joined).toEqual({ ids: [1], unread: [] });
-    expect(changesOf(before, joined.ids, sealed, [], KINDS).map((change) => [change.workItem.id, change.sealSince, change.sentence])).toEqual([[1, "given", "Sealed at 3f2a9c1."]]);
-    expect(changedSetAfter(before, set, [{ ...LOGIN, seal: BROKEN }, { ...SEARCH, seal: null }])).toEqual({ ids: [1], unread: [] });
-    // Read with no seal, it joins nothing, then or at a seal given later.
-    const read = changedSetAfter(before, set, [{ ...LOGIN, seal: null }, { ...SEARCH, seal: null }]);
+    expect(changesOf(before, joined.ids, cleared, [], KINDS).map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "cleared", "Cleared at 3f2a9c1."]]);
+    expect(changedSetAfter(before, set, [{ ...LOGIN, inspection: LAPSED }, { ...SEARCH, inspection: null }])).toEqual({ ids: [1], unread: [] });
+    // Read with no inspection, it joins nothing, then or at an inspection given later.
+    const read = changedSetAfter(before, set, [{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
     expect(read).toEqual({ ids: [], unread: [] });
-    expect(changedSetAfter(before, read, sealed)).toEqual({ ids: [], unread: [] });
-    // A look written before the look kept the seal has no reading to measure against.
-    expect(changedSetAfter(look([LOGIN, SEARCH]), set, sealed)).toEqual({ ids: [], unread: [] });
+    expect(changedSetAfter(before, read, cleared)).toEqual({ ids: [], unread: [] });
+    // A look written before the look kept the inspection has no reading to measure against.
+    expect(changedSetAfter(look([LOGIN, SEARCH]), set, cleared)).toEqual({ ids: [], unread: [] });
     // A work item new since the look is in the set already, and is named in it once.
     const fresh = changedSet(look([]), [LOGIN], [], KINDS);
     expect(fresh).toEqual({ ids: [1], unread: [1] });
-    expect(changedSetAfter(look([]), fresh, [{ ...LOGIN, seal: SEALED }])).toEqual({ ids: [1], unread: [] });
+    expect(changedSetAfter(look([]), fresh, [{ ...LOGIN, inspection: CLEARED }])).toEqual({ ids: [1], unread: [] });
   });
 });
 
 describe("summarySentence", () => {
-  function change(state: InboxLine["state"], decided = 0, sealSince: SealSince | null = null): { line: InboxLine; decided: number; sealSince: SealSince | null } {
-    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided, sealSince };
+  function change(state: InboxLine["state"], decided = 0, inspectionSince: InspectionSince | null = null): { line: InboxLine; decided: number; inspectionSince: InspectionSince | null } {
+    return { line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, decided, inspectionSince };
   }
 
   it("counts the changed work items by their present state, in the inbox's order and words, and leaves out the ones with no state", () => {
@@ -2534,13 +2477,13 @@ describe("summarySentence", () => {
     expect(summarySentence([change("waiting", 0), change("waiting")])).toBe("2 need you");
   });
 
-  it("counts the work items whose seal was given as sealed and the ones whose seal broke as broken seals, before the states, each work item once, of one and of several", () => {
-    expect(summarySentence([change("waiting", 0, "broke")])).toBe("1 seal broken");
-    expect(summarySentence([change("waiting", 0, "broke"), change("waiting", 0, "broke")])).toBe("2 seals broken");
-    expect(summarySentence([change("finished", 0, "given"), change("waiting", 0, "given"), change("waiting")])).toBe("2 sealed, 1 needs you");
-    expect(summarySentence([change("finished", 3, "given")])).toBe("1 sealed. 3 decisions made without asking.");
-    // A work item with no state beside a seal is left out of the count, as beside a state.
-    expect(summarySentence([change(null, 0, "given"), change(null)])).toBe("1 sealed");
+  it("counts the work items whose inspection was given as cleared and the ones whose inspection lapsed as lapsed inspections, before the states, each work item once, of one and of several", () => {
+    expect(summarySentence([change("waiting", 0, "lapsed")])).toBe("1 inspection lapsed");
+    expect(summarySentence([change("waiting", 0, "lapsed"), change("waiting", 0, "lapsed")])).toBe("2 inspections lapsed");
+    expect(summarySentence([change("finished", 0, "cleared"), change("waiting", 0, "cleared"), change("waiting")])).toBe("2 cleared, 1 needs you");
+    expect(summarySentence([change("finished", 3, "cleared")])).toBe("1 cleared. 3 decisions made without asking.");
+    // A work item with no state beside an inspection is left out of the count, as beside a state.
+    expect(summarySentence([change(null, 0, "cleared"), change(null)])).toBe("1 cleared");
   });
 });
 
@@ -3402,7 +3345,7 @@ describe("the list of the daemon's chain at the view's foot", () => {
     expect(gateLine(chained("running", ROUND), null)).toBeNull();
     expect(gateLine(chained("stopped"), null)).toBeNull();
     // A stage of another kind holds no run, and a stage a build before the gate stored holds none either.
-    expect(gateLine(chained("running", { ...ROUND, kind: "seal" }), null)).toBeNull();
+    expect(gateLine(chained("running", { ...ROUND, kind: "inspection" }), null)).toBeNull();
     expect(gateLine(chained("stopped", gate({ gate: null })), null)).toBeNull();
   });
 
@@ -3422,12 +3365,12 @@ describe("the list of the daemon's chain at the view's foot", () => {
   it("is the line of the chain's newest gate, wherever it stands among the stages", () => {
     const again = gate({ startedAt: 9000, gate: { ...RUN, command: "pnpm test" } });
     expect(gateLine(chained("running", ROUND, FAILED, again), null)).toMatchObject({ startedAt: 9000, command: "pnpm test", state: "working", stop: true });
-    // A seal and a ruling follow the gate that passed, and the line stays the gate's.
-    expect(gateLine(chained("running", FAILED, PASSED, { ...ROUND, kind: "seal", state: "working", endedAt: null }), null)).toMatchObject({ startedAt: 5000, state: "finished", output: true });
+    // An inspection and a ruling follow the gate that passed, and the line stays the gate's.
+    expect(gateLine(chained("running", FAILED, PASSED, { ...ROUND, kind: "inspection", state: "working", endedAt: null }), null)).toMatchObject({ startedAt: 5000, state: "finished", output: true });
     expect(gateLine(chained("stopped", gate({ startedAt: 4000, state: "finished", endedAt: 4500 }), FAILED, ROUND), null)).toMatchObject({ state: "failed", text: "The command exited with code 3." });
   });
 
-  it("holds the gate's line and the lines of the work item's sessions, and is drawn only where it holds a line: not for a work item the daemon lists no session of and whose chain holds no gate's run (design, A work item with no daemon chain shows the seal's place alone)", () => {
+  it("holds the gate's line and the lines of the work item's sessions, and is drawn only where it holds a line: not for a work item the daemon lists no session of and whose chain holds no gate's run (design, A work item with no daemon chain shows the inspection's place alone)", () => {
     expect(chainList([], LOGIN, null)).toEqual({ gate: null, lines: [], drawn: false });
     // Another work item's session, and a chain whose stages hold no gate's run, give the list no line.
     expect(chainList([headless(2, { workItemId: 2 })], chained("stopped", ROUND), null)).toEqual({ gate: null, lines: [], drawn: false });
@@ -3575,16 +3518,25 @@ describe("sidebarTree", () => {
   });
 
   it("carries the version of the older check the daemon read of a repository, which its row shows as a button, and none where the daemon read none, sent no such field or sent no records", () => {
-    const WORKFLOW = ".github/workflows/owlery-seal.yml";
-    const older: Repository = { ...PROJECT, records: { root: "seal", check: WORKFLOW, broadGate: null, olderCheck: "0.0.4" } };
-    const current: Repository = { ...PROJECT, id: 2, records: { root: "seal", check: WORKFLOW, broadGate: null, olderCheck: null } };
-    const unsent: Repository = { ...PROJECT, id: 3, records: { root: "seal", check: WORKFLOW, broadGate: null } };
+    const WORKFLOW = ".github/workflows/owlery-inspection.yml";
+    const older: Repository = { ...PROJECT, records: { root: "inspection", check: WORKFLOW, broadGate: null, olderCheck: "0.0.4" } };
+    const current: Repository = { ...PROJECT, id: 2, records: { root: "inspection", check: WORKFLOW, broadGate: null, olderCheck: null } };
+    const unsent: Repository = { ...PROJECT, id: 3, records: { root: "inspection", check: WORKFLOW, broadGate: null } };
     const { records: _, ...earlier } = { ...PROJECT, id: 4 };
     expect(sidebarTree([older, current, unsent, earlier as Repository], [], [], KINDS).map((repository) => [repository.id, repository.olderCheck])).toEqual([
       [1, "0.0.4"],
       [2, null],
       [3, null],
       [4, null],
+    ]);
+  });
+
+  it("carries the root in the earlier form the daemon read of a repository, which its row shows as a button, and none where the daemon read none or sent no such field", () => {
+    const moving: Repository = { ...PROJECT, records: { root: null, check: null, broadGate: null, olderCheck: null, earlier: "seal" } };
+    const unsent: Repository = { ...PROJECT, id: 2, records: { root: null, check: null, broadGate: null } };
+    expect(sidebarTree([moving, unsent], [], [], KINDS).map((repository) => [repository.id, repository.earlier])).toEqual([
+      [1, "seal"],
+      [2, null],
     ]);
   });
 
@@ -3961,26 +3913,26 @@ describe("summaryControls", () => {
   function change(id: number, state: InboxLine["state"], fields: Partial<WorkItem> = {}, pane?: SessionInfo): { workItem: WorkItem; line: InboxLine; session: SessionInfo | undefined } {
     return { workItem: { ...LOGIN, id, ...fields }, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, session: pane };
   }
-  const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: 3000 };
-  const BROKE: Seal = { state: "broken", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
+  const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [], default: null, answer: null, since: 3000 };
+  const LAPSED: Inspection = { state: "lapsed", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   const STOPPED: Chain = { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [] };
 
   it("makes answering the first work item that waits on a question or a pane that waits the main control, with the inbox beside it and a hint that names the question, past a line before it that waits for another reason", () => {
     const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first question." });
     expect(summaryControls([change(4, "finished"), change(7, "waiting", { questions: [ASKED] }), change(9, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
-    expect(summaryControls([change(3, "waiting", { seal: BROKE }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
+    expect(summaryControls([change(3, "waiting", { inspection: LAPSED }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
     expect(summaryControls([change(3, "waiting", { chain: STOPPED }), change(8, "waiting", { questions: [ASKED] })])).toEqual(answer(8));
-    expect(summaryControls([change(3, "waiting", { seal: BROKE }), change(9, "waiting", {}, session(5, { workItemId: 9, state: "waiting" }))])).toEqual(answer(9));
+    expect(summaryControls([change(3, "waiting", { inspection: LAPSED }), change(9, "waiting", {}, session(5, { workItemId: 9, state: "waiting" }))])).toEqual(answer(9));
   });
 
-  it("opens the first work item that waits for another reason, a broken seal, a stopped chain or a failed check, saying so, where none waits on a question, a call or a pane, with the inbox beside it", () => {
+  it("opens the first work item that waits for another reason, a lapsed inspection, a stopped chain or a failed check, saying so, where none waits on a question, a call or a pane, with the inbox beside it", () => {
     const first = (opens: number) => ({ main: { label: "Open the first that needs you", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first that needs you." });
-    expect(summaryControls([change(4, "finished"), change(3, "waiting", { seal: BROKE }), change(5, "waiting", { chain: STOPPED })])).toEqual(first(3));
+    expect(summaryControls([change(4, "finished"), change(3, "waiting", { inspection: LAPSED }), change(5, "waiting", { chain: STOPPED })])).toEqual(first(3));
     expect(summaryControls([change(5, "waiting", { chain: STOPPED })])).toEqual(first(5));
-    const failed: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "open", head: "3f2a9c1", pushed: "3f2a9c1", checks: "failed", list: [{ name: "seal", state: "failed", link: null }], listCount: 1, readAt: 10, failure: null };
+    const failed: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "open", head: "3f2a9c1", pushed: "3f2a9c1", checks: "failed", list: [{ name: "inspection", state: "failed", link: null }], listCount: 1, readAt: 10, failure: null };
     expect(summaryControls([change(4, "working"), change(2, "waiting", { pullRequest: failed })])).toEqual(first(2));
     // A pane that finished is no pane that waits.
-    expect(summaryControls([change(6, "waiting", { seal: BROKE }, session(5, { workItemId: 6, state: "finished" }))])).toEqual(first(6));
+    expect(summaryControls([change(6, "waiting", { inspection: LAPSED }, session(5, { workItemId: 6, state: "finished" }))])).toEqual(first(6));
   });
 
   it("makes the inbox the main control and the only one where no changed work item waits, or none changed", () => {
@@ -3991,7 +3943,7 @@ describe("summaryControls", () => {
 });
 
 describe("summaryHead", () => {
-  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0, sealSince: null }];
+  const waits = [{ line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state: "waiting", commits: "" } satisfies InboxLine, decided: 0, inspectionSince: null }];
 
   it("is the summary's sentence where a work item changed", () => {
     expect(summaryHead(true, waits)).toBe("1 needs you");
@@ -4184,7 +4136,7 @@ describe("the heavy commands in the Machine dialog", () => {
   it("lists the heavy commands that run and wait in the queue's order, each with its state, its command, the reason for the place of one that waits, and its age, under its work item's title or the last part of its folder (scenario K)", () => {
     expect(heavyQueue(HEAVY, [LOGIN, SEARCH], AT)).toEqual([
       { title: "Speed up search", detail: "Running · Broad gate · 4 min" },
-      { title: "Fix the login bug", detail: "Waiting · Broad gate · one step from its seal · 2 min" },
+      { title: "Fix the login bug", detail: "Waiting · Broad gate · one step from its inspection · 2 min" },
       { title: "Fix the login bug", detail: "Waiting · test · under review · less than a minute" },
       { title: "gone", detail: "Waiting · test · still being built · 6 min" },
       { title: "scratch", detail: "Waiting · install · in no work item · 1 h" },
@@ -4914,7 +4866,7 @@ describe("lineText", () => {
 
   it("keeps a parked work item's question before the question an agent asks, and the branch while a search is typed", () => {
     const asking = session(3, { state: "waiting", stateText: DATES.asks, stateQuestions: [DATES] });
-    const parked: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "sealer", options: [], default: null, answer: null, since: null };
+    const parked: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [], default: null, answer: null, since: null };
     expect(lineText({ ...two, questions: [parked] }, asking, false)).toEqual({ says: "question", text: "Which base does the branch start from?" });
     expect(lineText(two, asking, true)).toEqual({ says: "branch", text: "owlery/fix-the-login-bug" });
   });
@@ -5362,9 +5314,9 @@ describe("the dialog of the records place", () => {
     branch: "main",
     subject: "chore: add the place for work records and the pull request check",
     files: [
-      { path: "seal/README.md", text: "# What AgenticSeal maintains in seal/\n" },
-      { path: "seal/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
-      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n" },
+      { path: "iadd/README.md", text: "# What IADD keeps in iadd/\n" },
+      { path: "iadd/config.json", text: '{\n  "Broad gate": "pnpm test"\n}\n' },
+      { path: ".github/workflows/owlery-inspection.yml", text: "name: inspection\n" },
     ],
     blocked: null,
     proposedBroadGate: null,
@@ -5380,7 +5332,7 @@ describe("the dialog of the records place", () => {
     expect(words.blocked).toBe("");
     expect(words.files).toEqual(PLAN.files.map((file) => ({ path: file.path, text: file.text, says: "" })));
     expect(words.holds).toEqual([]);
-    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(words.gate).toEqual({ shown: true, enabled: true, label: "Broad gate command", value: "pnpm test", says: "Kept in `iadd/config.json`, under `Broad gate`." });
     expect(words.submit).toEqual({ shown: true, enabled: true, label: "Set up and commit" });
     expect(words.cancel).toBe("Not now");
   });
@@ -5391,31 +5343,31 @@ describe("the dialog of the records place", () => {
     expect(recordsDialog(PROJECT, PLAN, "pnpm tes", "pnpm test").submit.enabled).toBe(false);
     expect(recordsDialog(PROJECT, PLAN, "  ", "  ").submit.enabled).toBe(false);
     // A setup that writes no config.json needs no command.
-    expect(recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, kept(PLAN, "seal/README.md", "seal/config.json"), "", "").submit.enabled).toBe(true);
+    expect(recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: null } }, kept(PLAN, "iadd/README.md", "iadd/config.json"), "", "").submit.enabled).toBe(true);
   });
 
   it("says of a file that stands that it is kept, and turns the field off where config.json stands: it shows the key's value, or says that the file holds no such key", () => {
-    const plan = kept(PLAN, "seal/README.md", "seal/config.json");
-    const valued = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: "make check" } }, plan, "", "");
+    const plan = kept(PLAN, "iadd/README.md", "iadd/config.json");
+    const valued = recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: "make check" } }, plan, "", "");
     expect(valued.files).toEqual([
-      { path: "seal/README.md", text: null, says: "`seal/README.md` stands and is kept." },
-      { path: "seal/config.json", text: null, says: "`seal/config.json` stands and is kept." },
-      { path: ".github/workflows/owlery-seal.yml", text: "name: seal\n", says: "" },
+      { path: "iadd/README.md", text: null, says: "`iadd/README.md` stands and is kept." },
+      { path: "iadd/config.json", text: null, says: "`iadd/config.json` stands and is kept." },
+      { path: ".github/workflows/owlery-inspection.yml", text: "name: inspection\n", says: "" },
     ]);
-    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `seal/config.json`, under `Broad gate`." });
+    expect(valued.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "make check", says: "Kept in `iadd/config.json`, under `Broad gate`." });
     expect(valued.submit.enabled).toBe(true);
-    const keyless = recordsDialog({ ...PROJECT, records: { root: "seal", check: null, broadGate: null } }, plan, "", "");
-    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `seal/config.json`." });
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "inspection", check: null, broadGate: null } }, plan, "", "");
+    expect(keyless.gate).toEqual({ shown: true, enabled: false, label: "Broad gate command", value: "", says: "No `Broad gate` key in `iadd/config.json`." });
   });
 
   it("shows, for a repository that holds every part, the root, the workflow and the command with the file that holds it, and offers no commit", () => {
-    const plan = { ...kept(PLAN, "agentic-seal/README.md", "agentic-seal/config.json", ".github/workflows/hygiene.yml"), files: [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }] };
-    const whole = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, plan, "", "");
+    const plan = kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml");
+    const whole = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, plan, "", "");
     expect(whole.scope).toBe(OUT_OF_SCOPE);
-    expect(whole.holds).toEqual(["Records: `agentic-seal/`", "Check: `.github/workflows/hygiene.yml`", "Broad gate: `make check`, kept in `agentic-seal/config.json` under `Broad gate`"]);
+    expect(whole.holds).toEqual(["Records: `iadd/`", "Check: `.github/workflows/owlery-inspection.yml`", "Broad gate: `make check`, kept in `iadd/config.json` under `Broad gate`"]);
     expect([whole.commit, whole.files, whole.gate.shown, whole.submit.shown, whole.cancel]).toEqual(["", [], false, false, "Close"]);
-    const keyless = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: null } }, plan, "", "");
-    expect(keyless.holds[2]).toBe("No `Broad gate` key in `agentic-seal/config.json`.");
+    const keyless = recordsDialog({ ...PROJECT, records: { root: "iadd", check: ".github/workflows/owlery-inspection.yml", broadGate: null } }, plan, "", "");
+    expect(keyless.holds[2]).toBe("No `Broad gate` key in `iadd/config.json`.");
     expect(keyless.submit.shown).toBe(false);
   });
 
@@ -5428,38 +5380,79 @@ describe("the dialog of the records place", () => {
     expect([refused.blocked, refused.files, refused.submit.enabled]).toEqual(["no repository 1", [], false]);
   });
 
-  it("tells an administrator how to make the seal check required, where the workflow is Owlery's, in a plan and in a repository that holds every part, and says that AgenticSeal's hygiene.yml posts no such check", () => {
-    const REQUIRED = "The workflow posts its verdict as the check `seal` on each pull request's head commit. To hold a pull request until it is sealed, an administrator of the repository requires `seal` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `seal` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
-    const HYGIENE = "AgenticSeal's `hygiene.yml` posts no `seal` check, so GitHub offers none to require. Owlery changes no setting of the repository on GitHub.";
+  it("tells an administrator how to make the inspection check required, in a plan and in a repository that holds every part", () => {
+    const REQUIRED = "The workflow posts its verdict as the check `inspection` on each pull request's head commit. To hold a pull request until it is cleared, an administrator of the repository requires `inspection` on GitHub, in the repository's rules for the base branch, under the rule that requires status checks to pass. A pull request from a fork gets no `inspection` check, so a required one holds it until an administrator lets it through. Owlery changes no setting of the repository on GitHub.";
     expect(recordsDialog(PROJECT, PLAN, "pnpm test", "pnpm test").required).toBe(REQUIRED);
-    const owlery = recordsDialog({ ...PROJECT, records: { root: "seal", check: ".github/workflows/owlery-seal.yml", broadGate: "make check" } }, kept(PLAN, "seal/README.md", "seal/config.json", ".github/workflows/owlery-seal.yml"), "", "");
+    const owlery = recordsDialog({ ...PROJECT, records: { root: "inspection", check: ".github/workflows/owlery-inspection.yml", broadGate: "make check" } }, kept(PLAN, "iadd/README.md", "iadd/config.json", ".github/workflows/owlery-inspection.yml"), "", "");
     expect([owlery.holds.length, owlery.required]).toEqual([3, REQUIRED]);
-    const files = [{ path: "agentic-seal/README.md", text: null }, { path: "agentic-seal/config.json", text: null }, { path: ".github/workflows/hygiene.yml", text: null }];
-    const hygiene = recordsDialog({ ...PROJECT, records: { root: "agentic-seal", check: ".github/workflows/hygiene.yml", broadGate: "make check" } }, { ...PLAN, files }, "", "");
-    expect([hygiene.holds.length, hygiene.required]).toEqual([3, HYGIENE]);
-    // A plan that writes AgenticSeal's root beside a kept hygiene.yml says the same of that workflow.
-    expect(recordsDialog(PROJECT, { ...PLAN, files: [{ path: "seal/README.md", text: "# x\n" }, { path: "seal/config.json", text: "{}\n" }, { path: ".github/workflows/hygiene.yml", text: null }] }, "pnpm test", "pnpm test").required).toBe(HYGIENE);
     // Until the daemon answers, where it refused the plan, and where a plan names no workflow, nothing is said of a check.
     expect([recordsDialog(PROJECT, null, "", null).required, recordsDialog(PROJECT, { error: "no repository 1" }, "", "").required, recordsDialog(PROJECT, { ...PLAN, files: PLAN.files.slice(0, 2) }, "pnpm test", "pnpm test").required]).toEqual(["", "", ""]);
   });
 
   it("says where the command in the field is the one the daemon read from the repository, and stops saying so once the person changed it", () => {
     const plan = { ...PLAN, proposedBroadGate: "pnpm run check" };
-    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
-    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `seal/config.json`, under `Broad gate`.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check", "pnpm run check").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`. Owlery read this command from the repository's `package.json`: change it where the repository's whole check is another.");
+    expect(recordsDialog(PROJECT, plan, "pnpm run check && pnpm lint", "pnpm run check && pnpm lint").gate.says).toBe("Kept in `iadd/config.json`, under `Broad gate`.");
+  });
+
+  describe("a move of the records from the earlier form", () => {
+    const WORKFLOW = ".github/workflows/owlery-inspection.yml";
+    const EARLIER: Repository = { ...PROJECT, records: { root: null, check: null, broadGate: null, olderCheck: null, earlier: "seal" } };
+    const MIGRATION: RecordsPlan = {
+      branch: "main",
+      subject: "chore: move the work records and the pull request check to IADD's forms",
+      files: [{ path: WORKFLOW, text: "name: inspection\n" }],
+      blocked: null,
+      proposedBroadGate: null,
+      move: null,
+      migration: {
+        from: "seal",
+        moves: [
+          { from: "seal/README.md", to: "iadd/README.md", rewritten: true },
+          { from: "seal/config.json", to: "iadd/config.json", rewritten: false },
+          { from: "seal/threads/1-x/guarantee.md", to: "iadd/threads/1-x/inspection.md", rewritten: true },
+        ],
+        removes: [".github/workflows/owlery-seal.yml"],
+      },
+      unread: [],
+      stamp: "g",
+    };
+
+    it("says where the records stand and what the commit does with them, names each file that moves and where, the earlier workflow it removes and the workflow it writes whole, hides the field, and offers the move's commit", () => {
+      const words = recordsDialog(EARLIER, MIGRATION, "", "");
+      expect(words.move).toBe(
+        "The work records of this repository stand in `seal/`, in the earlier form of the records, which Owlery reads no record of and runs no chain on. The commit moves each file to `iadd/`, with its records rewritten in IADD's forms and every other line as it stands. It rewrites no earlier commit. An inspection cleared before the move lapses at the move's commit, since the move changes paths outside each work item's closing records, and a work item inspected on the move's commit is cleared. A repository whose rules require the check the removed workflow posted requires a check no workflow posts once this commit lands: an administrator requires `inspection` in its place.",
+      );
+      expect(words.commit).toBe("This makes one commit on `main`: `chore: move the work records and the pull request check to IADD's forms`. Nothing is pushed.");
+      expect(words.files).toEqual([
+        { path: "seal/README.md", text: null, says: "`seal/README.md` moves to `iadd/README.md`, rewritten in IADD's forms." },
+        { path: "seal/config.json", text: null, says: "`seal/config.json` moves to `iadd/config.json` as it stands." },
+        { path: "seal/threads/1-x/guarantee.md", text: null, says: "`seal/threads/1-x/guarantee.md` moves to `iadd/threads/1-x/inspection.md`, rewritten in IADD's forms." },
+        { path: ".github/workflows/owlery-seal.yml", text: null, says: "The commit removes `.github/workflows/owlery-seal.yml`." },
+        { path: WORKFLOW, text: "name: inspection\n", says: "The commit writes this file whole." },
+      ]);
+      expect([words.gate.shown, words.holds, words.unread, words.submit]).toEqual([false, [], null, { shown: true, enabled: true, label: "Move and commit" }]);
+      expect(words.required).toContain("an administrator of the repository requires `inspection` on GitHub");
+      // A move that writes no workflow, since Owlery's stands, is still the move, and not a repository that holds every part.
+      const kept = recordsDialog(EARLIER, { ...MIGRATION, files: [] }, "", "");
+      expect([kept.files.length, kept.holds, kept.submit.label]).toEqual([4, [], "Move and commit"]);
+      // A blocked move names no commit and turns the button off.
+      const blocked = recordsDialog(EARLIER, { ...MIGRATION, blocked: "The earlier form's reader refuses a line of these records." }, "", "");
+      expect([blocked.blocked, blocked.commit, blocked.submit.enabled]).toEqual(["The earlier form's reader refuses a line of these records.", "", false]);
+    });
   });
 
   describe("a move of the check", () => {
-    const WORKFLOW = ".github/workflows/owlery-seal.yml";
-    const HOLDING: Repository = { ...PROJECT, records: { root: "seal", check: WORKFLOW, broadGate: "make check", olderCheck: "0.0.4" } };
-    const REFUSED = "the reader refuses line 4 of seal/threads/1-refused/trail/rounds/round-1.md: a round block needs a `target:` line";
+    const WORKFLOW = ".github/workflows/owlery-inspection.yml";
+    const HOLDING: Repository = { ...PROJECT, records: { root: "inspection", check: WORKFLOW, broadGate: "make check", olderCheck: "0.0.4" } };
+    const REFUSED = "the reader refuses line 4 of iadd/threads/1-refused/trail/rounds/round-1.md: a round block needs a `target:` line";
     const MOVE: RecordsPlan = {
       branch: "main",
       subject: "chore: move the pull request check to Owlery 0.1.0",
       files: [
-        { path: "seal/README.md", text: null },
-        { path: "seal/config.json", text: null },
-        { path: WORKFLOW, text: "name: seal\n# --branch v0.1.0\n" },
+        { path: "iadd/README.md", text: null },
+        { path: "iadd/config.json", text: null },
+        { path: WORKFLOW, text: "name: inspection\n# --branch v0.1.0\n" },
       ],
       blocked: null,
       proposedBroadGate: null,
@@ -5467,16 +5460,16 @@ describe("the dialog of the records place", () => {
       unread: [{ id: 3, title: "Refused work", why: REFUSED }],
       stamp: "m",
     };
-    const READ = "Owlery read the round records, the broad gate's run and the guarantee of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const READ = "Owlery read the round records, the broad gate's run and the inspection of each work item of this repository at its branch's head, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
     /** What was read, where an entry named may be a work item that was not read. */
-    const READ_BUT = "Owlery read the round records, the broad gate's run and the guarantee at its branch's head of each work item of this repository but those named here as not read, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
+    const READ_BUT = "Owlery read the round records, the broad gate's run and the inspection at its branch's head of each work item of this repository but those named here as not read, with the readers that cases hold to the check's answers. It read none of the check's other arms.";
 
     it("says both versions, shows the commit's branch and subject and the workflow alone and whole with the sentence that it replaces the committed file, names each work item whose records the readers refuse or did not read with its sentence and what was read, hides the field, and offers Move and commit", () => {
       const words = recordsDialog(HOLDING, MOVE, "", "");
-      expect(words.move).toBe("`.github/workflows/owlery-seal.yml` fetches the pull request check of Owlery 0.0.4, older than this app. The commit moves it to Owlery 0.1.0.");
+      expect(words.move).toBe("`.github/workflows/owlery-inspection.yml` fetches the pull request check of Owlery 0.0.4, older than this app. The commit moves it to Owlery 0.1.0.");
       expect(words.commit).toBe("This makes one commit on `main`: `chore: move the pull request check to Owlery 0.1.0`. Nothing is pushed.");
       expect(words.blocked).toBe("");
-      expect(words.files).toEqual([{ path: WORKFLOW, text: "name: seal\n# --branch v0.1.0\n", says: "The commit writes this text over the committed `.github/workflows/owlery-seal.yml`, whole." }]);
+      expect(words.files).toEqual([{ path: WORKFLOW, text: "name: inspection\n# --branch v0.1.0\n", says: "The commit writes this text over the committed `.github/workflows/owlery-inspection.yml`, whole." }]);
       expect(words.unread).toEqual({ head: "Work items whose records Owlery's readers refuse or did not read", items: [{ name: "Refused work", why: REFUSED }], says: `${READ_BUT} Once the check moves, it may refuse the pull requests of the work items named.` });
       // A work item the daemon did not read is named under the same head, with its own sentence.
       const NOT_READ = "Owlery has not read this work item's branch yet, so its records were not read, and whether the moved check refuses them is not known.";
@@ -5493,8 +5486,8 @@ describe("the dialog of the records place", () => {
     });
 
     it("turns Move and commit off where the move is blocked, and still says both versions and shows the workflow", () => {
-      const blocked = recordsDialog(HOLDING, { ...MOVE, blocked: "This checkout does not hold `.github/workflows/owlery-seal.yml` as the commit it stands at does." }, "", "");
-      expect([blocked.blocked, blocked.commit, blocked.submit]).toEqual(["This checkout does not hold `.github/workflows/owlery-seal.yml` as the commit it stands at does.", "", { shown: true, enabled: false, label: "Move and commit" }]);
+      const blocked = recordsDialog(HOLDING, { ...MOVE, blocked: "This checkout does not hold `.github/workflows/owlery-inspection.yml` as the commit it stands at does." }, "", "");
+      expect([blocked.blocked, blocked.commit, blocked.submit]).toEqual(["This checkout does not hold `.github/workflows/owlery-inspection.yml` as the commit it stands at does.", "", { shown: true, enabled: false, label: "Move and commit" }]);
       expect([blocked.move === "", blocked.files.map((file) => file.path)]).toEqual([false, [WORKFLOW]]);
     });
 
@@ -5512,7 +5505,7 @@ describe("the dialog of the records place", () => {
 describe("lacksRecords", () => {
   it("is true of a repository with no root or no workflow, false of one that holds both, and false of a repository of a daemon that sends no records, for which no setup is offered", () => {
     const holding = (root: string | null, check: string | null): Repository => ({ ...PROJECT, records: { root, check, broadGate: null } });
-    expect([lacksRecords(holding(null, null)), lacksRecords(holding("seal", null)), lacksRecords(holding(null, ".github/workflows/hygiene.yml")), lacksRecords(holding("seal", ".github/workflows/owlery-seal.yml"))]).toEqual([true, true, true, false]);
+    expect([lacksRecords(holding(null, null)), lacksRecords(holding("inspection", null)), lacksRecords(holding(null, ".github/workflows/owlery-inspection.yml")), lacksRecords(holding("inspection", ".github/workflows/owlery-inspection.yml"))]).toEqual([true, true, true, false]);
     const { records: _, ...earlier } = PROJECT;
     expect([recordsOf(earlier as Repository), lacksRecords(earlier as Repository)]).toEqual([null, false]);
     expect(recordsOf(PROJECT)).toEqual({ root: null, check: null, broadGate: null });
@@ -5539,13 +5532,13 @@ describe("a work item's pull request", () => {
   const URL = "https://github.com/owner/project/pull/12";
   const pullRequest = (fields: Partial<PullRequest> = {}): PullRequest => ({ number: 12, url: URL, state: "open", head: HEAD, pushed: HEAD, checks: "none", list: [], listCount: 0, readAt: 1, failure: null, ...fields });
   const BUILD_FAILED = { name: "build", state: "failed", link: "https://github.com/owner/project/runs/2" } as const;
-  const SEAL_PASSED = { name: "seal", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
+  const INSPECTION_PASSED = { name: "inspection", state: "passed", link: "https://github.com/owner/project/runs/1" } as const;
   const with_ = (fields: Partial<PullRequest>): WorkItem => ({ ...LOGIN, pullRequest: pullRequest(fields) });
-  const PENDING = with_({ checks: "pending", list: [{ name: "seal", state: "pending", link: null }], listCount: 1 });
-  const PASSED = with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1 });
-  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, SEAL_PASSED], listCount: 3 });
+  const PENDING = with_({ checks: "pending", list: [{ name: "inspection", state: "pending", link: null }], listCount: 1 });
+  const PASSED = with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 1 });
+  const FAILED = with_({ checks: "failed", list: [BUILD_FAILED, { name: "lint", state: "failed", link: null }, INSPECTION_PASSED], listCount: 3 });
   const OPEN = with_({});
-  const MERGED = with_({ state: "merged", checks: "passed", list: [SEAL_PASSED], listCount: 1 });
+  const MERGED = with_({ state: "merged", checks: "passed", list: [INSPECTION_PASSED], listCount: 1 });
   const CLOSED = with_({ state: "closed" });
   const RESTS: Chain = { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] };
 
@@ -5572,7 +5565,7 @@ describe("a work item's pull request", () => {
       { says: "pull-request", text: "Closed" },
     ]);
     // The first failed check is named, wherever it stands in the list.
-    expect(said(with_({ checks: "failed", list: [SEAL_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
+    expect(said(with_({ checks: "failed", list: [INSPECTION_PASSED, BUILD_FAILED], listCount: 2 })).text).toBe("Check failed: build");
     // A search shows the branch, as it does on every line.
     expect(lineText(FAILED, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
     // A work item without a pull request says what it said before.
@@ -5580,19 +5573,19 @@ describe("a work item's pull request", () => {
   });
 
   it("lists in the view the pull request's number with its address, its state, the result of its checks, each check with its mark, its state's word and its address, how many more checks there are, and why the last read failed", () => {
-    const passed = { name: "seal", mark: "finished", words: "Passed", link: SEAL_PASSED.link };
+    const passed = { name: "inspection", mark: "finished", words: "Passed", link: INSPECTION_PASSED.link };
     expect(pullRequestFacts(PASSED)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks passed", rows: [passed], foot: "", failure: "" });
-    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "seal", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
+    expect(pullRequestFacts(PENDING)).toEqual({ head: "Pull request #12", url: URL, state: "Open", checks: "Checks running", rows: [{ name: "inspection", mark: "working", words: "Running", link: null }], foot: "", failure: "" });
     // The checks in the order the daemon keeps them, the failed ones first.
     expect(pullRequestFacts(FAILED)).toMatchObject({ checks: "2 checks failed", rows: [{ name: "build", mark: "failed", words: "Failed", link: BUILD_FAILED.link }, { name: "lint", mark: "failed", words: "Failed", link: null }, passed] });
-    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, SEAL_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
+    expect(pullRequestFacts(with_({ checks: "failed", list: [BUILD_FAILED, INSPECTION_PASSED], listCount: 2 }))?.checks).toBe("1 check failed");
     expect(pullRequestFacts(OPEN)).toMatchObject({ checks: "No checks", rows: [] });
     expect([MERGED, CLOSED].map((workItem) => pullRequestFacts(workItem)?.state)).toEqual(["Merged", "Closed"]);
     // GitHub listed more checks than the daemon keeps.
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 4 }))?.foot).toBe("3 more checks");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 2 }))?.foot).toBe("1 more check");
     // A read that failed keeps the facts of the read before it, and the view says so under the rows.
-    expect(pullRequestFacts(with_({ checks: "passed", list: [SEAL_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
+    expect(pullRequestFacts(with_({ checks: "passed", list: [INSPECTION_PASSED], listCount: 1, failure: "gh pr view exited with code 1: HTTP 502" }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view exited with code 1: HTTP 502.");
     expect(pullRequestFacts(with_({ failure: "gh pr view printed no pull request Owlery reads." }))?.failure).toBe("The last read failed, so the facts above are from the read before it: gh pr view printed no pull request Owlery reads.");
     // A work item without a pull request, and one of a daemon of an earlier build, which sends no such field, list none.
     expect(pullRequestFacts(LOGIN)).toBeNull();
@@ -5613,7 +5606,7 @@ describe("a work item's pull request", () => {
     const stopped = { ...PASSED, chain: { state: "stopped", says: "The pull request stage failed: gh pr list exited with code 4.", since: 1, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
     expect(inboxLine(stopped, [], KINDS).state).toBe("waiting");
     expect(lineText(stopped, undefined, false)).toEqual({ says: "chain", text: "The pull request stage failed: gh pr list exited with code 4." });
-    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "inspector", options: [], default: null, answer: null, since: 1 };
     expect(inboxLine({ ...PASSED, questions: [asked] }, [], KINDS).state).toBe("waiting");
     expect(lineText({ ...PASSED, questions: [asked] }, undefined, false).says).toBe("question");
   });
@@ -5633,28 +5626,28 @@ describe("a work item's pull request", () => {
     expect(pullRequestNotifications([PENDING], [FAILED], [session(2, { state: "working" })], KINDS, undefined)).toEqual([]);
     expect(pullRequestNotifications([PENDING], [{ ...FAILED, chain: { ...RESTS, state: "running" } }], [], KINDS, undefined)).toEqual([]);
     // A park and a stopped chain each raise their own notification, and the pull request none.
-    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "sealer", options: [], default: null, answer: null, since: 1 };
+    const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "inspector", options: [], default: null, answer: null, since: 1 };
     for (const more of [{ questions: [asked] }, { chain: { ...RESTS, state: "stopped" as const, says: "The pull request stage failed: x." } }]) expect(pullRequestNotifications([PENDING], [{ ...FAILED, ...more }], [], KINDS, undefined), Object.keys(more)[0]).toEqual([]);
   });
 
-  it("gives a broken seal the line ahead of an open or closed pull request's result and behind a merged one, and leaves a seal that holds to the pull request's words", () => {
-    const broken: Seal = { state: "broken", commit: HEAD, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
-    const holds: Seal = { state: "sealed", commit: HEAD, why: null };
+  it("gives a lapsed inspection the line ahead of an open or closed pull request's result and behind a merged one, and leaves an inspection that holds to the pull request's words", () => {
+    const lapsed: Inspection = { state: "lapsed", commit: HEAD, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+    const holds: Inspection = { state: "cleared", commit: HEAD, why: null };
     const line = (workItem: WorkItem) => [inboxLine(workItem, [], KINDS).state, lineText(workItem, undefined, false), lineSince(workItem, undefined)];
-    for (const workItem of [PASSED, FAILED, PENDING, OPEN, CLOSED]) expect(line({ ...workItem, seal: broken }), workItem.pullRequest?.checks).toEqual(["waiting", { says: "seal", text: "Seal broken" }, null]);
+    for (const workItem of [PASSED, FAILED, PENDING, OPEN, CLOSED]) expect(line({ ...workItem, inspection: lapsed }), workItem.pullRequest?.checks).toEqual(["waiting", { says: "inspection", text: "Inspection lapsed" }, null]);
     // A merge asks nothing more of the person, whatever lands on the branch after it.
-    expect(line({ ...MERGED, seal: broken })).toEqual(["finished", { says: "pull-request", text: "Merged" }, null]);
-    // A seal that holds says no more than the pull request.
-    expect(line({ ...PASSED, seal: holds })).toEqual(["finished", { says: "pull-request", text: "Checks passed" }, null]);
-    expect(line({ ...FAILED, seal: holds })).toEqual(["waiting", { says: "pull-request", text: "Check failed: build" }, null]);
+    expect(line({ ...MERGED, inspection: lapsed })).toEqual(["finished", { says: "pull-request", text: "Merged" }, null]);
+    // An inspection that holds says no more than the pull request.
+    expect(line({ ...PASSED, inspection: holds })).toEqual(["finished", { says: "pull-request", text: "Checks passed" }, null]);
+    expect(line({ ...FAILED, inspection: holds })).toEqual(["waiting", { says: "pull-request", text: "Check failed: build" }, null]);
   });
 
-  it("notifies of no pull request's result while the work item's seal is broken, since the seal gives the line, and of the result again once a seal holds", () => {
-    const broken: Seal = { state: "broken", commit: HEAD, why: "`src/app.ts` changed after the sealed commit `3f2a9c1`." };
-    const holds: Seal = { state: "sealed", commit: HEAD, why: null };
-    expect(pullRequestNotifications([{ ...PASSED, seal: broken }], [{ ...FAILED, seal: broken }], [], KINDS, undefined)).toEqual([]);
-    expect(pullRequestNotifications([{ ...PENDING, seal: broken }], [{ ...PASSED, seal: broken }], [], KINDS, undefined)).toEqual([]);
-    expect(pullRequestNotifications([{ ...PENDING, seal: holds }], [{ ...FAILED, seal: holds }], [], KINDS, undefined)).toEqual([{ workItemId: FAILED.id, title: FAILED.title, body: "Needs you" }]);
+  it("notifies of no pull request's result while the work item's inspection is lapsed, since the inspection gives the line, and of the result again once an inspection holds", () => {
+    const lapsed: Inspection = { state: "lapsed", commit: HEAD, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+    const holds: Inspection = { state: "cleared", commit: HEAD, why: null };
+    expect(pullRequestNotifications([{ ...PASSED, inspection: lapsed }], [{ ...FAILED, inspection: lapsed }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([{ ...PENDING, inspection: lapsed }], [{ ...PASSED, inspection: lapsed }], [], KINDS, undefined)).toEqual([]);
+    expect(pullRequestNotifications([{ ...PENDING, inspection: holds }], [{ ...FAILED, inspection: holds }], [], KINDS, undefined)).toEqual([{ workItemId: FAILED.id, title: FAILED.title, body: "Needs you" }]);
   });
 
   it("takes a merged pull request's decisions off the line's mark, the summary and the filter of the decisions, and the view still lists both", () => {

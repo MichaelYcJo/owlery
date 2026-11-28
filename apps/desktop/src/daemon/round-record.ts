@@ -7,7 +7,7 @@
 // records to both readers and compares what they return. A change to where a
 // block may stand is a change to both, with a record for it in that case.
 //
-// A record's fields stand in `seal` blocks, which `record-blocks.ts` reads.
+// A record's fields stand in `iadd` blocks, which `record-blocks.ts` reads.
 // What this module holds is where a block stands: one round block outside
 // every finding, one `## Findings` section, a `### <n>. <symptom>` section in
 // it for each finding, with one finding block and at most one close block,
@@ -87,12 +87,12 @@ const FINDING_HEADING = /^### (?<number>[1-9][0-9]*)\. .+$/su;
 const ROUND_TEMPLATE = "templates/records/sdd-round.md";
 const DASH = "—";
 
-const NO_ROUND_BLOCK = `no round block: since #1198 a round record's fields stand in \`seal\` blocks, its \`target:\` line in the round block outside every finding, as \`${ROUND_TEMPLATE}\` shows; a record written before then is rewritten into blocks with its verdicts unchanged`;
+const NO_ROUND_BLOCK = `no round block: a round record's fields stand in \`iadd\` blocks, its \`target:\` line in the round block outside every finding, as \`${ROUND_TEMPLATE}\` shows; a record written before then is rewritten into blocks with its verdicts unchanged`;
 const SECOND_ROUND = "a second round block: a round record holds one, outside every finding";
 const NO_FINDINGS = `no \`${FINDINGS_HEADING}\` section: a round record holds one, with a \`### <n>. <symptom>\` section in it for each finding`;
 const TWO_FINDINGS = `a second \`${FINDINGS_HEADING}\` section; a round record holds one`;
 const NO_NUMBER = "no number: a finding's heading reads `### <n>. <symptom>`, and a later round names it by that `n`";
-const NO_FINDING_BLOCK = `no finding block: under its heading a finding holds one \`seal\` block opening with \`severity:\`, as \`${ROUND_TEMPLATE}\` shows`;
+const NO_FINDING_BLOCK = `no finding block: under its heading a finding holds one \`iadd\` block opening with \`severity:\`, as \`${ROUND_TEMPLATE}\` shows`;
 
 /** The refusals the block reader makes of a line outside every block. The first two hide every block below their line. */
 const HIDING = [UNCLOSED, UNSURE];

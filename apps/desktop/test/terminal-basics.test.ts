@@ -1057,14 +1057,27 @@ describe("a terminal pane's basics in the built app", { timeout: 30_000 }, () =>
     expect(await app.evaluate<boolean>(PANE_HAS_KEYBOARD)).toBe(true);
 
     // A card that would pass the window's right edge is moved to stand inside it.
+    // The view's right column (`--facts-width`) is wider than a card at its widest (`--link-card-width`), so a card at the pane's last column ends inside the window as the tokens stand. The case lets this card grow 200px past the room right of the pane, so that it would pass the edge.
     const columns = Number((await app.evaluate<string>(`document.getElementById("strip-size").textContent`)).split("×")[0]);
-    const at = await restOn(columns - 1, 4);
-    expect((await card()).title).toBe(wrapped);
-    const box = await app.evaluate<{ left: number; right: number; inner: number }>(`(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, right: box.right, inner: window.innerWidth }; })()`);
-    // Its left edge stands well left of the pointer, by more than the part of a cell a pointer's place is rounded by.
-    expect(at.x - box.left).toBeGreaterThan(10);
-    expect(box.right).toBeLessThanOrEqual(box.inner);
-    await pointAway();
+    // The card's own width is given back however the part ends, so a failure here fails no later case through it.
+    await app.evaluate(`void (document.getElementById("link-card").style.maxWidth = (window.innerWidth - document.querySelector("#stage .pane:not([hidden]) .xterm-screen").getBoundingClientRect().right + 200) + "px")`);
+    try {
+      const cardBox = `(() => { const box = document.getElementById("link-card").getBoundingClientRect(); return { left: box.left, right: box.right, inner: window.innerWidth }; })()`;
+      // The same link's card where the window has room for it, at the link's tenth column, is read for its width before it stands at the pane's last column: a card placed at the pointer is laid out in the room right of it, so its width there would say nothing of the condition.
+      await restOn(9, 4);
+      const roomy = await app.evaluate<{ left: number; right: number; inner: number }>(cardBox);
+      const at = await restOn(columns - 1, 4);
+      // The card is wider than the room right of the pointer, by more than the margin below: placed at the pointer, it would pass the edge.
+      expect(roomy.right - roomy.left).toBeGreaterThan(roomy.inner - at.x + 10);
+      expect((await card()).title).toBe(wrapped);
+      const box = await app.evaluate<{ left: number; right: number; inner: number }>(cardBox);
+      // Its left edge stands well left of the pointer, by more than the part of a cell a pointer's place is rounded by.
+      expect(at.x - box.left).toBeGreaterThan(10);
+      expect(box.right).toBeLessThanOrEqual(box.inner);
+      await pointAway();
+    } finally {
+      await app.evaluate(`void document.getElementById("link-card").style.removeProperty("max-width")`);
+    }
 
     const pane = panes;
     await closeFromElsewhere(pane);

@@ -1,6 +1,7 @@
 import { appendFileSync, closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
-import { CHAIN_STAGE_KINDS, type ChainStageKind, type LedgerEntry, type LedgerStage, type ModelUsage, type Usage, roleStageOf } from "../shared/protocol";
+import type { LedgerEntry, LedgerStage, ModelUsage, Usage } from "../shared/protocol";
+import { storedKind, storedRoleStage } from "./chain";
 
 const FILE = "ledger.jsonl";
 
@@ -29,18 +30,19 @@ function usageOf(value: unknown): Usage | null | undefined {
   return { costUsd: value.costUsd, converted: value.converted, models };
 }
 
-/** The stage a value names: a pair of `ROLE_STAGES`, the gate, null, or nothing where it names none. */
+/** The stage a value names: a pair of `ROLE_STAGES`, one an earlier build named otherwise among them (`chain.ts#storedRoleStage`), the gate, null, or nothing where it names none. */
 function stageOf(value: unknown): LedgerStage | undefined {
   if (value === null) return null;
   if (isRecord(value) && value.role === null && value.stage === "gate") return { role: null, stage: "gate" };
-  return roleStageOf(value);
+  return storedRoleStage(value);
 }
 
-/** The chain's stage a value names: a kind of `CHAIN_STAGE_KINDS` with a whole round, null, or nothing where it names none. A line written before entries named the chain's stage holds none, and names none. */
+/** The chain's stage a value names: a kind of `CHAIN_STAGE_KINDS`, or one an earlier build named otherwise (`chain.ts#storedKind`), with a whole round, null, or nothing where it names none. A line written before entries named the chain's stage holds none, and names none. */
 function chainOf(value: unknown): LedgerEntry["chain"] | undefined {
   if (value === undefined || value === null) return null;
-  if (!isRecord(value) || !CHAIN_STAGE_KINDS.includes(value.kind as ChainStageKind) || !isWhole(value.round)) return undefined;
-  return { kind: value.kind as ChainStageKind, round: value.round };
+  const kind = isRecord(value) ? storedKind(value.kind) : undefined;
+  if (!isRecord(value) || kind === undefined || !isWhole(value.round)) return undefined;
+  return { kind, round: value.round };
 }
 
 /** The account a value names: a whole id with a name, null, or nothing where it names none. A line written before entries named the account holds none, and names none. */

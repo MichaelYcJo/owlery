@@ -3,9 +3,9 @@
 // part draws with. Each part, a module of its own, draws what the functions
 // of ./view return.
 import type { InstalledApp } from "../shared/ipc";
-import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Seal, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
-import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/seal-back";
-import { type HeadlessMark, type HeldAccounts, answerWaits, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, sealShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
+import type { AgentState, AskedQuestion, ClientMessage, HeadlessInfo, HeavyRan, KeepAwake, Look, Machine, PaneKindInfo, Repository, Inspection, ServerMessage, SessionInfo, WorkItem } from "../shared/protocol";
+import { STAGE_COLUMNS, type Back, type FindingLine, type RoundPart, type StageLine } from "../shared/inspection-sheet";
+import { type HeadlessMark, type HeldAccounts, answerWaits, APPROVAL_HEAD, approvalPlaces, changesOf, choiceNote, codeParts, commitLines, decisionLines, DECISIONS_HEAD, fileLines, lineMarks, matchWorkItems, placeWords, RUN_SETUP_SAYS, inspectionShown, SETUP_HEAD, setupSection, stateHeading, stateSays, stateWithAge, unreadLines, wordOwedSays, workItemEntries, type Change, type ChangedSet, type Entry, type StateFilter } from "./view";
 
 export const held = {
   /** True from the daemon's `ready` on. No screen is shown before it. */
@@ -38,7 +38,7 @@ export const held = {
   machine: null as Machine | null,
   /** What each heavy command of each repository took, as the daemon last answered the Machine dialog's `readHeavyRuns`, or none before it answered (./view, `heavyRanRows`). */
   heavyRan: [] as HeavyRan[],
-  /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without a seal reading, which join where their seal was then given or broke since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */
+  /** The work items the summary lists, worked out at `ready` from that look and the lists of the load, and held until the next load: the ids of the ones that changed since the look, and the ones `ready` carried without an inspection reading, which join where their inspection was then given or lapsed since the look (./view, `changedSet` and `changedSetAfter`). What each says is worked out again from the lists the window holds (`changes`). */
   changed: { ids: [], unread: [] } as ChangedSet,
   /** The work item whose view is on screen, or nothing while another screen is. It is kept nowhere else, so a reload opens on the summary or on the inbox. */
   viewing: undefined as number | undefined,
@@ -127,7 +127,7 @@ export function row(...parts: HTMLElement[]): HTMLElement {
   return element;
 }
 
-/** A text of the back of a seal, its code in the fixed-width face (./view, `codeParts`). Each part is plain text, never markup. */
+/** A text of the inspection sheet, its code in the fixed-width face (./view, `codeParts`). Each part is plain text, never markup. */
 export function withCode(className: string, text: string, tag = "span"): HTMLElement {
   const element = document.createElement(tag);
   element.className = className;
@@ -163,26 +163,26 @@ export function titleClass(workItemId: number): string {
 }
 
 /**
- * The seal's place for a work item's seal (./view, `sealShown`): on a line
+ * The inspection's place for a work item's inspection (./view, `inspectionShown`): on a line
  * the small mark, and in the preview and at the foot of a view's right
- * column the seal's own drawing. `data-seal` says which form the page's
- * style draws: pressed blank into the ground before a seal, the seal lit
- * where it holds at the branch's head, and the seal parted in two where a
- * later commit broke it. The place says its words to a pointer and to a
+ * column the inspection's own drawing. `data-inspection` says which form the page's
+ * style draws: pressed blank into the ground before an inspection, the inspection lit
+ * where it holds at the branch's head, and the inspection parted in two where a
+ * later commit lapsed it. The place says its words to a pointer and to a
  * screen reader.
  */
-export function sealPlace(where: "line" | "preview" | "view", seal: Seal | null | undefined): HTMLElement {
+export function markPlace(where: "line" | "preview" | "view", inspection: Inspection | null | undefined): HTMLElement {
   const place = document.createElement("span");
-  place.className = where === "line" ? "seal" : where === "preview" ? "seal drawn" : "seal drawn large";
+  place.className = where === "line" ? "mark" : where === "preview" ? "mark drawn" : "mark drawn large";
   place.setAttribute("role", "img");
-  drawSeal(place, seal);
+  drawMark(place, inspection);
   return place;
 }
 
-/** Draws a seal's place again for another seal, as the preview and the view's foot do for each work item they show. */
-export function drawSeal(place: HTMLElement, seal: Seal | null | undefined): void {
-  const shown = sealShown(seal);
-  place.dataset.seal = shown.state;
+/** Draws an inspection's place again for another inspection, as the preview and the view's foot do for each work item they show. */
+export function drawMark(place: HTMLElement, inspection: Inspection | null | undefined): void {
+  const shown = inspectionShown(inspection);
+  place.dataset.inspection = shown.state;
   place.setAttribute("aria-label", shown.words);
   place.title = shown.words;
 }
@@ -329,7 +329,7 @@ function item(className: string, ...parts: HTMLElement[]): HTMLElement {
  * record of its chain: the four places in order, each its mark, which says
  * the place's whole words, the role's name and a note under the name. A
  * rule after each name joins it to the next place, where the theme draws
- * one, and the sealer's place holds the seal's place. Under the places
+ * one, and the inspector's place holds the inspection's place. Under the places
  * stands each place's line of text, plain text and never markup, in the
  * colour of a failure for a place that failed.
  */
@@ -341,7 +341,7 @@ function approvalSection(entry: Entry): HTMLElement | null {
   line.className = "places";
   line.append(
     ...places.map((place) => {
-      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "sealer" ? sealPlace("line", entry.workItem.seal) : part("join", ""));
+      const head = row(iconOf(place.state, placeWords(place, now)), part("name", place.name), place.role === "inspector" ? markPlace("line", entry.workItem.inspection) : part("join", ""));
       const element = item(`place ${place.state}`, head, part("note", place.note));
       element.dataset.role = place.role;
       return element;
@@ -516,29 +516,29 @@ function roundPart(round: RoundPart): HTMLElement {
 }
 
 /**
- * The back of a seal as the window draws it in the back's place
- * (../shared/seal-back, `Back`), from its top: the large seal, drawn from
- * the work item's `seal` as the lists carry it, with the words of its state,
- * a broken seal's sentence and the commit that broke it; the seal's record;
+ * The inspection sheet as the window draws it in the back's place
+ * (../shared/inspection-sheet, `Back`), from its top: the large inspection, drawn from
+ * the work item's `inspection` as the lists carry it, with the words of its state,
+ * a lapsed inspection's sentence and the commit that lapsed it; the inspection's record;
  * the head's sentences; each round's part; the stages after the rounds; the
  * sums; the line of the sessions outside the chain; the sentence on a
  * converted cost; the refused calls; and the lines not read. Where `back` is
  * a sentence, as before the answers come and where one was refused, the
  * place holds that sentence alone. Every text is plain, never markup.
  */
-export function backParts(back: Back | string, seal: Seal | null | undefined): HTMLElement[] {
+export function backParts(back: Back | string, inspection: Inspection | null | undefined): HTMLElement[] {
   if (typeof back === "string") return [part("back-waits", back)];
-  const shown = sealShown(seal);
+  const shown = inspectionShown(inspection);
   const words = part("words", "");
   words.append(withCode("head", shown.words, "h2"), ...(shown.why === "" ? [] : [withCode("why", shown.why, "p")]));
-  if (back.brokenBy !== null) {
-    const broken = withCode("broken-by", back.brokenBy.says, "p");
-    broken.append(" ", withCode("subject", back.brokenBy.subject));
-    words.append(broken);
+  if (back.lapsedBy !== null) {
+    const lapsed = withCode("lapsed-by", back.lapsedBy.says, "p");
+    lapsed.append(" ", withCode("subject", back.lapsedBy.subject));
+    words.append(lapsed);
   }
   const head = document.createElement("header");
   head.className = "back-head";
-  head.append(sealPlace("view", seal), words);
+  head.append(markPlace("view", inspection), words);
   const parts: HTMLElement[] = [head];
   if (back.record.length > 0) {
     const record = document.createElement("dl");

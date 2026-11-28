@@ -33,15 +33,15 @@ export function pairKey(role: RoleStage): PairKey {
 
 /**
  * The grants. A crafter at a fix pass changes the work item's worktree. A
- * proofer at a round, a sealer at the seal and the orchestrator at a
- * judgment judge a tree or its records, and change nothing of it: the
- * proofer's and the sealer's commands run and write in a scratch folder of
+ * proofer at a round, an inspector at the inspection and the orchestrator at
+ * a judgment judge a tree or its records, and change nothing of it: the
+ * proofer's and the inspector's commands run and write in a scratch folder of
  * the session's own, and the orchestrator runs no command that asks.
  */
 const GRANTS: Record<PairKey, RoleGrant> = {
   "proofer at round": { writes: "nowhere", runs: true, commands: "scratch" },
   "crafter at fix-pass": { writes: "worktree", runs: true, commands: "worktree" },
-  "sealer at seal": { writes: "nowhere", runs: true, commands: "scratch" },
+  "inspector at inspection": { writes: "nowhere", runs: true, commands: "scratch" },
   "orchestrator at judgment": { writes: "nowhere", runs: false, commands: "nowhere" },
 };
 

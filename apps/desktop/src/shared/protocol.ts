@@ -72,7 +72,7 @@ export interface Group {
 
 /** What a repository's main checkout holds of the place for work records, as the daemon last read its working tree. */
 export interface RecordsPlace {
-  /** The root's folder from the top of the repository, `seal` or `agentic-seal`, or null where none stands. */
+  /** The root's folder from the top of the repository, `iadd`, or null where none stands. */
   root: string | null;
   /** The path of the workflow that runs the check, or null where none stands. */
   check: string | null;
@@ -80,19 +80,14 @@ export interface RecordsPlace {
   broadGate: string | null;
   /** The version of Owlery whose pull request check the workflow fetches, where it is older than the daemon's own, and null otherwise: for no Owlery workflow, a workflow whose version line the daemon does not read, a version as new as the daemon's or newer, and a daemon given no version. A daemon of an earlier build sends none, and a client reads its absence as null. */
   olderCheck?: string | null;
+  /** The folder of a records root in the earlier form, one of the names `records-migration.ts#EARLIER_ROOTS` gives, where the main checkout holds one and no `iadd` root, and null otherwise. The daemon reads no record of it and starts no chain on it, and a plan of the records place is then the move of its records (`RecordsPlan.migration`). A daemon of an earlier build sends none, and a client reads its absence as null. */
+  earlier?: string | null;
 }
 
-/** The chain a person chose for the Claude Code panes of a repository: the owl chain, which is Owlery's, or the AgenticSeal plugin's. */
-export type ChainChoice = "owlery" | "plugin";
-
-/** Which chain a repository's Claude Code panes run, as the daemon last read the repository's main checkout and the person's Claude Code settings for it. */
+/** Which chain a repository's Claude Code panes run, as the daemon last read the repository's main checkout. */
 export interface RepositoryChain {
-  /** True where the main checkout holds Owlery's workflow, so the repository is on the owl chain. */
+  /** True where the main checkout holds Owlery's workflow, so the repository is on the owl chain. A daemon of an earlier build also sent `plugin` and `chosen`, which a client reads nothing of. */
   owl: boolean;
-  /** True where the person's Claude Code enables the AgenticSeal plugin for a session in the main checkout. */
-  plugin: boolean;
-  /** The person's answer, kept on the repository, or null where they gave none. It is read only where both of the above hold: the window then asks once, before it opens a Claude Code pane. */
-  chosen: ChainChoice | null;
 }
 
 /** What a setup of the records place would do, or the move of its check to the daemon's version. */
@@ -109,6 +104,8 @@ export interface RecordsPlan {
   proposedBroadGate: string | null;
   /** The move of the workflow's pin that the plan's one written file makes, from the version the commit's workflow names to the daemon's, or null where the plan moves nothing. A daemon of an earlier build sends none. */
   move?: { from: string; to: string } | null;
+  /** The move of the records from a root in the earlier form, which the plan's commit makes in place of a setup: the root it moves, each file it moves by its path and the path it moves to, with whether its text is rewritten, and each file it removes. `files` then holds what the commit writes whole, Owlery's workflow for the daemon's version where the commit holds none. Null, or absent from a daemon of an earlier build, where the plan is a setup or a move of the check. */
+  migration?: { from: string; moves: { from: string; to: string; rewritten: boolean }[]; removes: string[] } | null;
   /** Where the plan moves the pin: each work item of the repository whose records at its branch's head the daemon's readers refuse, with the reader's sentence; each one whose branch's head the daemon holds no reading of, with the sentence that its records were not read yet; and each one whose worktree's folder is gone or whose records could not be read there for another reason, with the sentence that says why. Empty where each one was read and none is refused, and where the plan moves nothing. It is no part of the stamp. */
   unread?: { id: number; title: string; why: string }[];
   /** A text that differs wherever the commit the checkout stands at, the branch or a file above differs. A setup carries the stamp of the plan the person read. */
@@ -137,7 +134,7 @@ export interface Repository {
   groups: Group[];
   /** What the main checkout holds of the records place. A daemon of an earlier build sends none, and a client reads its absence as a repository it offers no setup for. */
   records: RecordsPlace;
-  /** Which chain the repository's Claude Code panes run. A daemon of an earlier build sends none, and a client reads its absence as a repository it asks no choice for. */
+  /** Which chain the repository's Claude Code panes run. A daemon of an earlier build sends none. */
   chain: RepositoryChain;
   /** The id of the account set on the repository, or null where none is set there. A daemon of an earlier build sends no such field, and a client reads its absence as null. */
   accountId?: number | null;
@@ -319,8 +316,8 @@ export interface WorkItem {
   unread: Unread[];
   /** What the work item's records say of its chain, as the daemon last read them in its worktree. A daemon of an earlier build sends no such field, and a client reads its absence as a work item it draws no approval line for. The look keeps none, so a work item the look holds has none either. */
   recorded?: Recorded;
-  /** The seal its branch's head commit holds, as the daemon read it from git and the committed records. Null where the daemon read the head commit and found no seal there, which is also what it sends where git failed at that read. Absent where the daemon holds no reading of the branch: one it has not read since it started, one with no base commit recorded, and one that is gone. A daemon of an earlier build sends no such field. A client reads an absent `seal` as no seal where it draws the seal's place. The look keeps the field as the lists carried it, a null as null and an absent one absent. */
-  seal?: Seal | null;
+  /** The inspection its branch's head commit holds, as the daemon read it from git and the committed records. Null where the daemon read the head commit and found no inspection there, which is also what it sends where git failed at that read. Absent where the daemon holds no reading of the branch: one it has not read since it started, one with no base commit recorded, and one that is gone. A daemon of an earlier build sends no such field, and one before the rename to IADD sends it under its earlier name, which a client reads as nothing. A client reads an absent `inspection` as no inspection where it draws the inspection's mark. The look keeps the field as the lists carried it, a null as null and an absent one absent. */
+  inspection?: Inspection | null;
   /** The setup of its worktree, the last one run, or null where its repository named neither file. */
   setup: WorktreeSetup | null;
   /** Its chain: where the run the daemon started for it stands, with the stages of every start, or null where none ran for it. A daemon of an earlier build sends no such field, and a client reads its absence as no chain. */
@@ -339,8 +336,8 @@ export interface WorkItem {
 
 /** A stage of the work item's chain that a pane's session runs through the chain command, as the daemon holds it: the kind and the round `owed` handed, from the daemon's time of its word, or the broad gate the command's `gate` waits for or runs, from its ask. */
 export interface PaneStage {
-  kind: "round" | "fix-pass" | "seal" | "gate";
-  /** The round a round is, the round a fix pass answers, the last round recorded before a seal or a broad gate. */
+  kind: "round" | "fix-pass" | "inspection" | "gate";
+  /** The round a round is, the round a fix pass answers, the last round recorded before an inspection or a broad gate. */
   round: number;
   /** The daemon's clock when the stage was first told, or when the gate asked for its turn. */
   since: number;
@@ -470,13 +467,13 @@ export interface PullRequest {
  * The kinds of stage a work item's chain runs. Five are one role session
  * each: a review round, a fix pass, the orchestrator's judgment of whether
  * the rounds are converging, its ruling on the questions a stage asked, and
- * the seal, a sealer's session that gives its verdict on the commit the
- * broad gate passed on. Two are no session: the broad gate, where the daemon
- * runs the repository's broad gate command, and the pull request stage,
- * where the daemon pushes the sealed branch and opens or updates its pull
+ * the inspection, an inspector's session that gives its verdict on the
+ * commit the broad gate passed on. Two are no session: the broad gate, where
+ * the daemon runs the repository's broad gate command, and the pull request
+ * stage, where the daemon pushes the cleared branch and opens or updates its pull
  * request through the person's `gh`.
  */
-export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "seal", "pull-request"] as const;
+export const CHAIN_STAGE_KINDS = ["round", "fix-pass", "judgment", "ruling", "gate", "inspection", "pull-request"] as const;
 
 /** One of `CHAIN_STAGE_KINDS`. */
 export type ChainStageKind = (typeof CHAIN_STAGE_KINDS)[number];
@@ -496,9 +493,9 @@ export interface GateRun {
 /** One stage a chain ran or is running. */
 export interface ChainStage {
   kind: ChainStageKind;
-  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate, a seal or a pull request stage. */
+  /** The round a round is, the round a fix pass answers, the round a judgment or a ruling follows, or the last round recorded before a broad gate, an inspection or a pull request stage. */
   round: number;
-  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. A seal is `finished` where the daemon wrote and committed the sealer's verdict, whichever of the three it reads. A pull request stage is `finished` where the branch was pushed and its pull request opened or updated and read again, and `failed` at every other end. */
+  /** `working` until the stage ends, then `finished` where the daemon took and committed what it left, and `failed` where its session failed or was stopped, or the daemon refused what it left. A broad gate is `finished` where its command exited with 0 on a tree that stood still and the run's record was committed, and `failed` at every other end. An inspection is `finished` where the daemon wrote and committed the inspector's verdict, whichever of the three it reads. A pull request stage is `finished` where the branch was pushed and its pull request opened or updated and read again, and `failed` at every other end. */
   state: "working" | "finished" | "failed";
   /** Why the stage `failed`, and null in the other two states: a clause with no capital and no full stop where the daemon words it, and a session's own error as the session gave it. The daemon's sentence of the chain wraps it, and the approval line says it as a sentence. */
   failure: string | null;
@@ -517,13 +514,13 @@ export interface ChainStage {
  * What the daemon runs for one work item once its chain is started
  * (`Daemon#startChain`, which no client message reaches): its review
  * rounds, its fix passes, the orchestrator's judgments and rulings, and,
- * once the rounds settle, the repository's broad gate and the seal, and
- * after a seal the pull request stage, one stage at a time. Which stage is next is read
+ * once the rounds settle, the repository's broad gate and the inspection,
+ * and after an inspection the pull request stage, one stage at a time. Which stage is next is read
  * from the work item's committed records at each step, and this is what a
  * window shows of the run.
  */
 export interface Chain {
-  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where a sealer's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `guarantee.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `guarantee.md` reads `sealed` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether a seal holds, since a commit after the run can break it while the chain rests: `WorkItem.seal` says that, read from the branch's head. */
+  /** `running` from the start until the chain rests. `parked` where the work item's record holds an open question. `stopped` where a stage failed, was stopped or left what the daemon refused, where the broad gate's command did not exit with 0 or the tree moved under it, where the orchestrator judged that the rounds are not converging, where a round at the ceiling of the rounds left a finding open, where an inspector's verdict reads `withheld`, with its reason as the sentence, where a parked chain could not start again after its answers, and where the daemon ended while a stage ran. `rested` where the run ended and owes no stage: the last round left nothing open, no commit after it is unread, the broad gate passed on a commit that differs from the branch's head in the closing records alone, `trail/gate.md`, `inspection.md` and `trail/refusals.md` of the work item's directory, and the newest verdict block of `inspection.md` reads `cleared` and names that commit; where the work item's `routing.md` sends the work to a pull request, the chain is `running` while the pull request stage runs on such a commit, `rested` once it ended well, and `stopped` where it failed. No state says whether an inspection holds, since a commit after the run can lapse it while the chain rests: `WorkItem.inspection` says that, read from the branch's head. */
   state: "running" | "parked" | "stopped" | "rested";
   /** Where the chain stands, as a sentence the window shows as it is. */
   says: string;
@@ -541,17 +538,17 @@ export interface Recorded {
   rounds: number;
   /** The commit the last run block of the gate's record names, or null. */
   gate: string | null;
-  /** The last verdict block of the guarantee: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
-  verdict: { is: "sealed" | "withheld" | "undecided"; commit: string; says: string | null } | null;
+  /** The last verdict block of the inspection: the verdict's word, the commit it names, and the reason or the question, 2,000 characters of it at most, or null. */
+  verdict: { is: "cleared" | "withheld" | "undecided"; commit: string; says: string | null } | null;
 }
 
-/** The seal the branch's head commit holds, as the daemon read it from git and the committed records. */
-export interface Seal {
-  /** `sealed` where the seal holds at the head. `broken` where the head holds a seal that a later commit broke. */
-  state: "sealed" | "broken";
-  /** The sealed commit: the commit the newest verdict block's `target:` names, whole as git names it, or as the block writes it where the repository holds no commit of that name. */
+/** The inspection the branch's head commit holds, as the daemon read it from git and the committed records. */
+export interface Inspection {
+  /** `cleared` where the inspection holds at the head. `lapsed` where the head holds an inspection that a later commit lapsed. */
+  state: "cleared" | "lapsed";
+  /** The cleared commit: the commit the newest verdict block's `target:` names, whole as git names it, or as the block writes it where the repository holds no commit of that name. */
   commit: string;
-  /** Why the seal is broken, as a sentence the window shows as it is, 2,000 characters of it at most. Null where it holds. */
+  /** Why the inspection lapsed, as a sentence the window shows as it is, 2,000 characters of it at most. Null where it holds. */
   why: string | null;
 }
 
@@ -610,15 +607,17 @@ export interface Look {
 
 /**
  * The roles a headless session can be launched as, each with the stage it is
- * launched at. The names are neutral: which agent, which rules and which
- * options a pair means is its adapter's (docs/architecture.md, "Rules that
- * keep it portable"). A new stage is one pair here, one row of the grants
- * (`src/daemon/role-grants.ts`) and one row of each adapter's table.
+ * launched at. The names are neutral: the agent, the documents and the
+ * model a pair means are its stage's in the role bundle's workflow
+ * (`src/daemon/workflow.ts`), and the options that launch them are its
+ * adapter's (docs/architecture.md, "Rules that keep it portable"). A new
+ * stage is one pair here, one row of the grants (`src/daemon/role-grants.ts`)
+ * and one stage of the workflow's skeleton and of its files.
  */
 export const ROLE_STAGES = [
   { role: "proofer", stage: "round" },
   { role: "crafter", stage: "fix-pass" },
-  { role: "sealer", stage: "seal" },
+  { role: "inspector", stage: "inspection" },
   { role: "orchestrator", stage: "judgment" },
 ] as const;
 
@@ -711,8 +710,8 @@ export interface BackRound {
   unread: number;
 }
 
-/** The seal's record: the fields of `docs/product.md` *The seal*, with who built and who judged. */
-export interface SealRecord {
+/** The inspection's record: the fields `docs/product.md` gives it, with who built and who inspected. */
+export interface InspectionRecord {
   commit: string;
   branch: string | null;
   base: string;
@@ -720,19 +719,19 @@ export interface SealRecord {
   gate: string | null;
   rounds: number;
   builtBy: string[];
-  judgedBy: string | null;
+  inspectedBy: string | null;
   model: string | null;
   rules: string | null;
 }
 
-/** What the committed records of a work item say for the back of its seal, read at the branch's head commit. The daemon sends each string cut at 2,000 characters. */
-export interface SealRecords {
+/** What the committed records of a work item say for its inspection sheet, read at the branch's head commit. The daemon sends each string cut at 2,000 characters. */
+export interface BackRecords {
   /** The head commit the records were read at. */
   head: string;
-  /** The seal's record, or null where the newest verdict block is no seal. */
-  record: SealRecord | null;
-  /** The commit that broke the seal, or null where the seal is not broken or no commit is named. */
-  brokenBy: { commit: string; subject: string } | null;
+  /** The inspection's record, or null where the newest verdict block clears nothing. */
+  record: InspectionRecord | null;
+  /** The commit that lapsed the inspection, or null where the inspection did not lapse or no commit is named. */
+  lapsedBy: { commit: string; subject: string } | null;
   /** The rounds, the first first. */
   rounds: BackRound[];
   /** One for each call a stage's role was refused: the stage's kind and round, read from the row of `trail/refusals.md` that names it, as in `ruling 2`, and the rule's name. */
@@ -904,9 +903,9 @@ export type ClientMessage =
   | { type: "fetchBase"; requestId: number; repo: string; base: string }
   // Adds the repository `folder` is inside, with no work item. `folder` is an absolute path, and the daemon refuses any other. The repository is the one the folder's main checkout names, so a folder inside a linked worktree adds the repository the worktree belongs to, and a folder of a bare repository's worktree is refused, as is a linked worktree of a submodule or of a repository whose git directory stands apart from its checkout. One the daemon already keeps is not added twice, and is shown again where it was hidden. The daemon answers with `done`.
   | { type: "addRepository"; requestId: number; folder: string }
-  // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. `paneChain` is the person's answer to which chain the repository's Claude Code panes run, and null takes the answer away, so the window asks again. `accountId` is the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them, or null, which leaves the repository's sessions to the default; an id the daemon keeps no account under is refused, and nothing of the message is then set. The daemon answers with `done`.
-  | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean; paneChain?: ChainChoice | null; accountId?: number | null }
-  // Adds an account, and no name is typed. With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads of it only which plugins it enables and, through the adapter, whether a login stands in it, the name the agent gives that login and the real path of the folder it keeps its conversations in (`Account.conversations`). The account is named by that login's name, or by the folder's last name where no login stands, the agent names none or could not say, or the role adapter signs no account in, and it is answered with `done`, before the `accounts` that carries the account. Without `folder` the request names the size of a sign-in pane, `cols` by `rows`: the daemon makes the folder `accounts/<id>` of its run folder, readable by the user alone, gives it the person's own names as the adapter lends them, which it gives again before each launch under the account, and starts the sign-in pane of that folder at once, as `signIn` starts one, answered with `started`. The folder is no account until the pane's process ends: the daemon then asks the agent whether a login stands, keeps the folder as an account named by the login's name, or `Account <id>` where the agent names none, and closes the pane; it removes the folder where no login stands, and keeps it as `Account <id>`, its sign-in not read, where the agent could not say. It then sends this client `addEnded`. Any other folder is refused with a sentence, and so is an add without a folder where the role adapter signs no account in or cannot find its agent, which then keeps no folder. A name another account holds takes a number in brackets.
+  // Sets on a repository what a person sets: a field that is absent is left as it is. `name` is stored without the white space at its ends, and null or an empty one gives the repository the last part of its folder as its name. `icon` is one character or, null or empty, none, and more than one is refused. `defaultBase` names the base of the repository's new work items, as `WorkItem.baseBranch` names one, and null gives it its default base again. `accountId` is the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them, or null, which leaves the repository's sessions to the default; an id the daemon keeps no account under is refused, and nothing of the message is then set. The daemon answers with `done`.
+  | { type: "setRepository"; requestId: number; id: number; name?: string | null; icon?: string | null; defaultBase?: string | null; hidden?: boolean; accountId?: number | null }
+  // Adds an account, and no name is typed. With `folder` the person hands over a config folder: an absolute path to a folder that exists and is no account's yet, and the daemon makes nothing in the folder and reads of it only, through the adapter, whether a login stands in it, the name the agent gives that login and the real path of the folder it keeps its conversations in (`Account.conversations`). The account is named by that login's name, or by the folder's last name where no login stands, the agent names none or could not say, or the role adapter signs no account in, and it is answered with `done`, before the `accounts` that carries the account. Without `folder` the request names the size of a sign-in pane, `cols` by `rows`: the daemon makes the folder `accounts/<id>` of its run folder, readable by the user alone, gives it the person's own names as the adapter lends them, which it gives again before each launch under the account, and starts the sign-in pane of that folder at once, as `signIn` starts one, answered with `started`. The folder is no account until the pane's process ends: the daemon then asks the agent whether a login stands, keeps the folder as an account named by the login's name, or `Account <id>` where the agent names none, and closes the pane; it removes the folder where no login stands, and keeps it as `Account <id>`, its sign-in not read, where the agent could not say. It then sends this client `addEnded`. Any other folder is refused with a sentence, and so is an add without a folder where the role adapter signs no account in or cannot find its agent, which then keeps no folder. A name another account holds takes a number in brackets.
   | { type: "addAccount"; requestId: number; folder?: string; cols?: number; rows?: number }
   // Names the account new sessions take where nothing nearer is set: the id of an account the daemon keeps, `SYSTEM_DEFAULT_ID` among them. Another id is refused. The daemon answers with `done`, before the `accounts` that carries the change.
   | { type: "setDefaultAccount"; requestId: number; id: number }
@@ -924,9 +923,9 @@ export type ClientMessage =
   | { type: "changeAccount"; requestId: number; id: number; accountId: number; headless?: true }
   // Takes a repository and its work items, the archived among them, off the daemon's lists. `workItems` names the work items the person was told of and `running` the running sessions. Where the repository holds a work item, or a session of one runs, that the message does not name, the daemon refuses and ends nothing. Without `delete` it removes nothing on disk: the repository, each worktree's folder and each branch stay. It ends the sessions named, and refuses where a pane's process has not exited within its wait. With `delete`, which the person chose, it deletes each work item from disk first, one after another, as a `deleteWorkItem` does with the stamp `stamps` holds under that work item's id and with `force`. It refuses before the first delete, and ends nothing, where `stamps` holds no stamp for a work item, where a session runs that the message does not name, and while an archive is ending the sessions of one of the work items. Where one delete is refused or fails, the removal stops there: the refusal opens with that work item's title, the work items deleted before it are gone, and the repository and the others stay. The repository's own folder is never touched. The daemon answers with `done`.
   | { type: "removeRepository"; requestId: number; id: number; workItems: number[]; running: Running; delete?: { stamps: Record<number, string>; force: boolean } }
-  // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. The daemon writes nothing, and answers with a `recordsPlan`.
+  // Asks what a setup of the records place in the repository `id` would write and commit, with `broadGate` as the command a new `config.json` holds. Where the main checkout holds a root in the earlier form and no records root (`RecordsPlace.earlier`), the plan is the move of its records instead, and `broadGate` is not read. The daemon writes nothing, and answers with a `recordsPlan`.
   | { type: "planRecords"; requestId: number; id: number; broadGate: string }
-  // Sets up the records place of the repository `id`: the daemon makes the plan again, and refuses where its stamp is not `stamp`, where it is `blocked`, and where it writes a `config.json` and `broadGate` is empty. It creates each file of the plan only where nothing stands at its path, stages those paths alone and commits those paths alone, on the branch the main checkout stands on, with the person's git identity and the repository's hooks, and pushes nothing. Where the commit fails, it unstages those paths, removes the files and the folders this request created, and answers with git's words. A plan that writes no file is answered with no commit. It waits behind the creations, the renames of a branch and the deletes. The daemon answers with `done`.
+  // Sets up the records place of the repository `id`: the daemon makes the plan again, and refuses where its stamp is not `stamp`, where it is `blocked`, and where it writes a `config.json` and `broadGate` is empty. It creates each file of the plan only where nothing stands at its path, stages those paths alone and commits those paths alone, on the branch the main checkout stands on, with the person's git identity and the repository's hooks, and pushes nothing. Where the commit fails, it unstages those paths, removes the files and the folders this request created, and answers with git's words. A plan that writes no file is answered with no commit. It waits behind the creations, the renames of a branch and the deletes. Where the plan is the move of the records from the earlier form, the daemon makes that commit instead, as the plan names it, after the same stamp and the same refusal where it is blocked. The daemon answers with `done`.
   | { type: "setUpRecords"; requestId: number; id: number; broadGate: string; stamp: string }
   // Adds a group to a repository, after the groups it has, under `name` without the white space at its ends. An empty name is refused. The daemon answers with `done`.
   | { type: "addGroup"; requestId: number; repoId: number; name: string }
@@ -968,8 +967,8 @@ export type ClientMessage =
   | { type: "stopHeadless"; requestId: number; id: number }
   // Asks for the cost ledger of one work item, archived or not: the entries of the stages that ended in it since its `createdAt`. The daemon answers with a `ledger`, and with an `error` for an id it lists no work item under, as a deleted work item's.
   | { type: "readLedger"; requestId: number; workItemId: number }
-  // Asks for what the committed records of one work item, archived or not, say for the back of its seal, read at its branch's head commit, and at its worktree's `HEAD` for a work item with no branch yet. The daemon answers with a `sealRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, a work item with no branch among them, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
-  | { type: "readSealRecords"; requestId: number; workItemId: number }
+  // Asks for what the committed records of one work item, archived or not, say for its inspection sheet, read at its branch's head commit, and at its worktree's `HEAD` for a work item with no branch yet. The daemon answers with a `backRecords`, with the empty value for a work item whose worktree holds no directory of its own or two, a work item with no branch among them, and with an `error` for an id it lists no work item under and for a branch whose head it cannot read.
+  | { type: "readBackRecords"; requestId: number; workItemId: number }
   // Says that a person looked at what the client shows, now. The daemon records the look and answers nothing.
   | { type: "looked" }
   // Sets the daemon's choice of when to keep its machine awake. It has no answer of its own: the `keepAwake` message that follows a change is the answer. The daemon ignores a value that is none of the three, and a daemon that can hold nothing ignores them all.
@@ -1003,8 +1002,8 @@ export type ServerMessage =
   | { type: "workItemLoss"; requestId: number; id: number; loss: WorkItemLoss }
   // Answers a `readLedger`: the work item's entries in the order their stages ended, and how many lines of the ledger's file the daemon could not read as an entry, of any work item. A daemon of an earlier build answers a `readLedger` with nothing.
   | { type: "ledger"; requestId: number; workItemId: number; entries: LedgerEntry[]; unread: number }
-  // Answers a `readSealRecords`. A daemon of an earlier build answers a `readSealRecords` with nothing.
-  | { type: "sealRecords"; requestId: number; workItemId: number; records: SealRecords }
+  // Answers a `readBackRecords`. A daemon of an earlier build answers a `readBackRecords` with nothing.
+  | { type: "backRecords"; requestId: number; workItemId: number; records: BackRecords }
   // Answers a `readGateOutput`: the last characters of what the command of the work item's newest broad gate printed on its two streams, in the order they arrived, as many as the daemon keeps at most (`GATE_OUTPUT_CHARS` of `src/daemon/gate.ts`). `cut` says that the text is as long as that bound, so the command printed that many characters or more and the text may open after the output's start. The daemon keeps the text in its run folder, so a daemon started later answers the same. A daemon of an earlier build answers a `readGateOutput` with nothing.
   | { type: "gateOutput"; requestId: number; workItemId: number; text: string; cut: boolean }
   // Answers a `planRecords` with what a setup of the repository `id` would do.

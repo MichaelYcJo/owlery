@@ -23,12 +23,12 @@ function printing(dir: string): string {
 }
 
 describe("paneHead", () => {
-  it("says the three things a pane's session is told and names the document that holds the rules: the session carries the owl chain, a branch takes its seal from it before its pull request or its end, and the bundle's document and the pane's environment say how", () => {
+  it("says the three things a pane's session is told and names the document that holds the rules: the session carries the owl chain, a branch takes its inspection from it before its pull request or its end, and the bundle's document and the pane's environment say how", () => {
     const head = paneHead();
-    expect(head.split("\n")[0]).toBe("# Owlery: this session carries the owl chain");
-    expect(head).toContain("so it carries the owl chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.");
-    expect(head).toContain("A branch takes its seal from the owl chain before its pull request is opened or the work is called done.");
-    expect(head).toContain("The bundle's document `skills/seal/SKILL.md`, listed as the skill `owlery:seal`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.");
+    expect(head.split("\n")[0]).toBe("# Owlery: this session carries the Owl Chain");
+    expect(head).toContain("so it carries the Owl Chain: the roles of Owlery's role bundle, which is loaded as the plugin `owlery` for this session alone.");
+    expect(head).toContain("A branch is cleared by the Owl Chain's inspection before its pull request is opened or the work is called done.");
+    expect(head).toContain("The bundle's document `skills/inspection/SKILL.md`, listed as the skill `owlery:inspection`, says how. The chain command is the program this pane's environment names in `OWLERY_CHAIN`.");
     // The head states no step of the chain: the document it names does.
     for (const word of ["owed", "round", "gate", "--base"]) expect(head, word).not.toContain(word);
   });
@@ -52,8 +52,8 @@ describe("writePaneChain", () => {
     // The pane's own environment holds no such variable: the daemon's pane drops it (`pty.ts#terminalEnv`).
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const printed = execFileSync(launcher, ["seal", "an answer.md", "--judged-by", "it's"], { encoding: "utf8", env });
-    expect(JSON.parse(printed)).toEqual({ args: ["seal", "an answer.md", "--judged-by", "it's"], asNode: "1" });
+    const printed = execFileSync(launcher, ["inspect", "an answer.md", "--inspected-by", "it's"], { encoding: "utf8", env });
+    expect(JSON.parse(printed)).toEqual({ args: ["inspect", "an answer.md", "--inspected-by", "it's"], asNode: "1" });
   });
 
   it("writes over the files an earlier daemon left, and names the launcher apart from the folder the chain command keeps its files in", () => {
@@ -91,68 +91,30 @@ describe("writeRunner", () => {
 describe("carriedIn", () => {
   const chain = { bundleDir: "/app/dist/bundle", headFile: "/run/pane-head.md", launcher: "/run/owl-chain" };
 
-  /** A start of a pane in a folder, of a repository whose main checkout is that folder, with the person's answer, under System default before the lookup answered. */
-  const start = (folder: string, chosen: "owlery" | "plugin" | null = null) => ({ continueLatest: false, folder, base: "main", checkout: folder, chosen, accountDir: null, configDir: null });
-  /** A folder on the owl chain. */
-  function onOwlChain(): string {
-    const folder = scratch();
-    mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
-    return folder;
-  }
-  const NO_PLUGIN = () => ({ enabled: { "notes@somewhere": true }, agenticSeal: [] });
+  /** A start of a pane in a folder, under System default. */
+  const start = (folder: string) => ({ continueLatest: false, folder, base: "main", accountDir: null });
 
   it("gives the chain for a folder whose installed check is Owlery's, read at each call, and nothing for any other folder or where the daemon holds no chain to give", () => {
     const folder = scratch();
-    const carries = carriedIn(chain, NO_PLUGIN);
+    const carries = carriedIn(chain);
     expect(carries(start(folder))).toBeNull();
     mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
-    writeFileSync(join(folder, ".github", "workflows", "owlery-seal.yml"), "name: seal\n");
+    writeFileSync(join(folder, ".github", "workflows", "owlery-inspection.yml"), "name: inspection\n");
     // Nothing of the folder is kept between two launches.
-    expect(carries(start(folder))).toEqual({ chain, enabledPlugins: null });
+    expect(carries(start(folder))).toEqual(chain);
     expect(carries(start(join(folder, "absent")))).toBeNull();
-    expect(carriedIn(undefined, NO_PLUGIN)(start(folder))).toBeNull();
+    expect(carriedIn(undefined)(start(folder))).toBeNull();
   });
 
-  it("carries the chain whatever the person answered where their Claude Code enables no AgenticSeal plugin, with the settings file every pane shares, and reads no settings for a folder that is on no chain of Owlery's", () => {
-    const folder = onOwlChain();
-    const asked: (string | null)[][] = [];
-    const carries = carriedIn(chain, (at, checkout, configDir) => {
-      asked.push([at, checkout, configDir]);
-      return NO_PLUGIN();
-    });
-    for (const chosen of [null, "owlery", "plugin"] as const) expect(carries(start(folder, chosen)), String(chosen)).toEqual({ chain, enabledPlugins: null });
-    expect(carries({ ...start(scratch(), "owlery"), checkout: "/r/elsewhere" })).toBeNull();
-    // The reader is given the pane's folder and the repository's main checkout, for a folder on the owl chain alone.
-    expect(carries({ ...start(folder), checkout: "/r/main" })).not.toBeNull();
-    expect(asked).toEqual([[folder, folder, null], [folder, folder, null], [folder, folder, null], [folder, "/r/main", null]]);
-  });
-
-  it("carries the chain under the answer \"the owl chain\" alone where the plugin is enabled, with enabledPlugins as the person's files state it and each key of the plugin set to false, and carries nothing under the answer \"the AgenticSeal plugin\" or while no answer is kept", () => {
-    const folder = onOwlChain();
-    const enabled = { "agentic@agenticseal": true, "notes@somewhere": true, "old@somewhere": false, "agentic@fork": ["1.0.0"] };
-    const carries = carriedIn(chain, () => ({ enabled, agenticSeal: ["agentic@agenticseal", "agentic@fork"] }));
-    expect(carries(start(folder, "owlery"))).toEqual({ chain, enabledPlugins: { "agentic@agenticseal": false, "notes@somewhere": true, "old@somewhere": false, "agentic@fork": false } });
-    expect(carries(start(folder, "plugin"))).toBeNull();
-    expect(carries(start(folder, null))).toBeNull();
-    // What the reader gave is not changed.
-    expect(enabled["agentic@agenticseal"]).toBe(true);
-  });
-
-  it("gives its reader the config folder the start names, which is the pane's account's or the person's own, so a pane is launched by what its own folder enables (scenario 16)", () => {
-    const folder = onOwlChain();
-    const read: (string | null)[] = [];
-    // The handed account's folder enables the plugin, and the person's own enables none.
-    const carries = carriedIn(chain, (_at, _checkout, configDir) => {
-      read.push(configDir);
-      return configDir === "/accounts/handed" ? { enabled: { "agentic@agenticseal": true }, agenticSeal: ["agentic@agenticseal"] } : NO_PLUGIN();
-    });
-    const handed = { ...start(folder, "owlery"), accountDir: "/accounts/handed", configDir: "/accounts/handed" };
-    const own = { ...start(folder, "owlery"), configDir: "/Users/person/.claude" };
-    expect(carries(handed)).toEqual({ chain, enabledPlugins: { "agentic@agenticseal": false } });
-    expect(carries(own)).toEqual({ chain, enabledPlugins: null });
-    // Where no answer is kept, the pane whose own folder enables the plugin carries nothing of the bundle.
-    expect(carries({ ...handed, chosen: null })).toBeNull();
-    expect(read).toEqual(["/accounts/handed", "/Users/person/.claude", "/accounts/handed"]);
+  it("gives the chain in a folder on the owl chain whatever plugins the person's Claude Code enables there, under any account, and reads none of their settings", () => {
+    const folder = scratch();
+    mkdirSync(join(folder, ".github", "workflows"), { recursive: true });
+    writeFileSync(join(folder, ".github", "workflows", "owlery-inspection.yml"), "name: inspection\n");
+    // The folder's own settings enable the plugin that becomes `iadd`, as a project's may.
+    mkdirSync(join(folder, ".claude"));
+    for (const file of ["settings.json", "settings.local.json"]) writeFileSync(join(folder, ".claude", file), `${JSON.stringify({ enabledPlugins: { "agentic@agenticseal": true, "iadd@iadd": true } })}\n`);
+    const carries = carriedIn(chain);
+    expect(carries(start(folder))).toEqual(chain);
+    expect(carries({ ...start(folder), accountDir: "/accounts/handed" })).toEqual(chain);
   });
 });

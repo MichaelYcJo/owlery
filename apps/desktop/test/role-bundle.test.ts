@@ -1,5 +1,5 @@
 // The role bundle: the plugin folder the app ships, which a role session of
-// the daemon and a Claude Code pane on the owl chain each load for that
+// the daemon and a Claude Code pane on the Owl Chain each load for that
 // session alone. Its files started from AgenticSeal and are Owlery's own, and
 // the bundle's README.md says where they started.
 import { spawn, spawnSync } from "node:child_process";
@@ -14,7 +14,8 @@ import { NO_DEFAULT, SUBCOMMANDS } from "../src/daemon/chain-command";
 import { paneHead } from "../src/daemon/pane-chain";
 import { RULING_BLOCK } from "../src/daemon/record-blocks";
 import { MARKER } from "../src/daemon/records-place";
-import { sectionOf } from "../src/daemon/seal-records";
+import { sectionOf } from "../src/daemon/inspection-records";
+import { loadWorkflow, stageFor } from "../src/daemon/workflow";
 import { ROLE_STAGES, type ServerMessage } from "../src/shared/protocol";
 import { alive, buildApp, BuiltApp, untilGone } from "./built-app";
 import { parkedOnAQuestion } from "./chain-run";
@@ -53,10 +54,11 @@ describe("the role bundle", () => {
   });
 
   it("holds the definition of each role a session can be launched as, and every document the adapter appends for its stage", () => {
-    expect(ROLE_STAGES.map(({ role }) => role)).toEqual(["proofer", "crafter", "sealer", "orchestrator"]);
+    expect(ROLE_STAGES.map(({ role }) => role)).toEqual(["proofer", "crafter", "inspector", "orchestrator"]);
+    const workflow = loadWorkflow(BUNDLE);
     for (const pair of ROLE_STAGES) {
       expect(frontmatterOf(read(`agents/${pair.role}.md`)), pair.role).toContain(`name: ${pair.role}\n`);
-      const documents = roleDocuments(pair);
+      const documents = roleDocuments(stageFor(workflow, pair));
       expect(documents.length, pair.role).toBeGreaterThanOrEqual(2);
       for (const document of documents) expect(existsSync(join(BUNDLE, document)), `${pair.role}: ${document}`).toBe(true);
     }
@@ -97,29 +99,33 @@ describe("the role bundle", () => {
     }
   });
 
-  it("reads true in both launches: it holds `skills/seal/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, each role works in the worktree its prompt names and not in the folder its session starts in, and every text names the chain the owl chain", () => {
+  it("reads true in both launches: it holds `skills/inspection/SKILL.md` for a pane's session, the three judging definitions name the four tools that read, search and run a command, no document of a role says that the daemon alone writes a record, the contract's rule 2 sends a heavy command through `OWLERY_RUN`, each role works in the worktree its prompt names and not in the folder its session starts in, and every text names the chain the Owl Chain", () => {
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
-    const skill = read("skills/seal/SKILL.md");
-    expect(frontmatterOf(skill)).toContain("name: seal\n");
+    const skill = read("skills/inspection/SKILL.md");
+    expect(frontmatterOf(skill)).toContain("name: inspection\n");
     // The document says how the chain runs through the command: it names the command as the pane's environment does, and each subcommand a session runs with each of its options. `ask` is the hook's, and `run` is reached through the launcher OWLERY_RUN names, which no step of the chain runs.
-    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--judged-by <id>", "--model <name>", "--persons-word <round>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
-    expect(flat("skills/seal/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
+    for (const named of ['"$OWLERY_CHAIN"', ...SUBCOMMANDS.filter((name) => name !== "ask" && name !== "run").map((name) => `\`${name}\``), "`--base", "`--automation yes`", "`--automation no`", "--by <id>", "--inspected-by <id>", "--model <name>", "--persons-word <round>", "`OWLERY_BASE`"]) expect(skill, named).toContain(named);
+    // A stage's model reaches the subagent through what `owed` prints, since no definition names one.
+    expect(flat("skills/inspection/SKILL.md")).toContain("`owed` prints four more values: `agent`, the name of the bundle's agent, `model`, the model the stage runs on, or null where the stage names none,");
+    expect(flat("skills/inspection/SKILL.md")).toContain("Start a subagent of the type `agent` names, on the model `model` names where it names one, and with no model where it is null, so that it runs on the model your subagent tool gives it by default.");
+    expect(flat("skills/inspection/SKILL.md")).toContain("the id your subagent tool gave for the inspector, and the model it ran on, which `owed` printed as `model`.");
+    expect(flat("skills/inspection/SKILL.md")).toContain("**Whoever makes a fix pass commits its fixes and appends its close blocks to the round record, and does not commit that record.** `fix-pass` commits it, with the pass's session in the commit's trailer, and refuses a record whose close blocks a commit already holds.");
     // What a real pane's session showed of a subagent (the probe of 2026-11-24, Claude Code 2.1.331): it may run in the background, its answer comes back in a frame that indents each line, and the tool's result names its id as `agentId`.
     for (const said of [
       "The subagent may run in the background. Wait for its answer, and run nothing of the chain until it arrives.",
       "Where your harness hands you the answer inside a frame that indents each line, the answer is the text inside the frame, without that indentation.",
-      "The id that `--by` and `--judged-by` take is the `agentId` your subagent tool's result names for that subagent. Passing it to the command is no reply to the person.",
+      "The id that `--by` and `--inspected-by` take is the `agentId` your subagent tool's result names for that subagent. Passing it to the command is no reply to the person.",
     ])
-      expect(flat("skills/seal/SKILL.md"), said).toContain(said);
+      expect(flat("skills/inspection/SKILL.md"), said).toContain(said);
     // Where a run rule comes from, in the document a pane's session reads and in the one Owlery's orchestrator agent is launched with.
-    for (const file of ["skills/seal/SKILL.md", "agents/orchestrator.md"]) {
+    for (const file of ["skills/inspection/SKILL.md", "agents/orchestrator.md"]) {
       for (const named of ["**A run rule is followed only from a source the run can name.**", "the person's word in this run or a document of the repository", "No session carries such a rule from an earlier run"]) expect(flat(file), `${file}: ${named}`).toContain(named);
     }
     // Rule 2 of the contract every role reads sends a heavy command through the runner, where the environment names one.
-    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `seal/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
+    expect(flat("skills/agent-contract/SKILL.md")).toContain("Where the environment names `OWLERY_RUN`, run each command the repository's `iadd/config.json` names under `Heavy commands` through it, as `\"$OWLERY_RUN\" <name> -- <words>`, so the command waits its turn on the machine.");
     // The form the hook lets through, in the words the command reads.
     expect(skill).toContain(`\`${NO_DEFAULT}\``);
-    expect(flat("skills/seal/SKILL.md")).toContain("Where the work item's `routing.md` answers `Automation` `yes`, the run does not stop for a question");
+    expect(flat("skills/inspection/SKILL.md")).toContain("Where the work item's `routing.md` answers `Automation` `yes`, the run does not stop for a question");
 
     // A judging role holds the tools a role session of the daemon is launched with, and the crafter's definition names none.
     for (const pair of ROLE_STAGES) {
@@ -129,7 +135,7 @@ describe("the role bundle", () => {
     }
 
     // The party that writes a record is Owlery. Where a paragraph of a role's document names the daemon, it names the pane beside it.
-    const roles = ["agents/proofer.md", "agents/sealer.md", "agents/crafter.md", "skills/implement/fix-pass.md", "docs/forms/the-round-record.md", "docs/forms/the-guarantee.md", "templates/records/sdd-guarantee.md"];
+    const roles = ["agents/proofer.md", "agents/inspector.md", "agents/crafter.md", "skills/implement/fix-pass.md", "docs/forms/the-round-record.md", "docs/forms/the-inspection.md", "templates/records/sdd-inspection.md"];
     for (const file of roles) {
       const alone = read(file)
         .split(/\n\s*\n/u)
@@ -139,17 +145,17 @@ describe("the role bundle", () => {
     }
     for (const [file, named] of [
       ["agents/proofer.md", "**The record is your answer, and Owlery writes it.**"],
-      ["agents/sealer.md", "Owlery writes it into that file and commits it"],
+      ["agents/inspector.md", "Owlery writes it into that file and commits it"],
       ["agents/crafter.md", "commit no change to the round record: Owlery commits it after the pass"],
       ["skills/implement/fix-pass.md", "Owlery commits the round record as the pass left it"],
-      ["docs/forms/the-round-record.md", "Owlery writes that answer unchanged to `seal/threads/<id>/trail/rounds/round-N.md`"],
-      ["docs/forms/the-guarantee.md", "Owlery writes four lines more into the block"],
-      ["agents/orchestrator.md", "In a pane that carries the owl chain, Owlery spawns no agent for these judgments: the pane's session makes them itself"],
-      ["README.md", "A Claude Code pane of a repository on the owl chain loads the same folder"],
+      ["docs/forms/the-round-record.md", "Owlery writes that answer unchanged to `iadd/threads/<id>/trail/rounds/round-N.md`"],
+      ["docs/forms/the-inspection.md", "Owlery writes six lines more into the block"],
+      ["agents/orchestrator.md", "In a pane that carries the Owl Chain, Owlery spawns no agent for these judgments: the pane's session makes them itself"],
+      ["README.md", "A Claude Code pane of a repository on the Owl Chain loads the same folder"],
     ] as const) expect(flat(file), `${file}: ${named}`).toContain(named);
 
     // A pane's subagent starts in its session's folder, which may be another worktree: each role works in the worktree its prompt names, and no definition takes the folder it starts in for that worktree.
-    for (const file of ["agents/proofer.md", "agents/sealer.md", "agents/crafter.md", "agents/orchestrator.md"]) {
+    for (const file of ["agents/proofer.md", "agents/inspector.md", "agents/crafter.md", "agents/orchestrator.md"]) {
       for (const named of ["prompt names by the absolute path of its top", "every other path", "may be another worktree of the repository"]) expect(flat(file), `${file}: ${named}`).toContain(named);
       expect(flat(file), file).not.toContain("the folder the session starts in");
     }
@@ -158,11 +164,11 @@ describe("the role bundle", () => {
     for (const file of filesOf(BUNDLE).filter((name) => name.endsWith(".md"))) {
       for (const gone of ["Owlery's chain", "the Owlery chain", "the daemon's chain"]) expect(read(file), `${file} names ${gone}`).not.toContain(gone);
     }
-    for (const file of ["README.md", "skills/seal/SKILL.md", "agents/orchestrator.md", "agents/sealer.md"]) expect(read(file), file).toContain("the owl chain");
+    for (const file of ["README.md", "skills/inspection/SKILL.md", "agents/orchestrator.md", "agents/inspector.md"]) expect(read(file), file).toContain("the Owl Chain");
   });
 
   it("tells a pane's session what the step `ceiling` means: it tells the person and runs nothing more of the chain, the person's word in this run after that stop is the one ground for `--persons-word`, a fix pass handed on that word follows no judgment, and the stop is no question under `Automation` `yes` (issue #246)", () => {
-    const flat = read("skills/seal/SKILL.md").replace(/\s+/gu, " ");
+    const flat = read("skills/inspection/SKILL.md").replace(/\s+/gu, " ");
     for (const said of [
       "| `ceiling` | Round `round` left open the findings `open` lists, and the chain stops for the person from round `ceiling` on, with no judgment.",
       "Tell the person the round, its open findings and what the rounds kept finding, and run nothing more of the chain.",
@@ -186,16 +192,30 @@ describe("the role bundle", () => {
       // A fact a finding corrects is corrected wherever it is stated, and the close block says how the places were found.
       ["agents/crafter.md", "In a fix pass, a finding that corrects a fact, a statement of which things hold something, is corrected at every place that states that fact, and not at its `location:` lines alone."],
       ["agents/crafter.md", "Find those places two ways: by the whole read above, which is a closed set, and by `git grep` on the fact's words across the tree, which is a sample and is called one."],
-      // A crafter's fix pass corrects the frame's lines that state the fact, and puts in the close blocks what a hand-back would name, since nobody on the owl chain folds a fix pass's hand-back (round-1#2).
+      // A crafter's fix pass corrects the frame's lines that state the fact, and puts in the close blocks what a hand-back would name, since nobody on the Owl Chain folds a fix pass's hand-back (round-1#2).
       ["agents/crafter.md", "and in a fix pass one close block under each open finding, and each line of the three frame files that states the fact a finding corrects."],
       ["agents/crafter.md", "You rewrite such a line to what HEAD gives, or remove it, and write no new account of what was built into it."],
       ["agents/crafter.md", "Name each one that stands in a file you do not write, `routing.md` or a line of the frame your *Job* does not give you, in the hand-back with its coordinate and the fact HEAD gives, for the orchestrator to fold."],
       ["agents/crafter.md", "In a fix pass, a place in a line of the frame is corrected too, since your *Job* gives you that line."],
-      ["agents/crafter.md", "In a fix pass, each item this rule has you name in the hand-back goes instead into the `answer:` of the close block of the finding the item concerns, and otherwise into the `answer:` of the last close block you append, since no party of the owl chain folds a fix pass's hand-back."],
+      ["agents/crafter.md", "In a fix pass, each item this rule has you name in the hand-back goes instead into the `answer:` of the close block of the finding the item concerns, and otherwise into the `answer:` of the last close block you append, since no party of the Owl Chain folds a fix pass's hand-back."],
       ["skills/implement/fix-pass.md", "Where the finding corrects a fact, the `answer:` also names the search the pass ran for the other places that state the fact, and each place beyond the finding's `location:` lines that the pass corrected, or says that the search found none."],
       ["skills/implement/fix-pass.md", "The search is the `git grep` on the fact's words that `agents/crafter.md` *Before you hand back, your range and the work item's records are read whole against HEAD* asks for, and the `answer:` calls it a sample."],
     ] as const)
       expect(flat(file), `${file}: ${said}`).toContain(said);
+  });
+
+  it("holds the Owl Chain's workflow file and inspector module, which the loader reads: each stage names its own role's definition, and no definition names a model, since a stage's model stands in its file alone", () => {
+    const workflow = loadWorkflow(BUNDLE);
+    for (const pair of ROLE_STAGES) {
+      expect(stageFor(workflow, pair).agent, pair.role).toBe(`agents/${pair.role}.md`);
+      expect(frontmatterOf(read(`agents/${pair.role}.md`)), pair.role).not.toMatch(/^model:/mu);
+    }
+    expect(ROLE_STAGES.map((pair) => [pair.role, stageFor(workflow, pair).model])).toEqual([
+      ["proofer", null],
+      ["crafter", null],
+      ["inspector", "opus"],
+      ["orchestrator", null],
+    ]);
   });
 
   it("leaves the rules to a role's rules file: no definition's frontmatter holds a skills key", () => {
@@ -230,7 +250,7 @@ describe("the role bundle", () => {
       "Where the last round has no open finding located outside the records, the third signal does not hold.",
       "The last signal, a finding closed `rejected` and raised again, holds for every finding, wherever it is located.",
       "A finding in the records corrects text of the records, and the fix pass that closes it reads the work item's records whole and corrects the fact at every place that states it (`skills/implement/fix-pass.md` *The narrow set, then the read of the range*).",
-      "The owl chain's ceiling of rounds bounds such findings as well, where the daemon runs the chain and in a pane.",
+      "The Owl Chain's ceiling of rounds bounds such findings as well, where the daemon runs the chain and in a pane.",
       "A stop is the most expensive step of the chain, as `skills/core/SKILL.md` *Asking a person is the most expensive step* says: it costs the person's attention, and while nobody watches it costs the hours until somebody does.",
       "So a `no` argues for its stop by what it buys: the person's decision at the stop, which no fix pass makes, such as a reframe, a split of the work, dropping the work or a fix by hand, and the rounds that a chain which does not converge would spend before anything else stops it.",
       "The `grounds:` line of a `no` names the signal that holds and the findings that hold it.",
@@ -244,12 +264,12 @@ describe("the role bundle", () => {
     expect(read("README.md")).toContain("The bundle holds the orchestrator's definition, `agents/orchestrator.md`, for the two judgments the daemon asks of its orchestrator agent and a pane's session makes itself");
   });
 
-  it("has the sealer queue and draw no stamp", () => {
-    expect(read("agents/sealer.md")).not.toMatch(/stamp/i);
+  it("has the inspector queue and draw no stamp", () => {
+    expect(read("agents/inspector.md")).not.toMatch(/stamp/i);
   });
 
-  it("names no command and no script in the sealer's definition, the guarantee's form and its template, and no check line of a test this repository does not hold", () => {
-    for (const file of ["agents/sealer.md", "docs/forms/the-guarantee.md", "templates/records/sdd-guarantee.md"]) {
+  it("names no command and no script in the inspector's definition, the inspection's form and its template, and no check line of a test this repository does not hold", () => {
+    for (const file of ["agents/inspector.md", "docs/forms/the-inspection.md", "templates/records/sdd-inspection.md"]) {
       const text = read(file);
       // A command is a span of code that opens with a program's name: AgenticSeal's CLI, git, GitHub's CLI or an interpreter.
       expect(text.match(/`(?:seal|git|gh|python3?|uv|pnpm|node) [^`]*`/gu), file).toBeNull();
@@ -259,16 +279,16 @@ describe("the role bundle", () => {
 
   it("describes the check's body arm and the pull request's body as Owlery holds them, with no composer of a body that pr-check/ no longer holds", () => {
     for (const file of ["skills/core/SKILL.md", "skills/implement/SKILL.md", "docs/forms/the-round-record.md"]) expect(read(file), file).not.toContain("seal pr-body");
-    expect(read("skills/core/SKILL.md")).toContain("its body arm: a ready pull request fails where its body's seal section, which Owlery composes, holds a verdict block other than the newest of the work item's `guarantee.md` at HEAD");
+    expect(read("skills/core/SKILL.md")).toContain("its body arm: a ready pull request fails where its body's inspection section, which Owlery composes, holds a verdict block other than the newest of the work item's `inspection.md` at HEAD");
     expect(read("skills/implement/SKILL.md")).toContain("| `pr.md` | no template | nobody: Owlery writes no `pr.md`");
     // A round reads a pr.md where one stands, and reads no file nobody writes.
     expect(read("agents/proofer.md").replace(/\s+/gu, " ")).toContain("`changelog.md`, and, where one stands, `pr.md` and `pr.<lang>.md`, each whole at the target");
   });
 
-  it("shapes a run's section as Owlery takes one: the template opens with the run's heading, its one seal block holds target: and Verdict: alone, and Owlery's reader takes the template filled in", () => {
-    const template = read("templates/records/sdd-guarantee.md");
+  it("shapes a run's section as Owlery takes one: the template opens with the run's heading, its one inspection block holds target: and Verdict: alone, and Owlery's reader takes the template filled in", () => {
+    const template = read("templates/records/sdd-inspection.md");
     expect(template.split("\n")[0]).toBe("## Run <N>");
-    const blocks = [...template.matchAll(/^```seal\n([\s\S]*?)^```$/gmu)].map(([, lines = ""]) => lines.trim().split("\n").map((line) => line.slice(0, line.indexOf(":") + 1)));
+    const blocks = [...template.matchAll(/^```iadd\n([\s\S]*?)^```$/gmu)].map(([, lines = ""]) => lines.trim().split("\n").map((line) => line.slice(0, line.indexOf(":") + 1)));
     expect(blocks).toEqual([["target:", "Verdict:"]]);
     expect([...template.matchAll(/^### .*$/gmu)].map(([heading]) => heading)).toEqual(["### Claims checked by reading", "### The parties"]);
     const target = `${"a".repeat(40)} against main`;
@@ -276,11 +296,11 @@ describe("the role bundle", () => {
     expect(sectionOf(`I read the branch.\n\n${filled}`, { run: 3, target })).toBe(filled);
   });
 
-  it("tells the sealer what the owl chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
+  it("tells the inspector what the Owl Chain does: it works on the commit the gate passed on, writes no file of the worktree, answers with its run's section, checks each kind of claim by reading, leaves the gate to Owlery, and asks the person through an undecided verdict", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
-    const definition = read("agents/sealer.md").replace(/\s+/gu, " ");
+    const definition = read("agents/inspector.md").replace(/\s+/gu, " ");
     for (const named of [
-      "You write no file of the worktree: your answer is your run's section of `guarantee.md`",
+      "You write no file of the worktree: your answer is your run's section of `inspection.md`",
       "the commit you audit is the one your prompt's target line names: the commit the broad gate passed on",
       "The work item names no issue",
       "You check each claim by reading",
@@ -290,25 +310,25 @@ describe("the role bundle", () => {
       "Each phase record: what it says the phase built stands in the tree",
       "**The parties against each other.**",
       "Its first line is the heading your prompt gives, `## Run <N>`",
-      "It holds no other line: Owlery adds who built the work, who judged it, the judging model and its own version",
+      "It holds no other line: Owlery adds who built the work, who inspected it, the inspecting model, its own version, and the workflow and the inspector module that produced the inspection",
       "**A question for the person is the verdict `undecided`, with the question.**",
       "**Owlery holds that the gate passed on the audited commit.**",
       "The chain stops with that line. What it names is fixed and nothing else, and the chain is started again on the fixed head.",
-      "**The session that judges built none of the work.**",
+      "**The session that inspects built none of the work.**",
     ]) expect(definition, named).toContain(named);
-    const form = read("docs/forms/the-guarantee.md").replace(/\s+/gu, " ");
+    const form = read("docs/forms/the-inspection.md").replace(/\s+/gu, " ");
     for (const named of [
       "`### Claims checked by reading` or `### The parties`",
-      "Owlery writes four lines more into the block, before its closing fence: `built-by:`",
+      "Owlery writes six lines more into the block, before its closing fence: `built-by:`",
       "A `withheld` verdict stops it with the reason. What the reason names is fixed, and the chain is started again on the fixed head, in the pane's session or by Owlery's daemon.",
       "the closing records follow",
-      "The closing records are `trail/gate.md`, `guarantee.md` and `trail/refusals.md`",
+      "The closing records are `trail/gate.md`, `inspection.md` and `trail/refusals.md`",
     ]) expect(form, named).toContain(named);
     for (const gone of ["pull request body", "seal mark", "the orchestrator's broad run"]) expect(form, gone).not.toContain(gone);
-    expect(read("README.md")).toContain("a sealer reads the commit Owlery's run of the broad gate passed on and answers with its run's section of the guarantee, which Owlery completes with who built the work and who judged it, writes and commits");
+    expect(read("README.md")).toContain("an inspector reads the commit Owlery's run of the broad gate passed on and answers with its run's section of the inspection, which Owlery completes with who built the work and who inspected it, writes and commits");
   });
 
-  it("tells the proofer and the sealer where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the guarantee's form says that they run nothing (scenario 8 of #127)", () => {
+  it("tells the proofer and the inspector where their commands write: in a role session of the daemon they run in the operating system's sandbox and write only in the scratch folder the prompt names, where a proofer clones the worktree and runs a narrow test or a probe with a `## Probes` row for each, and in a pane's session a command that asks waits for the person; and no text of the two or of the inspection's form says that they run nothing (scenario 8 of #127)", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
     const proofer = flat("agents/proofer.md");
@@ -323,41 +343,41 @@ describe("the role bundle", () => {
       "A claim that only a run could settle, and that no run of yours settled, is no finding: it is a row of `## Not judged`, with who answers it.",
       "- Write a file of the worktree, or commit: the record reaches the tree by Owlery's hand.",
     ]) expect(proofer, named).toContain(named);
-    const sealer = flat("agents/sealer.md");
+    const inspector = flat("agents/inspector.md");
     for (const named of [
       "In a role session of the daemon your commands run in the operating system's sandbox, which refuses their writes to the worktree, and you write with them only in the scratch folder your prompt names, your scratch directory of rule 17. In a pane's session a command that asks for permission waits for the person.",
       "- Write a file of the worktree: your section reaches the tree by Owlery's hand.",
       "- Change the tree so that a claim holds, by a command or by an edit of code or a record: you check each claim against the tree as it stands.",
-    ]) expect(sealer, named).toContain(named);
-    const form = flat("docs/forms/the-guarantee.md");
+    ]) expect(inspector, named).toContain(named);
+    const form = flat("docs/forms/the-inspection.md");
     for (const named of [
-      "It reads that record and never runs the broad gate itself, and its order of work and where its commands run are `agents/sealer.md`'s.",
+      "It reads that record and never runs the broad gate itself, and its order of work and where its commands run are `agents/inspector.md`'s.",
       "**How it errs.** It checks each claim by reading, so a claim that only a run would refute passes: a case that was never red, a command that does not pass.",
     ]) expect(form, named).toContain(named);
-    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/sealer.md", sealer], ["docs/forms/the-guarantee.md", form]] as const) {
+    for (const [file, text] of [["agents/proofer.md", proofer], ["agents/inspector.md", inspector], ["docs/forms/the-inspection.md", form]] as const) {
       for (const gone of ["run no command", "runs nothing", "**A round reads, and runs nothing.**"]) expect(text, `${file} says ${gone}`).not.toContain(gone);
     }
   });
 
-  it("tells the sealer how a run that follows a broken seal judges: its prompt hands it what changed since that seal's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
+  it("tells the inspector how a run that follows a lapsed inspection judges: its prompt hands it what changed since that inspection's commit, it reads the earlier run's section as that run's claim, checks the records written since and the changed part against the tree, names the run it stands on, and still judges the whole branch against its base", () => {
     // Read with each run of white space as one space, so a sentence is found however its lines are wrapped.
     const flat = (path: string): string => read(path).replace(/\s+/gu, " ");
-    const definition = flat("agents/sealer.md");
+    const definition = flat("agents/inspector.md");
     for (const named of [
-      "the paths the branch changed, and their diff. Where your prompt names the seal this run follows, they are what changed since that seal's commit, and otherwise what changed since the branch left its base.",
-      "**A run that follows a broken seal is handed the part that changed.**",
-      "Read the earlier run's section as that run's claim, and check against the tree the claims of the records written after that seal and the part that changed.",
+      "the paths the branch changed, and their diff. Where your prompt names the inspection this run follows, they are what changed since that inspection's commit, and otherwise what changed since the branch left its base.",
+      "**A run that follows a lapsed inspection is handed the part that changed.**",
+      "Read the earlier run's section as that run's claim, and check against the tree the claims of the records written after that inspection and the part that changed.",
       "Then name in a row of your section's first table the run you stand on for the rest.",
       "Your verdict is still a verdict on the whole branch against its base, and its target line is your prompt's.",
     ]) expect(definition, named).toContain(named);
     expect(definition).not.toContain("the paths the branch changed since it left its base, and their diff");
-    expect(flat("docs/forms/the-guarantee.md")).toContain("Where a later commit broke an earlier seal, the sealer's prompt hands it the part that changed since that seal's commit, it stands on the earlier run's section for the rest, and its verdict still covers the whole branch against its base.");
+    expect(flat("docs/forms/the-inspection.md")).toContain("Where a later commit lapsed an earlier inspection, the inspector's prompt hands it the part that changed since that inspection's commit, it stands on the earlier run's section for the rest, and its verdict still covers the whole branch against its base.");
   });
 
-  it("holds no script, no library and no drawing: every file under the four taken folders is a document, and the files beside them are the manifest, the licence, the notice and the one file of the hook", () => {
+  it("holds no script, no library and no drawing: every file under the four taken folders is a document, and the files beside them are the manifest, the licence, the notice, the one file of the hook and the Owl Chain's two files", () => {
     const taken = filesOf(BUNDLE).filter((file) => /^(agents|skills|docs|templates)\//.test(file));
     expect(taken.filter((file) => !file.endsWith(".md"))).toEqual([]);
-    expect(filesOf(BUNDLE).filter((file) => !taken.includes(file))).toEqual([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json"]);
+    expect(filesOf(BUNDLE).filter((file) => !taken.includes(file))).toEqual([".claude-plugin/plugin.json", "LICENSE", "README.md", "hooks/hooks.json", "inspectors/owl-chain.json", "workflows/owl-chain.json"]);
     expect(filesOf(BUNDLE).filter((file) => /^(lib|bin|scripts)\//.test(file))).toEqual([]);
   });
 });
@@ -370,7 +390,7 @@ describe("the built app's role bundle", () => {
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more, a file an earlier build left there among them", () => {
+  it("is the bundle of the tree at dist/bundle, each file with the same bytes and no file more, a file an earlier build left there among them, but the definition of each stage that names a model, whose frontmatter ends with that model", () => {
     const built = join(APP_DIR, "dist", "bundle");
     // A file the tree's bundle holds no more: a build replaces the folder whole, so a session never loads it.
     mkdirSync(join(built, "hooks"), { recursive: true });
@@ -378,7 +398,19 @@ describe("the built app's role bundle", () => {
     buildApp();
     const files = filesOf(BUNDLE);
     expect(filesOf(built)).toEqual(files);
-    for (const file of files) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
+    // A pane's session may start a stage's subagent with no model, so the built definition names the stage's model.
+    const modelled = new Map(ROLE_STAGES.flatMap((pair) => {
+      const stage = stageFor(loadWorkflow(BUNDLE), pair);
+      return stage.model === null ? [] : [[stage.agent, stage.model] as const];
+    }));
+    expect([...modelled]).toEqual([["agents/inspector.md", "opus"]]);
+    for (const file of files) {
+      const model = modelled.get(file);
+      if (model === undefined) expect(readFileSync(join(built, file)).equals(readFileSync(join(BUNDLE, file))), file).toBe(true);
+      else expect(readFileSync(join(built, file), "utf8"), file).toBe(readFileSync(join(BUNDLE, file), "utf8").replace(/^(---\n[\s\S]*?)\n---\n/u, `$1\nmodel: ${model}\n---\n`));
+    }
+    // The built bundle is one the loader reads, as the built daemon loads it at its start.
+    expect(stageFor(loadWorkflow(built), { role: "inspector", stage: "inspection" }).model).toBe("opus");
   });
 
   /** A script of the case's own, in the temporary repository's folder. */
@@ -435,8 +467,8 @@ describe("the built app's role bundle", () => {
     cleanups.push(made.remove);
     // A repository with a place for work records, and a work item stored parked on one question, whose answer has the daemon resume its chain at round 1, the proofer's.
     for (const [path, text] of [
-      ["seal/README.md", `${MARKER}\n`],
-      ["seal/config.json", '{ "Broad gate": "true" }\n'],
+      ["iadd/README.md", `${MARKER}\n`],
+      ["iadd/config.json", '{ "Broad gate": "true" }\n'],
     ] as const) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
       writeFileSync(join(made.repo, path), text);
@@ -453,7 +485,7 @@ describe("the built app's role bundle", () => {
       [
         `if [ "$*" = "--version" ]; then echo '2.1.330 (Claude Code)'; exit 0; fi`,
         `for a in "$@"; do printf '%s\\n' "$a"; done > '${made.base}/args'`,
-        `echo '{"type":"system","subtype":"init","claude_code_version":"2.1.330","agents":["claude","owlery:crafter","owlery:proofer","owlery:sealer"]}'`,
+        `echo '{"type":"system","subtype":"init","claude_code_version":"2.1.330","agents":["claude","owlery:crafter","owlery:proofer","owlery:inspector"]}'`,
         `echo '{"type":"result","is_error":false,"result":"read","total_cost_usd":0}'`,
         // It exits at the end of its input, which the daemon ends once the result has arrived.
         "cat > /dev/null",
@@ -474,20 +506,20 @@ describe("the built app's role bundle", () => {
     const scratch = args.at(-1) ?? "";
     expect(dirname(scratch)).toBe(join(realpathSync(runDir), "scratch"));
     expect(basename(scratch)).toMatch(new RegExp(`^${String(headless.id)}-[A-Za-z0-9]{6}$`, "u"));
-    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir], denyRead: [realpathSync(runDir)], allowRead: [scratch] }, scratch }));
+    expect(args).toEqual(claudeArgs(stored.worktree, { bundleDir, agent: "owlery:proofer", model: null, rulesFile, tools: ["Read", "Glob", "Grep", "Bash"], sandbox: { allowWrite: [scratch], denyWrite: [realpathSync(stored.worktree), realpathSync(join(made.repo, ".git")), bundleDir], denyRead: [realpathSync(runDir)], allowRead: [scratch] }, scratch }));
     // The rules of the launch are the built bundle's documents, which the case above holds equal to the tree's.
-    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, role));
+    expect(readFileSync(rulesFile, "utf8")).toBe(rulesText(bundleDir, stageFor(loadWorkflow(bundleDir), role)));
     expect(readFileSync(rulesFile, "utf8")).toContain("the retired numbers are 8, 16 and 20");
   }, 30_000);
 
-  it("is what the built daemon launches a Claude Code pane on the owl chain with: the bundle beside its script, the head it writes into its run folder, and a launcher there that runs the built chain command in the pane's own environment", async () => {
+  it("is what the built daemon launches a Claude Code pane on the Owl Chain with: the bundle beside its script, the head it writes into its run folder, and a launcher there that runs the built chain command in the pane's own environment", async () => {
     const made = temporaryRepository();
     cleanups.push(made.remove);
-    // A repository on the owl chain, with a place for work records.
+    // A repository on the Owl Chain, with a place for work records.
     for (const [path, text] of [
-      [".github/workflows/owlery-seal.yml", "name: seal\n"],
-      ["seal/README.md", `${MARKER}\n`],
-      ["seal/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
+      [".github/workflows/owlery-inspection.yml", "name: inspection\n"],
+      ["iadd/README.md", `${MARKER}\n`],
+      ["iadd/config.json", '{ "Mode": "shared", "Broad gate": "true" }\n'],
     ] as const) {
       mkdirSync(dirname(join(made.repo, path)), { recursive: true });
       writeFileSync(join(made.repo, path), text);

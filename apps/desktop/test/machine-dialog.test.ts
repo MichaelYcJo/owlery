@@ -349,10 +349,10 @@ describe.skipIf(process.platform !== "darwin")("the sessions that wait for the m
   beforeAll(async () => {
     buildApp();
     made = temporaryRepository();
-    mkdirSync(join(made.repo, "seal"));
-    writeFileSync(join(made.repo, "seal", "README.md"), `${MARKER}\n`);
-    writeFileSync(join(made.repo, "seal", "config.json"), '{ "Broad gate": "true" }\n');
-    git(made.repo, "add", "seal");
+    mkdirSync(join(made.repo, "iadd"));
+    writeFileSync(join(made.repo, "iadd", "README.md"), `${MARKER}\n`);
+    writeFileSync(join(made.repo, "iadd", "config.json"), '{ "Broad gate": "true" }\n');
+    git(made.repo, "add", "iadd");
     git(made.repo, "commit", "--quiet", "-m", "chore: the records place");
     const parked = await parkedOnAQuestion({ repo: made.repo, root: made.root, id: 1, title: TITLE, workItem: "1795396353-rename-the-settings-file", asks: "Which keys does the settings file hold?", at: Date.now() - 60_000 });
     questionId = parked.questionId;

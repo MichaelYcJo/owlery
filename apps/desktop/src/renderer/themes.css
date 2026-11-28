@@ -7,7 +7,7 @@
  * between two themes is a property of their blocks: no selector outside this
  * file names a theme or an appearance. A block holds no width, no height and
  * no size of type: those are the layout's, in index.html. Red stands on the
- * seal alone, so no property but the ones that open `--seal-` holds a red.
+ * inspection alone, so no property but the ones that open `--inspection-` holds a red.
  * An ink that sets words stands at 4.5 to 1 or more against each ground the
  * words stand on, and a state's mark and the ring of the keyboard's focus at
  * 3 to 1 or more.
@@ -94,16 +94,16 @@
   --terminal-ink: #cfccc4;
   --terminal-strong: #f3efe6;
 
-  /* The seal. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place, its ground and its edge on a line, and the light on each. */
-  --seal-blank: #1b1b1d;
-  --seal-blank-deep: #151516;
-  --seal-blank-ring: #242426;
-  --seal-blank-owl: #2c2c2f;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
-  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  /* The inspection. Its drawing and the wax's red are the drawing's own; a theme gives the tones of the blank place, its ground and its edge on a line, and the light on each. */
+  --inspection-blank: #1b1b1d;
+  --inspection-blank-deep: #151516;
+  --inspection-blank-ring: #242426;
+  --inspection-blank-owl: #2c2c2f;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --inspection-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   /* The corners of a card, a control, a line, a chip and what an agent says. */
   --radius-card: 8px;
@@ -220,15 +220,15 @@
   --terminal-ink: #cfccc4;
   --terminal-strong: #f3efe6;
 
-  --seal-blank: #ebe7dd;
-  --seal-blank-deep: #e4e0d5;
-  --seal-blank-ring: #f6f3ec;
-  --seal-blank-owl: #d6d1c4;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
-  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-blank: #ebe7dd;
+  --inspection-blank-deep: #e4e0d5;
+  --inspection-blank-ring: #f6f3ec;
+  --inspection-blank-owl: #d6d1c4;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --inspection-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -339,15 +339,15 @@
   --terminal-ink: #d6cfc1;
   --terminal-strong: #f6ecd8;
 
-  --seal-blank: #292624;
-  --seal-blank-deep: #23201e;
-  --seal-blank-ring: #312d2a;
-  --seal-blank-owl: #3b3632;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
-  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --inspection-blank: #292624;
+  --inspection-blank-deep: #23201e;
+  --inspection-blank-ring: #312d2a;
+  --inspection-blank-owl: #3b3632;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --inspection-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -458,15 +458,15 @@
   --terminal-ink: #d8cfbd;
   --terminal-strong: #f6ecd8;
 
-  --seal-blank: #ebe2ce;
-  --seal-blank-deep: #e6dcc6;
-  --seal-blank-ring: #f4eddd;
-  --seal-blank-owl: #d9ccb2;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
-  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-blank: #ebe2ce;
+  --inspection-blank-deep: #e6dcc6;
+  --inspection-blank-ring: #f4eddd;
+  --inspection-blank-owl: #d9ccb2;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --inspection-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 2px;
   --radius-control: 2px;
@@ -577,15 +577,15 @@
   --terminal-ink: #d6cfc1;
   --terminal-strong: #f6ecd8;
 
-  --seal-blank: #292624;
-  --seal-blank-deep: #23201e;
-  --seal-blank-ring: #312d2a;
-  --seal-blank-owl: #3b3632;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
-  --seal-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --inspection-blank: #292624;
+  --inspection-blank-deep: #23201e;
+  --inspection-blank-ring: #312d2a;
+  --inspection-blank-owl: #3b3632;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(246, 236, 216, 0.07)) drop-shadow(0 -1px 0 rgba(0, 0, 0, 0.55));
+  --inspection-light: drop-shadow(0 1px 0 rgba(255, 150, 130, 0.25)) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
 
   --radius-card: 8px;
   --radius-control: 6px;
@@ -696,15 +696,15 @@
   --terminal-ink: #d8cfbd;
   --terminal-strong: #f6ecd8;
 
-  --seal-blank: #ebe2ce;
-  --seal-blank-deep: #e6dcc6;
-  --seal-blank-ring: #f4eddd;
-  --seal-blank-owl: #d9ccb2;
-  --seal-blank-ground: radial-gradient(circle at 40% 35%, var(--seal-blank), var(--seal-blank-deep));
-  --seal-blank-edge: inset 0 0 0 1px var(--seal-blank-ring);
-  --seal-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
-  --seal-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
-  --seal-broken-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-blank: #ebe2ce;
+  --inspection-blank-deep: #e6dcc6;
+  --inspection-blank-ring: #f4eddd;
+  --inspection-blank-owl: #d9ccb2;
+  --inspection-blank-ground: radial-gradient(circle at 40% 35%, var(--inspection-blank), var(--inspection-blank-deep));
+  --inspection-blank-edge: inset 0 0 0 1px var(--inspection-blank-ring);
+  --inspection-blank-light: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.95)) drop-shadow(0 -1px 0 rgba(120, 95, 60, 0.4));
+  --inspection-light: drop-shadow(0 1px 0 rgba(120, 10, 10, 0.5)) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
+  --inspection-lapsed-light: grayscale(1) brightness(1.6) drop-shadow(0 3px 4px rgba(90, 60, 30, 0.35));
 
   --radius-card: 4px;
   --radius-control: 5px;

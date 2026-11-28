@@ -1,9 +1,9 @@
 // Role sessions of the person's own `claude`, launched by the daemon as a
 // role at its stage with the built bundle. The suite runs neither case:
 // `pnpm run role:run` sets `OWLERY_ROLE_RUN` and takes the first, and
-// `pnpm run role:refusal`, `pnpm run role:refusal:sealer` and
+// `pnpm run role:refusal`, `pnpm run role:refusal:inspector` and
 // `pnpm run role:refusal:crafter` set `OWLERY_ROLE_REFUSAL` and take the
-// second, as the proofer at a round, the sealer at the seal and the crafter
+// second, as the proofer at a round, the inspector at the inspection and the crafter
 // at a fix pass. Without either variable the file runs nothing. Where
 // `OWLERY_ROLE_CLI` names a `claude` binary, such as one of
 // `~/.local/share/claude/versions/`, the daemon's runs take it in place of
@@ -31,7 +31,7 @@
 // one shell command, so the call is made whatever a model would choose. The
 // daemon allows it by the role's grant, and the command runs in Claude
 // Code's sandbox with the places the daemon gave the launch: a proofer's and a
-// sealer's command clones the worktree into the session's scratch folder,
+// inspector's command clones the worktree into the session's scratch folder,
 // appends to the clone's file, makes a branch in the repository's git folder
 // and appends to the worktree's file; a crafter's appends to the worktree's
 // file, commits it, appends to a file of the case's folder outside the
@@ -40,7 +40,7 @@
 // role's command then makes a symbolic link to the run folder's
 // `daemon.json` in the place the role's commands write, calls a function
 // the shell setup of the case's home defines, and reads that file. The
-// system refuses each write after the first two of a proofer and a sealer,
+// system refuses each write after the first two of a proofer and an inspector,
 // each after the first two of a crafter, and the read of every role, and the
 // function runs, since Claude Code starts each command from its snapshot of
 // that setup, which stands in the config folder and which the launch gives
@@ -75,8 +75,8 @@ import { git, temporaryRepository } from "./repositories";
 const RUN = process.env.OWLERY_ROLE_RUN === "1";
 /** The pair the run's session is launched as: the proofer at a round. */
 const PROOFER: RoleStage = { role: "proofer", stage: "round" };
-/** The pair of the run whose last write the system refuses: the proofer's for `pnpm run role:refusal`, whose script sets the variable to `1`, the sealer's for `pnpm run role:refusal:sealer`, whose script sets it to `sealer`, and the crafter's for `pnpm run role:refusal:crafter`, whose script sets it to `crafter`. Undefined where none of the three started the file. */
-const REFUSED: RoleStage | undefined = ({ "1": PROOFER, sealer: { role: "sealer", stage: "seal" }, crafter: { role: "crafter", stage: "fix-pass" } } as Record<string, RoleStage>)[process.env.OWLERY_ROLE_REFUSAL ?? ""];
+/** The pair of the run whose last write the system refuses: the proofer's for `pnpm run role:refusal`, whose script sets the variable to `1`, the inspector's for `pnpm run role:refusal:inspector`, whose script sets it to `inspector`, and the crafter's for `pnpm run role:refusal:crafter`, whose script sets it to `crafter`. Undefined where none of the three started the file. */
+const REFUSED: RoleStage | undefined = ({ "1": PROOFER, inspector: { role: "inspector", stage: "inspection" }, crafter: { role: "crafter", stage: "fix-pass" } } as Record<string, RoleStage>)[process.env.OWLERY_ROLE_REFUSAL ?? ""];
 /** The refused write, started by one of those three scripts. */
 const REFUSAL = REFUSED !== undefined;
 
@@ -102,7 +102,7 @@ const SHELL_SETUP = `owlery_shell_setup() { printf '%s\\n' '${SETUP_RAN}'; }\n`;
 /** The run folder the case gives the daemon, in the case's own folder `kept`. */
 const runFolderIn = (kept: string): string => join(kept, "run");
 
-/** The place the pair's commands write, for its work item's worktree and the case's own folder `kept`: a crafter's worktree, and a proofer's and a sealer's scratch folder, which the CLI was given last after `--add-dir` and the case's script kept in `args`. */
+/** The place the pair's commands write, for its work item's worktree and the case's own folder `kept`: a crafter's worktree, and a proofer's and an inspector's scratch folder, which the CLI was given last after `--add-dir` and the case's script kept in `args`. */
 const placeOf = (pair: RoleStage, worktree: string, kept: string): string => (pair.role === "crafter" ? worktree : (readFileSync(join(kept, "args"), "utf8").trimEnd().split("\n").at(-1) ?? ""));
 
 /** The symbolic link to the run folder's `daemon.json` that the stand-in's command makes in `place`. */
@@ -111,7 +111,7 @@ const linkIn = (place: string): string => join(place, "daemon-link");
 /**
  * The command of the stand-in model's first call in the second session, for the
  * pair, its work item's worktree and the case's own folder `kept`. None of
- * them is one Claude Code runs unasked. A proofer's and a sealer's clones the
+ * them is one Claude Code runs unasked. A proofer's and an inspector's clones the
  * worktree into the scratch folder (`placeOf`), appends a byte to the
  * clone's `README.md` and prints it, then makes the branch `probe` in the
  * repository's git folder, and then, whatever that did, appends a byte to

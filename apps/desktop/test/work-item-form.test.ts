@@ -159,7 +159,7 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(remoteMain()).toBe(remoteCommit);
   });
 
-  it("creates a work item named by the generated name, from the base the person chose, with no branch: the clone gains none, and the window says No branch yet in the sans in the preview and the view's head, with no seal and no pull request section", async () => {
+  it("creates a work item named by the generated name, from the base the person chose, with no branch: the clone gains none, and the window says No branch yet in the sans in the preview and the view's head, with no inspection and no pull request section", async () => {
     // The name is emptied with a key, as a person empties it.
     await app.evaluate(`document.getElementById("work-item-title").select()`);
     await app.cdp("Input.dispatchKeyEvent", { type: "keyDown", windowsVirtualKeyCode: 8, code: "Backspace", key: "Backspace" });
@@ -178,18 +178,18 @@ describe("the new work item form in the built app", { timeout: 30_000 }, () => {
     expect(branches()).toBe(before);
     expect(git(join(clone.root, "project", generated), "branch", "--show-current").trim()).toBe("");
 
-    // The window draws the work item with no branch: the words in the sans and the muted ink where a branch's name stands in the fixed-width face, no seal, and no pull request section.
+    // The window draws the work item with no branch: the words in the sans and the muted ink where a branch's name stands in the fixed-width face, no inspection, and no pull request section.
     const sans = await face("--font-ui");
     expect(sans).not.toBe(await face("--font-mono"));
     expect(await app.evaluate<(string | boolean)[]>(`[document.getElementById("view-branch").textContent, document.getElementById("view-branch").classList.contains("none")]`)).toEqual(["No branch yet", true]);
     expect(await faceOf("#view-branch")).toBe(sans);
-    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector("#view-seal [data-seal]").dataset.seal, document.getElementById("view-seal-head").textContent, document.getElementById("view-pull-request").hidden]`)).toEqual(["none", "No seal yet", true]);
+    expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector("#view-inspection [data-inspection]").dataset.inspection, document.getElementById("view-inspection-head").textContent, document.getElementById("view-pull-request").hidden]`)).toEqual(["none", "No inspection yet", true]);
     await app.click("#nav-inbox");
     const PREVIEW_BRANCH = '#inbox-screen [data-part="preview-branch"]';
     await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(generated)}`, `the preview of ${generated}`);
     expect(await app.evaluate<(string | boolean)[]>(`[document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).textContent, document.querySelector(${JSON.stringify(PREVIEW_BRANCH)}).classList.contains("none")]`)).toEqual(["No branch yet", true]);
     expect(await faceOf(PREVIEW_BRANCH)).toBe(sans);
-    expect(await app.evaluate<string>(`document.querySelector('#inbox-screen .seal-slot [data-seal]').dataset.seal`)).toBe("none");
+    expect(await app.evaluate<string>(`document.querySelector('#inbox-screen .mark-slot [data-inspection]').dataset.inspection`)).toBe("none");
   });
 
   it("checks out a local branch the person picked, says so under the name and adds no branch, and offers that branch disabled with the worktree's folder at the next opening", async () => {
