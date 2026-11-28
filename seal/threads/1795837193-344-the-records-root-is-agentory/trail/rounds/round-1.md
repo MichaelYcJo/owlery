@@ -32,6 +32,11 @@ In `frame/design.md:77`, replace the first command of the second cell:
 | The place's spelling | When the work is done, `git grep -h -o -i -P '(?<![\\\w])\w*agentor\w*' -- . ':!seal/threads/1795837193-344-the-records-root-is-agentory' \| sort -u` prints `Agentory` and `agentory` and nothing else, and `git grep -n -P 'Agentory' -- . ':!seal/threads/1795837193-344-the-records-root-is-agentory'` prints lines of `apps/desktop/test/records-place.test.ts` alone. The lookbehind leaves out a word that an escape such as `\t` runs into | The commands. Run at `078b3630`, the first prints `agentory`, from E4's line, and the second prints nothing. The build writes `agentory` and `Agentory` and no other spelling of the place |
 ```
 
+```seal
+verdict: fixed f1102bd0
+answer: The paste-ready fix was read against plan rows 1 and 2 (b) and applied as given to `frame/design.md:77`. At `f1102bd0` the row's command prints `agentory` and `Agentory` alone. `git grep -n -F 'agentor\w*' -- seal/threads/1795837193-344-the-records-root-is-agentory` run again prints `frame/design.md:77`, `frame/plan.md:39` and `:40`, which now all carry the lookbehind. It also prints `trail/phases/phase-1.md:10`, which states what phase 1 found and stays, `trail/phases/phase-1.md:34`, which names this finding's correction, and lines of this round record, which are the proofer's.
+```
+
 ### 2. *Scope* item 2 names three files of `pr-check/` as holding place occurrences, and they hold none
 
 ```seal
@@ -48,6 +53,11 @@ Replace the list in `frame/design.md:39`:
 
 ```markdown
 2. **The place, in the pull request check.** `pr-check/lib/optin.py#HOME` becomes `"agentory"`, and `#MARKER` becomes `"# What IADD keeps in agentory/"`. Every place occurrence under `pr-check/` becomes `agentory`: `optin.py`'s docstrings and the local mode's `<git-common-dir>/agentory`, `chain_check.py#root_name`, `.github/scripts/rules.py#records_root`, `lib/config.py`, `lib/routing.py`, `lib/gate.py` and `skills/settle/scripts/rule_changes.py`. `lib/blocks.py`, `lib/fields.py` and `pr-check/README.md` hold no place occurrence: their `iadd` is the fence's word (*Data & interfaces*, kind K3) or the link to `docs/iadd.md` (kind K2), and they stay as they are.
+```
+
+```seal
+verdict: fixed f1102bd0
+answer: The finding holds: `git diff --stat fcac90fd HEAD -- pr-check .github/scripts` lists seven files, the item's list without the three. The paste-ready fix was applied as given to `frame/design.md:39`. `git grep -n -F -e 'lib/blocks.py' -e 'pr-check/README.md' -e 'lib/fields.py' -- seal/threads/1795837193-344-the-records-root-is-agentory` run again prints, outside `frame/keep.txt` and this round record, `frame/design.md:30` (E6, the plugin's `lib/fields.py`), `:39` (now the corrected list), `:98` (kind K3), `frame/plan.md:20` (the fence's two readers) and `trail/phases/phase-1.md:34` (which names this correction). None of them lists files with place occurrences, so each stands.
 ```
 
 ### 3. The phase record describes its range read in words, quotes no command of it, and missed two frame statements the target contradicts
@@ -78,6 +88,11 @@ Add to `phase-1.md` `## What this phase found` the account as the section gives 
 Statements HEAD contradicts in frame lines the builder does not write, for the orchestrator to fold: `frame/design.md:77`, whose pattern `\w*agentor\w*` prints `tagentory` (the departure on check (b) above); `frame/design.md:39`, which names `lib/blocks.py`, `lib/fields.py` and `pr-check/README.md` among the files with place occurrences, though they hold none.
 ```
 
+```seal
+verdict: fixed f1102bd0
+answer: `trail/phases/phase-1.md` ends with *The read of the range against HEAD*, at `e1d0414a`. It is labelled as the phase 1 builder's account from its hand-back, copied by this fix pass. It quotes the `seal range` line as typed and the three lines it printed, the `awk` that took out the sections not under `apps/desktop/test/`, and the 2,444 lines read. It names the sample's one `git grep`, and the two frame statements the read missed, which findings 1 and 2 corrected. `gaps.md:12` was answered in place in `53178246`: it now cites that account, and round 1's whole read by character of the `apps/desktop/test/` hunks, in place of describing the read in words. No rerun at `25b30400` was made, since the hand-back held the account.
+```
+
 ### 4. The phase record counts five sort-order assertions where `25b30400` changes eight
 
 ```seal
@@ -92,6 +107,11 @@ In `phase-1.md:9`, replace the opening clause:
 
 ```markdown
 - **Eight assertions in four cases depended on the root sorting after `feature.txt`** (judged against …
+```
+
+```seal
+verdict: fixed f1102bd0
+answer: `git show 25b30400 | grep -c -E '^\+\s*expect\('` and the same for `^-` run again print 8 and 8. `trail/phases/phase-1.md:9` now opens with "Eight assertions in four cases", as the paste-ready fix gives it, and the rest of the line is unchanged.
 ```
 
 ## Confirmations
