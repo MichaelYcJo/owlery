@@ -2,7 +2,7 @@
 
 *[English](./iadd.md) · 한국어*
 
-**Owlery는 IADD, 곧 Independent AI-Driven Development를 바탕으로 만든 제품이고, 그 방법은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의합니다.** 명세는 방법의 원칙을 담습니다. Owlery는 그중 Owlery에 도움이 되는 것을 가져가고, 명세가 바뀌면 그 변경을 다른 원천과 같이 따져 볼 뿐 규칙으로 따르지는 않습니다. 이 문서는 Owlery가 IADD를 어떻게 돌리는지, 원칙마다 무엇을 가져오는지, Owlery 자신의 이름과 기록 형식, 그리고 데이터로서의 Owl Chain을 밝힙니다. Owlery는 IADD를 바탕으로 만든 또 하나의 제품인 AgenticSeal 플러그인에서 출발했고([Owlery가 출발한 곳](architecture.ko.md#owlery가-출발한-곳)), 플러그인도 명세도 Owlery를 정의하지 않습니다.
+**Owlery는 개발을 편하게 하는 도구이고, 그 기본 워크플로인 Owl Chain이 IADD, 곧 Independent AI-Driven Development를 돌립니다. 그 방법은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의합니다.** Owlery는 그것을 강제하지 않습니다. 사람은 작은 변경을 IADD의 일이 아님을 알고서 에이전트 하나에게 직접 맡길 수도 있습니다([docs/product.ko.md](product.ko.md#우리가-약속하는-것)). 명세는 방법의 원칙을 담습니다. Owlery는 그중 Owlery에 도움이 되는 것을 가져가고, 명세가 바뀌면 그 변경을 다른 원천과 같이 따져 볼 뿐 규칙으로 따르지는 않습니다. 이 문서는 Owlery가 IADD를 어떻게 돌리는지, 원칙마다 무엇을 가져오는지, Owlery 자신의 이름과 기록 형식, 그리고 데이터로서의 Owl Chain을 밝힙니다. Owlery는 IADD를 바탕으로 만든 또 하나의 제품인 AgenticSeal 플러그인에서 출발했고([Owlery가 출발한 곳](architecture.ko.md#owlery가-출발한-곳)), 플러그인도 명세도 Owlery를 정의하지 않습니다.
 
 ## Owlery가 IADD를 돌리는 방식
 
@@ -42,9 +42,9 @@ check: apps/desktop/test/claude-adapter.test.ts apps/desktop/test/decision-recor
 | Owlery의 기본 워크플로 | 문장에서는 Owl Chain, 워크플로와 검수자 모듈의 이름으로는 `owl-chain` |
 | 기록 폴더 | `agentory/`. *directory*와 *repository*처럼 지은 이름으로, 에이전트의 작업을 두는 곳 |
 | PR 검사 | `inspection` |
-| 앱 | IADD를 바탕으로 만든 제품 가운데 하나인 Owlery |
+| 앱 | 기본 워크플로가 IADD를 돌리는 개발 도구 Owlery |
 
-앱의 이름은 Owlery로 둡니다. 소유자가 2026-11-28에 개념과 함께 정했습니다. IADD는 방법론이고 Owlery는 그것을 바탕으로 만든 제품 가운데 하나이며, "owl"만으로는 W3C의 OWL, Odoo의 OWL, Owl Carousel과 겹칩니다([docs/name.ko.md](name.ko.md)).
+앱의 이름은 Owlery로 둡니다. 소유자가 2026-11-28에 개념과 함께 정했습니다. IADD는 방법론이고 Owlery는 그것을 기본 워크플로로 돌리는 개발 도구이며, "owl"만으로는 W3C의 OWL, Odoo의 OWL, Owl Carousel과 겹칩니다([docs/name.ko.md](name.ko.md)).
 
 ## 기록
 
