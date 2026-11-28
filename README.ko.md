@@ -71,7 +71,7 @@ pnpm --filter @owlery/desktop start
 | [docs/iadd.ko.md](docs/iadd.ko.md) | Owlery가 돌리는 방법론 IADD. 개념, 원칙, 이름과 내려놓은 이름, 기록과 검사, 워크플로가 무엇인지, 모든 워크플로에 성립하는 것 |
 | [docs/product.ko.md](docs/product.ko.md) | 약속, 누구를 위한 것인가, 검수를 보여 주는 세 자리, 성능 가설과 벤치마크 계획, 일부러 하지 않는 것, 첫 세션 |
 | [docs/architecture.ko.md](docs/architecture.ko.md) | 앱, 데몬, 에이전트 어댑터, Owl Chain의 관계, Owlery가 출발한 곳, 순서와 판단의 분담, 첫 마일스톤의 모양을 정하는 규칙과 첫 버전 다음에 오는 것, 메모리 설계, 화면 프레임워크, 만들기 전에 잴 것 |
-| [docs/roadmap.ko.md](docs/roadmap.ko.md) | Owlery가 무엇을 어떤 순서로 만들고 언제 끝났다고 보는가. 첫 버전의 마일스톤 다섯, 그 순서의 근거, 완료 기준, 남겨 둔 결정 |
+| [docs/roadmap.ko.md](docs/roadmap.ko.md) | Owlery가 무엇을 어떤 순서로 만들고 언제 끝났다고 보는가. 첫 버전의 마일스톤 여섯, 그 순서의 근거, 완료 기준, 남겨 둔 결정 |
 | [docs/name.ko.md](docs/name.ko.md) | 이름의 뜻과 출처, 발음, 알고 가야 할 것, 엠블럼 |
 | [docs/design.ko.md](docs/design.ko.md) | 창이 어떻게 보이고 어떻게 말하는가. 원칙, 세 테마와 테마마다 그릴 때 쓰는 모든 값, 부분의 형태와 그 상태, 문구의 말투, 피하는 것, 창을 바꾸는 PR이 싣는 스크린샷 |
 
