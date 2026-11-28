@@ -48,28 +48,29 @@ check: apps/desktop/test/claude-adapter.test.ts apps/desktop/test/decision-recor
 
 ## 기록
 
-**Owlery가 남기는 저장소의 작업 기록은 `agentory/` 아래에 커밋되어 있습니다.** 이것은 Owlery 자신의 형식입니다. 데몬과 PR 검사는 여기 적은 그대로 쓰고 읽습니다. AgenticSeal 플러그인이 0.40.0 전의 릴리스에서 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 읽고, 사람이 먼저 읽는 커밋 하나로 `agentory/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
+**Owlery가 남기는 저장소의 작업 기록은 `agentory/` 아래에 커밋되어 있습니다.** 이것은 Owlery 자신의 형식입니다. 데몬은 여기 적은 그대로 쓰고, 데몬과 PR 검사도 그대로 읽습니다. 다른 점은 [Owlery가 읽는 세 상태](#owlery가-읽는-세-상태)에 있습니다. AgenticSeal 플러그인이 0.40.0 전의 릴리스에서 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 읽고, 사람이 먼저 읽는 커밋 하나로 `agentory/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
 
 ### 루트와 그 설정
 
 - **`agentory/README.md`는 `# What IADD keeps in agentory/` 줄로 시작합니다.** 이 줄이 표식이고, 이 줄 없이 자기 `agentory/`를 두는 저장소는 설정에서 거절됩니다. 저장소를 연결하면 이 폴더와 그 안의 `README.md`, `config.json`을 씁니다. 루트는 커밋되고, Owlery는 트리 밖에 루트를 두지 않습니다.
 - **`agentory/config.json`**에는 항목마다 키 하나가 있습니다. Owlery는 `Commit and pull request language`, `Record language`, `Broad gate`를 쓰고, `Broad gate`와 `Heavy commands`(기기에서 차례를 기다리는 명령)를 읽습니다. PR 검사는 `Policy root`도 읽습니다.
 - `agentory/workflows/<이름>.json`과 `agentory/inspectors/<이름>.json`에는 저장소가 직접 둔 워크플로와 검수자 모듈이 들어갈 자리이고, 아직 어떤 코드도 이것들을 읽지 않습니다([아직 어떤 코드도 읽지 않는 것](#아직-어떤-코드도-읽지-않는-것)).
+- **`agentory/parity.json`**은 마이그레이션을 선언하고, PR 검사만 이 파일을 읽습니다. 이 파일이 있고 PR이 `docs/`와 `agentory/` 밖의 경로를 바꾸면, 검사는 이 파일의 `Baseline commit`을 가리키는 `original:` 줄이 없는 회차 블록을 하나하나 거절하고, `straight to the PR`로 가는 작업의 가장 새 판정 블록도 그렇게 거절합니다. Owlery는 `original:` 줄을 쓰지 않습니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
 
 ### 작업의 디렉터리
 
-작업 하나의 기록은 `agentory/threads/<seconds>-<issue>-<slug>/`에 있습니다.
+작업 하나의 기록은 `agentory/threads/<seconds>-<slug>/`에 있습니다. `<seconds>`는 체인을 처음 시작한 시각이고, `<slug>`는 브랜치 이름의 마지막 부분을 slug로 만든 것이며, 그것이 비면 `work-item`입니다. 읽는 쪽은 디렉터리를 이름이 아니라 그 `routing.md`의 `Branch` 행으로 찾습니다.
 
 | 파일 | 담는 것 |
 |---|---|
-| `routing.md` | `Review`, `Destination`, `Planning`, `Implementation`, `Automation`, `Branch` 행과 그 까닭 |
+| `routing.md` | `Review`, `Destination`, `Planning`, `Implementation`, `Automation`, `Branch` 행과 그 까닭. `Review`는 `through the review chain`이나 `straight to the PR`로, `Destination`은 `open the pull request`나 `stop before the pull request`로 답합니다. 이 두 답과 `Branch`가 없는 파일은 어떤 작업도 선언하지 않습니다 |
 | `frame/design.md`, `frame/plan.md`, `frame/questions.md` | 설계, 단계, 그리고 답이나 기본값을 붙인 질문 |
 | `decisions.md` | 묻지 않고 내린 결정, 판단, 작업을 세워 두는 질문 하나하나. `decision:`이나 `question:`으로 여는 블록이고, 블록마다 `grounds:`와 상태가 있습니다 |
 | `trail/phases/phase-N.md` | 단계 하나를 지으며 찾은 것 |
 | `trail/rounds/round-N.md` | 리뷰 회차 하나 |
 | `trail/gate.md` | 전체 검사의 통과한 실행 하나하나 |
-| `trail/refusals.md` | 역할 세션의 허용 범위가 거절한 도구 호출마다 한 행 |
-| `gaps.md`, `changelog.md`, `pr.md` | 검증하지 못한 것, 다음 릴리스 노트의 항목, PR 본문의 앞부분 |
+| `trail/refusals.md` | 역할 세션의 허용 범위가 거절한 도구 호출마다 한 행. 열은 `Stage`, `Role`, `Tool`, `What the call does`, `Rule`입니다 |
+| `gaps.md`, `changelog.md`, `pr.md` | 검증하지 못한 것, 다음 릴리스 노트의 항목(PR 본문이 *What changed* 아래에 통째로 싣습니다), 그리고 Owlery가 어느 본문에도 옮기지 않는 글 |
 | `inspection.md` | 검수 |
 
 **마감 기록은 `trail/gate.md`, `inspection.md`, `trail/refusals.md`입니다.**
@@ -77,24 +78,28 @@ check: apps/desktop/test/claude-adapter.test.ts apps/desktop/test/decision-recor
 ### 기록의 블록
 
 - **스크립트가 읽는 필드는 `iadd` 블록 안에 둡니다.** 다른 모든 fence 바깥에서, 백틱 세 개와 `iadd`만 있는 줄로 여는 fenced block입니다. 줄은 모두 `name: value`로 쓰는 필드이고, 첫 줄의 키가 블록의 종류를 밝힙니다.
-- **리뷰 회차**에는 `target: <commit> against <base>`로 여는 블록이 하나 있고, 검증 회차는 `target: <commit>, fixes <a>..<b>`로 씁니다. 발견은 `## Findings` 아래 저마다 `### <n>. <증상>` 절에 서고, `severity:`로 여는 블록을 가집니다. 값은 `must`나 `should`이지만 읽는 쪽은 아무 낱말이나 받습니다. 블록에는 `location:`과, 주장이 밝히는 경우의 `evidence:`, 그리고 `regression:`과 `reopens:` 가운데 많아야 하나가 있습니다. 닫는 블록은 `verdict:`(`fixed <commit>`, `rejected`, `deferred <home>`)로 열고, `answer:`와 `location:`을 가질 수 있습니다. 확인은 `confirms: round-<N>#<n>` 또는 `confirms: none` 블록입니다.
+- **리뷰 회차**에는 `target: <commit> against <base>`로 여는 블록이 하나 있고, 검증 회차는 `target: <commit>, fixes <a>..<b>`로 씁니다. 이 블록은 `original:`을 많아야 하나 가집니다. 발견은 `## Findings` 아래 저마다 `### <n>. <증상>` 절에 서고, `severity:`로 여는 블록을 가집니다. 값은 `must`나 `should`이지만 읽는 쪽은 아무 낱말이나 받습니다. 블록에는 `location:`과, 주장이 밝히는 경우의 `evidence:`, 그리고 `regression:`과 `reopens:` 가운데 많아야 하나가 있습니다. `regression:`은 `round-<N>#<n>`이나 `round-<N>`을, `reopens:`는 `round-<N>#<n>`을 가리킵니다. 닫는 블록은 `verdict:`(`fixed <commit>`, `rejected`, `deferred <home>`)로 열고, `answer:`와 `location:`을 가질 수 있습니다. 확인은 `confirms: round-<N>#<n>` 또는 `confirms: none` 블록입니다.
 - **검수**는 검수자가 돌 때마다 덧붙이고 고치지 않는 블록 하나입니다. `target: <commit> against <base>`, 많아야 하나인 `original:`, 그리고 `cleared`, `withheld reason: <…>`, `undecided question: <…>` 가운데 하나로 쓰는 `Verdict:`가 있습니다. Owlery의 코드는 `built-by:`(작업을 만든 세션 하나하나), `inspected-by:`, `model:`, `rules:`(`owlery <version>`), `workflow:`, `inspector:`를 더합니다.
 - **gate 기록**에는 통과한 실행마다 `run: <commit> against <base commit>` 블록이 하나씩 있습니다.
+- **`decisions.md`**에는 결정마다 `decision: <id> <kind>`로 여는 블록이 하나씩 있습니다. kind는 `route`, `default`, `scope`, `answered` 가운데 하나입니다. 블록에는 `decided:`, `grounds:`, 많아야 하나인 `by:`, `state:`(`decided`, `reversed`, `applied <commit>`, `carried <home>`), 그리고 `decided`가 아닌 상태에서는 `reversal:`이 있습니다. 질문은 `question: <id>`로 여는 블록이고, `asks:`, `grounds:`, 많아야 하나인 `by:`, 몇 개든 되는 `option:` 줄, 많아야 하나인 `default:`, `state:`(`open`이나 `answered`), 그리고 답한 뒤의 `answer:`가 있습니다. 이 블록들은 데몬만 읽습니다.
 
 ### Owlery가 읽는 세 상태
 
 | 상태 | 언제 |
 |---|---|
-| 합격 | 가장 새 판정이 `cleared`이고, 그 커밋과 head 사이에 마감 기록 말고는 바뀐 것이 없고, 체인이 head에서 빚진 단계가 없을 때 |
-| 효력을 잃음 | 가장 새 판정이 `cleared`인데, 그 뒤의 커밋이 마감 기록보다 많이 바꿨거나, 체인이 head에서 단계를 빚지고 있거나, head가 그 합격 커밋을 더는 담지 않을 때 |
-| 합격 아님 | `cleared`인 판정이 없을 때 |
+| 합격 | 가장 새 판정이 `cleared`이고, 그 커밋과 head 사이에 마감 기록 말고는 바뀐 것이 없고, 데몬의 체인이 head에서 빚진 단계가 없을 때 |
+| 효력을 잃음 | 가장 새 판정이 `cleared`인데, 그 뒤의 커밋이 마감 기록보다 많이 바꿨거나 head가 그 합격 커밋을 더는 담지 않을 때, 또는 데몬에서 체인이 head에서 단계를 빚지고 있거나 head에 있는 기록이 읽히지 않을 때 |
+| 합격 아님 | head에 판정 블록이 없거나, 가장 새 판정이 `withheld`나 `undecided`일 때 |
 
 작업의 디렉터리 밖에서는 합격 커밋 뒤의 커밋을 하나하나 훑습니다. 디렉터리 안에서는 두 트리를 비교하므로, 검수 뒤에 바꿨다가 되돌린 기록은 합격으로 남습니다(#365).
+
+PR 검사는 `decisions.md`를 읽지 않습니다. 그래서 창에서 검수의 효력을 잃게 하는 열린 질문이나 뒤집힌 결정이 있어도 검사는 합격으로 남습니다. 검사가 거절하는 기록은 효력을 잃음이 아니라 거절로 검사를 실패시킵니다([pr-check/README.md](../pr-check/README.md)).
 
 ### trailer
 
 - `IADD-Routing: <작업>`은 단계를 기록하는 커밋마다 있습니다.
 - `IADD-Built-By: <세션>`은 수정 패스를 기록하는 커밋에 그 패스를 만든 세션을 밝힙니다.
+- IADD로 이름을 바꾸기 전에 쓴 커밋에는 `Seal-Routing:`이나 `Seal-Built-By:`가 있습니다. 검사는 `IADD-Routing:` 옆에서 `Seal-Routing:`도 읽고, 데몬은 `IADD-Built-By:` 옆에서 `Seal-Built-By:`도 읽으며, Owlery는 둘 다 쓰지 않습니다.
 
 ### 검수와 그 검사
 

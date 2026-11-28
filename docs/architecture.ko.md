@@ -9,7 +9,7 @@
 - **Owlery는 자체 데스크톱 앱입니다.** 다른 앱 위의 플러그인으로 두지 않습니다. 사용자의 Claude Code를 데몬이 직접 띄우고 역할 세션은 사용자 환경에서 떼어 띄우므로, 세션과 터미널을 다른 앱에 맡길 까닭이 없습니다. 작업함, Owl Chain, 장부가 한 제품 안에서 같은 기록을 읽습니다.
 - **화면은 Electron으로 만들고, 일은 데몬이 합니다.** 화면은 데몬에 WebSocket으로만 붙는 얇은 껍데기입니다. 나중에 다른 화면 프레임워크로 바꿀 길을 남겨 두려는 것입니다.
 - **Owl Chain의 순서는 데몬의 체인에서도 칸의 체인에서도 Owlery의 코드가 실행하고, 판단만 에이전트에게 남깁니다.**
-- **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** 방법론과 그 기록은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의하고, Owlery가 그것을 어떻게 따르는지와 워크플로가 무엇인지는 [docs/iadd.ko.md](iadd.ko.md)가 밝힙니다. Owlery는 같은 방법론의 Claude Code 플러그인 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal)에서 출발했고, 그것에 기대어 돌지 않습니다. 역할의 에이전트 정의와 스킬, 그리고 Owl Chain의 워크플로 파일과 검수자 모듈은 Owlery가 앱에 함께 넣어 역할 세션의 기본값으로 씁니다([Owlery가 출발한 곳](#owlery가-출발한-곳)).
+- **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** 방법론은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의하고, Owlery가 그것을 어떻게 돌리는지, Owlery 자신의 기록, 워크플로가 무엇인지는 [docs/iadd.ko.md](iadd.ko.md)가 밝힙니다. Owlery는 같은 방법론의 Claude Code 플러그인 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal)에서 출발했고, 그것에 기대어 돌지 않습니다. 역할의 에이전트 정의와 스킬, 그리고 Owl Chain의 워크플로 파일과 검수자 모듈은 Owlery가 앱에 함께 넣어 역할 세션의 기본값으로 씁니다([Owlery가 출발한 곳](#owlery가-출발한-곳)).
 - **가볍게 두는 것이 목표이고, 그것은 프레임워크가 아니라 앱의 범위와 구조에서 나옵니다.** 가벼움은 상대적인 것입니다. 채팅 화면, 터미널, IDE 수준의 편집기, 브라우저, 팀 관리, 클라우드를 함께 얹는 제품보다 Owlery가 얹는 것이 적다는 뜻입니다. 창은 하나만 쓰고, 터미널은 보이는 것만 그리고, 일하지 않는 Claude 프로세스는 끝냅니다.
 
 ## 전체 구성

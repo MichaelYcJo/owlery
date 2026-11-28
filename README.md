@@ -68,7 +68,7 @@ When a repository is connected, Owlery commits a workflow to it, `.github/workfl
 
 | Document | What it holds |
 |---|---|
-| [docs/iadd.md](docs/iadd.md) | How Owlery follows the IADD specification: its answers to what the specification leaves to a product, where it holds each principle, what it adds to the record forms and where it departs, its check, what a workflow is, and what holds for every workflow |
+| [docs/iadd.md](docs/iadd.md) | How Owlery runs IADD: its choices, what it takes from each principle, its own names and record forms, its check, what a workflow is, and what holds for every workflow |
 | [docs/product.md](docs/product.md) | The promise, who it is for, the three places the inspection is shown, performance hypotheses and the benchmark plan, what we deliberately don't do, the first session |
 | [docs/architecture.md](docs/architecture.md) | How the app, the daemon, the agent adapters and the Owl Chain fit together, where Owlery started, how order and judgment are split, the rule for the first milestone's shape and what follows the first version, memory design, the screen framework, what to measure before building |
 | [docs/roadmap.md](docs/roadmap.md) | What Owlery builds, in what order, and when it is done: the six milestones of the first version, the grounds for their order, the done criteria, and the decisions left open |

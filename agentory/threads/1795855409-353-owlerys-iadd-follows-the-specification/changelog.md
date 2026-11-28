@@ -1,4 +1,4 @@
-# Changelog: Owlery's definition of IADD follows the IADD specification 0.1.0
+# Changelog: Owlery's definition of IADD states Owlery as a product built on the IADD specification
 
 Issue #353. Owlery and the AgenticSeal plugin each wrote a definition of IADD, and on 2026-11-28 the owner merged the two into one source document of the method's principles, in MichaelYcJo/iadd-workflows.
 

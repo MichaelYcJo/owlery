@@ -48,28 +48,29 @@ The app keeps the name Owlery, which the owner set on 2026-11-28 with the concep
 
 ## The records
 
-**Owlery's records of a repository's work stand under `agentory/`, committed.** These are Owlery's own forms. The daemon and the pull request check write and read them exactly as stated here. Records in the form the AgenticSeal plugin wrote before its release 0.40.0, under `seal/`, are read by the migration alone, which moves them to `agentory/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
+**Owlery's records of a repository's work stand under `agentory/`, committed.** These are Owlery's own forms. The daemon writes them as stated here, and the daemon and the pull request check read them so, apart from what [The three states, as Owlery reads them](#the-three-states-as-owlery-reads-them) names. Records in the form the AgenticSeal plugin wrote before its release 0.40.0, under `seal/`, are read by the migration alone, which moves them to `agentory/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
 
 ### The root and its configuration
 
 - **`agentory/README.md` opens with the line `# What IADD keeps in agentory/`.** That line is the marker, and a repository that keeps an `agentory/` of its own without it is refused at the setup. Connecting a repository writes the folder with its `README.md` and `config.json`. The root is committed, and Owlery keeps no root outside the tree.
 - **`agentory/config.json`** holds one key per item. Owlery writes `Commit and pull request language`, `Record language` and `Broad gate`, and reads `Broad gate` and `Heavy commands`, the commands that take their turn on the machine. The pull request check also reads `Policy root`.
 - `agentory/workflows/<name>.json` and `agentory/inspectors/<name>.json` will hold a repository's own workflows and inspector modules, and no code reads them yet ([What no code reads yet](#what-no-code-reads-yet)).
+- **`agentory/parity.json`** declares a migration, and the pull request check alone reads it. Where it stands and a pull request changes a path outside `docs/` and `agentory/`, the check refuses each round block, and the newest verdict block of a work item that goes `straight to the PR`, that holds no `original:` line naming the file's `Baseline commit`. Owlery writes no `original:` line ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
 
 ### A work item's directory
 
-A work item's records stand in `agentory/threads/<seconds>-<issue>-<slug>/`:
+A work item's records stand in `agentory/threads/<seconds>-<slug>/`, where `<seconds>` is the time of the chain's first start and `<slug>` the slug of the last part of the branch's name, or `work-item` where that gives none. The readers find the directory by the `Branch` row of its `routing.md`, not by its name:
 
 | File | What it holds |
 |---|---|
-| `routing.md` | the rows `Review`, `Destination`, `Planning`, `Implementation`, `Automation` and `Branch`, and why |
+| `routing.md` | the rows `Review`, `Destination`, `Planning`, `Implementation`, `Automation` and `Branch`, and why. `Review` answers `through the review chain` or `straight to the PR`, and `Destination` answers `open the pull request` or `stop before the pull request`. A file without those two answers and a `Branch` declares no work item |
 | `frame/design.md`, `frame/plan.md`, `frame/questions.md` | the design, the phases, and the questions with their answers or defaults |
 | `decisions.md` | each decision made without asking, each ruling, and each question that parks the work item, as blocks opened by `decision:` or `question:`, each with its `grounds:` and its state |
 | `trail/phases/phase-N.md` | what building one phase found |
 | `trail/rounds/round-N.md` | one review round |
 | `trail/gate.md` | each passing run of the broad gate |
-| `trail/refusals.md` | one row for each tool call a role session's grant refused |
-| `gaps.md`, `changelog.md`, `pr.md` | what was not verified, the entry in the next release's notes, and the opening of the pull request body |
+| `trail/refusals.md` | one row for each tool call a role session's grant refused, under the columns `Stage`, `Role`, `Tool`, `What the call does` and `Rule` |
+| `gaps.md`, `changelog.md`, `pr.md` | what was not verified; the entry in the next release's notes, which the pull request body carries whole under *What changed*; and a text Owlery copies into no body |
 | `inspection.md` | the inspection |
 
 **The closing records are `trail/gate.md`, `inspection.md` and `trail/refusals.md`.**
@@ -77,24 +78,28 @@ A work item's records stand in `agentory/threads/<seconds>-<issue>-<slug>/`:
 ### The record blocks
 
 - **A field a script reads stands inside an `iadd` block**, a fenced block opened by a line of three backticks and `iadd` alone, outside every other fence. Every line is a field written `name: value`, and the key of its first line names the block's kind.
-- **A round** holds one block opened by `target: <commit> against <base>`, or `target: <commit>, fixes <a>..<b>` for a verifying round. A finding stands in its own `### <n>. <symptom>` section under `## Findings`, with a block opened by `severity:` (`must` or `should`, though the readers take any word) holding `location:` and, where the claim names one, `evidence:`, and at most one of `regression:` and `reopens:`. A close block opens with `verdict:` (`fixed <commit>`, `rejected` or `deferred <home>`) and may hold `answer:` and `location:`. A confirmation is a block `confirms: round-<N>#<n>`, or `confirms: none`.
+- **A round** holds one block opened by `target: <commit> against <base>`, or `target: <commit>, fixes <a>..<b>` for a verifying round, and at most one `original:`. A finding stands in its own `### <n>. <symptom>` section under `## Findings`, with a block opened by `severity:` (`must` or `should`, though the readers take any word) holding `location:` and, where the claim names one, `evidence:`, and at most one of `regression:` and `reopens:`; `regression:` names `round-<N>#<n>` or `round-<N>`, and `reopens:` names `round-<N>#<n>`. A close block opens with `verdict:` (`fixed <commit>`, `rejected` or `deferred <home>`) and may hold `answer:` and `location:`. A confirmation is a block `confirms: round-<N>#<n>`, or `confirms: none`.
 - **The inspection** is one block per run of the inspector, appended and never edited: `target: <commit> against <base>`, at most one `original:`, and `Verdict:` written as `cleared`, `withheld reason: <…>` or `undecided question: <…>`. Owlery's code adds `built-by:` (each session that built the work), `inspected-by:`, `model:`, `rules:` (`owlery <version>`), `workflow:` and `inspector:`.
 - **The gate record** holds one block per passing run, `run: <commit> against <base commit>`.
+- **`decisions.md`** holds one block per decision, opened by `decision: <id> <kind>`, the kind `route`, `default`, `scope` or `answered`. It holds `decided:`, `grounds:`, at most one `by:`, `state:` (`decided`, `reversed`, `applied <commit>` or `carried <home>`), and, in every state but `decided`, `reversal:`. A question is a block opened by `question: <id>`, holding `asks:`, `grounds:`, at most one `by:`, any number of `option:` lines, at most one `default:`, `state:` (`open` or `answered`), and, once answered, `answer:`. The daemon alone reads them.
 
 ### The three states, as Owlery reads them
 
 | State | When |
 |---|---|
-| cleared | the newest verdict reads `cleared`, nothing but the closing records changed between its commit and the head, and the chain owes no step at the head |
-| lapsed | the newest verdict reads `cleared`, and a commit after it changed more than the closing records, or the chain owes a step at the head, or the head no longer holds the cleared commit |
-| not cleared | no verdict that reads `cleared` stands |
+| cleared | the newest verdict reads `cleared`, nothing but the closing records changed between its commit and the head, and the daemon's chain owes no step at the head |
+| lapsed | the newest verdict reads `cleared`, and a commit after it changed more than the closing records or the head no longer holds the cleared commit, or, in the daemon, the chain owes a step at the head or a record the head holds does not read |
+| not cleared | the head holds no verdict block, or the newest one reads `withheld` or `undecided` |
 
 Outside the work item's directory, every commit after the cleared one is walked. Inside it the two trees are compared, so a record changed and reverted after the inspection leaves it cleared (#365).
+
+The pull request check reads no `decisions.md`, so an open question or a reversed decision that lapses the inspection in the window leaves the check cleared. A record the check refuses fails the check as refused, not as lapsed ([pr-check/README.md](../pr-check/README.md)).
 
 ### The trailers
 
 - `IADD-Routing: <work item>` stands on each commit that records a stage.
 - `IADD-Built-By: <session>` names the session that built a fix pass, on the commit that records it.
+- A commit written before the rename to IADD carries `Seal-Routing:` or `Seal-Built-By:`. The check reads `Seal-Routing:` beside `IADD-Routing:`, the daemon reads `Seal-Built-By:` beside `IADD-Built-By:`, and Owlery writes neither.
 
 ### The inspection and its check
 
