@@ -212,7 +212,7 @@ describe("the approval line in the built app", { timeout: 120_000 }, () => {
         viewHead: document.getElementById("view-inspection-head").textContent,
         says: document.getElementById("inspection-says").textContent,
         buttons: document.querySelectorAll("#view-inspection button").length,
-        inspector ? [shown(inspector.querySelector(".mark")), inspector.querySelector(".note").textContent, [...inspector.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
+        inspector: inspector ? [shown(inspector.querySelector(".mark")), inspector.querySelector(".note").textContent, [...inspector.querySelector(".state-icon").classList].filter((name) => name !== "state-icon" && name !== "state")] : null,
       };
     })()`);
 
