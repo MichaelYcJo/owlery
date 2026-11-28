@@ -70,7 +70,8 @@ For `round`, `fix-pass` and `inspection`, `owed` prints four more values:
 on, or null where the stage names none, `rules`, the path of the role's
 rules file, and `prompt`, the path of the stage's prompt. Start a subagent of
 the type `agent` names, on the model `model` names where it names one, and
-on your session's own model where it is null. Tell it to read the file at
+with no model where it is null, so that it runs on the model your subagent
+tool gives it by default. Tell it to read the file at
 `rules` to its end, and then to do what the file at `prompt` says. Give it
 nothing else: no summary of the work, and no finding you expect. What it answers is the role's
 answer, and you hand that answer to the command as it stands.

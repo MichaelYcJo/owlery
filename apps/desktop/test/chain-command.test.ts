@@ -79,7 +79,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
 
     const round = await on.said(["owed"]);
     const routed = head(on.repo);
-    // The round's stage names no model, so the subagent runs on the session's default.
+    // The round's stage names no model, so the subagent runs on the default the subagent tool gives.
     expect(round).toMatchObject({ step: "round", round: 1, target: `${routed} against main`, agent: "owlery:proofer", model: null });
     expect(round.prompt?.startsWith(join(on.runDir, "chain", "1795388700-greet"))).toBe(true);
     expect(givenRound(read(round.prompt))).toEqual({ round: 1, heading: "# Review round 1: 1795388700-greet", target: `${routed} against main` });

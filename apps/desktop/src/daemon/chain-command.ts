@@ -238,7 +238,7 @@ function stageFolder(context: CommandContext, workItem: string): string {
  * Writes a stage's prompt and its role's rules file, with the head of a
  * pane's subagent (`claude-roles.ts#rulesHead`), into the run folder, and
  * gives what the session starts the role with: the bundle agent's name, the
- * model the stage names or null for the session's own, and the two paths.
+ * model the stage names or null for the CLI's default, and the two paths.
  * The stage is read from the bundle's workflow first (`workflow.ts`), and a
  * workflow the loader refuses is refused with its sentence, which names the
  * file and the key, before anything is written.
