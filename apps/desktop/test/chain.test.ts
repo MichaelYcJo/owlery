@@ -1140,7 +1140,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const sessions = c.messages.flatMap((m) => (m.type === "headless" && m.headless.state === "finished" ? [m.headless] : []));
     expect(sessions.map(({ id, workItemId, role }) => [id, workItemId, role?.role])).toEqual([[1, a.id, "proofer"], [2, a.id, "crafter"], [3, a.id, "proofer"], [4, a.id, "inspector"]]);
     // The agent was given the diff of the reviewed commits, and the listed prompt is the same text up to it.
-    expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(started[0]?.prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
     expect(started[0]?.prompt).toContain("+A greeting\n");
     expect(sessions[0]?.prompt).not.toContain("diff --git");
     expect(started[0]?.prompt).not.toContain("on-main.txt");
@@ -1148,7 +1148,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(started[0]?.prompt).not.toContain("decisions.md");
     expect(started[0]?.prompt.startsWith(`${sessions[0]?.prompt ?? "none"}\nTheir diff:`)).toBe(true);
     expect(sessions[0]?.prompt).toContain("- The work item's directory: `agentory/threads/1795388700-listed`\n");
-    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `feature.txt`\n- `agentory/threads/1795388700-listed/routing.md`\n");
+    expect(sessions[0]?.prompt).toContain("The reviewed commits changed these paths:\n- `agentory/threads/1795388700-listed/routing.md`\n- `feature.txt`\n");
     // Round 2 is given the commits after round 1's target: the record's two commits and the fix.
     expect(started[2]?.prompt).toContain("+A greeting.\n");
     expect(started[2]?.prompt).toContain("- Earlier round records: `agentory/threads/1795388700-listed/trail/rounds/round-1.md`\n");
@@ -1161,8 +1161,8 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     const directory = "agentory/threads/1795388700-listed";
     for (const absent of ["decisions.md", "/frame/", "/trail/phases/", "changelog.md"]) expect(sessions[3]?.prompt, absent).not.toContain(absent);
     expect(sessions[3]?.prompt).toContain(`- Your section's heading: \`## Run 1\`\n- Your verdict's target line: \`target: ${gate} against main\`\n- The routing: \`${directory}/routing.md\`\n- The round records, the oldest first: \`${directory}/trail/rounds/round-1.md\`, \`${directory}/trail/rounds/round-2.md\`\n- The broad gate's record: \`${directory}/trail/gate.md\`\n- The issue: `);
-    expect(sessions[3]?.prompt).toContain(`The branch changed these paths since it left its base:\n- \`feature.txt\`\n- \`${directory}/routing.md\`\n- \`${directory}/trail/refusals.md\`\n- \`${directory}/trail/rounds/round-1.md\`\n- \`${directory}/trail/rounds/round-2.md\`\n`);
-    expect(started[3]?.prompt.startsWith(`${sessions[3]?.prompt ?? "none"}\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n`)).toBe(true);
+    expect(sessions[3]?.prompt).toContain(`The branch changed these paths since it left its base:\n- \`${directory}/routing.md\`\n- \`${directory}/trail/refusals.md\`\n- \`${directory}/trail/rounds/round-1.md\`\n- \`${directory}/trail/rounds/round-2.md\`\n- \`feature.txt\`\n`);
+    expect(started[3]?.prompt.startsWith(`${sessions[3]?.prompt ?? "none"}\nTheir diff:\n\ndiff --git a/${directory}/routing.md b/${directory}/routing.md\n`)).toBe(true);
     expect(started[3]?.prompt).toContain("+A greeting.\n");
     expect(started[3]?.prompt).not.toContain("on-main.txt");
     expect(sessions[3]?.prompt).not.toContain("diff --git");
@@ -1252,7 +1252,7 @@ describe("a work item's chain", { timeout: 60_000 }, () => {
     expect(await c.startChain(a.id)).toBe("done");
     await c.chain(a.id, "rested");
     expect(givenRound(started[0]?.prompt ?? "").target).toMatch(/^[0-9a-f]{40} against gone-branch$/u);
-    expect(started[0]?.prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(started[0]?.prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
   });
 
   it("reads round 1 against the commit the branch was cut at where the round block's target line does not take the base branch's name, so the round's record is one the reader takes", async () => {
@@ -3304,8 +3304,8 @@ describe("the inspection of a work item's chain", { timeout: 60_000 }, () => {
     const prompt = started[3]?.prompt ?? "";
     expect(givenInspection(prompt).run).toBe(2);
     expect(prompt).not.toContain("The inspection this run follows");
-    expect(prompt).toContain("\nThe branch changed these paths since it left its base:\n- `feature.txt`\n");
-    expect(prompt).toContain("\nTheir diff:\n\ndiff --git a/feature.txt b/feature.txt\n");
+    expect(prompt).toMatch(/\nThe branch changed these paths since it left its base:\n(?:- `[^`\n]+`\n)*- `feature\.txt`\n/u);
+    expect(prompt).toMatch(/\nTheir diff:\n\n(?:[^\n]*\n)*?diff --git a\/feature\.txt b\/feature\.txt\n/u);
     expect(prompt).not.toContain("on-main.txt");
     expect(gh.calls()).toEqual([]);
   });

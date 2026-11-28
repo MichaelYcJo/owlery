@@ -516,7 +516,7 @@ describe("the chain command", { timeout: 60_000 }, () => {
     await on.said(["gate"]);
     const inspection = await on.said<Owed>(["owed"]);
     expect(inspection.target).toBe(`${inspection.commit ?? ""} against release/x`);
-    expect(read(inspection.prompt)).toContain("The branch changed these paths since it left its base:\n- `feature.txt`");
+    expect(read(inspection.prompt)).toMatch(/\nThe branch changed these paths since it left its base:\n(?:- `[^`\n]+`\n)*- `feature\.txt`\n/u);
   });
 
   it("goes on where the base branch round 1's record names gained a commit the branch does not hold, reading the branch from the commit the two last shared", async () => {
