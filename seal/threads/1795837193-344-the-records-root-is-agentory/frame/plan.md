@@ -28,7 +28,7 @@ The census is the command, not a list in this plan: `git grep -i -P 'iadd' -- . 
 | The split the spawn proposed: the code and the cases; then the documents and the bundle | Phase 1 ends with `role-bundle.test.ts`'s bundle sentences unrenamed, so the phase's own acceptance and its built-app batch need an exception for them | Rejected, for the reason above |
 | Three phases: code, bundle, documents | A third boundary, round and batch of built-app runs for a rename, which AgenticSeal#1659 point 3 keeps as phases of one item | Rejected |
 | Read `iadd/` as an earlier form in the migration | A reader and its cases for a spelling no release shipped | Rejected. Issue #344 *Scope* item 1 |
-| Rename the bundle's `seal <subcommand>` mentions to `agentic <subcommand>` now | The bundle would name commands of a plugin release that has not shipped, while the documents were taken from AgenticSeal 0.39.x, whose command is `seal` | Rejected for this item. They hold no `iadd`, and the spawn scopes the product's rename to the places that name the plugin `iadd`. The orchestrator decides whether an issue carries them once the plugin's release with #1658 ships |
+| Rename the bundle's `seal <subcommand>` mentions to `agentic <subcommand>` now | The bundle's documents started from AgenticSeal 0.38.4, whose command is `seal`, and would then name the commands of 0.40.0 inside documents of the earlier release | Rejected for this item. They hold no `iadd`, and the spawn scopes the product's rename to the places that name the plugin `iadd`. AgenticSeal 0.40.0, which carries #1658, was published on 2026-11-28, and the orchestrator decides whether an issue of Owlery's carries the mentions |
 
 ## Phases
 
