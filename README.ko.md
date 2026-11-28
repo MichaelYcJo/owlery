@@ -8,7 +8,7 @@
 
 Owlery(아울러리)는 사용자의 저장소에서 IADD를 돌리는 데스크톱 앱입니다. 사람은 이슈 하나에 대한 질문에 한 번 답하고 자리를 비웁니다. 그 뒤로 설계, 구현, 리뷰 회차, 검수가 사람 없이 이어지고, 누구나 GitHub에서 읽을 수 있는 검수가 달린 PR이 돌아옵니다.
 
-**IADD, 곧 Independent AI-Driven Development가 방법론입니다.** 한 줄 문구는 *Zero Self-Approval*, 어떤 AI도 자기 작업을 승인하지 않는다는 것입니다. 작업을 설계하고, 만들고, 검토하고, 검수하는 AI들은 서로 독립되어 있고, 검수자는 자기가 검수하는 것을 하나도 만들지 않았습니다. 검수는 커밋 하나에 묶이고, 검수 뒤에 들어와 마감 기록보다 많이 바꾼 커밋은 PR에 효력을 잃음으로 보입니다. 방법론은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.ko.md)가 정의하고, Owlery가 그것을 어떻게 따르는지는 [docs/iadd.ko.md](docs/iadd.ko.md)가 밝힙니다.
+**IADD, 곧 Independent AI-Driven Development가 방법론입니다.** 한 줄 문구는 *Zero Self-Approval*, 어떤 AI도 자기 작업을 승인하지 않는다는 것입니다. 작업을 설계하고, 만들고, 검토하고, 검수하는 AI들은 서로 독립되어 있고, 검수자는 자기가 검수하는 것을 하나도 만들지 않았습니다. 검수는 커밋 하나에 묶이고, 검수 뒤에 들어와 마감 기록보다 많이 바꾼 커밋은 PR에 효력을 잃음으로 보입니다. 방법론은 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/main/spec/iadd.ko.md)가 정의하고, Owlery가 그것을 어떻게 따르는지는 [docs/iadd.ko.md](docs/iadd.ko.md)가 밝힙니다.
 
 **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** Owl Chain은 Owlery가 싣고 관리하는 워크플로입니다. proofer의 리뷰 회차, crafter의 수정 패스, 저장소의 전체 검사(broad gate), 검수자의 판정으로 이어집니다. 지금은 Owl Chain에 있는 저장소의 Claude Code 칸이 그것을 싣고, [로드맵](docs/roadmap.ko.md#마일스톤)의 마일스톤 3에서 사람이 넘긴 이슈에 대해 Owlery의 데몬이 그것을 돌립니다.
 
