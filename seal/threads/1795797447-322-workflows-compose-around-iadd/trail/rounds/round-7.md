@@ -33,6 +33,12 @@ seal/threads/1795797447-322-workflows-compose-around-iadd/gaps.md, a row of `## 
 | closed the acceptance row "The product holds the seal's vocabulary only where this design keeps it" of `frame/design.md` named no `apps/desktop/test/ledger.test.ts`, whose earlier line case holds `sealer` and `seal` as an earlier build stored them, and gave `chain.ts` and `chain.test.ts` the earlier trailer alone as their reason, though both also hold the stored kinds | `152762de` rewrote the row at `frame/design.md:110`, which names `ledger.test.ts:204` and `:206` and gives `chain.ts` and `chain.test.ts` the stored kinds; review round 6 read it |
 ```
 
+```seal
+verdict: fixed bea4a2a9
+location: `seal/threads/1795797447-322-workflows-compose-around-iadd/gaps.md:12`
+answer: the orchestrator put the row back at gaps.md:12, marked closed, with the round's paste-ready text.
+```
+
 ### 2. The approval line's row of `docs/design.md`, in both editions, and the CSS comment at `index.html:165` say a place's spaces are narrower than the column's other spaces, which the column's own rules contradict
 
 ```seal
@@ -58,6 +64,11 @@ So a place's sides and the gaps of its row are `--space-2`.
 ```
 
 Each edit changes text inside one table cell and adds no heading and no table row. So the counts of headings and table rows that the broad gate compares between the two editions stay the same.
+
+```seal
+verdict: fixed bedf7f1a
+answer: the orchestrator applied the round's three paste-ready edits; each statement keeps the token `--space-2` and loses the comparison.
+```
 
 ## Confirmations
 
