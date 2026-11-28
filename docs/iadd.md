@@ -1,93 +1,87 @@
-# IADD: Independent AI-Driven Development
+# IADD in Owlery
 
 *English · [한국어](./iadd.ko.md)*
 
-This document is Owlery's definition of IADD, the method Owlery runs. Owlery is one tool that runs it, and the Owl Chain is the workflow Owlery ships for it. The owner set the concept, the principles and the names on 2026-11-28 (issue #322, *Concept and names*). The [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal) plugin, where Owlery started, writes its own definition of the same method under the same names (MichaelYcJo/AgenticSeal#1651), and the owner set that the two definitions are compared and merged once both stand. The two tools share one vocabulary and one records folder, and no table maps one tool's names onto the other's.
+**Owlery runs IADD, Independent AI-Driven Development, whose definition is the [IADD specification](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.md).** The specification states the method: its concept, its principles, the invariants every workflow holds, its names and its record forms. This document does not restate them. It states how Owlery holds them, what Owlery adds to the record forms, where Owlery departs from them, and the Owl Chain as data. The owner merged the two definitions of IADD, Owlery's and the AgenticSeal plugin's, into the specification on 2026-11-28 (issue #353). The plugin `agentic`, where Owlery started, runs the same chain as its reference implementation, and Owlery runs it on a daemon ([Where Owlery started](architecture.md#where-owlery-started)).
 
-## The concept
+## The specification Owlery follows
 
-**IADD — Independent AI-Driven Development.** *Zero Self-Approval: no AI approves its own work.*
+**Owlery follows the IADD specification 0.1.0.** What the specification leaves to each product, Owlery answers as follows.
 
-The AIs that frame, craft, proof and inspect a piece of work are independent of one another, and none leans on another's judgment. The person answers once, before the first edit, and merges on the inspection. The inspection is bound to one commit, lapses at the next, and shows to everyone as a pull request check.
+| What the specification leaves to a product | Owlery's answer |
+|---|---|
+| The harness | a desktop app's daemon, which starts each stage as a role session in its own sandbox, and the panes, whose Claude Code session carries the Owl Chain |
+| The parties | the orchestrator, the crafter, the proofer and the inspector. The role bundle holds no framer and no tracer, so the framer's half of principle 2 does not arise |
+| How a run ends | at a pull request. Owlery writes `open the pull request` as the `Destination` of every work item, and offers no handed-back branch |
+| When the question batch is asked | not built yet: the batch at the outset is milestone 3's ([docs/roadmap.md](roadmap.md#milestones)). A later question is decided from the code and the policy and recorded in `decisions.md`, or parks its one work item ([Code runs the order, the orchestrator judges](architecture.md#code-runs-the-order-the-orchestrator-judges)) |
+| Who writes the records and keeps the order | Owlery's code, from the committed records ([What holds for every workflow](#what-holds-for-every-workflow)) |
+| A merge of the base after the inspected commit | it lapses the inspection, as every other commit that changes more than the closing records does. A commit of the base that touches only the work item's own directory does not |
+| Who answers an `undecided` verdict first | the orchestrator agent, whose ruling is committed to `decisions.md`. After two `undecided` verdicts the work item parks for the person |
+| The modes and the configuration keys | `shared` alone: the root is committed. Owlery writes `Commit and pull request language`, `Record language` and `Broad gate`, writes no `Mode`, and reads `Broad gate` and `Heavy commands` |
 
-*Independent* is meant in the sense of an independent audit: a party apart from the one that did the work. It does not mean that the AI acts on its own. IADD is always written in capitals.
+## Where Owlery holds each principle
 
-## The principles
+The specification's eleven principles, and the documents and code of Owlery that hold each. The seven invariants stand in [What holds for every workflow](#what-holds-for-every-workflow).
 
-1. **The person judges before, once, not after.** Every question is asked in one batch before the first edit.
-2. **Whoever made it does not clear it.** Each party reads the others' records as claims and reaches its own result.
-3. **An inspection belongs to one commit and lapses at the next.** Anyone sees its state on the pull request.
-4. **A script answers what is exact, and judgment is spent where meaning is the question.** Every claim is labelled executed, read or unverified.
-5. **Records are temporary, and code and rules remain.** Rules change by what each judgment cost and caught.
-
-## How IADD differs from ADD
-
-The definitions of Agent Driven Development read on 2026-11-28 (agentdriven.dev, Remo Jansen's Agent Driven Development, and pilotspace's ADD) share no workflow. They leave the final judgment of the result to the person, or let the agent that built the work write its own verdict. IADD gives that judgment to an AI that did not build the work, and binds it to one commit that anyone can read on the pull request.
+| Principle | Where Owlery holds it |
+|---|---|
+| 1. The AI asks once, at the outset | the row *Asking the person* of [What changes because Owlery is not a plugin](architecture.md#what-changes-because-owlery-is-not-a-plugin), and `decisions.md` ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)). Departs in a pane ([Where Owlery departs](#where-owlery-departs), items 1 and 2) |
+| 2. Whoever made it does not clear it | invariant 1 below |
+| 3. Independent AIs talk through the thread's records | each role session starts without the person's settings, hooks or servers ([Role sessions run detached from the user's environment](architecture.md#role-sessions-run-detached-from-the-users-environment)), and the daemon writes each stage's prompt from the committed records |
+| 4. An inspection belongs to one commit | invariant 2 below |
+| 5. A script answers what is exact | Owlery's code runs the broad gate and reads its exit code. The labels `executed`, `read` and `unverified` stand in the role bundle's proofer and agent contract, and no code reads them ([Where Owlery departs](#where-owlery-departs), item 6) |
+| 6. A judgment stands on a source document | every decision, ruling and question of `decisions.md` holds its `grounds:`, and the role bundle's core states the rule |
+| 7. A rule is guidance for a judgment | the role bundle's core. No document of the bundle restates the order, which code keeps ([Code runs the order, the orchestrator judges](architecture.md#code-runs-the-order-the-orchestrator-judges)) |
+| 8. Some links no party skips | invariants 1 to 7 below, each held by code |
+| 9. A mechanism is kept against its cost | the role bundle's core, and the inspection sheet, which shows a work item's cost beside what its rounds found ([State lives in three places](architecture.md#state-lives-in-three-places)) |
+| 10. A document is cut by who opens it | each stage of the Owl Chain's two files names the documents its launch carries ([What each session loads](architecture.md#what-each-session-loads)) |
+| 11. Records are temporary | the settle. Owlery's own command lists what a settle keeps and removes nothing yet, and issue #139 builds the rest ([Where Owlery departs](#where-owlery-departs), item 9) |
+check: apps/desktop/test/claude-adapter.test.ts apps/desktop/test/decision-record.test.ts apps/desktop/test/role-bundle.test.ts apps/desktop/test/settle.test.ts apps/desktop/test/gate.test.ts
 
 ## Names
 
-### The rule the names follow
-
-**A name that a reader meets on the pull request page, inside Claude Code or in the chain's own documents reads one way.** A plain word that already means something there is not taken, and the names weighed and set aside are listed below, so that nobody proposes them again.
-
-**IADD is the higher concept, and a product only expresses it.** The owner set this rule on 2026-11-28 (issue #344). Owlery is one product that runs IADD and the AgenticSeal plugin is another, so no IADD name is chosen to pair with a product, and no product takes the method's name: the plugin keeps its name `agentic`. The records folder is named for what it is, a place: `agentory/`, formed like *directory* and *repository*, the place where the agents' settings, workflows and threads are kept. A method's acronym is hard for a newcomer to read as a folder.
-
-### The names
+The method's names are the specification's ([Names](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.md#7-names)), and so are the names set aside. Owlery adds these.
 
 | What | Name |
 |---|---|
-| The method | IADD, in capitals, with *Zero Self-Approval* as its line |
-| The default workflow | the Owl Chain in prose, and `owl-chain` as the name of a workflow and of an inspector module |
-| The roles | framer, crafter, proofer, orchestrator and tracer, as before, and the inspector, the final role, which inspects. Owlery's role bundle holds no tracer |
-| The inspector's record | the inspection, `inspection.md` |
-| The states of an inspection | cleared, lapsed, and not cleared where no inspection stands |
-| The records folder | `agentory/`, told by the first line of its `README.md`, `# What IADD keeps in agentory/` |
-| The step that folds a release's records into the policy documents | settle, acting on `agentory/threads/` |
-| A work item's directory | a thread, `agentory/threads/<work item>/` |
-| The trailers Owlery writes | `IADD-Routing:` and `IADD-Built-By:` |
+| Owlery's default workflow | the Owl Chain in prose, and `owl-chain` as the name of a workflow and of an inspector module |
 | The pull request check | `inspection` |
-| The app | Owlery, one tool that runs IADD |
+| The app | Owlery, one product that runs IADD |
 
-The app keeps the name Owlery, which the owner set on 2026-11-28 with the concept. IADD is the method and Owlery one tool that runs it, and "owl" alone collides with W3C's OWL, Odoo's OWL and Owl Carousel ([docs/name.md](name.md)).
-
-### Names set aside
-
-Each of these was weighed and failed the rule above, so none is proposed again.
-
-- **For a role or its word:** *planner* (Claude Code's Plan agent and plan mode), *builder* (the word the chain's documents already use for whichever party builds), *reviewer* (GitHub's requested reviewers, and the `code-review` skill), *verifier* (the `verify` skill), and *auditor*, *referee*, *arbiter* and *guarantor* for the last role.
-- **For the last role's record or its states:** *approval* and *approved* (GitHub's review approvals, and Claude Approvals), *passed* and *not passed* ("All checks have passed" on the same page), *judgment* (the word for what an agent spends where meaning is the question), and *verdict*, *clearance* and *guarantee*.
-- **For the method:** spec-driven (the code and the policy are the truth, not a spec), Evidence-Driven, Trust Engineering, ACE (Agentic Context Engineering, ICLR 2026, and an agentic coding tool's `.ace/`), AIDD (O'Reilly's AI-Driven Development, and drug discovery), ACODE (the Acode editor), AAD (Azure Active Directory), AADD, Merge on Seal, Delegated Judgment, AI-Judged, ABIC, ACOD, ACRD and AI Turnkey.
-- **For settle:** resolve-threads, which reads as GitHub's review threads (`resolveReviewThread`) on the pull request page.
-- **For the records folder:** the method's own name (a method is not a place, and its acronym is hard for a newcomer to read as a folder), and, each for a collision, `agentics` (githubnext/agentics), `agency` (agency-agents and Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections` and `iagentics`.
-
-IADD was searched on the web, GitHub, npm, PyPI and arXiv on 2026-11-28, and no method or AI tool used it. Lowercase `iadd` is Python's in-place add, and the name of two small plugins of git and hledger.
+The app keeps the name Owlery, which the owner set on 2026-11-28 with the concept. IADD is the method and Owlery one product that runs it, and "owl" alone collides with W3C's OWL, Odoo's OWL and Owl Carousel ([docs/name.md](name.md)).
 
 ## The records
 
-### The records folder
+**A repository's work records stand under `agentory/`, committed, in the specification's forms ([The record forms](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.md#8-the-record-forms)).** Connecting a repository writes the folder with its `README.md` and `config.json` ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)). A repository that keeps an `agentory/` of its own without the marker line is refused at the setup. `agentory/workflows/<name>.json` and `agentory/inspectors/<name>.json` will hold a repository's own workflows and inspector modules, and no code of Owlery reads them yet ([What no code reads yet](#what-no-code-reads-yet)).
 
-**A repository's work records stand under `agentory/`, committed, and the first line of `agentory/README.md` tells the folder.** Connecting a repository writes the folder with its `README.md` and `config.json` ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)). The folder has one name, and a repository that keeps an `agentory/` of its own without that line is refused at the setup.
+Records in the form the AgenticSeal plugin wrote before its release 0.40.0, under `seal/`, are read as records by the migration alone, which moves them to `agentory/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
 
-- `config.json` holds what the repository says about itself: the `Broad gate` command and the languages of commits and of records.
-- `threads/<work item>/` holds one work item's records: `routing.md`, `frame/`, `trail/` with the review rounds and the broad gate's runs, `decisions.md`, `inspection.md`, `changelog.md`, `gaps.md` and `pr.md`.
-- `workflows/<name>.json` and `inspectors/<name>.json` will hold a repository's own workflows and inspector modules. No code of Owlery reads them yet ([What no code reads yet](#what-no-code-reads-yet)).
+### What Owlery adds to the record forms
 
-Records in the form the AgenticSeal plugin wrote, under `seal/`, are read as records by the migration alone, which moves them to `agentory/` in one commit the person reads first ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
+- **`decisions.md`** in a work item's directory holds each decision made without asking, each ruling, and each question that parks the work item, as `iadd` blocks opened by `decision:` or `question:`, each with its `grounds:` and its state ([Records are committed to the repository](architecture.md#records-are-committed-to-the-repository)).
+- **`trail/refusals.md`** holds one row for each tool call a role session's grant refused, and it is a closing record beside `trail/gate.md` and `inspection.md`.
+- **The verdict block** adds six lines: `built-by:`, each session that built the work; `inspected-by:`, the session that inspected it; `model:`, its model; `rules:`, `owlery <version>`; `workflow:` and `inspector:`, both `owl-chain` for the Owl Chain.
+- **The trailer `IADD-Built-By:`** names the building session on the commit that records a fix pass.
+- **The key `Heavy commands`** of `agentory/config.json` names the commands that take their turn on the machine.
 
 ### The inspection and its check
 
-**The inspection is the newest verdict block of the work item's `inspection.md`, and it names one commit.** The block opens with three backticks and `iadd`. It holds the inspected commit and its base, the verdict (`cleared`, `withheld` with a reason, or `undecided` with a question), each session that built the work, the session that inspected it, the inspecting model, Owlery's version, the workflow and the inspector module.
-
-**The check `inspection` shows the inspection's state on the pull request's head commit.** It runs on GitHub without the app and reads the same committed records.
-
-| State | When |
-|---|---|
-| cleared | The head commit carries a cleared inspection, and nothing but the closing records changed after the inspected commit |
-| lapsed | A cleared inspection stands, and a later commit, a merge of the base among them, changed more than the closing records |
-| not cleared | No cleared inspection stands at the head commit |
-
-`README.md` *The inspection check on GitHub* gives each title the check posts.
+**The check `inspection` shows the inspection's state on the pull request's head commit, in the specification's three states.** It runs on GitHub without the app and reads the same committed records. `README.md` *The inspection check on GitHub* gives each title the check posts.
 check: apps/desktop/test/inspection-state.test.ts apps/desktop/test/pr-check.test.ts
+
+## Where Owlery departs
+
+Each place where Owlery's code differs from the specification 0.1.0.
+
+1. **Principle 1, in a pane.** A pane's session asks the person in the pane during the run. Under `Automation` `yes` it takes the question's default, and a question that opens `No default can be taken: ` still reaches the person. The batch at the outset is not built.
+2. **§8.5, in a pane.** A pane's session decides an `undecided` verdict or asks the person there, during the run.
+3. **§8.7.** A cleared commit that the head does not hold, or that the repository cannot resolve, reads lapsed, where the specification reads not cleared.
+4. **Invariant 2 and §8.7.** Inside the work item's own directory, Owlery compares trees. So a change to a record other than the closing records, reverted by a later commit, leaves the inspection cleared.
+5. **§8.7.** Owlery also reads lapsed where the chain owes a step at the head, such as an open question that stood at the cleared commit, or a record that does not read.
+6. **§8.4 and principle 5.** A finding's `evidence:` is optional, and no code reads its labels. `regression:` also takes `round-<N>` without a finding's number.
+7. **§8.8.** `IADD-Routing:` stands on the commits that record a stage, not on every commit of a session.
+8. **Invariants 3 and 7, in a pane.** The judging roles are subagents that hold `Bash` under the person's own permission settings and no sandbox (issue #286). A pane's session opens the pull request itself, and only the check holds that the inspection was cleared.
+9. **Principle 11 and §8.9.** Owlery's settle lists what a settle keeps and removes nothing (issue #139). This repository settles with the plugin.
 
 ## Workflows
 
@@ -115,16 +109,16 @@ A shared workflow or inspector module is its files, in a repository. A person ad
 
 ### What holds for every workflow
 
-Owlery's code holds these whatever a workflow file says.
+Owlery's code holds the specification's seven invariants ([The invariants of every workflow](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.md#5-the-invariants-of-every-workflow)) whatever a workflow file says, as follows.
 
-1. **Zero Self-Approval.** The session that inspects built none of the work. Owlery writes no verdict where the inspecting session is one of the building sessions, and the check refuses such a block.
-2. **One commit.** An inspection names one commit. It is cleared at a branch's head only where nothing but the closing records differs between that commit and the head, and it lapses otherwise. The answer is read from the head's committed records alone.
-3. **Owlery writes the records.** Owlery's code writes and commits each record, and a stage that reviews or inspects holds no tool that writes a file.
-4. **Code keeps the order.** The step owed comes from the committed records through the skeleton's function. No document and no agent starts, orders or skips a stage.
-5. **A stage holds its kind's grant.** In the daemon's chain a stage's session runs in the sandbox its grant names. In a pane a role is a subagent whose definition names its tools, and the person's own permission settings answer it, which issue #286 holds.
-6. **The inspection says what produced it.** The verdict block names the workflow, the inspector module, each session that built, the session that inspected, its model and Owlery's version, and each check's passed run stands in `trail/gate.md` at the inspected commit.
+1. **Whoever made it does not clear it.** The session that inspects built none of the work. Owlery writes no verdict where the inspecting session is one of the building sessions, and the check refuses such a block.
+2. **One commit.** An inspection names one commit. It is cleared at a branch's head only where nothing but the closing records differs between that commit and the head, and it lapses otherwise. The answer is read from the head's committed records alone. Items 3 to 5 of [Where Owlery departs](#where-owlery-departs) give where this reads apart from the specification.
+3. **The judging party does not change what it judges.** Owlery's code writes and commits each record, and a stage that reviews or inspects holds no tool that writes a file. In the daemon's chain a stage's session runs in the sandbox its grant names. In a pane a role is a subagent whose definition names its tools, and the person's own permission settings answer it, which issue #286 holds.
+4. **The links no party skips are held by code.** The step owed comes from the committed records through the skeleton's function. No document and no agent starts, orders or skips a stage.
+5. **The declared checks pass at the inspected commit.** The Owl Chain's inspector module names the repository's `Broad gate` command as its one check. Owlery's code runs it, and each passed run stands in `trail/gate.md` at the inspected commit.
+6. **The inspection names what produced it.** The verdict block names the workflow, the inspector module, each session that built, the session that inspected, its model and Owlery's version.
 7. **No pull request without a cleared inspection, and the verdict is a check.** Owlery opens a pull request only at a cleared head. It posts the check `inspection`, writes no review and merges nothing.
-check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/inspection-state.test.ts apps/desktop/test/claude-adapter.test.ts
+check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/inspection-state.test.ts apps/desktop/test/claude-adapter.test.ts apps/desktop/test/gate.test.ts
 
 ### What is the Owl Chain's alone
 
@@ -132,4 +126,4 @@ The review rounds and the fix passes, the judgment of whether the rounds converg
 
 ### What no code reads yet
 
-Owlery's daemon and chain command load the two built-in files and no other. They read no `agentory/workflows/`, no `agentory/inspectors/`, no workflow row of `routing.md` and no workflow key of `config.json`, and the loader names one workflow and one module, `owl-chain`. A person's own workflow and inspector module, other skeletons, the window's editor of a workflow, and publishing and adopting a shared one are issue #324's to place.
+Owlery's daemon and chain command load the two built-in files and no other. They read no `agentory/workflows/`, no `agentory/inspectors/`, no workflow row of `routing.md` and no workflow key of `config.json`, and the loader names one workflow and one module, `owl-chain`. A person's own workflow and inspector module, other skeletons, the window's editor of a workflow, and publishing and adopting a shared one stand in the milestone `workflows: a person's own, and shared`, where issue #324 placed them.

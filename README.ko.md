@@ -4,15 +4,15 @@
 
 *[English](./README.md) · 한국어*
 
-**한 번 답하고 돌아오면, 만들지 않은 AI가 검수를 통과시킨 PR이 와 있습니다.**
+**한 번 답하고 돌아오면, 만들지 않은 AI가 합격시킨 PR이 와 있습니다.**
 
 Owlery(아울러리)는 사용자의 저장소에서 IADD를 돌리는 데스크톱 앱입니다. 사람은 이슈 하나에 대한 질문에 한 번 답하고 자리를 비웁니다. 그 뒤로 설계, 구현, 리뷰 회차, 검수가 사람 없이 이어지고, 누구나 GitHub에서 읽을 수 있는 검수가 달린 PR이 돌아옵니다.
 
-**IADD, 곧 Independent AI-Driven Development가 방법론입니다.** 한 줄 문구는 *Zero Self-Approval*, 어떤 AI도 자기 작업을 승인하지 않는다는 것입니다. 작업을 설계하고, 만들고, 검토하고, 검수하는 AI들은 서로 독립되어 있고, 검수자는 자기가 검수하는 것을 하나도 만들지 않았습니다. 검수는 커밋 하나에 묶이고 다음 커밋에서 실효되므로, 검수 뒤에 들어온 커밋은 PR에 검수 실효로 보입니다. [docs/iadd.ko.md](docs/iadd.ko.md)가 Owlery의 방법론 정의입니다. 원칙, 이름, 기록, 그리고 워크플로가 무엇인지가 거기 있습니다.
+**IADD, 곧 Independent AI-Driven Development가 방법론입니다.** 한 줄 문구는 *Zero Self-Approval*, 어떤 AI도 자기 작업을 승인하지 않는다는 것입니다. 작업을 설계하고, 만들고, 검토하고, 검수하는 AI들은 서로 독립되어 있고, 검수자는 자기가 검수하는 것을 하나도 만들지 않았습니다. 검수는 커밋 하나에 묶이고 다음 커밋에서 효력을 잃으므로, 검수 뒤에 들어온 커밋은 PR에 효력을 잃음으로 보입니다. [docs/iadd.ko.md](docs/iadd.ko.md)가 Owlery의 방법론 정의입니다. 원칙, 이름, 기록, 그리고 워크플로가 무엇인지가 거기 있습니다.
 
 **Owlery는 IADD를 돌리는 도구 가운데 하나이고, Owl Chain은 그 기본 워크플로입니다.** Owl Chain은 Owlery가 싣고 관리하는 워크플로입니다. proofer의 리뷰 회차, crafter의 수정 패스, 저장소의 전체 검사(broad gate), 검수자의 판정으로 이어집니다. 지금은 Owl Chain에 있는 저장소의 Claude Code 칸이 그것을 싣고, [로드맵](docs/roadmap.ko.md#마일스톤)의 마일스톤 3에서 사람이 넘긴 이슈에 대해 Owlery의 데몬이 그것을 돌립니다.
 
-owlery는 올빼미가 사는 곳을 뜻합니다. 올빼미는 에이전트입니다. Owlery의 엠블럼은 밀랍 없는 올빼미이고, 붉은 밀랍 위의 올빼미는 검수 표식으로, 창은 통과한 검수의 자리에 그것을 그립니다. 자세한 것은 [docs/name.ko.md](docs/name.ko.md)에 있습니다.
+owlery는 올빼미가 사는 곳을 뜻합니다. 올빼미는 에이전트입니다. Owlery의 엠블럼은 밀랍 없는 올빼미이고, 붉은 밀랍 위의 올빼미는 검수 표식으로, 창은 합격한 검수의 자리에 그것을 그립니다. 자세한 것은 [docs/name.ko.md](docs/name.ko.md)에 있습니다.
 
 ## 설치
 
@@ -46,13 +46,13 @@ pnpm --filter @owlery/desktop start
 
 ## GitHub의 검수 검사
 
-저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-inspection.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 `agentory/` 아래에 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `inspection`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `records`는 `inspection`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 검수 구역에서도 읽습니다. 검수 구역은 작업의 `inspection.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 검수 뒤에 커밋을 올리면 검수가 실효되고, 새 검수가 통과할 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 통과시킨 검수 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다. 통과한 검수와 실효된 검수의 제목은, 제목이 가리키는 판정 블록마다 `workflow: owl-chain` 줄이 있으면 Owl Chain을 밝히고, 그렇지 않으면 어떤 워크플로도 밝히지 않습니다. 이 줄은 검수를 낸 워크플로를 밝히려고 Owlery가 쓰는 줄입니다.
+저장소를 연결하면 Owlery는 그 저장소에 워크플로 `.github/workflows/owlery-inspection.yml`을 커밋합니다. 이 워크플로는 PR마다 Owlery의 PR 검사를 돌리고, 검사는 작업이 `agentory/` 아래에 커밋한 기록을 읽습니다. 검사는 판정을 PR의 head 커밋에 `inspection`이라는 이름의 GitHub 검사로 올립니다. 워크플로 자신의 잡 `records`는 `inspection`이 실패하면 실패하고, 통과하거나 중립이면 통과합니다. 앱이 없는 사람도 거기서 판정을 읽고, PR 본문 맨 위의 검수 구역에서도 읽습니다. 검수 구역은 작업의 `inspection.md`에 있는 가장 새 판정 블록을 그대로 옮긴 것입니다. 검수 뒤에 커밋을 올리면 검수가 효력을 잃고, 새 검수가 합격할 때까지 검사가 실패합니다. 검사는 앱과 같은 커밋된 기록을 읽고, 앱이 합격시킨 검수 뒤에 들어온 것은 둘이 똑같이 판정합니다. 앱의 체인이 커밋하지 않은 기록, 곧 손으로 쓰거나 다른 도구가 쓴 기록은 둘이 다르게 판정할 수 있습니다. 합격한 검수와 효력을 잃은 검수의 제목은, 제목이 가리키는 판정 블록마다 `workflow: owl-chain` 줄이 있으면 Owl Chain을 밝히고, 그렇지 않으면 어떤 워크플로도 밝히지 않습니다. 이 줄은 검수를 낸 워크플로를 밝히려고 Owlery가 쓰는 줄입니다.
 
 | `inspection`의 결과 | 제목 | 언제 |
 |---|---|---|
-| 통과 | "Cleared by the Owl Chain at"과 검수한 커밋. 워크플로를 밝히지 않은 검수에는 "Cleared at"과 검수한 커밋 | head 커밋에 통과한 검수가 있는 ready 상태의 PR, 그리고 ready가 되면 통과할 draft |
-| 실패 | "Inspection of the Owl Chain lapsed: a commit landed after"와 검수한 커밋. 워크플로를 밝히지 않은 검수에는 "Inspection lapsed: a commit landed after"와 검수한 커밋 | 검수 뒤에 들어온 커밋이 검수를 실효시킨 ready 상태의 PR. 베이스를 머지한 커밋도 검수를 실효시킵니다 |
-| 실패 | "Not cleared: no inspection at the head commit" | head 커밋에 통과한 검수가 없는 ready 상태의 PR |
+| 통과 | "Cleared by the Owl Chain at"과 검수한 커밋. 워크플로를 밝히지 않은 검수에는 "Cleared at"과 검수한 커밋 | head 커밋에 합격한 검수가 있는 ready 상태의 PR, 그리고 ready가 되면 통과할 draft |
+| 실패 | "Inspection of the Owl Chain lapsed: a commit landed after"와 검수한 커밋. 워크플로를 밝히지 않은 검수에는 "Inspection lapsed: a commit landed after"와 검수한 커밋 | 검수 뒤에 들어온 커밋이 검수의 효력을 잃게 한 ready 상태의 PR. 베이스를 머지한 커밋도 검수의 효력을 잃게 합니다 |
+| 실패 | "Not cleared: no inspection at the head commit" | head 커밋에 합격한 검수가 없는 ready 상태의 PR |
 | 실패 | "The records are refused" | 기록이 검사의 다른 부분에서 거절된 ready 상태의 PR |
 | 중립 | "Draft: judged when it is ready" | ready가 되면 거절될 draft |
 | 통과 | "Not judged: no work item is declared" | 작업을 하나도 밝히지 않은 PR |
@@ -60,7 +60,7 @@ pnpm --filter @owlery/desktop start
 
 **검사를 필수로 정하는 것은 저장소의 관리자입니다.** 관리자는 GitHub에서 base 브랜치에 걸린 저장소 규칙 가운데 상태 검사 통과를 요구하는 규칙에 `inspection`을 넣습니다. Owlery는 저장소의 설정을 하나도 바꾸지 않고, 앱의 "Records and check" 대화 상자도 같은 것을 말합니다. 포크에서 온 PR은 `inspection` 검사를 받지 않습니다. GitHub가 그 워크플로 실행에 검사를 쓸 수 없는 토큰을 주기 때문입니다. 그래서 필수 검사는 관리자가 통과시킬 때까지 그 PR을 붙잡아 둡니다.
 
-**예전 Owlery로 연결한 저장소는 커밋 하나로 IADD의 형식으로 옮깁니다.** Owlery는 예전 형식의 기록을 하나도 읽지 않고 거기서 체인을 돌리지 않으며, 저장소의 줄은 기록이 예전 형식이라고 말합니다. "Records and check" 대화 상자는 기록을 IADD의 형식으로 `agentory/`에 옮기고 예전 워크플로를 `owlery-inspection.yml`로 바꾸는 커밋을 보여 주고, 사람이 확인할 때까지 아무것도 쓰지 않습니다. 옮기기 전에 통과한 검수는 옮기는 커밋에서 실효됩니다. 예전 워크플로가 올리던 검사를 요구하던 규칙은 그 자리에 `inspection`을 요구해야 합니다. 옮긴 뒤에는 어떤 워크플로도 그 검사를 올리지 않기 때문입니다. 옮기기 전에 기록을 가졌던 작업의 브랜치는 체인 명령의 `migrate`로 자기 기록을 옮깁니다. 예전 형식이 무엇인지는 [docs/architecture.ko.md](docs/architecture.ko.md#기록은-저장소에-커밋합니다)가 밝힙니다.
+**예전 Owlery로 연결한 저장소는 커밋 하나로 IADD의 형식으로 옮깁니다.** Owlery는 예전 형식의 기록을 하나도 읽지 않고 거기서 체인을 돌리지 않으며, 저장소의 줄은 기록이 예전 형식이라고 말합니다. "Records and check" 대화 상자는 기록을 IADD의 형식으로 `agentory/`에 옮기고 예전 워크플로를 `owlery-inspection.yml`로 바꾸는 커밋을 보여 주고, 사람이 확인할 때까지 아무것도 쓰지 않습니다. 옮기기 전에 합격한 검수는 옮기는 커밋에서 효력을 잃습니다. 예전 워크플로가 올리던 검사를 요구하던 규칙은 그 자리에 `inspection`을 요구해야 합니다. 옮긴 뒤에는 어떤 워크플로도 그 검사를 올리지 않기 때문입니다. 옮기기 전에 기록을 가졌던 작업의 브랜치는 체인 명령의 `migrate`로 자기 기록을 옮깁니다. 예전 형식이 무엇인지는 [docs/architecture.ko.md](docs/architecture.ko.md#기록은-저장소에-커밋합니다)가 밝힙니다.
 
 **판정은 검사이고, 승인 리뷰가 아닙니다.** Owlery는 리뷰를 쓰지 않고 아무것도 머지하지 않습니다. 머지는 사람이 합니다.
 

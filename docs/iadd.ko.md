@@ -1,93 +1,87 @@
-# IADD: Independent AI-Driven Development
+# Owlery의 IADD
 
 *[English](./iadd.md) · 한국어*
 
-이 문서는 Owlery가 돌리는 방법론 IADD를 Owlery가 정의한 것입니다. Owlery는 이 방법론을 돌리는 도구 가운데 하나이고, Owl Chain은 Owlery가 이 방법론을 위해 싣는 워크플로입니다. 개념, 원칙, 이름은 소유자가 2026-11-28에 정했습니다(이슈 #322, *Concept and names*). Owlery가 출발한 [AgenticSeal](https://github.com/MichaelYcJo/AgenticSeal) 플러그인도 같은 이름으로 같은 방법론의 정의를 따로 씁니다(MichaelYcJo/AgenticSeal#1651). 소유자는 두 정의가 다 서면 둘을 나란히 놓고 견준 뒤 하나로 합치기로 정했습니다. 두 도구는 어휘 하나와 기록 폴더 하나를 함께 쓰고, 한쪽의 이름을 다른 쪽의 이름으로 옮기는 대응표는 두지 않습니다.
+**Owlery는 IADD, 곧 Independent AI-Driven Development를 돌리고, 그 정의는 [IADD 명세](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.ko.md)입니다.** 명세는 방법을 밝힙니다. 개념, 원칙, 모든 워크플로가 지키는 불변식, 이름, 기록 형식입니다. 이 문서는 그것을 다시 쓰지 않습니다. Owlery가 그것을 어떻게 지키는지, 기록 형식에 무엇을 더하는지, 어디서 벗어나는지, 그리고 데이터로서의 Owl Chain을 밝힙니다. 소유자는 2026-11-28에 IADD의 두 정의, 곧 Owlery의 정의와 AgenticSeal 플러그인의 정의를 이 명세로 합쳤습니다(이슈 #353). Owlery가 출발한 플러그인 `agentic`은 같은 체인을 기준 구현으로 돌리고, Owlery는 그 체인을 데몬에서 돌립니다([Owlery가 출발한 곳](architecture.ko.md#owlery가-출발한-곳)).
 
-## 개념
+## Owlery가 따르는 명세
 
-**IADD — Independent AI-Driven Development.** *Zero Self-Approval: 어떤 AI도 자기 작업을 승인하지 않습니다.*
+**Owlery는 IADD 명세 0.1.0을 따릅니다.** 명세가 제품마다 정하게 둔 것에 Owlery는 아래처럼 답합니다.
 
-작업을 설계하고, 만들고, 검토하고, 검수하는 AI들은 서로 독립되어 있고, 어느 쪽도 다른 쪽의 판단에 기대지 않습니다. 사람은 첫 편집 전에 한 번 답하고, 검수를 보고 머지합니다. 검수는 커밋 하나에 묶이고, 다음 커밋이 들어오면 실효되며, PR 검사로 누구에게나 보입니다.
+| 명세가 제품에 맡긴 것 | Owlery의 답 |
+|---|---|
+| harness | 데스크톱 앱의 데몬. 단계마다 자기 샌드박스 안의 역할 세션으로 띄웁니다. 그리고 Claude Code 세션이 Owl Chain을 싣는 칸 |
+| 참여자 | orchestrator, crafter, proofer, 검수자(inspector). 역할 묶음에 framer와 tracer가 없으므로, 원칙 2의 framer에 대한 절반은 생기지 않습니다 |
+| 실행이 끝나는 곳 | PR. Owlery는 모든 작업의 `Destination`에 `open the pull request`를 쓰고, 브랜치를 돌려주는 끝은 제공하지 않습니다 |
+| 질문 묶음을 언제 묻는지 | 아직 만들지 않았습니다. 최초의 묶음은 마일스톤 3의 몫입니다([docs/roadmap.ko.md](roadmap.ko.md#마일스톤)). 나중에 생긴 질문은 코드와 정책으로 정해 `decisions.md`에 기록하거나, 그 작업 하나를 세워 둡니다([순서는 코드가, 판단은 orchestrator가](architecture.ko.md#순서는-코드가-판단은-orchestrator가)) |
+| 누가 기록을 쓰고 순서를 지키는지 | Owlery의 코드가 커밋된 기록에서 합니다([모든 워크플로에 성립하는 것](#모든-워크플로에-성립하는-것)) |
+| 검수한 커밋 뒤의 base 머지 | 마감 기록보다 많이 바꾼 다른 커밋처럼 검수가 효력을 잃습니다. 그 작업 자신의 디렉터리만 건드린 base의 커밋은 그렇지 않습니다 |
+| `undecided` 판정에 누가 먼저 답하는지 | orchestrator 에이전트이고, 그 판단은 `decisions.md`에 커밋됩니다. `undecided` 판정이 두 번 나온 뒤에는 작업이 사람을 기다리며 섭니다 |
+| 모드와 설정 키 | `shared`뿐입니다. 루트는 커밋됩니다. Owlery는 `Commit and pull request language`, `Record language`, `Broad gate`를 쓰고, `Mode`는 쓰지 않으며, `Broad gate`와 `Heavy commands`를 읽습니다 |
 
-*Independent*는 독립 감사(independent audit)에서 쓰는 뜻입니다. 작업을 한 쪽과 떨어진 다른 쪽이라는 말이고, AI가 스스로 알아서 움직인다는 말이 아닙니다. IADD는 언제나 대문자로 씁니다.
+## Owlery가 각 원칙을 지키는 곳
 
-## 원칙
+명세의 원칙 열한 가지와, 그 하나하나를 지키는 Owlery의 문서와 코드입니다. 불변식 일곱 가지는 [모든 워크플로에 성립하는 것](#모든-워크플로에-성립하는-것)에 있습니다.
 
-1. **사람은 나중에 한 번이 아니라 먼저 한 번 판단합니다.** 질문은 모두 첫 편집 전에 한 묶음으로 묻습니다.
-2. **만든 쪽은 통과시키지 않습니다.** 각 쪽은 다른 쪽의 기록을 주장으로 읽고 자기 결과에 스스로 닿습니다.
-3. **검수는 커밋 하나의 것이고, 다음 커밋에서 실효됩니다.** 그 상태는 누구나 PR에서 봅니다.
-4. **정확히 답이 나오는 것은 스크립트가 답하고, 판단은 뜻이 문제인 곳에 씁니다.** 주장마다 실행한 것(executed), 읽은 것(read), 확인하지 못한 것(unverified)을 붙입니다.
-5. **기록은 한때의 것이고, 코드와 규칙이 남습니다.** 규칙은 판단마다 든 비용과 잡아낸 것을 보고 바뀝니다.
-
-## IADD가 ADD와 다른 점
-
-2026-11-28에 읽은 Agent Driven Development의 정의들(agentdriven.dev, Remo Jansen의 Agent Driven Development, pilotspace의 ADD)에는 공통된 워크플로가 없습니다. 이 정의들은 결과의 마지막 판단을 사람에게 남기거나, 작업을 만든 에이전트가 자기 판정을 직접 쓰게 둡니다. IADD는 그 판단을 작업을 만들지 않은 AI에게 맡기고, 누구나 PR에서 읽을 수 있는 커밋 하나에 묶습니다.
+| 원칙 | Owlery가 지키는 곳 |
+|---|---|
+| 1. AI는 최초에 한 번 묻는다 | [플러그인이 아니라서 달라지는 것](architecture.ko.md#플러그인이-아니라서-달라지는-것)의 *사람에게 묻기* 행, 그리고 `decisions.md`([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)). 칸에서는 벗어납니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 1번과 2번) |
+| 2. 만든 쪽은 합격시키지 않는다 | 아래 불변식 1 |
+| 3. 독립된 AI들이 thread의 기록으로 소통한다 | 역할 세션은 사람의 설정, 훅, 서버 없이 시작하고([역할 세션은 사용자 환경에서 떼어 띄웁니다](architecture.ko.md#역할-세션은-사용자-환경에서-떼어-띄웁니다)), 데몬은 단계마다의 프롬프트를 커밋된 기록에서 씁니다 |
+| 4. 검수는 커밋 하나의 것이다 | 아래 불변식 2 |
+| 5. 정확한 것은 스크립트가 답한다 | Owlery의 코드가 전체 검사를 돌리고 그 종료 코드를 읽습니다. `executed`, `read`, `unverified` 표시는 역할 묶음의 proofer와 agent contract에 있고, 어떤 코드도 그것을 읽지 않습니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 6번) |
+| 6. 판단은 원천 문서에 기댄다 | `decisions.md`의 결정, 판단, 질문은 모두 `grounds:`를 가지고, 역할 묶음의 core가 그 규칙을 밝힙니다 |
+| 7. 규칙은 판단을 위한 지침이다 | 역할 묶음의 core. 묶음의 어떤 문서도 순서를 다시 쓰지 않고, 순서는 코드가 지킵니다([순서는 코드가, 판단은 orchestrator가](architecture.ko.md#순서는-코드가-판단은-orchestrator가)) |
+| 8. 어느 쪽도 건너뛰지 못하는 연결이 있다 | 아래 불변식 1부터 7. 하나하나를 코드가 지킵니다 |
+| 9. 메커니즘은 비용에 비춰 남긴다 | 역할 묶음의 core, 그리고 작업의 비용을 그 회차들이 찾은 것 옆에 보여 주는 검수 시트([상태는 세 곳에 둡니다](architecture.ko.md#상태는-세-곳에-둡니다)) |
+| 10. 문서는 누가 여는지에 따라 자른다 | Owl Chain의 두 파일은 단계마다 띄울 때 싣는 문서를 밝힙니다([세션마다 싣는 것](architecture.ko.md#세션마다-싣는-것)) |
+| 11. 기록은 임시이다 | settle. Owlery 자신의 명령은 settle이 남길 것을 보여 줄 뿐 아직 아무것도 지우지 않고, 나머지는 이슈 #139가 만듭니다([Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 9번) |
+check: apps/desktop/test/claude-adapter.test.ts apps/desktop/test/decision-record.test.ts apps/desktop/test/role-bundle.test.ts apps/desktop/test/settle.test.ts apps/desktop/test/gate.test.ts
 
 ## 이름
 
-### 이름이 따르는 규칙
-
-**PR 페이지에서, Claude Code 안에서, 체인의 문서에서 읽는 사람이 만나는 이름은 한 가지로만 읽힙니다.** 그 자리에서 이미 다른 뜻을 가진 쉬운 낱말은 쓰지 않습니다. 따져 보고 내려놓은 이름은 아래에 적어, 아무도 다시 제안하지 않게 합니다.
-
-**IADD는 더 위의 개념이고, 제품은 그것을 드러낼 뿐입니다.** 소유자가 2026-11-28에 이 규칙을 정했습니다(이슈 #344). Owlery는 IADD를 돌리는 제품 가운데 하나이고, AgenticSeal 플러그인도 그렇습니다. 그래서 IADD의 이름은 어느 제품과 짝을 맞추어 고르지 않고, 어느 제품도 방법론의 이름을 받지 않습니다. 플러그인은 이름 `agentic`을 그대로 씁니다. 기록 폴더는 방법론이 아니라 자리이므로, 자리의 이름인 `agentory/`로 부릅니다. *directory*와 *repository*처럼 만든 말이고, 에이전트의 설정과 워크플로와 스레드를 두는 곳이라는 뜻입니다. 방법론의 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다.
-
-### 이름
+방법의 이름은 명세의 것이고([이름](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.ko.md#7-이름)), 내려놓은 이름도 그렇습니다. Owlery는 아래를 더합니다.
 
 | 무엇 | 이름 |
 |---|---|
-| 방법론 | IADD. 대문자로 쓰고, *Zero Self-Approval*을 한 줄 문구로 붙입니다 |
-| 기본 워크플로 | 문장에서는 Owl Chain, 워크플로와 검수자 모듈의 이름으로는 `owl-chain` |
-| 역할 | framer, crafter, proofer, orchestrator, tracer는 그대로이고, 마지막 역할은 검수하는 검수자(`inspector`)입니다. Owlery의 역할 묶음에는 tracer가 없습니다 |
-| 검수자의 기록 | 검수, `inspection.md` |
-| 검수의 상태 | 검수 통과, 검수 실효, 그리고 검수가 서 있지 않은 검수 없음 |
-| 기록 폴더 | `agentory/`. `README.md`의 첫 줄 `# What IADD keeps in agentory/`로 알아봅니다 |
-| 릴리스의 기록을 정책 문서에 접어 넣는 단계 | settle. `agentory/threads/`에 작용합니다 |
-| 작업 하나의 디렉터리 | thread, `agentory/threads/<작업>/` |
-| Owlery가 쓰는 트레일러 | `IADD-Routing:`과 `IADD-Built-By:` |
+| Owlery의 기본 워크플로 | 문장에서는 Owl Chain, 워크플로와 검수자 모듈의 이름으로는 `owl-chain` |
 | PR 검사 | `inspection` |
-| 앱 | IADD를 돌리는 도구 가운데 하나인 Owlery |
+| 앱 | IADD를 돌리는 제품 가운데 하나인 Owlery |
 
-앱의 이름은 Owlery로 둡니다. 소유자가 2026-11-28에 개념과 함께 정했습니다. IADD는 방법론이고 Owlery는 그것을 돌리는 도구 가운데 하나이며, "owl"만으로는 W3C의 OWL, Odoo의 OWL, Owl Carousel과 겹칩니다([docs/name.ko.md](name.ko.md)).
-
-### 내려놓은 이름
-
-아래 이름은 모두 따져 보았고 위 규칙을 지키지 못했으므로, 다시 제안하지 않습니다.
-
-- **역할이나 역할을 가리키는 말로:** *planner*(Claude Code의 Plan 에이전트와 plan 모드), *builder*(체인의 문서가 이미 만드는 쪽을 두루 가리키는 말), *reviewer*(GitHub의 요청된 리뷰어와 `code-review` 스킬), *verifier*(`verify` 스킬), 그리고 마지막 역할의 이름으로 따진 *auditor*, *referee*, *arbiter*, *guarantor*.
-- **마지막 역할의 기록이나 그 상태로:** *approval*과 *approved*(GitHub의 리뷰 승인과 Claude Approvals), *passed*와 *not passed*(같은 페이지의 "All checks have passed"), *judgment*(에이전트가 뜻이 문제인 곳에 쓰는 것을 가리키는 말), 그리고 *verdict*, *clearance*, *guarantee*.
-- **방법론의 이름으로:** spec-driven(진실은 명세가 아니라 코드와 정책입니다), Evidence-Driven, Trust Engineering, ACE(ICLR 2026의 Agentic Context Engineering, 그리고 어느 에이전트 코딩 도구의 `.ace/`), AIDD(O'Reilly의 AI-Driven Development, 그리고 신약 개발), ACODE(Acode 편집기), AAD(Azure Active Directory), AADD, Merge on Seal, Delegated Judgment, AI-Judged, ABIC, ACOD, ACRD, AI Turnkey.
-- **settle의 이름으로:** resolve-threads. PR 페이지에서 GitHub의 리뷰 스레드(`resolveReviewThread`)로 읽힙니다.
-- **기록 폴더의 이름으로:** 방법론의 이름(방법론은 자리가 아니고, 그 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다), 그리고 저마다 다른 것과 겹치는 `agentics`(githubnext/agentics), `agency`(agency-agents와 Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections`, `iagentics`.
-
-IADD는 2026-11-28에 웹, GitHub, npm, PyPI, arXiv에서 찾아보았고, 이 이름을 쓰는 방법론이나 AI 도구는 없었습니다. 소문자 `iadd`는 Python의 제자리 덧셈이고, git과 hledger의 작은 플러그인 둘의 이름입니다.
+앱의 이름은 Owlery로 둡니다. 소유자가 2026-11-28에 개념과 함께 정했습니다. IADD는 방법론이고 Owlery는 그것을 돌리는 제품 가운데 하나이며, "owl"만으로는 W3C의 OWL, Odoo의 OWL, Owl Carousel과 겹칩니다([docs/name.ko.md](name.ko.md)).
 
 ## 기록
 
-### 기록 폴더
+**저장소의 작업 기록은 `agentory/` 아래에 명세의 형식으로 커밋되어 있습니다([기록 형식](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.ko.md#8-기록-형식)).** 저장소를 연결하면 이 폴더와 그 안의 `README.md`, `config.json`을 씁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)). 표식 줄 없이 자기 `agentory/`를 두는 저장소는 설정에서 거절됩니다. `agentory/workflows/<이름>.json`과 `agentory/inspectors/<이름>.json`에는 저장소가 직접 둔 워크플로와 검수자 모듈이 들어갈 자리이고, 아직 Owlery의 어떤 코드도 이것들을 읽지 않습니다([아직 어떤 코드도 읽지 않는 것](#아직-어떤-코드도-읽지-않는-것)).
 
-**저장소의 작업 기록은 `agentory/` 아래에 커밋되어 있고, `agentory/README.md`의 첫 줄이 이 폴더를 알려 줍니다.** 저장소를 연결하면 이 폴더와 그 안의 `README.md`, `config.json`을 씁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)). 폴더의 이름은 하나이고, 그 첫 줄 없이 자기 `agentory/`를 두는 저장소는 설정에서 거절됩니다.
+AgenticSeal 플러그인이 0.40.0 전의 릴리스에서 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 기록으로 읽습니다. 마이그레이션은 그 기록을 사람이 먼저 읽는 커밋 하나로 `agentory/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
 
-- `config.json`에는 저장소가 스스로에 대해 말하는 것이 있습니다. `Broad gate` 명령, 그리고 커밋과 기록의 언어입니다.
-- `threads/<작업>/`에는 작업 하나의 기록이 있습니다. `routing.md`, `frame/`, 리뷰 회차와 전체 검사(broad gate)의 실행을 담은 `trail/`, `decisions.md`, `inspection.md`, `changelog.md`, `gaps.md`, `pr.md`입니다.
-- `workflows/<이름>.json`과 `inspectors/<이름>.json`에는 저장소가 직접 둔 워크플로와 검수자 모듈이 들어갈 자리입니다. 아직 Owlery의 어떤 코드도 이것들을 읽지 않습니다([아직 어떤 코드도 읽지 않는 것](#아직-어떤-코드도-읽지-않는-것)).
+### Owlery가 기록 형식에 더한 것
 
-AgenticSeal 플러그인이 `seal/` 아래에 쓴 형식의 기록은 마이그레이션만 기록으로 읽습니다. 마이그레이션은 그 기록을 사람이 먼저 읽는 커밋 하나로 `agentory/`로 옮깁니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
+- 작업 디렉터리의 **`decisions.md`**에는 묻지 않고 내린 결정, 판단, 작업을 세워 두는 질문이 하나하나 `decision:`이나 `question:`으로 여는 `iadd` 블록으로 들어 있고, 블록마다 `grounds:`와 상태가 있습니다([기록은 저장소에 커밋합니다](architecture.ko.md#기록은-저장소에-커밋합니다)).
+- **`trail/refusals.md`**에는 역할 세션의 허용 범위가 거절한 도구 호출마다 한 행이 있고, `trail/gate.md`, `inspection.md`와 함께 마감 기록입니다.
+- **판정 블록**은 여섯 줄을 더합니다. `built-by:`(작업을 만든 세션 하나하나), `inspected-by:`(검수한 세션), `model:`(그 모델), `rules:`(`owlery <version>`), 그리고 `workflow:`와 `inspector:`(Owl Chain이면 둘 다 `owl-chain`)입니다.
+- **trailer `IADD-Built-By:`**는 수정 패스를 기록하는 커밋에 그 패스를 만든 세션을 밝힙니다.
+- `agentory/config.json`의 **키 `Heavy commands`**는 기기에서 차례를 기다리는 명령을 밝힙니다.
 
 ### 검수와 그 검사
 
-**검수는 작업의 `inspection.md`에 있는 가장 새 판정 블록이고, 커밋 하나를 가리킵니다.** 블록은 백틱 세 개와 `iadd`로 엽니다. 블록에는 검수한 커밋과 그 base, 판정(`cleared`, 까닭을 붙인 `withheld`, 질문을 붙인 `undecided`), 작업을 만든 세션 하나하나, 검수한 세션, 검수한 모델, Owlery의 버전, 워크플로와 검수자 모듈이 들어 있습니다.
-
-**검사 `inspection`은 검수의 상태를 PR의 head 커밋에 보입니다.** 이 검사는 앱 없이 GitHub에서 돌고, 앱과 같은 커밋된 기록을 읽습니다.
-
-| 상태 | 언제 |
-|---|---|
-| 검수 통과 | head 커밋에 통과한 검수가 있고, 검수한 커밋 뒤에 마감 기록 말고는 바뀐 것이 없을 때 |
-| 검수 실효 | 통과한 검수가 있는데, 그 뒤의 커밋이 마감 기록 말고 다른 것을 바꿨을 때. 베이스를 머지한 커밋도 그렇습니다 |
-| 검수 없음 | head 커밋에 통과한 검수가 없을 때 |
-
-검사가 올리는 제목 하나하나는 `README.ko.md` *GitHub의 검수 검사*에 있습니다.
+**검사 `inspection`은 PR의 head 커밋에 검수의 상태를 명세의 세 상태로 보입니다.** 이 검사는 앱 없이 GitHub에서 돌고, 앱과 같은 커밋된 기록을 읽습니다. 검사가 올리는 제목 하나하나는 `README.ko.md` *GitHub의 검수 검사*에 있습니다.
 check: apps/desktop/test/inspection-state.test.ts apps/desktop/test/pr-check.test.ts
+
+## Owlery가 벗어나는 곳
+
+Owlery의 코드가 명세 0.1.0과 다른 곳 하나하나입니다.
+
+1. **원칙 1, 칸에서.** 칸의 세션은 실행 중에 칸에서 사람에게 묻습니다. `Automation`이 `yes`이면 질문의 기본값으로 가지만, `No default can be taken: `으로 시작하는 질문은 그래도 사람에게 갑니다. 최초의 묶음은 아직 만들지 않았습니다.
+2. **§8.5, 칸에서.** 칸의 세션은 `undecided` 판정을 실행 중에 스스로 정하거나, 칸에서 사람에게 묻습니다.
+3. **§8.7.** head가 담지 않은 합격 커밋이나 저장소가 찾지 못하는 합격 커밋을, 명세는 합격 아님으로 읽고 Owlery는 효력을 잃음으로 읽습니다.
+4. **불변식 2와 §8.7.** 작업 자신의 디렉터리 안에서는 Owlery가 트리를 비교합니다. 그래서 마감 기록이 아닌 기록을 바꾼 커밋을 뒤의 커밋이 되돌리면, 검수는 합격으로 남습니다.
+5. **§8.7.** 체인이 head에서 단계를 하나 빚지고 있을 때도 Owlery는 효력을 잃음으로 읽습니다. 합격 커밋에 이미 있던 열린 질문이나, 읽을 수 없는 기록이 그런 경우입니다.
+6. **§8.4와 원칙 5.** 발견의 `evidence:`는 없어도 되고, 그 표시는 어떤 코드도 읽지 않습니다. `regression:`은 발견 번호 없는 `round-<N>`도 받습니다.
+7. **§8.8.** `IADD-Routing:`은 단계를 기록하는 커밋에 있고, 세션의 커밋 하나하나에 있지는 않습니다.
+8. **불변식 3과 7, 칸에서.** 판단하는 역할은 사람의 권한 설정 아래에서 샌드박스 없이 `Bash`를 갖는 서브에이전트입니다(이슈 #286). 칸의 세션은 PR을 스스로 열고, 검수가 합격했는지는 검사만 지킵니다.
+9. **원칙 11과 §8.9.** Owlery의 settle은 settle이 남길 것을 보여 줄 뿐 아무것도 지우지 않습니다(이슈 #139). 이 저장소는 플러그인으로 settle합니다.
 
 ## 워크플로
 
@@ -115,16 +109,16 @@ Owl Chain의 두 파일은 앱에 실려 나가고, 앱의 버전이 곧 두 파
 
 ### 모든 워크플로에 성립하는 것
 
-워크플로 파일이 무엇을 말하든 Owlery의 코드가 아래를 지킵니다.
+워크플로 파일이 무엇을 말하든, Owlery의 코드가 명세의 불변식 일곱 가지([모든 workflow의 불변식](https://github.com/MichaelYcJo/iadd-workflows/blob/v0.1.0/spec/iadd.ko.md#5-모든-workflow의-불변식))를 아래처럼 지킵니다.
 
-1. **Zero Self-Approval.** 검수하는 세션은 작업을 하나도 만들지 않았습니다. 검수하는 세션이 작업을 만든 세션 가운데 하나이면 Owlery는 판정을 쓰지 않고, 검사도 그런 블록을 거절합니다.
-2. **커밋 하나.** 검수는 커밋 하나를 가리킵니다. 그 커밋과 브랜치의 head 사이에 마감 기록 말고 다른 것이 다르지 않을 때만 head에서 검수 통과이고, 그렇지 않으면 실효됩니다. 이 답은 head에 커밋된 기록에서만 읽습니다.
-3. **기록은 Owlery가 씁니다.** 기록은 하나하나 Owlery의 코드가 쓰고 커밋하며, 리뷰하거나 검수하는 단계는 파일을 쓰는 도구를 하나도 갖지 않습니다.
-4. **순서는 코드가 지킵니다.** 다음에 할 단계는 커밋된 기록에서 뼈대의 함수를 거쳐 나옵니다. 어떤 문서도, 어떤 에이전트도 단계를 시작하거나, 순서를 정하거나, 건너뛰지 않습니다.
-5. **단계는 자기 종류의 허용 범위를 갖습니다.** 데몬의 체인에서는 단계의 세션이 그 허용 범위가 정한 샌드박스 안에서 돕니다. 칸에서는 역할이 자기 도구를 정의에 적은 서브에이전트이고, 사람의 권한 설정이 그 호출에 답합니다. 이 부분은 이슈 #286이 맡습니다.
-6. **검수는 무엇이 자신을 냈는지 밝힙니다.** 판정 블록은 워크플로, 검수자 모듈, 작업을 만든 세션 하나하나, 검수한 세션, 그 모델, Owlery의 버전을 밝히고, 검사마다 통과한 실행이 검수한 커밋의 `trail/gate.md`에 있습니다.
-7. **통과한 검수 없이는 PR이 없고, 판정은 검사입니다.** Owlery는 검수를 통과한 head에서만 PR을 엽니다. 검사 `inspection`을 올리고, 리뷰를 쓰지 않고, 아무것도 머지하지 않습니다.
-check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/inspection-state.test.ts apps/desktop/test/claude-adapter.test.ts
+1. **만든 쪽은 합격시키지 않는다.** 검수하는 세션은 작업을 하나도 만들지 않았습니다. 검수하는 세션이 작업을 만든 세션 가운데 하나이면 Owlery는 판정을 쓰지 않고, 검사도 그런 블록을 거절합니다.
+2. **커밋 하나.** 검수는 커밋 하나를 가리킵니다. 그 커밋과 브랜치의 head 사이에 마감 기록 말고 다른 것이 다르지 않을 때만 head에서 합격이고, 그렇지 않으면 효력을 잃습니다. 이 답은 head에 커밋된 기록에서만 읽습니다. 이것이 명세와 다르게 읽히는 곳은 [Owlery가 벗어나는 곳](#owlery가-벗어나는-곳) 3번부터 5번에 있습니다.
+3. **판단하는 쪽은 판단 대상을 고치지 않는다.** 기록은 하나하나 Owlery의 코드가 쓰고 커밋하며, 리뷰하거나 검수하는 단계는 파일을 쓰는 도구를 하나도 갖지 않습니다. 데몬의 체인에서는 단계의 세션이 그 허용 범위가 정한 샌드박스 안에서 돕니다. 칸에서는 역할이 자기 도구를 정의에 적은 서브에이전트이고, 사람의 권한 설정이 그 호출에 답합니다. 이 부분은 이슈 #286이 맡습니다.
+4. **아무도 건너뛰지 못하는 연결은 코드가 지킨다.** 다음에 할 단계는 커밋된 기록에서 뼈대의 함수를 거쳐 나옵니다. 어떤 문서도, 어떤 에이전트도 단계를 시작하거나, 순서를 정하거나, 건너뛰지 않습니다.
+5. **선언한 검사는 검수한 커밋에서 통과한다.** Owl Chain의 검수자 모듈은 저장소의 `Broad gate` 명령을 유일한 검사로 밝힙니다. Owlery의 코드가 그것을 돌리고, 통과한 실행은 하나하나 검수한 커밋의 `trail/gate.md`에 있습니다.
+6. **검수는 무엇이 자신을 냈는지 밝힌다.** 판정 블록은 워크플로, 검수자 모듈, 작업을 만든 세션 하나하나, 검수한 세션, 그 모델, Owlery의 버전을 밝힙니다.
+7. **합격한 검수 없이는 PR이 없고, 판정은 검사다.** Owlery는 합격한 head에서만 PR을 엽니다. 검사 `inspection`을 올리고, 리뷰를 쓰지 않고, 아무것도 머지하지 않습니다.
+check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/desktop/test/inspection-state.test.ts apps/desktop/test/claude-adapter.test.ts apps/desktop/test/gate.test.ts
 
 ### Owl Chain에만 있는 것
 
@@ -132,4 +126,4 @@ check: apps/desktop/test/chain.test.ts apps/desktop/test/pr-check.test.ts apps/d
 
 ### 아직 어떤 코드도 읽지 않는 것
 
-Owlery의 데몬과 체인 명령은 앱에 든 두 파일을 싣고, 다른 파일은 싣지 않습니다. `agentory/workflows/`, `agentory/inspectors/`, `routing.md`의 워크플로 줄, `config.json`의 워크플로 키는 읽지 않고, 불러오는 코드는 워크플로 하나와 모듈 하나, `owl-chain`만 밝힙니다. 사람이 만든 워크플로와 검수자 모듈, 다른 뼈대, 창에서 워크플로를 고치는 편집기, 나눠 쓰는 워크플로를 펴내고 받아들이는 일은 이슈 #324가 자리를 정합니다.
+Owlery의 데몬과 체인 명령은 앱에 든 두 파일을 싣고, 다른 파일은 싣지 않습니다. `agentory/workflows/`, `agentory/inspectors/`, `routing.md`의 워크플로 줄, `config.json`의 워크플로 키는 읽지 않고, 불러오는 코드는 워크플로 하나와 모듈 하나, `owl-chain`만 밝힙니다. 사람이 만든 워크플로와 검수자 모듈, 다른 뼈대, 창에서 워크플로를 고치는 편집기, 나눠 쓰는 워크플로를 펴내고 받아들이는 일은 이슈 #324가 자리를 정한 마일스톤 `workflows: a person's own, and shared`에 있습니다.
