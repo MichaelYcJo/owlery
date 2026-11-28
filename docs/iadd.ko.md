@@ -58,7 +58,7 @@
 - **마지막 역할의 기록이나 그 상태로:** *approval*과 *approved*(GitHub의 리뷰 승인과 Claude Approvals), *passed*와 *not passed*(같은 페이지의 "All checks have passed"), *judgment*(에이전트가 뜻이 문제인 곳에 쓰는 것을 가리키는 말), 그리고 *verdict*, *clearance*, *guarantee*.
 - **방법론의 이름으로:** spec-driven(진실은 명세가 아니라 코드와 정책입니다), Evidence-Driven, Trust Engineering, ACE(ICLR 2026의 Agentic Context Engineering, 그리고 어느 에이전트 코딩 도구의 `.ace/`), AIDD(O'Reilly의 AI-Driven Development, 그리고 신약 개발), ACODE(Acode 편집기), AAD(Azure Active Directory), AADD, Merge on Seal, Delegated Judgment, AI-Judged, ABIC, ACOD, ACRD, AI Turnkey.
 - **settle의 이름으로:** resolve-threads. PR 페이지에서 GitHub의 리뷰 스레드(`resolveReviewThread`)로 읽힙니다.
-- **기록 폴더의 이름으로:** 방법론의 이름 그대로. 방법론은 자리가 아니고, 그 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다. 그리고 다른 것과 겹치는 `agentics`(githubnext/agentics), `agency`(agency-agents와 Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections`, `iagentics`.
+- **기록 폴더의 이름으로:** 방법론의 이름(방법론은 자리가 아니고, 그 약어는 처음 보는 사람이 폴더 이름으로 읽기 어렵습니다), 그리고 저마다 다른 것과 겹치는 `agentics`(githubnext/agentics), `agency`(agency-agents와 Agency Swarm), `agents`, `agentworks`, `agentarium`, `ai-trail`, `inspections`, `iagentics`.
 
 IADD는 2026-11-28에 웹, GitHub, npm, PyPI, arXiv에서 찾아보았고, 이 이름을 쓰는 방법론이나 AI 도구는 없었습니다. 소문자 `iadd`는 Python의 제자리 덧셈이고, git과 hledger의 작은 플러그인 둘의 이름입니다.
 
