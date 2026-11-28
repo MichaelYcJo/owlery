@@ -89,6 +89,12 @@ frame/design.md:111, the second row's list, adds `apps/desktop/src/daemon/adapte
   for the taken documents that still name AgenticSeal's commands.
 ```
 
+```seal
+verdict: fixed 8d37e899
+answer: The pass renamed by the round's map every line that the first search and `git grep -n -i guarantee -- apps pr-check` printed at the target in the files of `apps/desktop/test/` that `8d37e899` changes, leaving the lines *The acceptance searches* lists, and rewrote `chain.ts#chainOf`'s comment to say a later commit lapsed that inspection. The list was made from the two searches' output and from `git grep -n -i -E 'agentic-?seal' -- apps/desktop/test apps/desktop/src` filtered to lines that also hold a seal word, which found two titles the first search hides because they hold AgenticSeal (`pr-check.test.ts:644` and `:938`), both renamed; it is a sample, since the word broken for a lapsed inspection is outside both searches and the map, and `gaps.md` *Not done* names that part with its command. Beyond the map: `sealing` of `pr-check.test.ts#check` became `inspecting`, the flag it passes; `broken` of `daemon.test.ts`'s inspection cases became `lapsed`; `history`'s option `seal` of `pr-check.test.ts:776` became `inspection`, the key `commitInspection` reads and the histories already passed; the work item title "Sealed work" became "Cleared work", with the names it makes (`1795388700-cleared-work`); "Kept under seal" became "Kept under the earlier root"; `decision-record.test.ts:550` writes "# The project's own notes"; the subcommand in `chain-command.test.ts:322`'s title is `inspect`; `workflowName` in the stand-ins of `chain.test.ts` and `daemon.test.ts` is `inspection`, the workflow's `name:`. The changed TypeScript files passed `tsc` through a scoped `tsconfig` in the builder's scratch, executed. Each changed unit file passed alone under `pnpm --filter @owlery/desktop run test test/<a>.test.ts`: chain-records 4, claude-adapter 107, decision-record 65, gate 18, inspection-sheet-records 7, inspection-state 12, last-look 23, pane-chain 7, pull-request 28, record-blocks 15, repositories 45, round-record 11, themes 17, view 612, chain-command 26, pr-check 26, chain 179, daemon 440 cases, executed; `role-bundle.test.ts` passed 23 of 23 as a built-app file after `node build.mjs`, executed. The other built-app files the pass changed (`approval-line`, `decisions-and-questions`, `inspection-sheet-view`, `role-session`, `screenshots`, `work-item-form`) are unverified, and `gaps.md` names the orchestrator's batch. The first search, run again at `f8c1d3f4`, prints these lines alone, each with its reason: `records-migration.ts` and `records-migration.test.ts`, the earlier forms; the earlier `Seal-Built-By` trailer at `chain.ts:88`, `daemon.ts:4058`, `stage-records.ts:336`, `chain.test.ts:3122` and `:3127`; the earlier `Seal-Routing` trailer at `chain_check.py:13`, `:2163` and `:2185` and `pr-check.test.ts:135`, `:137` and `:144`; what an earlier build stored or wrote at `chain.ts:1165`, `:1166`, `:1174`, `:1176`, `:1198`, `:1201`, `:1203`, `:1205`, `:1206`, `:1211`, `:1231` to `:1233`, `:1239` and `:1256`, `chain.test.ts:811`, `:812`, `:818`, `:879`, `:886` to `:889`, `:3195` and `:3207`, `last-look.test.ts:190`, `:341`, `:361`, `:362`, `:385` and `:389`, `ledger.test.ts:204` and `:206`, `repositories.test.ts:183`, `:198` and `:199`, and `chain-records.test.ts:44`; the fence that is no block at `record-blocks.test.ts:82`; the earlier root at `chain.test.ts:1569` and `:1575`, `chain-command.test.ts:615`, `:624`, `:636`, `:639` and `:641`, `daemon.test.ts:2071`, `:2074` to `:2076`, `:2083`, `:2089`, `:2091` to `:2093`, `:2095` and `:2102`, `pr-check.test.ts:202`, `:203` and `:233`, `records-dialog.test.ts:157`, `:159`, `:161`, `:162`, `:178` and `:181` to `:183`, `records-place.test.ts:20`, `:271`, `:272`, `:1082` and `:1086`, `heavy-run.test.ts:250` and `:256`, and `view.test.ts:820`, `:822`, `:3535`, `:3538`, `:5400`, `:5409`, `:5411` to `:5413`, `:5415`, `:5424` and `:5428` to `:5431`; the plugin's commands no text may name at `role-bundle.test.ts:275`, `:276`, `:281` and `:327` and `pr-check.test.ts:935` and `:958`; this repository's own check `seal` at `rerun-unstarted.test.ts:144` and `fixtures/rerun-unstarted/github.json:121`; the letters alone at `model-stand-in.ts:119`; the names set aside at `docs/iadd.md:57` and `docs/iadd.ko.md:57`; and in the documents the row lists, `docs/roadmap.md:22`, `:52` to `:56` and `:87` and `docs/roadmap.ko.md:22` and `:53`, the releases' rows and this repository's own check's pin, and `docs/architecture.md:167`, `:212`, `:214`, `:217`, `:226`, `:229`, `:230`, `:232`, `:233`, `:292` and `:533` and `docs/architecture.ko.md:167`, `:214`, `:226`, `:229`, `:230`, `:233`, `:292` and `:533`, the skill's name before the rename, the plugin's side of *What we take from AgenticSeal*, the earlier trailer and a measurement dated 2026-11-17, executed. The guarantee search prints the migration's files, the fixtures of the earlier root in `daemon.test.ts`, `pr-check.test.ts:217` and `view.test.ts`, `workflow.test.ts:106`, the agent contract's platform guarantee and the taken `verify/SKILL.md:119`, each of which `gaps.md` *Not done* names as staying, executed. The rows of `frame/design.md:110-111` are the orchestrator's to write.
+location: `apps/desktop/test/record-blocks.test.ts`, `seal/threads/1795797447-322-workflows-compose-around-iadd/gaps.md`
+```
+
 ### 2. The pane's skill tells the session to start a stage whose model is null on the session's own model, where the frame, the loader and the bundle's README say null is the CLI's default
 
 ```seal
@@ -121,6 +127,11 @@ expect(flat("skills/inspection/SKILL.md")).toContain("Start a subagent of the ty
     // The round's stage names no model, so the subagent runs on the default the subagent tool gives.
 ```
 
+```seal
+verdict: fixed 80e8b109
+answer: The paste-ready fix was read against `frame/design.md:173` and `:198`, where a stage's `null` model is the CLI's default, and against `workflow.ts:55`, `claude.ts:124` and the bundle's `README.md:19`, which say the same; for a pane's subagent that default is the one its tool gives when the spawn names no model, so the fix was applied as written. `skills/inspection/SKILL.md:72-74` now tells the session to start the subagent with no model where `model` is null, so that it runs on the model the subagent tool gives it by default; the docstring of `chain-command.ts#handed` says "null for the CLI's default", and the comment of `chain-command.test.ts:82` says the subagent runs on the default the subagent tool gives. `role-bundle.test.ts:110` pins the new sentence. It was seen red first: with the new pin and the old sentence, `node build.mjs` then `OWLERY_BACKGROUND=1 pnpm run test:app test/role-bundle.test.ts` in `apps/desktop` failed 1 of 23, at `role-bundle.test.ts:110:48`, executed; with the new sentence the same two commands passed 23 of 23, executed. `pnpm --filter @owlery/desktop run test test/chain-command.test.ts` passed 26 of 26, executed. The finding's two searches, run again after the last fix commit: the second prints nothing; the first prints `chain-command.ts:241`, now "the CLI's default", the lines that say "the CLI's default" (`claude.ts:124`, `role-bundle/README.md:19`, `workflow.ts:55`, `docs/iadd.md:97` and `:103`), which stay, and lines where "the session's own" names a session's own id, account, folder, streams or input, which are another fact and stay, executed.
+```
+
 ### 3. The pull request check's comment on `OWL_CHAIN` names `inspection-records.ts#OWL_CHAIN`, which phase 4 moved to `workflow.ts`
 
 ```seal
@@ -135,6 +146,11 @@ Why it matters: `0541b7b0` moved `OWL_CHAIN` from `inspection-records.ts` to `wo
 # The name of the Owl Chain's workflow, as a verdict block's `workflow:` line
 # names it (`apps/desktop/src/daemon/workflow.ts#OWL_CHAIN`).
 OWL_CHAIN = "owl-chain"
+```
+
+```seal
+verdict: fixed caa37bd0
+answer: The comment at `chain_check.py:2623` now names `apps/desktop/src/daemon/workflow.ts#OWL_CHAIN`, where `workflow.ts:31-32` defines the constant. The finding's search `git grep -n -e "inspection-records.ts#OWL_CHAIN" -e "inspection-records#OWL_CHAIN"`, run again after the last fix commit, prints this round record's own finding alone, which stays, executed. `pnpm --filter @owlery/desktop run test test/pr-check.test.ts`, which runs the check, passed 26 of 26, executed.
 ```
 
 ### 4. `docs/iadd.md` names the roles that stay "as before" without the tracer, which #322's names table keeps unchanged
@@ -153,6 +169,11 @@ docs/iadd.md:39
 
 docs/iadd.ko.md:39
 | 역할 | framer, crafter, proofer, orchestrator, tracer는 그대로이고, 마지막 역할은 검수하는 검수자(`inspector`)입니다. Owlery의 역할 묶음에는 tracer가 없습니다 |
+```
+
+```seal
+verdict: fixed f8c1d3f4
+answer: The row at `docs/iadd.md:39` and `docs/iadd.ko.md:39` now names the tracer among the roles that stay as before, and says that Owlery's role bundle holds none, as the paste-ready fix wrote it; the row stays one table row in each edition. The docs leg of the broad gate, the loop over `docs/*.md` and `README.md` that compares each edition's counts of headings and of table rows, then the search for 도장, exited 0 after the last fix commit, executed. The finding's search `git grep -n -i "tracer" -- docs README.md apps/desktop/role-bundle`, run again, prints the two rows, `role-bundle/README.md:38`, which says the bundle ships no tracer definition, and two taken documents of the bundle that name the plugin's tracer, which stay, executed.
 ```
 
 ## Confirmations
