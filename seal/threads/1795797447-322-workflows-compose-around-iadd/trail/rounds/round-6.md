@@ -65,6 +65,11 @@ The pass changed their helpers' names, titles, comments and fixture words, and a
 
 The fix pass reruns `approval-line.test.ts` alone after `node build.mjs`, as a built-app file, so the three cases are seen to pass again.
 
+```seal
+verdict: fixed 3f187a49
+answer: `3f187a49` puts the key back, so `approval-line.test.ts:215` reads `inspector: inspector ? [...] : null,` as the paste-ready fix writes it; `2b2d3b74` rewrites the row of `gaps.md` on round 5's fix pass in its own words, which say the pass also dropped that key and that this pass put it back. Before the fix, at `750183d0`, `node build.mjs` then `OWLERY_BACKGROUND=1 pnpm run test:app test/approval-line.test.ts` in `apps/desktop` exited 1 with 3 failed and 4 passed of 7, each failure `SyntaxError: Unexpected token '?'` at the script's line 11, column 18, executed. After the fix, at the tree `3f187a49` commits, the same two commands exited 1 with 1 failed and 6 passed of 7, twice, executed: the two cases that call the helper at `:243` and `:294` now pass, and the case of the lapsed inspection fails at `:271`, the overflow assertion the refused script had hidden, with `section 441 in 440` and `inspector 111 in 110`. The command is not green, so the finding's ask to show it green is not met. That failure is not this finding's defect: `git diff 011f7298 3f187a49 -- apps/desktop/src` changes comments and docstrings of the daemon alone, `git diff 011f7298 -- apps/desktop/test/approval-line.test.ts` changes names and one comment, and the orchestrator's whole built-app run at phase 4's end passed this file, read in `<scratchpad>/1795797447-322/app-all-p4.log`. Two probes in the case's file, each run once and removed, measured it: the inspector's place's row holds the state icon (16px), the name (58.78px), the mark (18px) and two 6px gaps in a row of 98px, and moving the window to the display at scale factor 2 printed the same widths, executed. What changed since phase 4's run is not established, and `gaps.md` *Not verified* names the failure for the orchestrator. The class, every object key the two commits dropped while the name stayed in the hunk, was listed by a script over `git show 8d37e899 383c958f -U0 -- apps`: it prints `approval-line.test.ts:215` and five `inspector: sealer` lines of `chain.test.ts`, which became the shorthand `inspector` for a variable of that name declared above them, executed. `pnpm --filter @owlery/desktop run test test/chain.test.ts` passed 179 of 179, executed. The changed file passed `tsc` through a scoped `tsconfig` in this pass's scratch, executed.
+```
+
 ### 2. `gaps.md` *Not done* still says that the two acceptance searches print lines outside their rows and that the rows are the orchestrator's to write, which `152762de` did
 
 ```seal
@@ -82,6 +87,11 @@ The two acceptance searches of `frame/design.md` *User scenarios & acceptance* p
 ```
 
 The paragraph can also be removed whole, since nothing in it is left undone. It is a paragraph of `## Not done`, not a row of `## Not verified`.
+
+```seal
+verdict: fixed 2b2d3b74
+answer: `2b2d3b74` removes the paragraph whole, as the finding allows, since nothing in it is left undone and the history stands in `152762de` and this record. The same fact stood in a row of `## Not verified`, the one that said the acceptance row names no `ledger.test.ts` and gives `chain.ts` the earlier trailer alone as its reason, with the orchestrator to answer before the last phase; `frame/design.md:110` now names `ledger.test.ts:204` and `:206` and gives `chain.ts` and `chain.test.ts` the stored kinds too, read, so the same commit removes that row. The finding's search `git grep -n -F "The rows' lists are a frame file's" -- seal`, run again after the last fix commit, prints `trail/rounds/round-6.md:76` alone, this finding's own text, which stays, executed. `git grep -n -e 'names no `apps/desktop/test/ledger.test.ts`' -- seal` prints `trail/rounds/round-1.md:105` alone, round 1's record, which stays, executed.
+```
 
 ### 3. `gaps.md` *Not done* names the reasons the word broken stays, but the list misses some printed lines, and two of its examples no longer stand at the target
 
@@ -108,6 +118,11 @@ which also prints names that hold the letters inside them, such as `brokenAt` an
 
 in place of "the slanted break of a lapsed place's drawing; and `record-blocks.ts#brokenOptions`.":
 the slanted break of a lapsed place's drawing; Korean that breaks in a shell with no `LANG` and a rule that runs unbroken; the loop's `break` statement and a no-break space, which the `-w` search prints; and `record-blocks.ts#brokenOptions`.
+```
+
+```seal
+verdict: fixed 2b2d3b74
+answer: `2b2d3b74` applies the first edit as written and writes the second in its own words, since the finding's list is a sample of the searches' output. Both searches of the finding's `evidence:` line were run again at `3f187a49`, whose tree under `apps/` the last fix commit keeps: the first printed 50 lines and the second 73, and each line was read for its sense, executed. Beyond the four senses the finding names, that read found a value that holds no space to break at (`theme-controls.test.ts:224`), a rule that runs unbroken at `index.html:482` as well, and a chain whose crafter answers with a block the reader refuses (`chain.test.ts:2099`), so the paragraph names each sense the two outputs hold, with a coordinate for each sense the earlier list lacked. No printed line uses the word for a lapsed inspection. The list is whole for those two searches' output and is a sample of the class, since a spelling outside their words is not in it, as the paragraph says. `git grep -n -w -e brokenAt -e BROKEN_ID -- apps` prints nothing, executed. `pnpm --filter @owlery/desktop run test test/<a>.test.ts`, one command each, passed for the unit files `383c958f` changed: chain 179 of 179, daemon 440 of 440, pr-check 26 of 26 and view 612 of 612, executed. `daemon.ts` and the TypeScript files of `383c958f` passed `tsc` through a scoped `tsconfig` in this pass's scratch, executed.
 ```
 
 ## Confirmations
