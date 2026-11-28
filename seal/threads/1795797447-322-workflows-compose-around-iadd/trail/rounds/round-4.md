@@ -40,6 +40,11 @@ seal/threads/1795797447-322-workflows-compose-around-iadd/gaps.md:28, in place o
 What the drop costs: a record of IADD's form that holds no block IADD's grammar reads, and shows in its prose a fence of info `seal` whose lines the earlier grammar refuses, is read as the earlier form's. The chain refuses its work item with the sentence that names `migrate`, and the plan is blocked at the refused line until the fence is edited. What the narrowed test costs with or without the condition: where the earlier grammar reads the shown block, the plan is not blocked, and `migrate`'s commit rewrites that fence's opener to IADD's, so the example becomes a block the chain reads, such as a decision of `decisions.md` that nobody made. Owlery writes no such record: a round record and a gate's run of IADD's form hold a block from their first commit, and `decision-record.ts#writeRecord` writes a `decisions.md` only with the block its change adds, so such a record is one a person or a session wrote by hand. Whether the plan refuses such a record rather than rewrite it is the orchestrator's to place.
 ```
 
+```seal
+verdict: fixed c41f1613
+answer: gaps.md:28 now carries the round's paste-ready text, naming both outcomes, and places the question whether the plan should refuse such a record on issue #343 in hardening. The orchestrator made the repair in the work item's records.
+```
+
 ## Confirmations
 
 ```seal
