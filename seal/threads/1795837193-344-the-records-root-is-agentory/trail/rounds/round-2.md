@@ -42,6 +42,11 @@ In `frame/plan.md:31`, replace the row:
 | Rename the bundle's `seal <subcommand>` mentions to `agentic <subcommand>` now | The bundle's documents started from AgenticSeal 0.38.4, whose command is `seal`, and would then name the commands of 0.40.0 inside documents of the earlier release | Rejected for this item. They hold no `iadd`, and the spawn scopes the product's rename to the places that name the plugin `iadd`. AgenticSeal 0.40.0, which carries #1658, was published on 2026-11-28, and the orchestrator decides whether an issue of Owlery's carries the mentions |
 ```
 
+```seal
+verdict: fixed 0b33a780
+answer: the orchestrator applied the round's paste-ready text to frame/design.md:56 and frame/plan.md:31; the census diff prints nothing and the twins' heading and table-row counts match.
+```
+
 ### 2. *Where Owlery started* says the plugin runs `agentic` from 0.40.0, and the rest of the section still describes it in the present tense by its `seal` names
 
 ```seal
@@ -79,6 +84,11 @@ In `docs/architecture.ko.md`:
 ```
 
 The lines at `:203` of both editions hold `IADD`, so `frame/keep.txt:398` and `:412` take the rewritten lines as the documents hold them, and the census (a) must again print nothing. Neither `:206` nor `:222` holds `iadd` in any case, so `keep.txt` holds neither line. No heading or table row changes. The two searches are a sample. This fix leaves four places as they are. `docs/architecture.md:309` dates its `seal pr-wait` to 0.38.0. `:532-533` measure this repository's sessions with `seal payload` and `seal cost`, which is its own process. `docs/roadmap.md:90` is this repository's settle, and `docs/iadd.md:75` and `docs/architecture.md:275` say in the past tense what the plugin wrote. The Korean twin of each stays too.
+
+```seal
+verdict: fixed 0b33a780
+answer: the orchestrator applied the round's paste-ready text to docs/architecture.md :203, :206 and :222 and their Korean twins, and moved keep.txt's two lines with them; the census diff prints nothing and the twins' heading and table-row counts match.
+```
 
 ## Confirmations
 
