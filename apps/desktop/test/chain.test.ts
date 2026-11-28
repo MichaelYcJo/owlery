@@ -3255,7 +3255,7 @@ describe("the inspection of a work item's chain", { timeout: 60_000 }, () => {
     gh.answer("list", { out: JSON.stringify([{ number: 1, url: PULL_REQUEST_URL, headRefOid: head(a.worktree), body: gh.bodies()[1] ?? "" }]) });
     // A commit of a source file the branch did not change before the inspection lapses it.
     write(a.worktree, "later.txt", "Said later\n");
-    const broke = commitAll(a.worktree, "feat: say more");
+    const lapsedBy = commitAll(a.worktree, "feat: say more");
     expect(await c.until(() => (c.workItem(a.id)?.inspection?.state === "lapsed" ? c.workItem(a.id)?.inspection : undefined))).toMatchObject({ commit: cleared });
 
     expect(await c.startChain(a.id)).toBe("done");
@@ -3265,7 +3265,7 @@ describe("the inspection of a work item's chain", { timeout: 60_000 }, () => {
     expect(started.map(({ role }) => role?.role)).toEqual(["proofer", "inspector", "proofer", "inspector"]);
     // Round 1 read the commit of the routing, the one before the cleared commit, and round 2 reads the commits after it.
     const routed = git(a.worktree, "rev-parse", `${cleared}~1`).trim();
-    expect(givenRound(started[2]?.prompt ?? "")).toMatchObject({ round: 2, target: `${broke}, fixes ${routed}..${broke}` });
+    expect(givenRound(started[2]?.prompt ?? "")).toMatchObject({ round: 2, target: `${lapsedBy}, fixes ${routed}..${lapsedBy}` });
     const base = a.baseBranch ?? a.baseCommit ?? "";
     const gate = git(a.worktree, "rev-parse", "HEAD~2").trim();
     const prompt = started[3]?.prompt ?? "";

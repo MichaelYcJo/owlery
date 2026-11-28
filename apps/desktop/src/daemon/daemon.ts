@@ -4336,7 +4336,7 @@ export class Daemon {
       if (head !== standing.head) throw new Error(`the worktree's head moved from ${standing.head.slice(0, 7)} to ${head.slice(0, 7)} while Owlery read the records`);
       const target = await pushTarget(worktree, base.branch);
       const records = await bodyRecords(worktree, head, relative(worktree, directory));
-      // The stage runs at an inspection that holds at the head, so no commit lapsed it, and the reader is handed no inspection: the body names no breaking commit.
+      // The stage runs at an inspection that holds at the head, so no commit lapsed it, and the reader is handed no inspection: the body names no commit that lapsed an inspection.
       const { entries, unread } = this.ledger.read(item.id, item.createdAt);
       const back = composeBack(await backRecords(worktree, directory, head, null), entries, unread);
       const named = await pullRequestTitle(worktree, title, base.commit, head);

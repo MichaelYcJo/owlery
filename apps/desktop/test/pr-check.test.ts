@@ -537,20 +537,20 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     expect(quiet.sent).toEqual([]);
   }, 60_000);
 
-  it("posts a ready pull request whose inspection a later commit lapsed as a failure titled with the lapsed inspection and its cleared commit, naming the Owl Chain where each lapsed verdict block holds `workflow: owl-chain` and no workflow where one holds none, though it holds a `rules:` line, also where the commit after the inspection was taken back and the inspection arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no inspection for a head with no inspection and for one whose newest verdict is withheld, which no later commit breaks, and titles as broken an inspection whose commit HEAD does not descend from or the repository cannot resolve", async () => {
+  it("posts a ready pull request whose inspection a later commit lapsed as a failure titled with the lapsed inspection and its cleared commit, naming the Owl Chain where each lapsed verdict block holds `workflow: owl-chain` and no workflow where one holds none, though it holds a `rules:` line, also where the commit after the inspection was taken back and the inspection arm refuses nothing, posts the same head as a draft as neutral, keeps the title of no inspection for a head with no inspection and for one whose newest verdict is withheld, which no later commit lapses, and titles as lapsed an inspection whose commit HEAD does not descend from or the repository cannot resolve", async () => {
     const { url, sent } = await server();
     const env = posting(url);
     const last = (): Sent["body"] | undefined => sent.at(-1)?.body;
-    const BROKEN = (gate: string): string => `Inspection of the Owl Chain lapsed: a commit landed after ${gate.slice(0, 7)}`;
+    const LAPSED = (gate: string): string => `Inspection of the Owl Chain lapsed: a commit landed after ${gate.slice(0, 7)}`;
 
     const changed = clearedBranch();
     write(changed.repo, "x", "x, changed\n");
     commitAll(changed.repo, "fix: x", "1-x");
-    const broken = await run(changed, { body: null, args: ["--post"], env });
-    expect(broken.exit, broken.output).toBe(1);
-    expect(last()).toMatchObject({ head_sha: git(changed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: BROKEN(changed.gate) } });
+    const lapsed = await run(changed, { body: null, args: ["--post"], env });
+    expect(lapsed.exit, lapsed.output).toBe(1);
+    expect(last()).toMatchObject({ head_sha: git(changed.repo, "rev-parse", "HEAD").trim(), conclusion: "failure", output: { title: LAPSED(changed.gate) } });
     expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: \`x\` changed after the cleared commit \`${changed.gate.slice(0, 7)}\``);
-    expect(broken.output).toContain(`chain-check: posted \`inspection\`, failure: ${BROKEN(changed.gate)}\n`);
+    expect(lapsed.output).toContain(`chain-check: posted \`inspection\`, failure: ${LAPSED(changed.gate)}\n`);
 
     // A verdict block that names no workflow is not the Owl Chain's, though it holds Owlery's `rules:` line, so the title of its lapsed inspection names no workflow.
     const unnamed = reviewed();
@@ -589,7 +589,7 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     commitAll(back.repo, "revert: x", "1-x");
     const taken = await run(back, { body: null, args: ["--post"], env });
     expect(taken.exit, taken.output).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(back.gate) } });
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED(back.gate) } });
     expect(last()?.output.summary).not.toContain("inspection.md:");
     expect(last()?.output.summary).toContain("- iadd/threads/1-x/trail/rounds/round-1.md:0  the last round's `target:` is behind HEAD");
 
@@ -630,13 +630,13 @@ describe("the pull request check", { timeout: 30_000 }, () => {
     git(off.repo, "checkout", "--quiet", "feature");
     inspected(off, section(1, aside, ...DAEMONS_LINES));
     expect((await run(off, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN(aside) } });
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED(aside) } });
     expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: HEAD does not descend from the cleared commit \`${aside.slice(0, 7)}\`; a new inspection is owed at HEAD`);
     const nowhere = reviewed();
     gated(nowhere);
     inspected(nowhere, section(1, "d".repeat(40), ...DAEMONS_LINES));
     expect((await run(nowhere, { body: null, args: ["--post"], env })).exit).toBe(1);
-    expect(last()).toMatchObject({ conclusion: "failure", output: { title: BROKEN("d".repeat(40)) } });
+    expect(last()).toMatchObject({ conclusion: "failure", output: { title: LAPSED("d".repeat(40)) } });
     expect(last()?.output.summary).toContain(`- iadd/threads/1-x/inspection.md:0  the inspection lapsed: this repository cannot resolve the cleared commit \`${"d".repeat(40)}\`; a new inspection is owed at HEAD`);
     expect(sent).toHaveLength(11);
   }, 60_000);

@@ -8,7 +8,7 @@
 // them at its next pass, and the view's right column and the inbox's preview
 // draw the line. A second work item, made by a later case, has the records of
 // an inspection committed on its branch as a chain commits them, and then one more
-// commit, which breaks that inspection. One more work item stands in the run folder
+// commit, which lapses that inspection. One more work item stands in the run folder
 // before the app starts, with a chain a daemon stored as stopped, so the
 // view's foot has a chain's sentence to say. The last case makes one more
 // work item, whose branch commits Owlery's workflow, and opens a Claude Code

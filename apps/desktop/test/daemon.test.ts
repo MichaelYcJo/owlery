@@ -5058,7 +5058,7 @@ describe("the inspection a work item's head holds", { timeout: 60_000 }, () => {
     expect(await lapsed(c, a.id)).toEqual({ state: "lapsed", commit: gate, why: `\`feature.txt\` changed after the cleared commit \`${gate.slice(0, 7)}\`.` });
   });
 
-  it("turns it broken when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
+  it("lapses a cleared work item when the branch is moved from the repository's main checkout with git update-ref, which no worktree's checkout makes", async () => {
     const { made, c, a, gate } = await cleared();
     const at = git(made.repo, "rev-parse", `refs/heads/${a.branch}`).trim();
     // A commit of the branch's tree with one file changed, made in the main checkout through an index of its own.
@@ -5321,15 +5321,15 @@ describe("the records of the back of an inspection", { timeout: 60_000 }, () => 
     commitInspection(a.worktree, { workItem: NAME, branch: branchOf(a), base: a.baseCommit });
     writeFileSync(join(a.worktree, "feature.txt"), "A greeting, changed after the inspection\n");
     git(a.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
-    const broke = headOf(a.worktree);
-    // A round recorded after the break, whose finding's symptom and severity are long.
+    const lapsedBy = headOf(a.worktree);
+    // A round recorded after the commit that lapsed the inspection, whose finding's symptom and severity are long.
     const record = `iadd/threads/${NAME}/trail/rounds/round-2.md`;
     const fence = "```";
-    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}iadd`, `target: ${broke} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}iadd`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
+    writeFileSync(join(a.worktree, record), [`# Review round 2: ${NAME}`, "", `${fence}iadd`, `target: ${lapsedBy} against main`, fence, "", "## Findings", "", `### 1. ${"가".repeat(3000)}`, "", `${fence}iadd`, `severity: ${"s".repeat(3000)}`, "location: `feature.txt:1`", fence, ""].join("\n"));
     git(a.worktree, "add", record);
     git(a.worktree, "commit", "--quiet", "-m", "chore: record review round 2");
     const answer = await c.asked({ type: "readBackRecords", requestId: 1, workItemId: a.id });
-    expect(answer).toMatchObject({ type: "backRecords", records: { lapsedBy: { commit: broke, subject: "fix: change the greeting" } } });
+    expect(answer).toMatchObject({ type: "backRecords", records: { lapsedBy: { commit: lapsedBy, subject: "fix: change the greeting" } } });
     const found = answer.type === "backRecords" ? answer.records.rounds[1]?.findings[0] : undefined;
     expect([found?.says, found?.severity.length]).toEqual(["가".repeat(2000), 2000]);
   });

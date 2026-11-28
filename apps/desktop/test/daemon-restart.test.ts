@@ -393,7 +393,7 @@ describe("the inspection after a restart of the daemon", { timeout: 60_000 }, ()
     for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
   });
 
-  it("sends, from a second daemon started on the same run folder, the inspection of a cleared work item and of a broken one as the first daemon read them: the same states, the same commits and the same sentence, and no file of the run folder names either state", async () => {
+  it("sends, from a second daemon started on the same run folder, the inspection of a cleared work item and of a lapsed one as the first daemon read them: the same states, the same commits and the same sentence, and no file of the run folder names either state", async () => {
     // The titles name neither state, since a work item's title, branch and folder stand in the run folder.
     const stood = await standing(cleanups, ["First work", "Second work"], { commitPollMs: 50, roleAdapter: roles({ proofer: clean }) });
     const [a, b] = stood.workItems as [(typeof stood.workItems)[number], (typeof stood.workItems)[number]];
@@ -406,7 +406,7 @@ describe("the inspection after a restart of the daemon", { timeout: 60_000 }, ()
     });
     expect(rests.says).toBe("Pull request #1 is open.");
     const clearedAt = git(a.worktree, "rev-parse", "HEAD~2").trim();
-    const brokenAt = commitInspection(b.worktree, { workItem: "1795396352-second-work", branch: branchOf(b), base: b.baseCommit });
+    const lapsedClearedAt = commitInspection(b.worktree, { workItem: "1795396352-second-work", branch: branchOf(b), base: b.baseCommit });
     writeFileSync(join(b.worktree, "feature.txt"), "A greeting, changed after the inspection\n");
     git(b.worktree, "commit", "--quiet", "-am", "fix: change the greeting");
     const inspections = (c: typeof stood.c) => () => {
@@ -416,7 +416,7 @@ describe("the inspection after a restart of the daemon", { timeout: 60_000 }, ()
     const before = await stood.c.until(inspections(stood.c));
     expect(before).toEqual([
       { state: "cleared", commit: clearedAt, why: null },
-      { state: "lapsed", commit: brokenAt, why: `\`feature.txt\` changed after the cleared commit \`${brokenAt.slice(0, 7)}\`.` },
+      { state: "lapsed", commit: lapsedClearedAt, why: `\`feature.txt\` changed after the cleared commit \`${lapsedClearedAt.slice(0, 7)}\`.` },
     ]);
     await stood.d.close();
     // The daemon stores neither state: what the second daemon sends, it read again from the repository.

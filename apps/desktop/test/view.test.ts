@@ -1486,7 +1486,7 @@ describe("the approval line", () => {
   const CLEARED: Recorded = { framed: true, rounds: 3, gate: GATE, verdict: { is: "cleared", commit: TARGET, says: null } };
   /** The inspection of that verdict, which holds at the branch's head, and the same inspection once a later commit lapsed it. */
   const HOLDS: Inspection = { state: "cleared", commit: TARGET, why: null };
-  const BROKE: Inspection = { state: "lapsed", commit: TARGET, why: "`src/app.ts` changed after the cleared commit `2222222`." };
+  const LAPSED: Inspection = { state: "lapsed", commit: TARGET, why: "`src/app.ts` changed after the cleared commit `2222222`." };
   const RECORDED: WorkItem = { ...LOGIN, newCommits: 1, recorded: CLEARED, inspection: HOLDS };
   const EMPTY: WorkItem = { ...LOGIN, newCommits: 0, recorded: NOTHING };
   const NONE_STARTED = [
@@ -1550,7 +1550,7 @@ describe("the approval line", () => {
   it("marks the inspector's place finished with the cleared commit where the inspection holds at the branch's head, waiting with the note Inspection lapsed and the inspection's sentence under the line where a later commit lapsed it, and reads a verdict that clears in the worktree while the head holds no inspection as no verdict", () => {
     expect(read(RECORDED)?.[3]).toEqual(["inspector", "finished", "Cleared", "Inspector: Cleared at 2222222"]);
     expect(under(RECORDED)).toEqual([]);
-    const lapsed: WorkItem = { ...RECORDED, inspection: BROKE };
+    const lapsed: WorkItem = { ...RECORDED, inspection: LAPSED };
     expect(read(lapsed)?.[3]).toEqual(["inspector", "waiting", "Inspection lapsed", "Inspector: Inspection lapsed, cleared at 2222222"]);
     expect(under(lapsed)).toEqual(["Inspector: `src/app.ts` changed after the cleared commit `2222222`."]);
     expect(read(lapsed)?.slice(0, 3)).toEqual(read(RECORDED)?.slice(0, 3));
@@ -1940,48 +1940,48 @@ describe("a work item's chain", () => {
 describe("the inspection a work item's head holds", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
   const HOLDS: Inspection = { state: "cleared", commit: COMMIT, why: null };
-  const BROKE: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   const CLEARED: WorkItem = { ...LOGIN, inspection: HOLDS };
-  const BROKEN: WorkItem = { ...LOGIN, inspection: BROKE };
+  const LAPSED_ITEM: WorkItem = { ...LOGIN, inspection: LAPSED };
 
   it("gives the inspection's place its state and its words: none and No inspection yet where the head holds no inspection, where the daemon read none and for a daemon of an earlier build, the cleared commit in short where the inspection holds, and the same commit after Inspection lapsed where a later commit lapsed it", () => {
     expect(inspectionShown(null)).toEqual({ state: "none", words: "No inspection yet", why: "" });
     expect(inspectionShown(undefined)).toEqual({ state: "none", words: "No inspection yet", why: "" });
     expect(inspectionShown(HOLDS)).toEqual({ state: "cleared", words: "Cleared at 3f2a9c1", why: "" });
-    expect(inspectionShown(BROKE)).toEqual({ state: "lapsed", words: "Inspection lapsed, cleared at 3f2a9c1", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." });
+    expect(inspectionShown(LAPSED)).toEqual({ state: "lapsed", words: "Inspection lapsed, cleared at 3f2a9c1", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." });
     // A commit the repository does not hold is shown as the block writes it, cut to seven characters as any other.
-    expect(inspectionShown({ ...BROKE, commit: "abc" }).words).toBe("Inspection lapsed, cleared at abc");
+    expect(inspectionShown({ ...LAPSED, commit: "abc" }).words).toBe("Inspection lapsed, cleared at abc");
     // The sentence under the head of the view's foot is a lapsed inspection's alone, and a lapsed inspection the daemon sent no sentence for says none.
     expect(inspectionShown({ ...HOLDS, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." }).why).toBe("");
-    expect(inspectionShown({ ...BROKE, why: null }).why).toBe("");
+    expect(inspectionShown({ ...LAPSED, why: null }).why).toBe("");
   });
 
   it("makes the line of a work item whose inspection is lapsed wait, saying Inspection lapsed in its second row with no age, where nothing says more, and leaves the line to a park, a running or stopped chain and a pane that works or waits", () => {
-    expect(inboxLine(BROKEN, [], KINDS).state).toBe("waiting");
-    expect(lineText(BROKEN, undefined, false)).toEqual({ says: "inspection", text: "Inspection lapsed" });
+    expect(inboxLine(LAPSED_ITEM, [], KINDS).state).toBe("waiting");
+    expect(lineText(LAPSED_ITEM, undefined, false)).toEqual({ says: "inspection", text: "Inspection lapsed" });
     // A finished pane and a chain that rests say no more than the inspection, and the daemon stores no time the inspection lapsed at, so the line says no age.
     const finished = session(2, { state: "finished", stateSince: 40, stateText: "The form is done." });
-    const rests = { ...BROKEN, chain: { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] } satisfies Chain };
+    const rests = { ...LAPSED_ITEM, chain: { state: "rested", says: "Pull request #12 is open.", since: 5, stages: [] } satisfies Chain };
     expect(inboxLine(rests, [finished], KINDS).state).toBe("waiting");
     expect(lineText(rests, finished, false)).toEqual({ says: "inspection", text: "Inspection lapsed" });
     expect(lineSince(rests, finished)).toBeNull();
-    expect(lineSince(BROKEN, undefined)).toBeNull();
-    const entries = workItemEntries([BROKEN, SEARCH], [], KINDS);
+    expect(lineSince(LAPSED_ITEM, undefined)).toBeNull();
+    const entries = workItemEntries([LAPSED_ITEM, SEARCH], [], KINDS);
     expect(inboxGroups(entries).map((group) => [group.heading, group.entries.map((entry) => entry.workItem.id)])).toEqual([["Needs you", [1]], ["Asleep", [2]]]);
     // What says more than the inspection keeps the line.
     const working = session(2, { state: "working", stateSince: 50, stateText: "Running the tests" });
     const waiting = session(2, { state: "waiting", stateSince: 60, stateText: "May I run the tests?" });
-    expect([inboxLine(BROKEN, [working], KINDS).state, lineText(BROKEN, working, false), lineSince(BROKEN, working)]).toEqual(["working", { says: "state", text: "Running the tests" }, 50]);
-    expect([inboxLine(BROKEN, [waiting], KINDS).state, lineText(BROKEN, waiting, false), lineSince(BROKEN, waiting)]).toEqual(["waiting", { says: "state", text: "May I run the tests?" }, 60]);
+    expect([inboxLine(LAPSED_ITEM, [working], KINDS).state, lineText(LAPSED_ITEM, working, false), lineSince(LAPSED_ITEM, working)]).toEqual(["working", { says: "state", text: "Running the tests" }, 50]);
+    expect([inboxLine(LAPSED_ITEM, [waiting], KINDS).state, lineText(LAPSED_ITEM, waiting, false), lineSince(LAPSED_ITEM, waiting)]).toEqual(["waiting", { says: "state", text: "May I run the tests?" }, 60]);
     const stage: ChainStage = { kind: "round", round: 2, state: "working", failure: null, startedAt: 70, endedAt: null, headlessId: 3, refusals: 0, gate: null };
-    const running = { ...BROKEN, chain: { state: "running", says: "Review round 2 is running.", since: 70, stages: [stage] } satisfies Chain };
+    const running = { ...LAPSED_ITEM, chain: { state: "running", says: "Review round 2 is running.", since: 70, stages: [stage] } satisfies Chain };
     expect([inboxLine(running, [], KINDS).state, lineText(running, undefined, false), lineSince(running, undefined)]).toEqual(["working", { says: "stage", text: "Proofer, round 2" }, 70]);
-    const stopped = { ...BROKEN, chain: { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
+    const stopped = { ...LAPSED_ITEM, chain: { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [{ ...stage, state: "failed" }] } satisfies Chain };
     expect([inboxLine(stopped, [], KINDS).state, lineText(stopped, undefined, false), lineSince(stopped, undefined)]).toEqual(["waiting", { says: "chain", text: "Review round 2 failed: the session ended." }, 80]);
     const asked: Question = { id: 1, asks: "Which base?", grounds: "None names it.", by: "inspector", options: [], default: null, answer: null, since: 90 };
-    expect([inboxLine({ ...BROKEN, questions: [asked] }, [], KINDS).state, lineText({ ...BROKEN, questions: [asked] }, undefined, false).says, lineSince({ ...BROKEN, questions: [asked] }, undefined)]).toEqual(["waiting", "question", 90]);
+    expect([inboxLine({ ...LAPSED_ITEM, questions: [asked] }, [], KINDS).state, lineText({ ...LAPSED_ITEM, questions: [asked] }, undefined, false).says, lineSince({ ...LAPSED_ITEM, questions: [asked] }, undefined)]).toEqual(["waiting", "question", 90]);
     // A search shows the branch, as it does on every line.
-    expect(lineText(BROKEN, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
+    expect(lineText(LAPSED_ITEM, undefined, true)).toEqual({ says: "branch", text: LOGIN.branch });
   });
 
   it("finishes the line of a work item whose inspection holds and that holds no pull request, saying Cleared in its second row with no age, where nothing says more, and says nothing of an inspection the daemon read none of", () => {
@@ -1998,27 +1998,27 @@ describe("the inspection a work item's head holds", () => {
 
   it("notifies of an inspection that lapsed since the window's lists were held, cleared then and lapsed now, titled with the work item's title and saying Inspection lapsed, and of none that was lapsed already, had no inspection, is muted or whose view is in front", () => {
     const told = { workItemId: 1, title: "Fix the login bug", body: "Inspection lapsed" };
-    expect(lapseNotifications([CLEARED, SEARCH], [BROKEN, SEARCH], undefined)).toEqual([told]);
-    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Inspection lapsed" }]);
-    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [BROKEN, { ...SEARCH, inspection: BROKE }], 2)).toEqual([told]);
-    // Broken in both lists, and lapsed where the window held no inspection, as at its start.
-    expect(lapseNotifications([BROKEN], [BROKEN], undefined)).toEqual([]);
-    expect(lapseNotifications([{ ...LOGIN, inspection: null }], [BROKEN], undefined)).toEqual([]);
-    expect(lapseNotifications([LOGIN], [BROKEN], undefined)).toEqual([]);
-    expect(lapseNotifications([], [BROKEN], undefined)).toEqual([]);
-    expect(lapseNotifications([CLEARED], [{ ...BROKEN, muted: true }], undefined)).toEqual([]);
-    expect(lapseNotifications([CLEARED], [BROKEN], 1)).toEqual([]);
+    expect(lapseNotifications([CLEARED, SEARCH], [LAPSED_ITEM, SEARCH], undefined)).toEqual([told]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [LAPSED_ITEM, { ...SEARCH, inspection: LAPSED }], undefined)).toEqual([told, { workItemId: 2, title: "Speed up search", body: "Inspection lapsed" }]);
+    expect(lapseNotifications([CLEARED, { ...SEARCH, inspection: HOLDS }], [LAPSED_ITEM, { ...SEARCH, inspection: LAPSED }], 2)).toEqual([told]);
+    // Lapsed in both lists, and lapsed where the window held no inspection, as at its start.
+    expect(lapseNotifications([LAPSED_ITEM], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([{ ...LOGIN, inspection: null }], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([LOGIN], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([], [LAPSED_ITEM], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [{ ...LAPSED_ITEM, muted: true }], undefined)).toEqual([]);
+    expect(lapseNotifications([CLEARED], [LAPSED_ITEM], 1)).toEqual([]);
     // An inspection that still holds, or that the head no longer holds at all, tells nothing.
     expect(lapseNotifications([CLEARED], [CLEARED], undefined)).toEqual([]);
     expect(lapseNotifications([CLEARED], [{ ...LOGIN, inspection: null }], undefined)).toEqual([]);
-    expect(lapseNotifications([BROKEN], [CLEARED], undefined)).toEqual([]);
+    expect(lapseNotifications([LAPSED_ITEM], [CLEARED], undefined)).toEqual([]);
   });
 });
 
 describe("the inspection sheet in a work item's view", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
   const HOLDS: Inspection = { state: "cleared", commit: COMMIT, why: null };
-  const BROKE: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   const ROUNDS: Recorded = { framed: false, rounds: 1, gate: null, verdict: null };
   const RESTS: Chain = { state: "rested", says: "The chain rests.", since: 5, stages: [] };
   const RECORDS: BackRecords = { head: COMMIT, record: null, lapsedBy: null, rounds: [], refusals: [], unreadRefusals: 0 };
@@ -2026,7 +2026,7 @@ describe("the inspection sheet in a work item's view", () => {
 
   it("gives the strip the back's tab where the work item's inspection is an inspection, cleared or lapsed, where its records count a round, or where the daemon sent its chain, and none where its inspection is null or was not sent and nothing else holds", () => {
     expect(hasBack({ ...LOGIN, inspection: HOLDS })).toBe(true);
-    expect(hasBack({ ...LOGIN, inspection: BROKE })).toBe(true);
+    expect(hasBack({ ...LOGIN, inspection: LAPSED })).toBe(true);
     expect(hasBack({ ...LOGIN, recorded: ROUNDS })).toBe(true);
     expect(hasBack({ ...LOGIN, chain: RESTS })).toBe(true);
     // A null inspection and one the daemon sent none of are read alike, and records that count no round hold no back.
@@ -2037,7 +2037,7 @@ describe("the inspection sheet in a work item's view", () => {
 
   it("opens a view entered with no pane to the back where the work item's inspection is an inspection, cleared or lapsed, and to a pane where one is given or where no inspection is held", () => {
     expect(opensToBack({ ...LOGIN, inspection: HOLDS }, undefined)).toBe(true);
-    expect(opensToBack({ ...LOGIN, inspection: BROKE }, undefined)).toBe(true);
+    expect(opensToBack({ ...LOGIN, inspection: LAPSED }, undefined)).toBe(true);
     // A pane given, as from a session's notification, is the one in front.
     expect(opensToBack({ ...LOGIN, inspection: HOLDS }, 3)).toBe(false);
     // Rounds and a chain give the strip the back's tab, and the view still opens to a pane.
@@ -2050,7 +2050,7 @@ describe("the inspection sheet in a work item's view", () => {
     const asked = backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS });
     expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, title: "Fix the login", newCommits: 4 })).toBe(asked);
     expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: null })).not.toBe(asked);
-    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: HOLDS })).not.toBe(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: BROKE }));
+    expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: HOLDS })).not.toBe(backKey({ ...LOGIN, recorded: ROUNDS, chain: RESTS, inspection: LAPSED }));
     expect(backKey({ ...LOGIN, recorded: { ...ROUNDS, rounds: 2 }, chain: RESTS })).not.toBe(asked);
     expect(backKey({ ...LOGIN, recorded: ROUNDS, chain: { ...RESTS, state: "running" } })).not.toBe(asked);
   });
@@ -2259,7 +2259,7 @@ describe("changesSince", () => {
     const OTHER = "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d";
     const WHY = "`src/app.ts` changed after the cleared commit `3f2a9c1`.";
     const clearedAt = (commit: string): Inspection => ({ state: "cleared", commit, why: null });
-    const brokenAt = (commit: string): Inspection => ({ state: "lapsed", commit, why: WHY });
+    const lapsedAt = (commit: string): Inspection => ({ state: "lapsed", commit, why: WHY });
     const TWO_ROUNDS: Recorded = { framed: true, rounds: 2, gate: COMMIT, verdict: { is: "cleared", commit: COMMIT, says: null } };
     const MERGED: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "merged", head: COMMIT, pushed: COMMIT, checks: "passed", list: [], listCount: 0, readAt: 10, failure: null };
 
@@ -2276,28 +2276,28 @@ describe("changesSince", () => {
 
     it("gives a work item whose inspection lapsed since the look as the one change, its sentence opening with Inspection lapsed and then the inspection's own sentence as the daemon sent it, and with Inspection lapsed alone where it sent none", () => {
       const before = look([{ ...LOGIN, inspection: clearedAt(COMMIT) }]);
-      const changes = changesSince(before, [{ ...LOGIN, inspection: brokenAt(COMMIT) }], [], KINDS);
+      const changes = changesSince(before, [{ ...LOGIN, inspection: lapsedAt(COMMIT) }], [], KINDS);
       expect(changes.map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "lapsed", "Inspection lapsed. `src/app.ts` changed after the cleared commit `3f2a9c1`."]]);
-      expect(changesSince(before, [{ ...LOGIN, inspection: { ...brokenAt(COMMIT), why: null } }], [], KINDS)[0]?.sentence).toBe("Inspection lapsed.");
+      expect(changesSince(before, [{ ...LOGIN, inspection: { ...lapsedAt(COMMIT), why: null } }], [], KINDS)[0]?.sentence).toBe("Inspection lapsed.");
     });
 
     it("answers each pair of the look's inspection and the present one by the table: given where the present inspection holds and the look did not hold it at that commit, lapsed where it is lapsed and the look did not hold it lapsed at that commit, and nothing of the inspection otherwise, a work item the look does not hold counting its inspection as since the look, and a lapsed inspection under a merged pull request saying nothing", () => {
       const rows: [Inspection | null, Inspection | null, InspectionSince | null][] = [
         [null, clearedAt(COMMIT), "cleared"],
-        [null, brokenAt(COMMIT), "lapsed"],
+        [null, lapsedAt(COMMIT), "lapsed"],
         [null, null, null],
         [clearedAt(COMMIT), clearedAt(COMMIT), null],
-        [clearedAt(COMMIT), brokenAt(COMMIT), "lapsed"],
+        [clearedAt(COMMIT), lapsedAt(COMMIT), "lapsed"],
         [clearedAt(COMMIT), null, null],
         [clearedAt(OTHER), clearedAt(COMMIT), "cleared"],
-        [clearedAt(OTHER), brokenAt(COMMIT), "lapsed"],
+        [clearedAt(OTHER), lapsedAt(COMMIT), "lapsed"],
         [clearedAt(OTHER), null, null],
-        [brokenAt(COMMIT), clearedAt(COMMIT), "cleared"],
-        [brokenAt(COMMIT), brokenAt(COMMIT), null],
-        [brokenAt(COMMIT), null, null],
-        [brokenAt(OTHER), clearedAt(COMMIT), "cleared"],
-        [brokenAt(OTHER), brokenAt(COMMIT), "lapsed"],
-        [brokenAt(OTHER), null, null],
+        [lapsedAt(COMMIT), clearedAt(COMMIT), "cleared"],
+        [lapsedAt(COMMIT), lapsedAt(COMMIT), null],
+        [lapsedAt(COMMIT), null, null],
+        [lapsedAt(OTHER), clearedAt(COMMIT), "cleared"],
+        [lapsedAt(OTHER), lapsedAt(COMMIT), "lapsed"],
+        [lapsedAt(OTHER), null, null],
       ];
       for (const [then, now, answer] of rows) {
         const row = `${then ? `${then.state} at ${then.commit.slice(0, 1)}` : "null"} to ${now ? `${now.state} at ${now.commit.slice(0, 1)}` : "null"}`;
@@ -2306,13 +2306,13 @@ describe("changesSince", () => {
       }
       // A work item the look does not hold.
       expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: clearedAt(COMMIT) })).toBe("cleared");
-      expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: brokenAt(COMMIT) })).toBe("lapsed");
+      expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: lapsedAt(COMMIT) })).toBe("lapsed");
       expect(inspectionSinceLook(undefined, { ...LOGIN, inspection: null })).toBeNull();
       const fresh = changesSince(look([]), [{ ...LOGIN, inspection: clearedAt(COMMIT), recorded: TWO_ROUNDS }], [], KINDS);
       expect(fresh.map((change) => [change.inspectionSince, change.sentence])).toEqual([["cleared", "Cleared at 3f2a9c1 after 2 review rounds. New since you were last here."]]);
       // A merged pull request says more than a lapsed inspection on the line, and so in the summary.
-      expect(inspectionSinceLook({ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED }, { ...LOGIN, inspection: brokenAt(COMMIT), pullRequest: MERGED })).toBeNull();
-      const merged = changesSince(look([{ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED, newCommits: 0 }]), [{ ...LOGIN, inspection: brokenAt(COMMIT), pullRequest: MERGED, newCommits: 1 }], [], KINDS);
+      expect(inspectionSinceLook({ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED }, { ...LOGIN, inspection: lapsedAt(COMMIT), pullRequest: MERGED })).toBeNull();
+      const merged = changesSince(look([{ ...LOGIN, inspection: clearedAt(COMMIT), pullRequest: MERGED, newCommits: 0 }]), [{ ...LOGIN, inspection: lapsedAt(COMMIT), pullRequest: MERGED, newCommits: 1 }], [], KINDS);
       expect(merged.map((change) => [change.inspectionSince, change.sentence])).toEqual([[null, "Finished. 1 new commit since you were last here."]]);
     });
 
@@ -2333,8 +2333,8 @@ describe("changesSince", () => {
 
     it("puts the work items whose inspection was given first and the ones whose inspection lapsed next, each in the daemon's order, then the others in the order of the inbox's groups, and counts each once, the inspections first", () => {
       const ids = (id: number, title: string, inspection: Inspection | null): WorkItem => ({ ...LOGIN, id, title, inspection });
-      const before = look([ids(1, "Waits", null), ids(2, "Works", null), ids(3, "Broke", clearedAt(COMMIT)), ids(4, "Given", null), ids(5, "Given first", null)]);
-      const now = [ids(1, "Waits", null), ids(2, "Works", null), ids(5, "Given first", clearedAt(COMMIT)), ids(3, "Broke", brokenAt(COMMIT)), ids(4, "Given", clearedAt(OTHER))];
+      const before = look([ids(1, "Waits", null), ids(2, "Works", null), ids(3, "Lapses", clearedAt(COMMIT)), ids(4, "Given", null), ids(5, "Given first", null)]);
+      const now = [ids(1, "Waits", null), ids(2, "Works", null), ids(5, "Given first", clearedAt(COMMIT)), ids(3, "Lapses", lapsedAt(COMMIT)), ids(4, "Given", clearedAt(OTHER))];
       const changes = changesSince(before, now, [session(6, { workItemId: 1, state: "waiting" }), session(7, { workItemId: 2, state: "working" })], KINDS);
       expect(changes.map((change) => [change.workItem.id, change.inspectionSince])).toEqual([
         [5, "cleared"],
@@ -2408,7 +2408,7 @@ describe("changesSince", () => {
 describe("the changed set of a load", () => {
   const COMMIT = "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c";
   const CLEARED: Inspection = { state: "cleared", commit: COMMIT, why: null };
-  const BROKEN: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+  const LAPSED: Inspection = { state: "lapsed", commit: COMMIT, why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   function look(workItems: WorkItem[], sessions: SessionInfo[] = []): Look {
     return { at: 1000, sessions, workItems };
   }
@@ -2417,7 +2417,7 @@ describe("the changed set of a load", () => {
     const before = look([{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
     const set = changedSet(before, [{ ...LOGIN, inspection: CLEARED }, { ...SEARCH, inspection: null }], [session(4, { workItemId: 2, state: "working" })], KINDS);
     expect(set.ids).toEqual([1, 2]);
-    const later = [{ ...LOGIN, inspection: BROKEN }, { ...SEARCH, inspection: null }];
+    const later = [{ ...LOGIN, inspection: LAPSED }, { ...SEARCH, inspection: null }];
     const changes = changesOf(before, set.ids, later, [], KINDS);
     expect(changes.map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([
       [1, "lapsed", "Inspection lapsed. `src/app.ts` changed after the cleared commit `3f2a9c1`."],
@@ -2441,7 +2441,7 @@ describe("the changed set of a load", () => {
     const joined = changedSetAfter(before, set, cleared);
     expect(joined).toEqual({ ids: [1], unread: [] });
     expect(changesOf(before, joined.ids, cleared, [], KINDS).map((change) => [change.workItem.id, change.inspectionSince, change.sentence])).toEqual([[1, "cleared", "Cleared at 3f2a9c1."]]);
-    expect(changedSetAfter(before, set, [{ ...LOGIN, inspection: BROKEN }, { ...SEARCH, inspection: null }])).toEqual({ ids: [1], unread: [] });
+    expect(changedSetAfter(before, set, [{ ...LOGIN, inspection: LAPSED }, { ...SEARCH, inspection: null }])).toEqual({ ids: [1], unread: [] });
     // Read with no inspection, it joins nothing, then or at an inspection given later.
     const read = changedSetAfter(before, set, [{ ...LOGIN, inspection: null }, { ...SEARCH, inspection: null }]);
     expect(read).toEqual({ ids: [], unread: [] });
@@ -3914,25 +3914,25 @@ describe("summaryControls", () => {
     return { workItem: { ...LOGIN, id, ...fields }, line: { title: "Fix the login bug", branch: "owlery/fix-the-login-bug", state, commits: "" }, session: pane };
   }
   const ASKED: Question = { id: 1, asks: "Which base does the branch start from?", grounds: "No document names it.", by: "inspector", options: [], default: null, answer: null, since: 3000 };
-  const BROKE: Inspection = { state: "lapsed", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
+  const LAPSED: Inspection = { state: "lapsed", commit: "3f2a9c1d0e5b6a7c8d9e0f1a2b3c4d5e6f7a8b9c", why: "`src/app.ts` changed after the cleared commit `3f2a9c1`." };
   const STOPPED: Chain = { state: "stopped", says: "Review round 2 failed: the session ended.", since: 80, stages: [] };
 
   it("makes answering the first work item that waits on a question or a pane that waits the main control, with the inbox beside it and a hint that names the question, past a line before it that waits for another reason", () => {
     const answer = (opens: number) => ({ main: { label: "Answer the first question", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first question." });
     expect(summaryControls([change(4, "finished"), change(7, "waiting", { questions: [ASKED] }), change(9, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
-    expect(summaryControls([change(3, "waiting", { inspection: BROKE }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
+    expect(summaryControls([change(3, "waiting", { inspection: LAPSED }), change(7, "waiting", { questions: [ASKED] })])).toEqual(answer(7));
     expect(summaryControls([change(3, "waiting", { chain: STOPPED }), change(8, "waiting", { questions: [ASKED] })])).toEqual(answer(8));
-    expect(summaryControls([change(3, "waiting", { inspection: BROKE }), change(9, "waiting", {}, session(5, { workItemId: 9, state: "waiting" }))])).toEqual(answer(9));
+    expect(summaryControls([change(3, "waiting", { inspection: LAPSED }), change(9, "waiting", {}, session(5, { workItemId: 9, state: "waiting" }))])).toEqual(answer(9));
   });
 
   it("opens the first work item that waits for another reason, a lapsed inspection, a stopped chain or a failed check, saying so, where none waits on a question, a call or a pane, with the inbox beside it", () => {
     const first = (opens: number) => ({ main: { label: "Open the first that needs you", opens }, second: { label: "Open the inbox", opens: "inbox" }, hint: "Enter opens the first that needs you." });
-    expect(summaryControls([change(4, "finished"), change(3, "waiting", { inspection: BROKE }), change(5, "waiting", { chain: STOPPED })])).toEqual(first(3));
+    expect(summaryControls([change(4, "finished"), change(3, "waiting", { inspection: LAPSED }), change(5, "waiting", { chain: STOPPED })])).toEqual(first(3));
     expect(summaryControls([change(5, "waiting", { chain: STOPPED })])).toEqual(first(5));
     const failed: PullRequest = { number: 12, url: "https://github.com/o/r/pull/12", state: "open", head: "3f2a9c1", pushed: "3f2a9c1", checks: "failed", list: [{ name: "inspection", state: "failed", link: null }], listCount: 1, readAt: 10, failure: null };
     expect(summaryControls([change(4, "working"), change(2, "waiting", { pullRequest: failed })])).toEqual(first(2));
     // A pane that finished is no pane that waits.
-    expect(summaryControls([change(6, "waiting", { inspection: BROKE }, session(5, { workItemId: 6, state: "finished" }))])).toEqual(first(6));
+    expect(summaryControls([change(6, "waiting", { inspection: LAPSED }, session(5, { workItemId: 6, state: "finished" }))])).toEqual(first(6));
   });
 
   it("makes the inbox the main control and the only one where no changed work item waits, or none changed", () => {

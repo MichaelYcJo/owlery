@@ -29,13 +29,13 @@ import { branchOf, commitFile, git, temporaryRepository } from "./repositories";
 
 /** The work items of the case, and the folder of each one's records. */
 const CLEARED = { title: "Export the history", records: "1795400731-export-the-history" };
-const BROKEN = { title: "Cache the avatars", records: "1795400732-cache-the-avatars" };
+const LAPSED = { title: "Cache the avatars", records: "1795400732-cache-the-avatars" };
 const PLAIN = { title: "Rename the settings" };
 /** A work item made while the cleared one's back is in front, so the daemon sends a list. */
 const LATER = { title: "Tidy the changelog" };
-/** The symptom of the cleared work item's finding, and the subject of the commit that breaks its inspection, each with a word in backticks. */
+/** The symptom of the cleared work item's finding, and the subject of the commit that lapses its inspection, each with a word in backticks. */
 const SYMPTOM = "The greeting in `feature.txt` misses its full stop";
-const BREAKING = "feat: add `later`";
+const LAPSING = "feat: add `later`";
 
 describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
   let app: BuiltApp;
@@ -93,7 +93,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     const { port, token } = JSON.parse(readFileSync(join(app.userData, "run", "daemon.json"), "utf8")) as { port: number; token: string };
     const opened = new WebSocket(`ws://127.0.0.1:${port}`);
     socket = opened;
-    const titles = [CLEARED.title, BROKEN.title, PLAIN.title];
+    const titles = [CLEARED.title, LAPSED.title, PLAIN.title];
     const create = (requestId: number): void => opened.send(JSON.stringify({ type: "createWorkItem", requestId, repo: made.repo, title: titles[requestId - 1], kind: "shell", cols: 80, rows: 24 }));
     [cleared, lapsed, plain] = (await new Promise<WorkItem[]>((resolve) => {
       const created: WorkItem[] = [];
@@ -130,7 +130,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     const at = Date.now();
     const stages = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
     appendFileSync(join(app.userData, "run", "ledger.jsonl"), stages.map(([kind, round], place) => `${JSON.stringify(chainEntry(cleared, kind, round, at + place * 5 * 60_000))}\n`).join(""), { mode: 0o600 });
-    commitInspection(lapsed.worktree, { workItem: BROKEN.records, branch: branchOf(lapsed), base });
+    commitInspection(lapsed.worktree, { workItem: LAPSED.records, branch: branchOf(lapsed), base });
     lapsedBy = commitFile(lapsed.worktree, "avatars.ts");
 
     // Each message the page sends from here on is counted by its type.
@@ -143,7 +143,7 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     made?.remove();
   }, 30_000);
 
-  it("opens a cleared work item to its back, with the inspection's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, draws the code of a finding's symptom and of a breaking commit's subject in the fixed-width face, draws it again for no list that leaves its inspection, records and chain as they were, lets the back's answers go while a pane is in front and asks again when the back comes back, asks again when a commit lapses the inspection while the back is in front, names the commit that lapsed a lapsed inspection, and gives no back to a work item with no inspection, no round and no chain", async () => {
+  it("opens a cleared work item to its back, with the inspection's record, a finding at its file and line with the commit that fixed it and each stage's converted cost, draws the code of a finding's symptom and of the subject of a commit that lapsed an inspection in the fixed-width face, draws it again for no list that leaves its inspection, records and chain as they were, lets the back's answers go while a pane is in front and asks again when the back comes back, asks again when a commit lapses the inspection while the back is in front, names the commit that lapsed a lapsed inspection, and gives no back to a work item with no inspection, no round and no chain", async () => {
     // Each view is opened once its line shows the inspection the daemon read at the branch's head. The sidebar's lines draw no inspection, and the inbox's do.
     await app.click("#nav-inbox");
     await app.until(`document.querySelector('#inbox-lines button[data-work-item="${cleared.id}"] .mark[data-inspection="cleared"]') && document.querySelector('#inbox-lines button[data-work-item="${lapsed.id}"] .mark[data-inspection="lapsed"]')`, "the cleared and the lapsed inspection on their lines", 30_000);
@@ -189,10 +189,10 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     await app.click("#tabs .tab.back .label");
     await app.until(`document.querySelector("#back .round")`, "the back drawn again");
     expect(await sent()).toEqual({ readBackRecords: 2, readLedger: 2 });
-    // A commit after the inspection breaks it while the back is in front: the inspection the next list carries differs from the one the window asked at, so the back is asked for again and drawn as lapsed, the commit's subject with its code in the fixed-width face.
+    // A commit after the inspection lapses it while the back is in front: the inspection the next list carries differs from the one the window asked at, so the back is asked for again and drawn as lapsed, the commit's subject with its code in the fixed-width face.
     writeFileSync(join(cleared.worktree, "later.ts"), "later.ts\n");
     git(cleared.worktree, "add", "later.ts");
-    git(cleared.worktree, "commit", "--quiet", "-m", BREAKING);
+    git(cleared.worktree, "commit", "--quiet", "-m", LAPSING);
     const later = git(cleared.worktree, "rev-parse", "HEAD").trim();
     await app.until(`document.querySelector("#back .lapsed-by")`, "the cleared work item's back drawn again as lapsed", 30_000);
     expect(await sent()).toEqual({ readBackRecords: 3, readLedger: 3 });
@@ -204,10 +204,10 @@ describe("the inspection sheet in the built app", { timeout: 120_000 }, () => {
     await openView(lapsed);
     await app.until(`document.querySelector("#back .lapsed-by")`, "the back of the lapsed work item drawn");
     expect((await tabs())[0]).toEqual({ label: "Inspection sheet", active: true, closes: false });
-    const brokenBack = await backShown();
-    expect(brokenBack.text).toContain(`Lapsed by ${lapsedBy.slice(0, 7)}`);
-    expect(brokenBack.text).toContain("add avatars.ts");
-    expect(brokenBack.text).toContain("The review rounds caught nothing.");
+    const lapsedBack = await backShown();
+    expect(lapsedBack.text).toContain(`Lapsed by ${lapsedBy.slice(0, 7)}`);
+    expect(lapsedBack.text).toContain("add avatars.ts");
+    expect(lapsedBack.text).toContain("The review rounds caught nothing.");
 
     await openView(plain);
     expect(await tabs()).toEqual([{ label: "Shell", active: true, closes: true }]);

@@ -256,8 +256,8 @@ const FINISHED_RECORDS = "1795396352-add-an-export-of-the-history";
 /** The stages of the finished work item's chain, in the order they ended: four agents' turns and the gate. */
 const FINISHED_STAGES = [["round", 1], ["fix-pass", 1], ["round", 2], ["gate", 2], ["inspection", 2]] as const;
 /** The work item whose inspection a later commit lapsed: the run commits the records of an inspection in its worktree, in the folder of the records this name gives, and one commit after them. Its view is the view "lapsed". */
-const BROKEN = "Cache the user avatars";
-const BROKEN_RECORDS = "1795396354-cache-the-user-avatars";
+const LAPSED = "Cache the user avatars";
+const LAPSED_RECORDS = "1795396354-cache-the-user-avatars";
 /** The file of the commit that lapses the inspection, which the inspection's sentence names. */
 const AFTER_THE_INSPECTION = "avatars.ts";
 /** A work item whose branch holds one commit and no record. The run gives it three more panes, whose tabs it marks with the tabs' colours, and names the blue one `MARKED_NAME`. Its view is the view "tabs". */
@@ -446,14 +446,14 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   /** The folder of the account the run hands over, once the run's temporary folders stand. */
   let handedFolder = "";
   const FINISHED_ID = WORK_ITEMS.findIndex(({ title }) => title === FINISHED) + 1;
-  const BROKEN_ID = WORK_ITEMS.findIndex(({ title }) => title === BROKEN) + 1;
+  const LAPSED_ID = WORK_ITEMS.findIndex(({ title }) => title === LAPSED) + 1;
   const QUEUED_ID = WORK_ITEMS.findIndex(({ title }) => title === QUEUED) + 1;
   /** The id of the question the queued work item is stored parked on, once the run has written it. */
   let queuedQuestion = 0;
   /** The connections of the two commands that ask for their turn on the machine, held until the run ends. */
   const asking: Socket[] = [];
   /** The commit the lapsed work item's inspection names, and the commit after it that lapsed it, once the run has committed them. */
-  let brokenAt = "";
+  let lapsedClearedAt = "";
   let lapsedBy = "";
   /** The summary's lines, in the order it draws them. */
   const SUMMARY_LINES = `[...document.querySelectorAll("#summary-lines button[data-work-item]")]`;
@@ -571,13 +571,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
   const show: Record<View, () => Promise<void>> = {
     summary: async () => {
       await app.click("#nav-summary");
-      await app.until(`!document.getElementById("summary-screen").hidden && document.getElementById("summary-sentence").textContent.startsWith("1 cleared, 1 inspection lapsed") && ${SUMMARY_LINES}.slice(0, 2).map((line) => line.dataset.workItem + " " + line.querySelector(".mark").dataset.inspection).join() === "${FINISHED_ID} cleared,${BROKEN_ID} lapsed"`, `the summary, leading with the inspection given on ${FINISHED} and the inspection lapsed on ${BROKEN}`);
+      await app.until(`!document.getElementById("summary-screen").hidden && document.getElementById("summary-sentence").textContent.startsWith("1 cleared, 1 inspection lapsed") && ${SUMMARY_LINES}.slice(0, 2).map((line) => line.dataset.workItem + " " + line.querySelector(".mark").dataset.inspection).join() === "${FINISHED_ID} cleared,${LAPSED_ID} lapsed"`, `the summary, leading with the inspection given on ${FINISHED} and the inspection lapsed on ${LAPSED}`);
     },
     inbox: async () => {
       // The inbox selects the work item whose view was open last, so the shown one's view opens first and the preview shows its question in each appearance.
       await show.view();
       await app.click("#nav-inbox");
-      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .mark[data-inspection="cleared"]') && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .says')?.textContent === "Inspection lapsed" && document.querySelector('#inbox-lines button[data-work-item="${BROKEN_ID}"] .mark[data-inspection="lapsed"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="1"] .second .decided')?.textContent === ${JSON.stringify(PARKED_MARK)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine" && document.querySelector('#inbox-lines button[data-work-item="${SHOWN_ID}"] .says')?.textContent === ${JSON.stringify(stoppedSays("gate", 1, GATE_FAILURE))}`, `the inbox with its lines, the pull request and the lit inspection on the line of ${FINISHED}, the lapsed inspection on the line of ${BROKEN}, the account and the word not committed on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED}, the failed gate's sentence on the line of ${SHOWN} and the preview of ${SHOWN}`);
+      await app.until(`!document.getElementById("inbox-screen").hidden && document.querySelectorAll("#inbox-lines button[data-work-item]").length === ${WORK_ITEMS.length} && document.querySelector('#inbox-screen [data-part="preview-title"]').textContent === ${JSON.stringify(SHOWN)} && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .says')?.textContent === "Checks passed" && document.querySelector('#inbox-lines button[data-work-item="${FINISHED_ID}"] .mark[data-inspection="cleared"]') && document.querySelector('#inbox-lines button[data-work-item="${LAPSED_ID}"] .says')?.textContent === "Inspection lapsed" && document.querySelector('#inbox-lines button[data-work-item="${LAPSED_ID}"] .mark[data-inspection="lapsed"]') && document.querySelector('#inbox-lines button[data-work-item="1"] .account')?.textContent === ${JSON.stringify(HANDED)} && document.querySelector('#inbox-lines button[data-work-item="1"] .second .decided')?.textContent === ${JSON.stringify(PARKED_MARK)} && document.querySelector('#inbox-lines button[data-work-item="${QUEUED_ID}"] .says')?.textContent === "Waiting for the machine" && document.querySelector('#inbox-lines button[data-work-item="${SHOWN_ID}"] .says')?.textContent === ${JSON.stringify(stoppedSays("gate", 1, GATE_FAILURE))}`, `the inbox with its lines, the pull request and the lit inspection on the line of ${FINISHED}, the lapsed inspection on the line of ${LAPSED}, the account and the word not committed on the line of ${PARKED}, the wait for the machine on the line of ${QUEUED}, the failed gate's sentence on the line of ${SHOWN} and the preview of ${SHOWN}`);
     },
     view: async () => {
       await app.click(SIDEBAR_LINE);
@@ -611,8 +611,8 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
     lapsed: async () => {
-      await app.click(`#repositories button[data-work-item="${BROKEN_ID}"]`);
-      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(BROKEN)} && document.getElementById("view-inspection-head").textContent === ${JSON.stringify(`Inspection lapsed, cleared at ${brokenAt.slice(0, 7)}`)} && document.getElementById("view-inspection-why").textContent === ${JSON.stringify(`\`${AFTER_THE_INSPECTION}\` changed after the cleared commit \`${brokenAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-inspection button").length === 0 && document.querySelector('${place("inspector")} .note')?.textContent === "Inspection lapsed" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .lapsed-by")?.textContent.startsWith(${JSON.stringify(`Lapsed by ${lapsedBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the lapsed work item's view with the inspection sheet in front, naming the commit that lapsed it and saying that its stages ran outside the daemon, and the lapsed inspection and its sentence at its foot, with nothing to press");
+      await app.click(`#repositories button[data-work-item="${LAPSED_ID}"]`);
+      await app.until(`!document.getElementById("work-item-view").hidden && document.getElementById("view-title").textContent === ${JSON.stringify(LAPSED)} && document.getElementById("view-inspection-head").textContent === ${JSON.stringify(`Inspection lapsed, cleared at ${lapsedClearedAt.slice(0, 7)}`)} && document.getElementById("view-inspection-why").textContent === ${JSON.stringify(`\`${AFTER_THE_INSPECTION}\` changed after the cleared commit \`${lapsedClearedAt.slice(0, 7)}\`.`)} && document.querySelectorAll("#view-inspection button").length === 0 && document.querySelector('${place("inspector")} .note')?.textContent === "Inspection lapsed" && document.querySelector("#tabs .tab.back.active") && document.querySelector("#back .lapsed-by")?.textContent.startsWith(${JSON.stringify(`Lapsed by ${lapsedBy.slice(0, 7)}`)}) && [...document.querySelectorAll("#back .sum")].some((sum) => sum.textContent.includes("ran outside Owlery's daemon"))`, "the lapsed work item's view with the inspection sheet in front, naming the commit that lapsed it and saying that its stages ran outside the daemon, and the lapsed inspection and its sentence at its foot, with nothing to press");
       // The approval line stands under what the work item says, so the column is scrolled until the line is the last thing in it, as in the view's shot.
       await app.evaluate(`document.querySelector("#view-detail section.approval").scrollIntoView({ block: "end" })`);
     },
@@ -961,13 +961,13 @@ describe.skipIf(!RUN)("the screenshots of the built app", () => {
     }
 
     // The lapsed work item's inspection: the records of a chain that cleared it, committed with git in its worktree, and one commit after them, which lapses the inspection. The ledger holds no entry of it.
-    const lapsed = (await listed()).workItems.find((workItem) => workItem.title === BROKEN);
-    if (!lapsed?.baseCommit) throw new Error(`the daemon lists no work item ${BROKEN} with its base commit`);
-    brokenAt = commitInspection(lapsed.worktree, { workItem: BROKEN_RECORDS, branch: branchOf(lapsed), base: lapsed.baseCommit });
+    const lapsed = (await listed()).workItems.find((workItem) => workItem.title === LAPSED);
+    if (!lapsed?.baseCommit) throw new Error(`the daemon lists no work item ${LAPSED} with its base commit`);
+    lapsedClearedAt = commitInspection(lapsed.worktree, { workItem: LAPSED_RECORDS, branch: branchOf(lapsed), base: lapsed.baseCommit });
     lapsedBy = commitFile(lapsed.worktree, AFTER_THE_INSPECTION);
     const inspectionOfLapsed = async (): Promise<WorkItem["inspection"]> => (await listed()).workItems.find((workItem) => workItem.id === lapsed.id)?.inspection ?? null;
-    for (let deadline = Date.now() + 20_000, inspection = await inspectionOfLapsed(); inspection?.state !== "lapsed" || inspection.commit !== brokenAt; inspection = await inspectionOfLapsed()) {
-      if (Date.now() >= deadline) throw new Error(`the inspection of ${BROKEN} never read lapsed at ${brokenAt}: ${JSON.stringify(inspection)}`);
+    for (let deadline = Date.now() + 20_000, inspection = await inspectionOfLapsed(); inspection?.state !== "lapsed" || inspection.commit !== lapsedClearedAt; inspection = await inspectionOfLapsed()) {
+      if (Date.now() >= deadline) throw new Error(`the inspection of ${LAPSED} never read lapsed at ${lapsedClearedAt}: ${JSON.stringify(inspection)}`);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
