@@ -607,10 +607,12 @@ export interface Look {
 
 /**
  * The roles a headless session can be launched as, each with the stage it is
- * launched at. The names are neutral: which agent, which rules and which
- * options a pair means is its adapter's (docs/architecture.md, "Rules that
- * keep it portable"). A new stage is one pair here, one row of the grants
- * (`src/daemon/role-grants.ts`) and one row of each adapter's table.
+ * launched at. The names are neutral: the agent, the documents and the
+ * model a pair means are its stage's in the role bundle's workflow
+ * (`src/daemon/workflow.ts`), and the options that launch them are its
+ * adapter's (docs/architecture.md, "Rules that keep it portable"). A new
+ * stage is one pair here, one row of the grants (`src/daemon/role-grants.ts`)
+ * and one stage of the workflow's skeleton and of its files.
  */
 export const ROLE_STAGES = [
   { role: "proofer", stage: "round" },
