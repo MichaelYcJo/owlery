@@ -329,9 +329,9 @@ function tell(context: CommandContext, line: StageLine): Promise<void> {
 /**
  * Prints the step the records owe at the head (`chain.ts#stepOwed`), and for
  * a round, a fix pass and an inspection writes the stage's prompt and its role's
- * rules file into the run folder and prints the stage's agent and model as
- * the bundle's workflow names them (`handed`). Where the step is a fix pass the ceiling of
- * rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
+ * rules file into the run folder, and prints the stage's agent and model as
+ * the bundle's workflow names them (`handed`). Where the step is a fix pass
+ * the ceiling of rounds stops (`ceilingStops`), it prints the step `ceiling` with the round,
  * the ceiling and the open findings, and writes and commits nothing; the
  * same call with `--persons-word` naming that round hands the pass. Once the
  * prompt is written it tells the daemon the stage it hands, with the pane

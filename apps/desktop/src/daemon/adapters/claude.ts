@@ -76,9 +76,9 @@ function firstOf(text: string): string {
  * the role's agent of it, the model its stage names where it names one,
  * the file of rules appended to the system prompt, and the bundle's folder
  * among the folders the session works in, so it reads the bundle's other
- * documents. A role launch also turns Claude Code's
- * own sandbox on in the settings it passes, which on macOS runs each command
- * under `sandbox-exec`: its commands write in `sandbox.allowWrite` and
+ * documents. A role launch also turns Claude Code's own sandbox on in the
+ * settings it passes, which on macOS runs each command under
+ * `sandbox-exec`: its commands write in `sandbox.allowWrite` and
  * where that sandbox lets a command write by default, never in
  * `sandbox.denyWrite`, which wins over both; they read no file of
  * `sandbox.denyRead` but in `sandbox.allowRead`, so not the port and the
